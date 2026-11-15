@@ -22,10 +22,10 @@
 
 **完成判据**：
 
-- [ ] kernel：四种事件模式 + inject 依赖图 + 可逆 effect，单测覆盖（含 waterfall 短路语义）
-- [ ] kernel 语义钉子（D-023，照 cordis 上游补丁暴露的边界）：重入卸载 / setup 内注册 / pending 时新增 inject / waterfall 否决 / unloading 拒绝注册，五条各有测试
-- [ ] protocol：注册表派生清单有测试；新增插件事件类型不需改核心代码
-- [ ] session：P1 不变量"模型可见 ⟺ 已落日志"有测试锁定；原子 flush（tmp+rename）测试；孤儿 tool_call 合成错误结果的派生测试；fork/replay 测试
+- [x] kernel：四种事件模式 + inject 依赖图 + 可逆 effect，单测覆盖（含 waterfall 短路语义）
+- [x] kernel 语义钉子（D-023，照 cordis 上游补丁暴露的边界）：重入卸载 / setup 内注册 / pending 时新增 inject / waterfall 否决 / unloading 拒绝注册，五条各有测试
+- [x] protocol：注册表派生清单有测试；新增插件事件类型不需改核心代码
+- [x] session：P1 不变量"模型可见 ⟺ 已落日志"有测试锁定；原子 flush（tmp+rename）测试；孤儿 tool_call 合成错误结果的派生测试；fork/replay 测试
 
 ## M2 引擎闭环
 

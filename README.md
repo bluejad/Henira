@@ -4,9 +4,9 @@
 >
 > Open-source Agent Harness framework — the kernel provides mechanisms only; everything else is a plugin.
 
-**当前状态：架构设计已定稿（[docs/INDEX.md](./docs/INDEX.md)），工程脚手架阶段（M0），尚无业务代码。**
+**当前状态：架构设计已定稿（[docs/INDEX.md](./docs/INDEX.md)），M1 内核与数据落地——`kernel` / `protocol` / `session` 三包有码有测试，尚无可运行产品。**
 
-**Status: architecture finalized (see [docs/INDEX.md](./docs/INDEX.md)); scaffolding stage (M0) — no product code yet.**
+**Status: architecture finalized (see [docs/INDEX.md](./docs/INDEX.md)); M1 (kernel, protocol, session) implemented with tests — no runnable product yet.**
 
 - 📚 文档总索引 / Docs index：[docs/INDEX.md](./docs/INDEX.md)
 - 🗺️ 里程碑 / Roadmap：[docs/40-roadmap.md](./docs/40-roadmap.md)
