@@ -26,6 +26,12 @@ importers:
 
   packages/kernel: {}
 
+  packages/protocol:
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+
 packages:
 
   '@babel/runtime@7.29.14':
