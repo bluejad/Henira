@@ -103,7 +103,7 @@ interface SessionHeader {
 
 ## 3. 注册表与派生清单（已定）
 
-- 开放注册表：`SessionEventRegistry = Map<type, ZodSchema>`（protocol 导出）；官方 session 插件注册基础 15 个变体，插件可追加；
+- 开放注册表：`SessionEventRegistry = Map<type, EventValidator>`（protocol 导出；校验器 = 最小 duck 接口，D-051——protocol 零依赖、不认 schema 库牌子，官方 15 个变体由 session 包用 zod 实现并注册）；官方 session 插件注册基础 15 个变体，插件可追加；
 - 消费端封闭处用 `assertNever` 收尾；
 - `KNOWN_EVENT_TYPES`、schema 反查表、客户端事件清单**全部从注册表派生**，禁止手抄（P9 红线 5）；
 - 未知类型只有两条路：`ignorable: true` → 跳过；否则抛 `UnknownEventTypeError` 并**拒绝重建会话**。

@@ -1,7 +1,7 @@
 # 关键接口形状（TS 签名草案）
 
 > 各包对外 API 的**形状级草案**——定方向不锁细节，实施时在此文件同步演进。
-> 状态：**kernel 段、config-loader 段与插件 UI 门面已定稿**（2026-11-12）；其余小节仍为形状级草案。
+> 状态：**kernel 段、config-loader 段与插件 UI 门面已定稿**（2026-11-12）；**protocol 段的信封类型、事件注册表（D-051）与 SessionService 已定稿**（2026-11-16）；其余槽位接口仍为形状级草案，各包落码前定稿。
 
 ---
 
@@ -190,8 +190,14 @@ type StreamEvent =
   | { type: 'usage';           usage: TokenUsage }                               // 先于 finish
   | { type: 'finish';          reason: FinishReason };
 
-// 事件注册表：开放 map（P1）
-const SessionEventRegistry: Map<string, ZodSchema>;   // 官方注册基础变体，插件可追加
+// 事件注册表：开放 map（P1）；校验器 = 最小 duck 接口（D-051：protocol 零依赖、
+// 只认"会 safeParse 的校验器"，不认 schema 库牌子；官方 15 变体由 session 包用 zod 实现）
+interface EventValidator {
+  safeParse(data: unknown):
+    | { success: true; data: unknown }
+    | { success: false; error: unknown };
+}
+const SessionEventRegistry: Map<string, EventValidator>;   // 官方注册基础变体，插件可追加
 // 派生清单（禁止手抄，P9-5）：KNOWN_EVENT_TYPES、schema 反查表均由此生成
 ```
 

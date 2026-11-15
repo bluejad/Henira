@@ -77,7 +77,7 @@ reins\                              ← 仓库根（仓库根目录名即 Reins�
 ## 依赖方向
 
 ```
-不可替换层（互不依赖，运行时都只依赖 zod）
+不可替换层（kernel / protocol 运行时零依赖；protocol 仅以类型引用 kernel 机制形状）
    kernel（机制）          protocol（契约：槽位接口 + 事件词表 + DTO）
       ▲                       ▲
       └───────────┬───────────┘
@@ -131,7 +131,7 @@ plugins/*（21 个官方插件：服务件 + 工具件按族分包，D-049）
 
 ## 依赖规则（CI 强制）
 
-1. `kernel` 与 `protocol` **互不依赖**，运行时都只依赖 zod（机制类型归 kernel，业务契约归 protocol）；
+1. `kernel` 运行时零依赖；`protocol` 运行时零依赖、**互不依赖实现**——protocol 仅以类型引用 kernel 机制形状（`HarnessContext` 等），kernel 不认识任何业务接口（机制类型归 kernel，业务契约归 protocol）；zod 不属于协议层（D-051：官方事件校验器由 session 包实现，zod 是其实现细节）；
 2. `plugins/*` 只依赖 kernel + protocol + 第三方库；**禁止插件互相 import 实现**——运行时经槽位互消费，**能力共享 = 注入服务（ctx.get，D-049 唯一通道）**；共享类型/纯函数下沉 protocol；
 3. 宿主（config-loader / server / sdk / cli / web / desktop / tui）依赖 kernel + protocol，并按需把 plugins/* 聚合进预设；宿主之间不互相依赖（cli 与 web 都经 sdk；desktop 复用 server 与 web 的产物，不依赖其包）；
 4. `sdk` 双形态共用同一套 protocol 契约：进程内（聚合插件）与远程（连 server）行为一致；

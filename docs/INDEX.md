@@ -28,7 +28,7 @@
 | [plugins.md](./20-architecture/plugins.md)               | 插件规范：版本目录、清单、槽位（含技能外部只读根、`engine/` 引擎代码槽 D-048）、盒 / 货 / 服务 / 清单词表与能力服务化（D-049）、界面 UI 模块契约（13 方法门面）、插件管理面、同名覆盖、启停与 AI 创建流程 | ✅ 已定稿                                                        |
 | [tools-approval.md](./20-architecture/tools-approval.md) | 工具执行管线 + fail-closed 审批状态机                                                                                                                                                                     | ✅ 已定稿                                                        |
 | [loop.md](./20-architecture/loop.md)                     | agent loop：turn/step 状态机、inbox、中断纪律、16ms 合并                                                                                                                                                  | ✅ 已定稿                                                        |
-| [interfaces.md](./20-architecture/interfaces.md)         | 关键接口形状（TS 签名级草案）                                                                                                                                                                             | 📝 kernel / config-loader / 插件 UI 门面 / ToolDefinition 已定稿 |
+| [interfaces.md](./20-architecture/interfaces.md)         | 关键接口形状（TS 签名级草案）                                                                                                                                                                             | 📝 kernel / config-loader / 插件 UI 门面 / ToolDefinition / protocol 信封·注册表·SessionService 已定稿 |
 
 ## 三、调研存档（`30-research/`）
 

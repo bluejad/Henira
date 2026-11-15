@@ -509,7 +509,7 @@
   4. **装载期校验**工具 schema 合法性（可解析、object 形状）——非法 → 该插件**跳过 + 告警**（接 D-029 管理面"坏插件告警可见"）。
 - **理由**："直写 = 两处手抄"只在工具函数要强 TS 类型时成立——放弃推导就只有一份手写、没有漂移面（P9-5 不破）；AI 创建插件是唯一用户侧来源（D-017 / D-029），协议里只有一种形状 = AI 没得选，纯内容包也不会多出 import zod 的装机风险；选 schema 库的两家共性是"自家 TS 工具 + 要类型推导"，与我们"样板纯度压倒 DX"的取向相反。
 - **修订**：tools-approval.md §1 `ToolDefinition` 形状改 JSON Schema；interfaces.md `tools / approval` 段随改；50-open 🟡 本项结案。
-- **备注**：MCP 工具天然裸 schema 直通；D-007 AI SDK `tool()` 经 `jsonSchema()` 包装吃裸 schema，零成本。**连带确认**：session.md §3 事件注册表（`SessionEventRegistry`）维持 ZodSchema——zod 本就是 kernel / protocol 唯一的运行时依赖（依赖规则 1），注册事件 schema 的全是进程内引擎插件（含 AI 的 `engine/` 件，经 import map 已带 zod），D-044 治的"外部生产者被迫 import zod"（MCP server、纯内容包）在这里不存在；M1 protocol 定稿照此执行，不另立待办。
+- **备注**：MCP 工具天然裸 schema 直通；D-007 AI SDK `tool()` 经 `jsonSchema()` 包装吃裸 schema，零成本。**连带确认**：session.md §3 事件注册表（`SessionEventRegistry`）维持 ZodSchema——zod 本就是 kernel / protocol 唯一的运行时依赖（依赖规则 1），注册事件 schema 的全是进程内引擎插件（含 AI 的 `engine/` 件，经 import map 已带 zod），D-044 治的"外部生产者被迫 import zod"（MCP server、纯内容包）在这里不存在；M1 protocol 定稿照此执行，不另立待办。**后续修订（D-051，2026-11-16）**：事件注册表不维持 ZodSchema——改最小 duck 接口（protocol 零依赖，zod 退到 session 包实现侧），本段"连带确认"作废。
 
 ## D-045 回合队列与步数上限：忙时投递唯一化 + 条目"立即发送"插话 + 上限默认不设
 
@@ -595,3 +595,22 @@
 - **理由**：分界线在受众。界面文案的受众是最终用户 → 多语言是产品承诺的一部分；引擎消息的受众是模型与开发者 → 稳定性压倒本地化。架子先行成本 ≈ 0（字符串抽取从第一天做），写死中文后补 = 全界面返工；翻译内容按需追加，不预付。
 - **边界**：docs/ 正文仍中文先行（D-009），README 双语照 M0 / M4 排期（本 ADR 不管仓库文档翻译）；模型对话语言由用户输入决定，与 locale 无关，不在本条范围。
 - **备注**：40-roadmap.md M3（内容 + 判据）；文案词表的具体形状（字典文件放哪、切换入口）随 M3 界面批定稿。
+
+## D-051 事件注册表校验器：最小 duck 接口，zod 退到实现侧
+
+- **状态**：已定 · 2026-11-16 · 修订 D-044 备注"连带确认"段（项目所有者在 M1 protocol 定稿时重拍）
+- **决定**：`SessionEventRegistry` 的校验器用**最小 duck 接口**——protocol 只定义"会 safeParse 的校验器"结构，不认任何 schema 库：
+
+  ```ts
+  interface EventValidator {
+    safeParse(data: unknown):
+      | { success: true; data: unknown }
+      | { success: false; error: unknown };
+  }
+  ```
+
+  官方 15 个事件变体由 `session` 包用 zod 实现并注册（zod 是实现细节，不进协议词汇）；插件可用 zod / valibot / 手写校验器，结构满足即可。工具参数声明仍按 D-044 收裸 JSON Schema，不受本条影响。
+- **理由**：事件注册表只做 append 校验与派生清单，不面向模型投影 / MCP——D-044 的"同形零转换"理由在事件层不成立，取证三家无一在事件载荷上用 JSON Schema；唯一在读写两边界做全量校验的 [opencode] 用的是 Effect Schema（zod 类库，`packages/core/src/bus.ts:328,619`）。protocol 是每个插件的公共依赖：零依赖 + "只认形状不认牌子"与 D-012② / D-013③ 最小化同向，schema 库升级不再牵动协议 API 面；原"连带确认"的论据（进程内引擎插件经 import map 已带 zod）在 duck 接口下不再必要——插件根本不必带 zod。
+- **备注**：
+  - [dsh] 明确拒绝过运行时事件名注册并记录理由（`packages/core/session/src/known-event-types.ts:15-20`：注册"不区分省略安全性、会让读取依赖插件组成"）——但其插件与内核同仓编译，TS 声明合并即可扩展；我们的插件运行时装载（D-048 `engine/`），运行时注册是架构等价物。读取依赖插件组成的担忧由读侧 fail-closed 规则堵死：未知类型 ignorable:true 恒跳过、否则恒拒（[dsh] `packages/session/session-persistence/src/storage-contract.ts:74-80`，与 [session.md](./20-architecture/session.md) §3 同构）——同一份日志的读出与插件组成无关。
+  - 派生清单照旧全部从注册表派生（P9-5）。落点：interfaces.md protocol 段、principles P3 / P9-5、packages.md 依赖规则、session.md §3。
