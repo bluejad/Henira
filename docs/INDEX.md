@@ -1,0 +1,50 @@
+# Reins 文档总索引
+
+> **本文件是全部文档的唯一入口。** 每份文档一行说明；文档之间用相对链接互引。
+> 讨论定稿的内容落进对应文件；未定的问题记入 [50-open.md](./50-open.md)，
+> 定稿后从清单勾掉。文件名用英文 slug，内容中文先行（开源发布时补英文版）。
+
+---
+
+## 一、总览
+
+| 文件                                 | 说明                                                        |
+| ------------------------------------ | ----------------------------------------------------------- |
+| [../README.md](../README.md)         | 项目门面：定位一句话 + 关键约定速查                         |
+| [00-vision.md](./00-vision.md)       | 愿景与定位：做什么 / 不做什么 / 与现有项目的关系 / 目标用户 |
+| [10-decisions.md](./10-decisions.md) | **决策记录（ADR）**：只追加不改写，每条带理由与日期         |
+| [40-roadmap.md](./40-roadmap.md)     | 实施里程碑 M0–M6 与每步完成判据                             |
+| [50-open.md](./50-open.md)           | **待讨论问题清单**：讨论一条、定稿一条、勾掉一条            |
+
+## 二、架构设计（`20-architecture/`）
+
+| 文件                                                     | 说明                                                                                                                                                                                                      | 状态                                                             |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [principles.md](./20-architecture/principles.md)         | 九条核心设计原则——整个框架的"宪法"，实现与评审的最高依据                                                                                                                                                  | ✅ 已定稿                                                        |
+| [packages.md](./20-architecture/packages.md)             | monorepo 包结构（官方件按族分包：服务件 + 工具件，D-049）、依赖方向分层、各包职责边界                                                                                                                     | ✅ 已定稿                                                        |
+| [hosts.md](./20-architecture/hosts.md)                   | 宿主与部署形态：三拓扑（①一对多 / ③零服务）、形态矩阵、宿主契约、桌面 A1、回环三件套、云端分层                                                                                                            | ✅ 总纲、桌面、云端、npm 形态已定稿（三项倾向待定）              |
+| [data-directory.md](./20-architecture/data-directory.md) | 运行数据目录：全局 / 项目两层、项目 key 命名、生命周期、清理语义                                                                                                                                          | ✅ 已定稿                                                        |
+| [session.md](./20-architecture/session.md)               | 事件溯源会话：信封与事件词表 v0、deriveMessages、JSONL 格式、fork/replay                                                                                                                                  | ✅ 已定稿                                                        |
+| [plugins.md](./20-architecture/plugins.md)               | 插件规范：版本目录、清单、槽位（含技能外部只读根、`engine/` 引擎代码槽 D-048）、盒 / 货 / 服务 / 清单词表与能力服务化（D-049）、界面 UI 模块契约（13 方法门面）、插件管理面、同名覆盖、启停与 AI 创建流程 | ✅ 已定稿                                                        |
+| [tools-approval.md](./20-architecture/tools-approval.md) | 工具执行管线 + fail-closed 审批状态机                                                                                                                                                                     | ✅ 已定稿                                                        |
+| [loop.md](./20-architecture/loop.md)                     | agent loop：turn/step 状态机、inbox、中断纪律、16ms 合并                                                                                                                                                  | ✅ 已定稿                                                        |
+| [interfaces.md](./20-architecture/interfaces.md)         | 关键接口形状（TS 签名级草案）                                                                                                                                                                             | 📝 kernel / config-loader / 插件 UI 门面 / ToolDefinition 已定稿 |
+
+## 三、调研存档（`30-research/`）
+
+> 设计输入存档。**实现全部独立重写；借鉴仅限公开仓库与公开资料（见 D-004 / D-047）。** 落码参考仓 = dsh / OpenCode / ZCode（公开，可引 file:line）；闭源产品（如 Claude Code）仅行为层参考，不引源码路径。
+
+| 文件                                                     | 说明                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [deepseek-harness.md](./30-research/deepseek-harness.md) | DeepSeek 官方 harness（dsh）架构分析：8 条借鉴 + 5 个避坑 + 插件机制谱系 |
+| [landscape.md](./30-research/landscape.md)               | 2025–26 开源 Agent Harness 格局调研：生态位、未被满足的需求              |
+
+## 四、阅读顺序建议
+
+1. 新接触项目：`00-vision` → `10-decisions` → `20-architecture/principles` → `20-architecture/packages` → `40-roadmap`
+2. 参与某个包的实现：再读对应架构细项（session / tools-approval / loop / interfaces）
+3. 调研存档按需查阅，不必通读
+
+---
+
+_维护规则：每新增一份文档，必须在上面表格里加一行；文档改名或废弃时同步更新本索引。_
