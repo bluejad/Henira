@@ -1,1 +1,3 @@
-{ "references": [] }
+{
+  "references": [{ "path": "packages/kernel" }]
+}

@@ -36,7 +36,7 @@ interface EventBus {
   onSerial(type: string, fn: (payload: unknown) => void | Promise<void>): Disposable;
   onWaterfall<T>(
     type: string,
-    fn: (value: T, next: (v: T) => Promise<T>) => Promise<T>,
+    fn: (value: T, next: (v: T) => Promise<T>) => T | Promise<T>,
   ): Disposable;
   onBail(
     type: string,
