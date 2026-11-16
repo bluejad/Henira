@@ -13,7 +13,6 @@ import {
   DECISIONS,
   type Decision,
   type GateVerdict,
-  mergeGateVerdict,
   type PermissionRequest,
 } from "@henira/protocol";
 import { argsDigest, isCredentialAccess, isDisasterCommand, matchesRule } from "./chain.js";
@@ -130,5 +129,3 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
     },
   };
 }
-
-export { mergeGateVerdict }; // 缝监听者的合并辅助再出口（与 tools/pre-execute 同一形状）

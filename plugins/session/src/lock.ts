@@ -5,11 +5,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-const LOCK_FILE = "session.lock";
+export const SESSION_LOCK_FILE = "session.lock";
 
 export class SessionLockedError extends Error {
   constructor(dir: string) {
-    super(`session is locked by another live process: ${path.join(dir, LOCK_FILE)}`);
+    super(`session is locked by another live process: ${path.join(dir, SESSION_LOCK_FILE)}`);
     this.name = "SessionLockedError";
   }
 }
@@ -48,7 +48,7 @@ async function isStale(lockPath: string): Promise<boolean> {
 }
 
 export async function acquireSessionLock(dir: string): Promise<SessionLock> {
-  const lockPath = path.join(dir, LOCK_FILE);
+  const lockPath = path.join(dir, SESSION_LOCK_FILE);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const handle = await fs.open(lockPath, "wx"); // O_EXCL：独占创建

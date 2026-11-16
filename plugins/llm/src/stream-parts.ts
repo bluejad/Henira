@@ -1,4 +1,4 @@
-// AI SDK TextStreamPart → protocol StreamEvent（AI SDK 边界收口于此，zcode
+// AI SDK TextStreamPart → protocol StreamEvent（AI SDK 边界收口于此，[zcode]
 // runner-normalization 同构：入向借用 SDK 类型，出向词表是自己的）。
 // P3 三不变量在这里落地：①argsText 恒原始文本（装配器自攒，不靠 SDK 的已解析 input）
 // ②usage 先于 finish（finish part 携带 usage → 先吐 usage 再吐 finish）
@@ -13,7 +13,7 @@ import type {
   ToolSet,
 } from "ai";
 
-/** 工具调用原始参数装配器（dsh BlockAssembler 同构）：tool-input-start/delta/end 攒 argsText */
+/** 工具调用原始参数装配器（[dsh] BlockAssembler 同构）：tool-input-start/delta/end 攒 argsText */
 export class ToolCallAssembler {
   private pending = new Map<string, { name: string; argsText: string }>();
 

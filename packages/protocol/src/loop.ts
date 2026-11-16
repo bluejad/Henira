@@ -20,7 +20,7 @@ export interface QueuedPrompt {
   steer: boolean;
 }
 
-// run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——opencode
+// run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——[opencode]
 // `publish-llm-event.ts:289` "block starts are not batched" 同规）。
 export type LoopEvent =
   | { type: "text-delta"; text: string }

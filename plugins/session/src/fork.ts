@@ -6,11 +6,8 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { SessionEvent, SessionHeader } from "@henira/protocol";
-import { acquireSessionLock } from "./lock.js";
-import { SessionStore } from "./store.js";
-
-const LOG_FILE = "session.v1.jsonl";
-const LOCK_FILE = "session.lock";
+import { acquireSessionLock, SESSION_LOCK_FILE } from "./lock.js";
+import { SESSION_LOG_FILE, SessionStore } from "./store.js";
 
 export class ForkCutOutOfRangeError extends Error {
   constructor(cut: number, lastSeq: number) {
@@ -37,7 +34,8 @@ export async function forkSession(opts: ForkOptions): Promise<SessionStore> {
   const newId = randomUUID();
   const newDir = path.join(path.dirname(opts.sourceDir), newId);
   await fs.mkdir(newDir, { recursive: true });
-  // 整目录复制（排除日志与锁文件；日志按前缀重写）
+  // 整目录复制（排除日志与锁文件；日志按前缀重写）——文件名常量归 store / lock 两处所有
+  const SKIP = new Set([SESSION_LOG_FILE, SESSION_LOCK_FILE]);
   await fs.cp(opts.sourceDir, newDir, {
     recursive: true,
     filter: (src) => !SKIP.has(path.basename(src)),
@@ -55,7 +53,7 @@ export async function forkSession(opts: ForkOptions): Promise<SessionStore> {
   const lock = await acquireSessionLock(newDir);
   let handle: fs.FileHandle | null = null;
   try {
-    handle = await fs.open(path.join(newDir, LOG_FILE), "a");
+    handle = await fs.open(path.join(newDir, SESSION_LOG_FILE), "a");
     const store = await SessionStore.importPrefix(
       { dir: newDir, header, events: prefix },
       lock,
@@ -73,8 +71,6 @@ export async function forkSession(opts: ForkOptions): Promise<SessionStore> {
     throw err;
   }
 }
-
-const SKIP = new Set([LOG_FILE, LOCK_FILE]);
 
 function openTurnOf(events: readonly SessionEvent[]): string | null {
   let open: string | null = null;

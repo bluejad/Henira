@@ -13,7 +13,7 @@ import { acquireSessionLock, type SessionLock } from "./lock.js";
 import { readSessionFile } from "./reader.js";
 import { overlaps, type ReplaceInterval, readSurfaceOp } from "./surface-op.js";
 
-const FILE_NAME = "session.v1.jsonl";
+export const SESSION_LOG_FILE = "session.v1.jsonl";
 
 export class UnregisteredEventTypeError extends Error {
   constructor(type: string) {
@@ -86,7 +86,7 @@ export class SessionStore {
     await fs.mkdir(opts.dir, { recursive: true });
     const lock = await acquireSessionLock(opts.dir);
     try {
-      const filePath = path.join(opts.dir, FILE_NAME);
+      const filePath = path.join(opts.dir, SESSION_LOG_FILE);
       let raw: Buffer | null = null;
       try {
         raw = await fs.readFile(filePath);
@@ -94,7 +94,7 @@ export class SessionStore {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
       if (raw !== null) {
-        return await SessionStore.openExisting(filePath, lock, raw);
+        return await SessionStore.openExisting(filePath, lock);
       }
       return await SessionStore.createFresh(opts, filePath, lock);
     } catch (err) {
@@ -144,7 +144,6 @@ export class SessionStore {
   private static async openExisting(
     filePath: string,
     lock: SessionLock,
-    _raw: Buffer,
   ): Promise<CreateSessionResult> {
     const { header, events, truncatedAt } = await readSessionFile(filePath);
     void truncatedAt; // 截断已在 reader 内落盘

@@ -5,13 +5,7 @@
 // 会话目录（queue.json 住处）从 session 槽取（SessionService.directory，protocol 定稿字段）。
 
 import type { ServiceDefinition } from "@henira/kernel";
-import {
-  asHeniraContext,
-  type LoopEvent,
-  type LoopService,
-  type QueuedPrompt,
-  type SessionService,
-} from "@henira/protocol";
+import { asHeniraContext, type LoopEvent, type LoopService } from "@henira/protocol";
 import { PromptQueue } from "./queue.js";
 import { type LoopDeps, runTurnCore, systemPromptHash, type TurnHandle } from "./turn.js";
 
@@ -67,8 +61,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
     inject: ["session", "llm", "tools", "approval", "config"],
     async start(ctx) {
       const cx = asHeniraContext(ctx);
-      const session = cx.get("session");
-      const queue = new PromptQueue((session as SessionService & { directory: string }).directory);
+      const queue = new PromptQueue(cx.get("session").directory); // directory 是 SessionService 定稿字段
       await queue.load(); // 重启恢复（D-045）
 
       let current: TurnHandle | undefined;
@@ -76,7 +69,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
 
       const makeDeps = (): LoopDeps => ({
         ctx: cx,
-        session,
+        session: cx.get("session"),
         llm: cx.get("llm"),
         tools: cx.get("tools"),
         approval: cx.get("approval"),
@@ -171,5 +164,3 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
     },
   };
 }
-
-export type { QueuedPrompt, SessionService };

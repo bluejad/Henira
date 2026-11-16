@@ -18,3 +18,5 @@
 | CLI 命令 / CLI command | `henira`                        |
 | 平台 / Platform        | Node.js ≥ 20 · TypeScript · ESM |
 | 许可证 / License       | MIT                             |
+
+> Node 版本：库与门禁底座 ≥ 20；`examples/*` 以 Node 类型剥离直跑 TS，需 ≥ 22.6。

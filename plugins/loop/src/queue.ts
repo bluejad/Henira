@@ -72,7 +72,7 @@ export class PromptQueue {
     return true;
   }
 
-  /** claim：取走全部插话条目（step 边界进场，[zcode] turn-guide-drain 同槽位） */
+  /** claim：取走全部插话条目（step 边界进场，[zcode] turn-guide-drain.ts:9-31 同槽位） */
   async claimSteers(): Promise<QueueEntry[]> {
     const steers = this.#entries.filter((e) => e.steer);
     if (steers.length > 0) {

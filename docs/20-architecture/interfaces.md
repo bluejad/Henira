@@ -320,7 +320,7 @@ interface QueuedPrompt {
   steer: boolean; // true = "立即发送"插话条目（下一 step 边界进场，D-045）
 }
 
-// run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——opencode
+// run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——[opencode]
 // `publish-llm-event.ts:289` "block starts are not batched" 同规）。定稿 2026-11-16。
 type LoopEvent =
   | { type: "text-delta"; text: string }

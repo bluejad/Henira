@@ -13,7 +13,7 @@ import type {
 import { LlmError } from "@henira/protocol";
 
 /** 单次模型调用的应答：事件序列 / 异步流，或按请求动态生成（兜底应答器也用函数形态；
- * 函数收 (req, signal)——流形态条目靠 signal 自己实现 hang / 中途失败，如 dsh hangAfter） */
+ * 函数收 (req, signal)——流形态条目靠 signal 自己实现 hang / 中途失败，如 [dsh] hangAfter） */
 export type MockTurn =
   | readonly StreamEvent[]
   | AsyncIterable<StreamEvent>
