@@ -1,4 +1,4 @@
-# @reins/llm-mock
+# @henira/llm-mock
 
 测试支撑包：llm 槽位的脚本化 mock。不是插件、不占官方件计数；消费者仅 devDependencies（[packages.md](../../docs/20-architecture/packages.md) 规则 2 的测试支撑条款，[50-open.md](../../docs/50-open.md) 归档 2026-11-16）。
 

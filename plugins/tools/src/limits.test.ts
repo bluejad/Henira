@@ -28,7 +28,7 @@ describe("applyExitLimits（统一出口限量 §1.1）", () => {
   });
 
   it("超字节 + 落盘目录：完整输出写盘，truncated = {path, preview}", async () => {
-    const dir = await fs.mkdtemp(path.join(tmpdir(), "reins-limits-"));
+    const dir = await fs.mkdtemp(path.join(tmpdir(), "henira-limits-"));
     const text = "y".repeat(60_000);
     const out = await applyExitLimits(text, DEFAULT_EXIT_LIMITS, {
       spillDir: dir,

@@ -1,8 +1,8 @@
 // examples/mock 可运行演示：mock LLM 完整回合，打印 LoopEvent 与派生历史。
-// 运行：pnpm --filter @reins/example-mock start（Node ≥22.6 类型剥离；离线无需 key）。
+// 运行：pnpm --filter @henira/example-mock start（Node ≥22.6 类型剥离；离线无需 key）。
 // 同一条装配路径的断言版 = src/e2e.test.ts（vitest）。
 
-import { mockFinish, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
+import { mockFinish, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
 import { assembleMock } from "./assemble.js";
 
 const USAGE = { inputTokens: 12, outputTokens: 6 };

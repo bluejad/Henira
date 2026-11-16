@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@reins/protocol";
+import type { SessionEvent } from "@henira/protocol";
 import { describe, expect, it } from "vitest";
 import { deriveMessages } from "./index.js";
 

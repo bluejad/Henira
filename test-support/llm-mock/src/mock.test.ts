@@ -1,4 +1,4 @@
-import type { LlmRequest, LlmService, StreamEvent } from "@reins/protocol";
+import type { LlmRequest, LlmService, StreamEvent } from "@henira/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type MockLlm,

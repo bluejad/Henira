@@ -1,4 +1,4 @@
-# @reins/plugin-approval
+# @henira/plugin-approval
 
 approval 槽位官方插件：判定链全序 + fail-closed 答复矩阵 + 审计对。凭据与灾难在一切规则之外（D-039）；审计对写经 session 槽。
 
@@ -9,7 +9,7 @@ approval 槽位官方插件：判定链全序 + fail-closed 答复矩阵 + 审�
 ## 用法
 
 ```ts
-import { approvalPlugin } from "@reins/plugin-approval";
+import { approvalPlugin } from "@henira/plugin-approval";
 
 createHarness().use(approvalPlugin()); // 无 options；inject: ["session", "tools", "interaction", "config"]
 ```

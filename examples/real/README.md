@@ -2,7 +2,7 @@
 
 一个带工具调用的真实回合（roadmap M2 判据⑦）。**env 门控：没有凭据就只打印引导，不进 CI。**
 
-## 准备（三个文件，全在 `~/.reins/config/`）
+## 准备（三个文件，全在 `~/.henira/config/`）
 
 1. `settings.json` — 默认模型：
 
@@ -27,7 +27,7 @@
 
 ```sh
 pnpm install
-pnpm --filter @reins/example-real start
+pnpm --filter @henira/example-real start
 ```
 
 回合内容：`list-cwd`（只读工具）列目录 → 模型总结。只读工具走默认放行层免问（D-039）；

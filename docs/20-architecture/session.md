@@ -135,7 +135,7 @@ interface SessionHeader {
 
 ## 5. JSONL 持久化（已定）
 
-- 一会话一文件：`~/.reins/projects/--<slug60>-<hash8>--/sessions/<sessionId>/session.v1.jsonl`；**第 1 行是 `SessionHeader`（不是事件），第 2 行起每行一个事件，`seq` 从 1 开始**（目录规则见 [data-directory.md](./data-directory.md)，D-014）；
+- 一会话一文件：`~/.henira/projects/--<slug60>-<hash8>--/sessions/<sessionId>/session.v1.jsonl`；**第 1 行是 `SessionHeader`（不是事件），第 2 行起每行一个事件，`seq` 从 1 开始**（目录规则见 [data-directory.md](./data-directory.md)，D-014）；
 - **追加写入**：每行一个完整事件，写入后 `fsync`；`tmp + rename` **只用于** `meta.json` / `projects.json` 这类整体重写的小文件——对只追加日志用 rename 等于整文件重写，语义错误；
 - **崩溃恢复**：读取时若最后一行不完整（半行 JSON），**丢弃该行**，从最后一个完整事件继续；不因一个半行丢掉整段会话。此外开档时若发现最后一个回合有 `turn/start` 无 `turn/end`，补写 `turn/end{reason:'interrupted'}`——崩溃也要有收尾；
 - 读取：全量加载入内存；**版本检查 + 拒读未来版本**（不做迁移链，过度设计）；

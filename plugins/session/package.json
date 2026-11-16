@@ -1,5 +1,5 @@
 {
-  "name": "@reins/plugin-session",
+  "name": "@henira/plugin-session",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -15,11 +15,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@reins/protocol": "workspace:*",
+    "@henira/protocol": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@reins/kernel": "workspace:*",
+    "@henira/kernel": "workspace:*",
     "@types/node": "^24.0.0"
   }
 }

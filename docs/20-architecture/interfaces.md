@@ -99,10 +99,10 @@ interface SlotMap {
   config: ConfigService;
 }
 // commands 槽随 plugin-commands 落码（M6）进入 SlotMap（D-025；接口形状已定稿于 protocol 段）
-type ReinsContext = Omit<HarnessContext, "get"> & {
+type HeniraContext = Omit<HarnessContext, "get"> & {
   get<K extends keyof SlotMap>(slot: K): SlotMap[K];
 };
-function asReinsContext(ctx: HarnessContext): ReinsContext;
+function asHeniraContext(ctx: HarnessContext): HeniraContext;
 ```
 
 ## protocol —— 契约（槽位接口 + 事件词表 + DTO）
@@ -299,7 +299,7 @@ interface ConfigService {
   model(id?: string): Promise<ModelConfig>;        // 只含能力字段（contextWindow 等），不含密钥
   credential(providerId: string): Promise<string>; // 仅 llm 适配器调用
   get<T>(key: string): Promise<T | undefined>;     // 插件自有配置段（settings.json plugins.<id>.options
-                                                   //  与项目 reins.config.ts options 合并，项目优先）
+                                                   //  与项目 henira.config.ts options 合并，项目优先）
   permissionRules(): Promise<readonly PermissionRule[]>; // permissions.json 规则（approval 经此读，§3.1）
 }
 
@@ -378,23 +378,23 @@ export const defaultPreset: PluginEntry[];   // 官方 21 个插件；想基于�
                                              // 不设 add/remove 补丁语法（TS 代码即补丁机制）
 export const bundledSkillDirs: string[];     // 官方随包技能目录清单（D-026，读者按清单扫）
 
-// ── 项目根目录 reins.config.ts（开发者手写，进 git；普通用户不碰）──
-//   import { defaultPreset } from '@reins/config-loader';
+// ── 项目根目录 henira.config.ts（开发者手写，进 git；普通用户不碰）──
+//   import { defaultPreset } from '@henira/config-loader';
 //   export default defineConfig({ plugins: [...defaultPreset, myPlugin] })
-defineConfig(cfg: ReinsConfig): ReinsConfig;   // 纯类型辅助，零运行时逻辑
+defineConfig(cfg: HeniraConfig): HeniraConfig;   // 纯类型辅助，零运行时逻辑
 
-interface ReinsConfig {
+interface HeniraConfig {
   model?: string;                      // 本项目固定模型（缺省听全局 settings.json）
   plugins?: PluginEntry[];             // 基础插件清单；缺省 = defaultPreset
   options?: Record<string, unknown>;   // 本项目插件参数（键 = 插件 id）；项目优先于全局
 }
 
-// ── 全局 ~/.reins/config/settings.json（界面上点、程序写、不进 git，见 data-directory.md §2.3）──
+// ── 全局 ~/.henira/config/settings.json（界面上点、程序写、不进 git，见 data-directory.md §2.3）──
 //   { version, model?, plugins?: { <id>: { enabled?, version?, options? } }, ui?: { theme? } }
 //
 // 装配三步（每个新会话执行，D-016）：
 //   ① 基础清单 = cfg.plugins ?? defaultPreset
-//   ② 加已装目录里的插件（~/.reins/plugins/ 与项目 .reins/plugins/；同 id 不重复算，同名项目盖用户级；
+//   ② 加已装目录里的插件（~/.henira/plugins/ 与项目 .henira/plugins/；同 id 不重复算，同名项目盖用户级；
 //     用户包 id 撞官方且带 engine/ → 经确认卡替换官方，D-048）
 //   ③ 去掉 settings.json 里 enabled: false 的（内圈 5 槽位不给关）
 // 对新会话立即生效；官方替换两条路：开发者 = 显式写清单（cfg.plugins 不列官方、列自己的）；
@@ -407,14 +407,14 @@ interface ReinsConfig {
 //   plugins: defaultPreset.map(p => p.id === 'plugin-loop' ? myLoop : p)        // 整只替换
 // 同一槽位两个插件 = use() 立即报错（不静默后者赢）。
 
-loadConfig(root: string): Promise<ReinsConfig>;          // 读 reins.config.ts + settings.json + 最小校验
-applyConfig(harness: Harness, cfg: ReinsConfig): void;   // 翻译成 .use() 调用
+loadConfig(root: string): Promise<HeniraConfig>;          // 读 henira.config.ts + settings.json + 最小校验
+applyConfig(harness: Harness, cfg: HeniraConfig): void;   // 翻译成 .use() 调用
 ```
 
 ## tools / approval（官方插件实现，签名经槽位接口暴露）
 
 - **定稿形状全部在 protocol 段**（2026-11-16）：ToolDefinition / ToolContext / ToolResult / ToolOutcome / PermissionRequest / Decision / PermissionRule / GateVerdict（`tools/pre-execute` waterfall 值 + mergeGateVerdict 单调合并）/ PostExecuteValue（`tools/post-execute` waterfall 值）；
-- `defineTool(def): ToolDefinition` —— 类型推断辅助，住 `@reins/plugin-tools` 出口（不进 protocol，D-013③）；
+- `defineTool(def): ToolDefinition` —— 类型推断辅助，住 `@henira/plugin-tools` 出口（不进 protocol，D-013③）；
 - 官方插件直写 JSON Schema（dsh 同款），不建转换糖；execute 入参不靠 schema 推导 TS 类型（松散 args + 引擎校验 + 工具测试钉）；装载期校验非法 schema → 插件跳过 + 告警（接 D-029）；
 - ToolResult 带 `__` 前缀带外通道（P4）：`__meta` 等由 loop 路由，不进模型上下文。
 
@@ -442,10 +442,10 @@ applyConfig(harness: Harness, cfg: ReinsConfig): void;   // 翻译成 .use() 调
 
 ```ts
 // 形态一：进程内（CLI / 测试 / 嵌入）——聚合插件后暴露统一门面
-function createRuntime(opts: RuntimeOptions): Promise<ReinsRuntime>;
+function createRuntime(opts: RuntimeOptions): Promise<HeniraRuntime>;
 
 // 形态二：远程（Web / 跨进程）
-class ReinsClient {
+class HeniraClient {
   constructor(baseUrl: string);
   sessions(): SessionCollection;
   watch(sessionId: string): AsyncIterable<ServerEvent>; // SSE
@@ -457,11 +457,11 @@ class ReinsClient {
 
 ```ts
 // 界面从外部注入 client；web 自身的宿主用法 = 注入同源（本地 server）client 的特例。
-// npm 用户 = @reins/sdk（client）+ @reins/web（界面）两包组合；所有 web 系宿主都说 server 协议（D-034①）。
+// npm 用户 = @henira/sdk（client）+ @henira/web（界面）两包组合；所有 web 系宿主都说 server 协议（D-034①）。
 // layout 挑件（D-043 第 7 条概要，落码时定稿）：完全体（缺省）/ 只中间对话区 / 只输入框 / 自定义组合——
 // 零件 = plugin-web-ui 的件（会话列表 / 对话面板 / 输入框 / 审批卡…），与插件用件同一零件库（编译期出口）。
 function createWebApp(opts: {
-  client: ReinsClient;
+  client: HeniraClient;
   layout?: "full" | "center" | "composer" | ComponentSpec[]; // 不传 = 完全体
 }): WebApp;
 
@@ -560,7 +560,7 @@ interface SessionRef {
 ```
 
 - 官方界面件（会话列表 / 对话面板 / 输入框 / 审批卡…）经**宿主标准件出口**供插件 import（import map，与 react 同口子，D-043）；件与**会话上下文**一起给——连着哪个会话、往哪发、流式增量从哪来（承重缝，形状 M3 定稿）；没装东西的区域槽**收起**（不渲染不占宽）；
-- `useResource` 地址格式 `reins-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；只允许同一插件 `mcp/` 里声明过的 server（越权 403）；2 秒共享轮询、30 秒超时、200 KB 截断；失败保留上次数据；
+- `useResource` 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；只允许同一插件 `mcp/` 里声明过的 server（越权 403）；2 秒共享轮询、30 秒超时、200 KB 截断；失败保留上次数据；
 - `onTurnFinished` 只收该 UI 模块自己发起那一轮的终稿；终局映射见 [plugins.md](./plugins.md) §4；
 - `openInExplorer` 是能力查询：非桌面宿主返回 `false`，UI 模块应自行降级；
 - `renderMarkdown` 的返回类型由宿主决定（protocol 不依赖 React）；非 web 宿主不实现 UI 门面。

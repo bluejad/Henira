@@ -1,15 +1,15 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness, type ServiceDefinition } from "@reins/kernel";
+import { createHarness, type ServiceDefinition } from "@henira/kernel";
 import {
   type ApprovalOptions,
-  asReinsContext,
+  asHeniraContext,
   type Decision,
   type InteractionAnswer,
   type InteractionRequest,
   type PermissionRule,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { approvalPlugin } from "./service.js";
 
@@ -19,7 +19,7 @@ import { approvalPlugin } from "./service.js";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(tmpdir(), "reins-approval-"));
+  root = await fs.mkdtemp(path.join(tmpdir(), "henira-approval-"));
 });
 
 afterEach(async () => {
@@ -109,7 +109,7 @@ async function startedHarness(interaction: ServiceDefinition, rules: PermissionR
     .use(interaction)
     .use(approvalPlugin());
   await harness.start();
-  const ctx = asReinsContext(harness.context);
+  const ctx = asHeniraContext(harness.context);
   // 打开回合（loop 在真机广播同款总线事件；会话事件由 loop 落账）
   await (ctx.get("session") as unknown as { append(i: never): Promise<unknown> }).append({
     type: "turn/start",
@@ -133,10 +133,10 @@ type Session = {
   events(): { type: string; data: unknown }[];
 };
 
-function approvalOf(ctx: ReturnType<typeof asReinsContext>): Approval {
+function approvalOf(ctx: ReturnType<typeof asHeniraContext>): Approval {
   return ctx.get("approval") as unknown as Approval;
 }
-function sessionOf(ctx: ReturnType<typeof asReinsContext>): Session {
+function sessionOf(ctx: ReturnType<typeof asHeniraContext>): Session {
   return ctx.get("session") as unknown as Session;
 }
 
@@ -334,7 +334,7 @@ describe("判定链全序（tools-approval §3）", () => {
       .use(interactionStub([]))
       .use(approvalPlugin());
     await harness.start();
-    const ctx = asReinsContext(harness.context);
+    const ctx = asHeniraContext(harness.context);
     // 不广播 turn/start → approval 不知回合
     expect(await approvalOf(ctx).requestPermission({ tool: "read", args: {} })).toBe("unavailable");
     await harness.dispose();

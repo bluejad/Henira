@@ -4,7 +4,7 @@
 
 ## 这是什么
 
-Reins = 开源 Agent Harness：内核只做机制，其余一切皆插件（含 agent 循环与审批本身）。当前状态见 [docs/INDEX.md](docs/INDEX.md)。
+Henira = 开源 Agent Harness：内核只做机制，其余一切皆插件（含 agent 循环与审批本身）。当前状态见 [docs/INDEX.md](docs/INDEX.md)。
 
 ## 动码之前先读（按序）
 
@@ -18,11 +18,11 @@ Reins = 开源 Agent Harness：内核只做机制，其余一切皆插件（含 
 
 ## 术语
 
-**界面**（永不叫"面板/panel"）；**工具 ≠ 插件**（工具是 ToolDefinition，永远不是插件）；包名 `@reins/*`；宿主 / 槽位 / 装配。全表见 docs。
+**界面**（永不叫"面板/panel"）；**工具 ≠ 插件**（工具是 ToolDefinition，永远不是插件）；包名 `@henira/*`；宿主 / 槽位 / 装配。全表见 docs。
 
 ## 硬红线（违反＝打回）
 
-- 用户创建的插件包（engine/）不把 `@reins/kernel` / `@reins/protocol` 写进依赖表——宿主 import map 注入唯一实例（D-048；装载层拦截，M4 实装）。仓库内官方插件的契约依赖走 `@reins/protocol`，kernel 仅类型引用（devDependencies，packages.md 规则 2）；`pnpm check:deps` 拦插件互相 import 实现。
+- 用户创建的插件包（engine/）不把 `@henira/kernel` / `@henira/protocol` 写进依赖表——宿主 import map 注入唯一实例（D-048；装载层拦截，M4 实装）。仓库内官方插件的契约依赖走 `@henira/protocol`，kernel 仅类型引用（devDependencies，packages.md 规则 2）；`pnpm check:deps` 拦插件互相 import 实现。
 - 协议只收裸 JSON Schema，不建 zod 转换糖；zod 不进 kernel / protocol——官方事件校验器由 session 包实现（D-044 / D-051）。
 - 一切引用可公开对证：来源只用 `[dsh]` / `[zcode]` / `[opencode]` / `[用户]`（词表唯一出处 = principles.md 顶部「来源标注」）；闭源产品仅行为层、不设标签；本地机器路径零出现（D-047）。
 - 无特权 API：官方插件也走公共注册路径（P8）。

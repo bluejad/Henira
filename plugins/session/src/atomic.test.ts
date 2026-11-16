@@ -9,7 +9,7 @@ import { atomicWriteFile } from "./index.js";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(tmpdir(), "reins-atomic-"));
+  root = await fs.mkdtemp(path.join(tmpdir(), "henira-atomic-"));
 });
 
 afterEach(async () => {

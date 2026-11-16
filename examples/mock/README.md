@@ -2,7 +2,7 @@
 
 离线可跑的最小装配示例：官方引擎四件（session / tools / approval / loop）+ mock llm + 真 config-loader，mock LLM 确定性驱动——不联网、不花钱，兼作 vitest e2e。
 
-- 运行：`pnpm --filter @reins/example-mock test`（e2e 断言）；`node --experimental-strip-types src/main.ts`（演示）
+- 运行：`pnpm --filter @henira/example-mock test`（e2e 断言）；`node --experimental-strip-types src/main.ts`（演示）
 - 装配即宿主职责的编程形态（D-016 三步）：官方插件经公共注册路径 `.use()`，mock llm / 自动应答 InteractionService / 真 config-loader（临时目录种子 settings.json）与真插件同一条路径
 - 真实模型对照：[examples/real](../real/README.md)（自备 key，env 门控不进 CI）
 

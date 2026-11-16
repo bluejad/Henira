@@ -21,7 +21,7 @@ type Listener =
 export type FaultReporter = (err: unknown, where: string) => void;
 
 export function reportToConsole(err: unknown, where: string): void {
-  console.error(`[reins:kernel] ${where}:`, err);
+  console.error(`[henira:kernel] ${where}:`, err);
 }
 
 export class EventBusImpl {

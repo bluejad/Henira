@@ -1,4 +1,4 @@
-# @reins/kernel
+# @henira/kernel
 
 微内核：只做装配与事件机制，不认识任何业务接口（D-012②）。四种事件派发模式 + inject 依赖图 + 静态装配（D-011，不做热加载）+ 可逆卸载。
 
@@ -9,12 +9,12 @@
 ## 用法
 
 ```ts
-import { asReinsContext } from "@reins/protocol";
-import { createHarness } from "@reins/kernel";
+import { asHeniraContext } from "@henira/protocol";
+import { createHarness } from "@henira/kernel";
 
 const harness = createHarness().use(sessionPlugin).use(toolsPlugin); // use() 只能在 start() 前（静态装配，D-011）
 await harness.start(); // inject 缺失 / 依赖环在这里一次报全（topology.ts）
-const tools = asReinsContext(harness.context).get("tools"); // 类型化门面取槽位
+const tools = asHeniraContext(harness.context).get("tools"); // 类型化门面取槽位
 await harness.dispose(); // 可逆卸载（D-023 钉子有测试）
 ```
 

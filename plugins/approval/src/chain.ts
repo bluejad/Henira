@@ -3,7 +3,7 @@
 // 官方清单住本文件（D-012④：approval 插件承担业务策略，kernel 纯机制）。
 
 import { createHash } from "node:crypto";
-import type { PermissionRequest, PermissionRule } from "@reins/protocol";
+import type { PermissionRequest, PermissionRule } from "@henira/protocol";
 
 /** 凭据路径特征（官方清单 v1：够用最小集，误报面小）——命中即链外硬拒 */
 export const CREDENTIAL_PATTERNS: RegExp[] = [

@@ -9,7 +9,7 @@ import type {
   ModelConfig,
   PermissionRule,
   SessionAttachment,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { Dictionary, type ModelsOverrideFile } from "./dictionary.js";
 
 export class CredentialMissingError extends Error {
@@ -31,7 +31,7 @@ export class NoDefaultModelError extends Error {
 export interface ConfigLoaderOptions {
   /** 项目 cwd（会话工作区） */
   cwd: string;
-  /** 全局配置目录（缺省 ~/.reins/config；测试注入临时目录） */
+  /** 全局配置目录（缺省 ~/.henira/config；测试注入临时目录） */
   globalDir: string;
   /** 测试注入 fetch（undefined = 不拉取，快照/缓存兜底） */
   fetchImpl?: typeof fetch;
@@ -57,12 +57,12 @@ function splitModelId(id: string): { provider: string; model: string } {
   return { provider: id.slice(0, idx), model: id.slice(idx + 1) };
 }
 
-export interface ReinsConfigService extends ConfigService {
+export interface HeniraConfigService extends ConfigService {
   /** 运行时拉取 models.dev（成功写缓存；失败静默回落快照/缓存，D-040） */
   refreshDictionary(): Promise<boolean>;
 }
 
-export function createConfigService(opts: ConfigLoaderOptions): ReinsConfigService {
+export function createConfigService(opts: ConfigLoaderOptions): HeniraConfigService {
   const dictionary = new Dictionary(opts.globalDir, opts.fetchImpl);
   let loaded = false;
 
@@ -80,7 +80,7 @@ export function createConfigService(opts: ConfigLoaderOptions): ReinsConfigServi
     loaded = true;
   };
 
-  const service: ReinsConfigService = {
+  const service: HeniraConfigService = {
     cwd: opts.cwd,
 
     async model(id?: string): Promise<ModelConfig> {

@@ -27,7 +27,7 @@
 5. **稳定性本身**——Manus 六个月重写五次 harness、LangChain 一年重构三次；"承诺稳定核心语义 + 增量演进"有信任空间
 6. **Letta 在 Terminal-Bench 2.0 用 Anthropic 自家模型击败 Claude Code**——"harness 比模型更重要"的最强实证
 
-## 对 Reins 的意义（背景参考，非设计驱动）
+## 对 Henira 的意义（背景参考，非设计驱动）
 
 - 我们的"事件溯源内核 + fail-closed 治理"路线恰好落在 1/2/3 号空位的交集上——这是**顺带**的结果，不是出发点；
 - AI SDK 做默认适配（D-007）与其"循环原语"位互补：它管 provider，我们管会话/治理/循环语义；

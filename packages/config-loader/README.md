@@ -1,4 +1,4 @@
-# @reins/config-loader
+# @henira/config-loader
 
 config 槽位宿主实现：三文件装载（settings.json / permissions.json / credentials.json 0600）+ models.dev 模型参数字典 + 官方默认预设。引擎零网络零厂商表（P9-4）——字典同步只住本层。
 
@@ -8,9 +8,9 @@ config 槽位宿主实现：三文件装载（settings.json / permissions.json /
 ## 用法
 
 ```ts
-import { createConfigService } from "@reins/config-loader";
+import { createConfigService } from "@henira/config-loader";
 
-const config = createConfigService({ cwd, globalDir }); // globalDir 缺省 ~/.reins/config；测试注入临时目录
+const config = createConfigService({ cwd, globalDir }); // globalDir 缺省 ~/.henira/config；测试注入临时目录
 createHarness().use({ name: "config", start: () => config }); // 宿主装配的常见形态（examples 同款）
 
 const model = await config.model(); // settings.json 默认模型 → ModelConfig（字典预填参数）
@@ -20,7 +20,7 @@ const key = await config.credential(provider); // credentials.json；缺 → Cre
 | options      | 含义                                                |
 | ------------ | --------------------------------------------------- |
 | `cwd`        | 项目 cwd（会话工作区）                              |
-| `globalDir`  | 全局配置目录（缺省 `~/.reins/config`）              |
+| `globalDir`  | 全局配置目录（缺省 `~/.henira/config`）             |
 | `fetchImpl?` | 测试注入 fetch；undefined = 不拉取，快照 / 缓存兜底 |
 
 ## 文件 ↔ 设计

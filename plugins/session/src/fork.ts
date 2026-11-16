@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { SessionEvent, SessionHeader } from "@reins/protocol";
+import type { SessionEvent, SessionHeader } from "@henira/protocol";
 import { acquireSessionLock } from "./lock.js";
 import { SessionStore } from "./store.js";
 

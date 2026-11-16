@@ -4,5 +4,5 @@
 export const BASE_SYSTEM_KEY = "loop/base";
 
 export const BASE_SYSTEM_PROMPT =
-  "You are Reins, a coding agent working inside the user's project. " +
+  "You are Henira, a coding agent working inside the user's project. " +
   "Use the provided tools to read and modify files when asked, and answer concisely.";

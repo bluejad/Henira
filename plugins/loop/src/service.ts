@@ -4,14 +4,14 @@
 // steer() = 条目"立即发送"升格；interrupt() = 中止当前回合（中断纪律全家桶在 turn.ts）。
 // 会话目录（queue.json 住处）从 session 槽取（SessionService.directory，protocol 定稿字段）。
 
-import type { ServiceDefinition } from "@reins/kernel";
+import type { ServiceDefinition } from "@henira/kernel";
 import {
-  asReinsContext,
+  asHeniraContext,
   type LoopEvent,
   type LoopService,
   type QueuedPrompt,
   type SessionService,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { PromptQueue } from "./queue.js";
 import { type LoopDeps, runTurnCore, systemPromptHash, type TurnHandle } from "./turn.js";
 
@@ -66,7 +66,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
     name: "loop",
     inject: ["session", "llm", "tools", "approval", "config"],
     async start(ctx) {
-      const cx = asReinsContext(ctx);
+      const cx = asHeniraContext(ctx);
       const session = cx.get("session");
       const queue = new PromptQueue((session as SessionService & { directory: string }).directory);
       await queue.load(); // 重启恢复（D-045）

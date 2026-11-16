@@ -2,7 +2,7 @@
 // zod 是本包的实现细节，不进协议词汇（D-051）；注册进 protocol 的开放注册表，
 // 插件经 registerPluginEvent 追加自有事件（前缀 = 包名，session.md §2.3）。
 
-import { SessionEventRegistry } from "@reins/protocol";
+import { SessionEventRegistry } from "@henira/protocol";
 import { z } from "zod";
 
 const surfaceOpSchema = z.union([

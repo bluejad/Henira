@@ -10,27 +10,27 @@
 
 ## 1. 插件的两种形态
 
-| 形态                | 分发方式                        | 谁写                                                           | 能造引擎工具 / 替换官方插件吗                                                | 例子                                                                                                                                                                                                                                                    |
-| ------------------- | ------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **引擎 / 界面插件** | npm 包，随宿主发布              | 官方 21 个（社区可整包替换）                                   | **能**（ToolDefinition 直写；替换官方 = `reins.config.ts` 显式清单，D-016④） | session / llm / tools / approval / loop / fs 族（fs / fs-tools / fs-search）/ shell 族（shell / shell-tools）/ fetch / compaction / subagent / tasks 族（tasks / plan / todo）/ skills / mcp / hooks / commands / **web-ui**（官方默认界面套件，D-043） |
-| **内容包**          | 版本目录（`~/.reins/plugins/`） | **AI 创建**——插件的唯一用户侧来源（D-017；技能文件另见 D-020） | **带 `engine/` 槽能**（同 id 经确认卡替换官方，D-048）；纯素材包不能         | 一组技能、一个 MCP server、几条钩子、带界面或引擎代码的工具件                                                                                                                                                                                           |
+| 形态                | 分发方式                         | 谁写                                                           | 能造引擎工具 / 替换官方插件吗                                                 | 例子                                                                                                                                                                                                                                                    |
+| ------------------- | -------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **引擎 / 界面插件** | npm 包，随宿主发布               | 官方 21 个（社区可整包替换）                                   | **能**（ToolDefinition 直写；替换官方 = `henira.config.ts` 显式清单，D-016④） | session / llm / tools / approval / loop / fs 族（fs / fs-tools / fs-search）/ shell 族（shell / shell-tools）/ fetch / compaction / subagent / tasks 族（tasks / plan / todo）/ skills / mcp / hooks / commands / **web-ui**（官方默认界面套件，D-043） |
+| **内容包**          | 版本目录（`~/.henira/plugins/`） | **AI 创建**——插件的唯一用户侧来源（D-017；技能文件另见 D-020） | **带 `engine/` 槽能**（同 id 经确认卡替换官方，D-048）；纯素材包不能          | 一组技能、一个 MCP server、几条钩子、带界面或引擎代码的工具件                                                                                                                                                                                           |
 
 **四个词（盒 / 货 / 通道 / 清单，D-049）**：
 
 - **插件 = 盒子（App）**：可装载的包，管理单位——开关、钉版本、卸载、数据区都按整包操作；
 - **工具 = 货（按钮）**：ToolDefinition 注册进 tools 注册表的一行，模型看见与调用的单位，**永远不是插件**；装载插件 = 把盒里的货摆上货架（注册表全场共享，不分谁的）；
 - **服务 = 共享的能力通道**：有名字、有生命周期的对象，**跨包共享的唯一方式**（D-049）——官方件与第三方件注入的是同一个；
-- **清单 = 勾盒子的配置表**：出厂清单 / `reins.config.ts` / settings 开关，是配置不是插件（不学 dsh"preset 亦为插件"）。
+- **清单 = 勾盒子的配置表**：出厂清单 / `henira.config.ts` / settings 开关，是配置不是插件（不学 dsh"preset 亦为插件"）。
 
 复用只有两条路：**装插件**（其工具全场可用）或**注入服务**；不存在"单独写个工具再共享"——工具永不独立存在。
 
-- 官方与内容包走**同一条注册路径**，官方无特权（P8）。官方替换两条路并存：开发者 = `reins.config.ts` 显式写清单（不列官方、列自己的）；用户 / AI = 同 id + `engine/` 经确认卡替换（D-048）——**不做静默顶替**（D-016④）。
+- 官方与内容包走**同一条注册路径**，官方无特权（P8）。官方替换两条路并存：开发者 = `henira.config.ts` 显式写清单（不列官方、列自己的）；用户 / AI = 同 id + `engine/` 经确认卡替换（D-048）——**不做静默顶替**（D-016④）。
 - AI 创建的包 = 素材槽位 + **两个代码口子**：`ui/` 界面模块（D-021）与 `engine/` 引擎模块（D-048）——同为普通 ESM、模块加载、不求值，其余槽位均为纯内容。带 `engine/` 的包用与官方**同一套 API**（defineTool / ServiceDefinition / 挂事件 / 占槽位），P8 同权字面成立。
 
 ## 2. 版本目录结构（唯一事实）
 
 ```
-~/.reins/plugins/<id>/          ← 一个插件一个根（id：字母/数字开头，可含 . _ -，支持中文）
+~/.henira/plugins/<id>/          ← 一个插件一个根（id：字母/数字开头，可含 . _ -，支持中文）
    └─ <version>/                ← 版本目录（版本级不可变）
       ├─ plugin.json            ← 必需：清单（见 §3）
       ├─ skills/<名>/SKILL.md   ← 技能槽
@@ -46,8 +46,8 @@
 ```
 
 - **开放内容目录**：目录存在即生效，各读者插件认领自己那类；**没人认领的目录装载器永远不碰**——将来新增机制零改格式，新读者认领新目录名即可。
-- 项目级 `<项目>/.reins/plugins/` 与用户级同构，同名时项目盖用户级。
-- 插件持久数据放 `~/.reins/plugins-data/<id>/`，与版本目录解耦（升级、卸载默认都不丢数据；D-029）。
+- 项目级 `<项目>/.henira/plugins/` 与用户级同构，同名时项目盖用户级。
+- 插件持久数据放 `~/.henira/plugins-data/<id>/`，与版本目录解耦（升级、卸载默认都不丢数据；D-029）。
 - **版本目录与 `plugins-data/` 是用户内容，不是凭据存储**：任何文件都不得写 API key / token / 密码；MCP 需要的密钥由宿主从 `config/credentials.json` 注入（D-030）。
 
 ## 3. 清单 plugin.json
@@ -69,27 +69,27 @@
 
 ## 4. 槽位文件格式
 
-| 槽位     | 文件                                         | 格式                                                                                                                                                                                                                                                                                                                                          | 读者                                                          |
-| -------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| skills   | `skills/<名>/SKILL.md`                       | YAML frontmatter（`name` / `description`）+ 正文；对齐 Agent Skills 规范（agentskills.io）                                                                                                                                                                                                                                                    | plugin-skills（另只读扫描 `.agents/skills` 与官方随包，见下） |
-| commands | `commands/<名>.md`                           | frontmatter（`description` / `argument-hint`）+ 正文模板，`$ARGUMENTS` 为参数占位                                                                                                                                                                                                                                                             | plugin-commands（占 `commands` 槽位，D-025）                  |
-| hooks    | `hooks/<名>.json`                            | `{ event, matcher?, type: process\|shell, command, args?, timeout?, statusMessage? }`                                                                                                                                                                                                                                                         | plugin-hooks                                                  |
-| mcp      | `mcp/<名>.json`                              | 本地：`{ command, args?, env? }`；远程：`{ url, headers?, type? }`                                                                                                                                                                                                                                                                            | plugin-mcp                                                    |
-| agents   | `agents/<名>.md`                             | frontmatter（`name` / `description` / `tools?` / `model?`）+ 正文 = 系统提示词；**缺 description 不产代理**（description 是委派的唯一依据）                                                                                                                                                                                                   | plugin-subagent                                               |
-| ui       | `ui/main.js`（ESM，`ui.entry` 指定）         | 导出 `apply(ctx)`；`ctx.registerSlot(name, component, { order? })` + `ctx.host`（13 方法，D-028 / D-042）；只依赖 `react` + 同目录相对路径                                                                                                                                                                                                    | 网页宿主                                                      |
-| engine   | `engine/main.js`（ESM，`engine.entry` 指定） | 导出引擎插件定义（**与官方同一套 API**：defineTool / ServiceDefinition / 挂事件 / 占槽位，D-048）；依赖四源——Node 内置、`engine/` 自带依赖（package.json + node_modules，AI 用 pnpm 装）、**能力服务（`inject` 声明注入，官方与第三方同权，D-049）**、宿主经 import map 注入的 `@reins/kernel` / `@reins/protocol` **唯一实例**（禁自带副本） | 装配层（config-loader / kernel 装配）                         |
+| 槽位     | 文件                                         | 格式                                                                                                                                                                                                                                                                                                                                            | 读者                                                          |
+| -------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| skills   | `skills/<名>/SKILL.md`                       | YAML frontmatter（`name` / `description`）+ 正文；对齐 Agent Skills 规范（agentskills.io）                                                                                                                                                                                                                                                      | plugin-skills（另只读扫描 `.agents/skills` 与官方随包，见下） |
+| commands | `commands/<名>.md`                           | frontmatter（`description` / `argument-hint`）+ 正文模板，`$ARGUMENTS` 为参数占位                                                                                                                                                                                                                                                               | plugin-commands（占 `commands` 槽位，D-025）                  |
+| hooks    | `hooks/<名>.json`                            | `{ event, matcher?, type: process\|shell, command, args?, timeout?, statusMessage? }`                                                                                                                                                                                                                                                           | plugin-hooks                                                  |
+| mcp      | `mcp/<名>.json`                              | 本地：`{ command, args?, env? }`；远程：`{ url, headers?, type? }`                                                                                                                                                                                                                                                                              | plugin-mcp                                                    |
+| agents   | `agents/<名>.md`                             | frontmatter（`name` / `description` / `tools?` / `model?`）+ 正文 = 系统提示词；**缺 description 不产代理**（description 是委派的唯一依据）                                                                                                                                                                                                     | plugin-subagent                                               |
+| ui       | `ui/main.js`（ESM，`ui.entry` 指定）         | 导出 `apply(ctx)`；`ctx.registerSlot(name, component, { order? })` + `ctx.host`（13 方法，D-028 / D-042）；只依赖 `react` + 同目录相对路径                                                                                                                                                                                                      | 网页宿主                                                      |
+| engine   | `engine/main.js`（ESM，`engine.entry` 指定） | 导出引擎插件定义（**与官方同一套 API**：defineTool / ServiceDefinition / 挂事件 / 占槽位，D-048）；依赖四源——Node 内置、`engine/` 自带依赖（package.json + node_modules，AI 用 pnpm 装）、**能力服务（`inject` 声明注入，官方与第三方同权，D-049）**、宿主经 import map 注入的 `@henira/kernel` / `@henira/protocol` **唯一实例**（禁自带副本） | 装配层（config-loader / kernel 装配）                         |
 
 **槽位校验与失败语义（定稿）**：清单与槽位一律「**缺省救缺失、写错丢该项**」——坏一个槽位不拖垮整插件；只有 `plugin.json` 本身缺失 / 损坏才跳过整个插件。槽位目录不存在 = 没有该槽位，不告警。
 
-| 槽位     | 校验                                                                                                                                  | 坏了怎么办                                                                                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| skills   | `<名>/SKILL.md` 有 YAML frontmatter 的 `name` / `description` + 非空正文；`name` 与目录名一致                                         | 跳过该技能 + 告警；其他技能照常                                                                                                                                     |
-| commands | `<名>.md` frontmatter 有 `description`；正文非空；`$ARGUMENTS` 可选                                                                   | 跳过该命令 + 告警（`CommandInfo.description` 必填，D-025）                                                                                                          |
-| hooks    | `event` 在事件表内；`matcher` 是合法正则；`type` ∈ process / shell；`command` 非空；`timeout` 为数字                                  | 跳过该钩子 + 告警；**不执行**                                                                                                                                       |
-| mcp      | JSON 合法；`command` 或 `url` 至少一个；env / headers 只写非敏感配置（密钥引用宿主注入，D-030）                                       | 跳过该 server + 告警；**不 spawn**                                                                                                                                  |
-| agents   | frontmatter `name` = 文件名、`description` 必填、`tools` ∈ 已知工具；正文非空                                                         | 缺 `description` 不产代理（description 是委派唯一依据）；其他非法 → 跳过 + 告警                                                                                     |
-| ui       | `ui.entry` 文件存在；模块可加载并导出 `apply`；`registerSlot` 的挂载点合法                                                            | 不挂该 UI + 告警；**其他槽位照常**，插件列表标黄                                                                                                                    |
-| engine   | `engine.entry` 文件存在；模块可加载并导出插件定义；清单 `engine` 版本字段匹配（兼容门）；依赖表无 `@reins/kernel` / `@reins/protocol` | 不装载该包引擎代码 + 告警；**同 id 替换场景自动回落官方实现**（D-048）；**声明的注入服务无提供者 → 该件不装载 + 告警、其余照常**（装配层预检，D-049）；其余槽位照常 |
+| 槽位     | 校验                                                                                                                                    | 坏了怎么办                                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| skills   | `<名>/SKILL.md` 有 YAML frontmatter 的 `name` / `description` + 非空正文；`name` 与目录名一致                                           | 跳过该技能 + 告警；其他技能照常                                                                                                                                     |
+| commands | `<名>.md` frontmatter 有 `description`；正文非空；`$ARGUMENTS` 可选                                                                     | 跳过该命令 + 告警（`CommandInfo.description` 必填，D-025）                                                                                                          |
+| hooks    | `event` 在事件表内；`matcher` 是合法正则；`type` ∈ process / shell；`command` 非空；`timeout` 为数字                                    | 跳过该钩子 + 告警；**不执行**                                                                                                                                       |
+| mcp      | JSON 合法；`command` 或 `url` 至少一个；env / headers 只写非敏感配置（密钥引用宿主注入，D-030）                                         | 跳过该 server + 告警；**不 spawn**                                                                                                                                  |
+| agents   | frontmatter `name` = 文件名、`description` 必填、`tools` ∈ 已知工具；正文非空                                                           | 缺 `description` 不产代理（description 是委派唯一依据）；其他非法 → 跳过 + 告警                                                                                     |
+| ui       | `ui.entry` 文件存在；模块可加载并导出 `apply`；`registerSlot` 的挂载点合法                                                              | 不挂该 UI + 告警；**其他槽位照常**，插件列表标黄                                                                                                                    |
+| engine   | `engine.entry` 文件存在；模块可加载并导出插件定义；清单 `engine` 版本字段匹配（兼容门）；依赖表无 `@henira/kernel` / `@henira/protocol` | 不装载该包引擎代码 + 告警；**同 id 替换场景自动回落官方实现**（D-048）；**声明的注入服务无提供者 → 该件不装载 + 告警、其余照常**（装配层预检，D-049）；其余槽位照常 |
 
 **安全规则（D-030，定稿）**：
 
@@ -107,7 +107,7 @@
 - **第三方同权**：AI 创建的插件既可注入官方 / 第三方服务，也可用 ServiceDefinition 提供自己的服务给别人注入（P8 字面）；
 - **东西不是服务，通道才是**：工具、UI 组件、技能 / 命令等内容永远不是服务——它们分别经由 tools 注册表、槽位、读者共享。
 
-**钩子执行语义（定稿）**：`event` 用**生态标准名**（Claude Code 那套是事实标准：`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure` / `Stop`）；Reins 独有的时刻用 `reins/` 前缀扩展，不占用生态名。**名字是 hook 层的公共词表，触发时机是我们的内部缝**——映射由 plugin-hooks 内部完成，不暴露给插件作者：
+**钩子执行语义（定稿）**：`event` 用**生态标准名**（Claude Code 那套是事实标准：`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure` / `Stop`）；Henira 独有的时刻用 `henira/` 前缀扩展，不占用生态名。**名字是 hook 层的公共词表，触发时机是我们的内部缝**——映射由 plugin-hooks 内部完成，不暴露给插件作者：
 
 | `event`              | 触发时机（内部缝）                              |
 | -------------------- | ----------------------------------------------- |
@@ -118,13 +118,13 @@
 | `PostToolUse`        | `tools/post-execute`（成功分支）                |
 | `PostToolUseFailure` | `tools/post-execute`（isError 分支）            |
 | `Stop`               | `loop/turn-stopping`（bail）                    |
-| `reins/…`            | 将来 Reins 独有的时刻（清单随实现加）           |
+| `henira/…`           | 将来 Henira 独有的时刻（清单随实现加）          |
 
 `PreCompact` / `SubagentStart` / `SubagentStop` 等生态名随后按需加入（名字不变）。stdio 灌事件 JSON；退出码 0 放行、**2 = 拦截**、其他非零一律放行；stdout 为 JSON 时支持 deny / ask / allow / 改写参数 / 改写提问 / 附加上下文（封顶 4000 字）；**fail-open**——钩子崩溃 / 超时 / 输出非法 → 目标动作照走；顺序执行，首个拦截短路剩余；超时缺省 60 秒。
 
 **技能披露语义（定稿）**：两级披露——会话初始化只注入目录（名字 + 描述），模型要用时才"激活"、此时才注入全文（带去重与内容缓存）。
 
-**模板变量（定稿）**：`${REINS_PLUGIN_ROOT}` = 插件版本目录；`${REINS_PROJECT_DIR}` = 会话 cwd。
+**模板变量（定稿）**：`${HENIRA_PLUGIN_ROOT}` = 插件版本目录；`${HENIRA_PROJECT_DIR}` = 会话 cwd。
 
 **技能来源（D-020 / D-026 / D-032，定稿）**：技能按五级来源发现（插件包槽位 + 生态标准目录 + 官方随包）——
 
@@ -132,7 +132,7 @@
 - `.agents/skills` 三个"不"：**不创建目录、不复制 / 迁移文件、不登记为插件**（无 `plugin.json`、无开关）；目录不存在 = 没有，外部技能的开关就是文件本身；
 - 形态限 `<name>/SKILL.md` 目录包（agentskills.io），不递归任意层级；发现后与插件技能同走两级披露；
 - 官方随包 = 官方 npm 包内的 `skills/`（目录清单由 config-loader 导出；创建技能随 `plugin-skills` 发布，D-026）；
-- 不新造 `~/.reins/skills/` 或项目 `.reins/skills/` 根。
+- 不新造 `~/.henira/skills/` 或项目 `.henira/skills/` 根。
 
 **界面 UI 模块契约（D-021 / D-028，定稿）**：
 
@@ -177,7 +177,7 @@
 
 **`useResource` 数据泵（D-028）**：
 
-- 地址格式 `reins-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；`pluginId` 必须是当前插件目录名；
+- 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；`pluginId` 必须是当前插件目录名；
 - 只允许调用**同一插件 `mcp/` 里声明过的 server**（所有权闸，越权 403）；
 - 宿主 2 秒共享轮询：同地址多 UI 共用一份泵、引用计数、末订阅者退订；
 - 单次 30 秒超时、结果 200 KB 截断；失败保留上次数据（`status:'failed'` 但 `data` 还在）；
@@ -199,27 +199,27 @@
 - SKILL.md 对齐 Agent Skills 规范（agentskills.io）；
 - MCP 走标准协议（stdio / HTTP / SSE）：npm 上现成的 server，在 `mcp/` 里填一行定义即接；
 - 钩子读者兼认生态聚合 `hooks.json` 写法（一文件装多个钩子）；
-- 模板变量兼认 `${CLAUDE_PLUGIN_ROOT}` / `${ZCODE_PLUGIN_ROOT}`（等同 `${REINS_PLUGIN_ROOT}`）与 `${CLAUDE_PROJECT_DIR}` 等（等同 `${REINS_PROJECT_DIR}`）；其余品牌前缀变量不做兼容（2026-11-12 明确）；
+- 模板变量兼认 `${CLAUDE_PLUGIN_ROOT}` / `${ZCODE_PLUGIN_ROOT}`（等同 `${HENIRA_PLUGIN_ROOT}`）与 `${CLAUDE_PROJECT_DIR}` 等（等同 `${HENIRA_PROJECT_DIR}`）；其余品牌前缀变量不做兼容（2026-11-12 明确）；
 - **不做**：界面导入入口、后台扫描别家目录规整进插件体系；市场货架与 zip 暂存安装机器不建（D-019）。
 
 ## 5. 启停与生效粒度（D-016）
 
-- 开关存 `~/.reins/config/settings.json` 的 `plugins.<id>.enabled`：**缺 key = 启用**，显式 `false` 才停用（形状见 [data-directory.md](./data-directory.md) §2.3）；
-- **装配三步**（每个新会话）：① 基础清单（项目 `reins.config.ts` 写了 `plugins` 听它的，否则出厂清单）② 加已装目录的插件（同 id 不重复算，同名项目盖用户级）③ 去掉 `enabled: false` 的；
+- 开关存 `~/.henira/config/settings.json` 的 `plugins.<id>.enabled`：**缺 key = 启用**，显式 `false` 才停用（形状见 [data-directory.md](./data-directory.md) §2.3）；
+- **装配三步**（每个新会话）：① 基础清单（项目 `henira.config.ts` 写了 `plugins` 听它的，否则出厂清单）② 加已装目录的插件（同 id 不重复算，同名项目盖用户级）③ 去掉 `enabled: false` 的；
 - **对新会话立即生效**，不重启服务；运行中的会话不变，关掉重开才变；
 - **MCP 槽是唯一例外**：插件启用 ≠ MCP 自动连接；首次连接或 `mcp/*.json` 变更需在管理面确认（D-030），确认前该 server 的工具不进注册表；
 - 内圈 5 槽位（session / llm / tools / approval / loop）不提供开关——关了跑不起来；官方界面件（`plugin-web-ui`）同款：**不给关、不提供版本钉**（D-043，界面永不缺席）；
-- 开关只能**关**，不能**换**：换官方插件 = `reins.config.ts` 显式写清单。
+- 开关只能**关**，不能**换**：换官方插件 = `henira.config.ts` 显式写清单。
 - **替换粒度 = 整份清单**（D-022）：想改默认清单用 TS 表达式（`defaultPreset.filter / map / [...spread]`，范例见 [interfaces.md](./interfaces.md) §config-loader）；不设按 id 的补丁语法；同一槽位两个插件 = 内核报错，不静默后者赢。
 - **用户包替换官方插件（D-048）**：包 id 与官方插件相同且带 `engine/` → 新会话装配弹**确认卡**（写明替换谁、代码路径、依赖数；**版本升级重弹**、同版本只一次）；确认才装载，拒绝则官方照常；生效后管理面显示"已被用户插件替换（来源 + 版本）"。优先级 = 项目插件 > 用户插件 > 官方 npm。装载失败 / 运行崩溃 → 标损坏 + 告警 + **自动回落官方实现**；关掉 / 删掉用户包，官方自动回来。21 个官方件（含内圈 5）同一套规则，无特例——一般情况下没人去换，但要能换。同 id 纯内容包（无 `engine/`）不构成替换（D-032 照旧）；不同 id 注册与已启用插件同名工具 → 报错不装载、提示先关官方。**替换粒度两级（D-049）**：换工具件（只换一盒工具）或换服务件（整个换能力实现、注入它的工具件全体跟着换），同一套确认卡与回落；
 - **服务件的开关与失效（D-049）**：关掉 / 换掉一个服务件，注入它的工具件自动不装载并告警（如关掉 fs 服务 → fs-tools / fs-search 全体缺席，模型少一组工具，系统照跑）；同 id 服务件替换走 D-048 确认卡，实现全体跟着换；
-- **引擎代码依赖（D-048）**：`engine/` = 标准 Node 包目录，零依赖单文件，或有依赖 `package.json` + `node_modules` 皆合法；安装 = AI 经 shell 工具跑 `pnpm install`（走既有审批链，用户看得见命令），装载器零安装机器；`pnpm-lock.yaml` 随 `engine/` 走。**分发 / 备份不带 node_modules**——它是可再生的运行件而非数据（package.json + lockfile 照单重建），且原生二进制跨平台拷贝会坏；到场由 AI 照 lockfile 重装一次即复原，缺依赖装载失败 = 标损坏 + 告警 + 同 id 替换场景自动回落官方（四闸既有规则），AI 即安装器。**硬规矩：`@reins/kernel` / `@reins/protocol` 不进依赖表**——一个 harness 只能有一个内核实例，自带副本必炸；宿主经 import map 注入唯一实例（与 `ui/` 的 react、D-043 官方界面件出口同一口子）。
+- **引擎代码依赖（D-048）**：`engine/` = 标准 Node 包目录，零依赖单文件，或有依赖 `package.json` + `node_modules` 皆合法；安装 = AI 经 shell 工具跑 `pnpm install`（走既有审批链，用户看得见命令），装载器零安装机器；`pnpm-lock.yaml` 随 `engine/` 走。**分发 / 备份不带 node_modules**——它是可再生的运行件而非数据（package.json + lockfile 照单重建），且原生二进制跨平台拷贝会坏；到场由 AI 照 lockfile 重装一次即复原，缺依赖装载失败 = 标损坏 + 告警 + 同 id 替换场景自动回落官方（四闸既有规则），AI 即安装器。**硬规矩：`@henira/kernel` / `@henira/protocol` 不进依赖表**——一个 harness 只能有一个内核实例，自带副本必炸；宿主经 import map 注入唯一实例（与 `ui/` 的 react、D-043 官方界面件出口同一口子）。
 
 ## 6. AI 创建、更新与管理
 
 ### 6.1 创建
 
-- **唯一用户侧来源 = AI 创建**：AI 照本规范用文件工具写 `~/.reins/plugins/<id>/<版本>/`，落盘后**新会话生效**（技能文件另可从 `.agents/skills` 只读发现，D-020，不算插件来源）；
+- **唯一用户侧来源 = AI 创建**：AI 照本规范用文件工具写 `~/.henira/plugins/<id>/<版本>/`，落盘后**新会话生效**（技能文件另可从 `.agents/skills` 只读发现，D-020，不算插件来源）；
 - 内容包 = 素材槽位 + 可选代码槽（`ui/` 界面模块、`engine/` 引擎模块，见 §4）；带 `engine/` 时首次生效前管理面弹确认卡（D-048）；
 - 创建载体 = 本文档（规范）+ 官方创建技能（随 `plugin-skills` 包以随包技能发布，D-026）；
 - 设置页不提供市场 / zip / 外部目录导入入口（D-019）；"安装"就是 AI 创建版本目录（D-029）。
@@ -251,7 +251,7 @@
 - **版本**：列出已装版本与当前生效版本，可切换（只影响新会话）；
 - **卸载**：删除 `plugins/<id>/`；默认保留 `plugins-data/<id>/`，显式勾选才删；
 - **数据区**：显示占用，可单独删除；删除需二次确认；
-- **边界**：只操作 `~/.reins/plugins/` 与 `~/.reins/plugins-data/`（项目级同理），拒绝路径穿越；不做市场 / 导入（D-019）。
+- **边界**：只操作 `~/.henira/plugins/` 与 `~/.henira/plugins-data/`（项目级同理），拒绝路径穿越；不做市场 / 导入（D-019）。
 - **引擎件确认卡与"被替换"显示（D-048）**：带 `engine/` 的包首次生效（及版本升级）前，管理面弹确认卡——写明替换谁、代码路径、依赖数，确认才装载、拒绝则官方照常；官方插件行被用户件顶替后显示"**已被用户插件替换（来源 + 版本）**"，与坏插件告警同栏可见。
 
 ## 7. 同名覆盖与宿主槽位（定稿）
@@ -260,17 +260,17 @@
 
 统一链（所有具名内容）：
 
-1. **项目独立定义**（项目 `.agents/skills`、项目 `.reins/agents`）
-2. **项目插件槽位**（项目 `.reins/plugins/*`）
-3. **用户独立定义**（`~/.agents/skills`、`~/.reins/agents`）
-4. **用户插件槽位**（`~/.reins/plugins/*`）
+1. **项目独立定义**（项目 `.agents/skills`、项目 `.henira/agents`）
+2. **项目插件槽位**（项目 `.henira/plugins/*`）
+3. **用户独立定义**（`~/.agents/skills`、`~/.henira/agents`）
+4. **用户插件槽位**（`~/.henira/plugins/*`）
 5. **官方随包**（官方 npm 包内的 skills / commands / agents）
 
 | 类别     | 顺序                                                                                                                                                                                 |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 技能     | 项目 `.agents` > 项目插件 > 用户 `.agents` > 用户插件 > 官方随包                                                                                                                     |
 | 命令     | 项目插件 > 用户插件 > 官方随包（没有独立命令根）                                                                                                                                     |
-| 子代理   | 项目 `.reins/agents` > 项目插件 > 用户 `~/.reins/agents` > 用户插件 > 官方随包                                                                                                       |
+| 子代理   | 项目 `.henira/agents` > 项目插件 > 用户 `~/.henira/agents` > 用户插件 > 官方随包                                                                                                     |
 | 同名插件 | 项目内容包 > 用户内容包；内容包 id 撞官方插件 id：纯内容包 → 跳过 + 告警（官方 id 保留），**带 `engine/` → 经确认卡替换官方**（D-048，项目 > 用户 > 官方 npm）；同 id 多版本按 D-024 |
 
 - **同层多插件同名**：按插件 id 字典序，靠前者赢，并告警；要覆盖就改 id / 名字；

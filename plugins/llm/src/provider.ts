@@ -3,7 +3,7 @@
 
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type { ModelConfig } from "@reins/protocol";
+import type { ModelConfig } from "@henira/protocol";
 
 export interface ProviderRuntime {
   /** 适配器运行期唯一网络依赖注入点：密钥由调用方从 ConfigService 取（D-013② / D-030） */

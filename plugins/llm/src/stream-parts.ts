@@ -5,7 +5,7 @@
 // ③tool-call 流末集中（deltas 只攒不吐，tool-call part 到达才发）。
 // 截断 / 不可解析的 tool 调用不产 tool-call 事件（dsh max-tokens 丢块难题在我们契约下不存在）。
 
-import { type FinishReason, LlmError, type StreamEvent, type TokenUsage } from "@reins/protocol";
+import { type FinishReason, LlmError, type StreamEvent, type TokenUsage } from "@henira/protocol";
 import type {
   FinishReason as AiFinishReason,
   LanguageModelUsage,

@@ -5,17 +5,17 @@
 // fail-closed 矩阵 [dsh] 同构：缺席 / 抛错 / 不合规 → unavailable，必须拒。
 
 import { randomUUID } from "node:crypto";
-import type { ServiceDefinition } from "@reins/kernel";
+import type { ServiceDefinition } from "@henira/kernel";
 import {
   type ApprovalOptions,
   type ApprovalService,
-  asReinsContext,
+  asHeniraContext,
   DECISIONS,
   type Decision,
   type GateVerdict,
   mergeGateVerdict,
   type PermissionRequest,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { argsDigest, isCredentialAccess, isDisasterCommand, matchesRule } from "./chain.js";
 import { sessionAllowedTools } from "./session-allow.js";
 
@@ -24,7 +24,7 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
     name: "approval",
     inject: ["session", "tools", "interaction", "config"],
     start(ctx) {
-      const cx = asReinsContext(ctx);
+      const cx = asHeniraContext(ctx);
       let current: { turn: string; step: number } | undefined;
       ctx.events.on("turn/start", (payload: unknown) => {
         current = { turn: (payload as { turn: string }).turn, step: 0 };

@@ -1,5 +1,5 @@
 {
-  "name": "@reins/plugin-llm",
+  "name": "@henira/plugin-llm",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -17,11 +17,11 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.92",
     "@ai-sdk/provider": "^4.0.38",
-    "@reins/protocol": "workspace:*",
+    "@henira/protocol": "workspace:*",
     "ai": "^7.0.173"
   },
   "devDependencies": {
-    "@reins/kernel": "workspace:*",
+    "@henira/kernel": "workspace:*",
     "@types/node": "^24.0.0"
   }
 }

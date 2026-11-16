@@ -1,5 +1,5 @@
 {
-  "name": "@reins/plugin-approval",
+  "name": "@henira/plugin-approval",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -15,10 +15,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@reins/protocol": "workspace:*"
+    "@henira/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@reins/kernel": "workspace:*",
+    "@henira/kernel": "workspace:*",
     "@types/node": "^24.0.0"
   }
 }

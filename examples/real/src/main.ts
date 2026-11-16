@@ -1,9 +1,9 @@
 // examples/real —— 真实模型 smoke（roadmap M2 判据⑦）。
 // 门槛（env 门控，不进 CI）：
-//   1. 全局配置 ~/.reins/config/settings.json 写默认模型（"<provider>/<model>"），
+//   1. 全局配置 ~/.henira/config/settings.json 写默认模型（"<provider>/<model>"），
 //      models.json 写 baseUrl（默认适配器走 OpenAI 兼容线协议）；
 //   2. credentials.json (0600) 写 providers.<provider> 的 key（D-030：key 不进代码 / env / git）；
-//   3. 跑：pnpm --filter @reins/example-real start
+//   3. 跑：pnpm --filter @henira/example-real start
 // 无凭据 / 无默认模型 → 打印引导后退出（不抛——demo 友好）。
 
 import { promises as fs } from "node:fs";
@@ -13,16 +13,16 @@ import {
   CredentialMissingError,
   createConfigService,
   NoDefaultModelError,
-} from "@reins/config-loader";
-import { createHarness } from "@reins/kernel";
-import { approvalPlugin } from "@reins/plugin-approval";
-import { llmPlugin } from "@reins/plugin-llm";
-import { loopPlugin } from "@reins/plugin-loop";
-import { sessionPlugin } from "@reins/plugin-session";
-import { toolsPlugin } from "@reins/plugin-tools";
-import { asReinsContext } from "@reins/protocol";
+} from "@henira/config-loader";
+import { createHarness } from "@henira/kernel";
+import { approvalPlugin } from "@henira/plugin-approval";
+import { llmPlugin } from "@henira/plugin-llm";
+import { loopPlugin } from "@henira/plugin-loop";
+import { sessionPlugin } from "@henira/plugin-session";
+import { toolsPlugin } from "@henira/plugin-tools";
+import { asHeniraContext } from "@henira/protocol";
 
-const globalDir = process.env.REINS_CONFIG_DIR ?? path.join(homedir(), ".reins", "config");
+const globalDir = process.env.HENIRA_CONFIG_DIR ?? path.join(homedir(), ".henira", "config");
 const configService = createConfigService({ cwd: process.cwd(), globalDir });
 
 let modelId: string;
@@ -32,7 +32,7 @@ try {
 } catch (err) {
   if (err instanceof NoDefaultModelError) {
     console.log(
-      '未配置默认模型：在 ~/.reins/config/settings.json 写 { "model": "<provider>/<model>" } 后重试。',
+      '未配置默认模型：在 ~/.henira/config/settings.json 写 { "model": "<provider>/<model>" } 后重试。',
     );
     process.exit(0);
   }
@@ -43,14 +43,14 @@ try {
 } catch (err) {
   if (err instanceof CredentialMissingError) {
     console.log(
-      `缺少 ${modelId.split("/")[0]} 的凭据：写入 ~/.reins/config/credentials.json (0600) 后重试。`,
+      `缺少 ${modelId.split("/")[0]} 的凭据：写入 ~/.henira/config/credentials.json (0600) 后重试。`,
     );
     process.exit(0);
   }
   throw err;
 }
 
-const sessionDir = await fs.mkdtemp(path.join(tmpdir(), "reins-real-"));
+const sessionDir = await fs.mkdtemp(path.join(tmpdir(), "henira-real-"));
 const harness = createHarness()
   .use(sessionPlugin({ directory: sessionDir, cwd: process.cwd() }))
   .use(toolsPlugin({}))
@@ -72,7 +72,7 @@ const harness = createHarness()
   .use(approvalPlugin())
   .use(loopPlugin());
 await harness.start();
-const ctx = asReinsContext(harness.context);
+const ctx = asHeniraContext(harness.context);
 
 ctx.get("tools").register({
   name: "list-cwd",

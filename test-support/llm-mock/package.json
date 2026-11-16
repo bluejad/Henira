@@ -1,5 +1,5 @@
 {
-  "name": "@reins/llm-mock",
+  "name": "@henira/llm-mock",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -15,7 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@reins/protocol": "workspace:*"
+    "@henira/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0"

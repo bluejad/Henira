@@ -1,4 +1,4 @@
-# @reins/protocol
+# @henira/protocol
 
 契约层：槽位接口（SlotMap 7 槽）+ 引擎 DTO + 封闭词表。零运行时依赖（[packages.md](../../docs/20-architecture/packages.md) 规则 1），所有插件的公共依赖——工具参数"同形零转换"（D-044）从这里开始。
 
@@ -11,7 +11,7 @@
 | -------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------ |
 | envelope.ts    | 会话事件信封 + 首行头（type 第一键 / version 在头）                                     | session.md §2                                    |
 | registry.ts    | 事件注册表：开放 map，校验器 = 最小 duck 接口（不认 schema 库牌子）                     | session.md §3 / D-051                            |
-| context.ts     | 类型化门面（asReinsContext）+ SlotMap 7 槽                                              | interfaces.md kernel 段「类型化门面在 protocol」 |
+| context.ts     | 类型化门面（asHeniraContext）+ SlotMap 7 槽                                             | interfaces.md kernel 段「类型化门面在 protocol」 |
 | services.ts    | SessionService 契约（含 readonly directory）                                            | interfaces.md protocol 段                        |
 | llm.ts         | StreamEvent 5 变体 / LlmError / FinishReason 5 值 / LlmRequest / LlmService             | interfaces.md protocol 段（2026-11-16 定稿）     |
 | tools.ts       | ToolDefinition（裸 JSON Schema）/ ToolContext / ToolResult / ToolOutcome / ToolsService | tools-approval.md §1 / D-044 / D-046             |

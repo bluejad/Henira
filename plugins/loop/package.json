@@ -1,5 +1,5 @@
 {
-  "name": "@reins/plugin-loop",
+  "name": "@henira/plugin-loop",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -15,13 +15,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@reins/protocol": "workspace:*"
+    "@henira/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@reins/kernel": "workspace:*",
-    "@reins/llm-mock": "workspace:*",
-    "@reins/plugin-session": "workspace:*",
-    "@reins/plugin-tools": "workspace:*",
+    "@henira/kernel": "workspace:*",
+    "@henira/llm-mock": "workspace:*",
+    "@henira/plugin-session": "workspace:*",
+    "@henira/plugin-tools": "workspace:*",
     "@types/node": "^24.0.0"
   }
 }

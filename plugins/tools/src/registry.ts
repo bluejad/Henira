@@ -1,8 +1,8 @@
 // 工具注册表：注册查重 + 装载期 schema 校验（D-044：非法 schema 即抛——装配层捕获后
 // 插件跳过 + 告警，D-029）+ 声明式投影。参数运行期校验用同一份编译产物（ajv，draft-07）。
 
-import type { Disposable } from "@reins/kernel";
-import type { ToolDefinition, ToolFilter, WireToolSchema } from "@reins/protocol";
+import type { Disposable } from "@henira/kernel";
+import type { ToolDefinition, ToolFilter, WireToolSchema } from "@henira/protocol";
 import AjvModule from "ajv";
 
 type ValidateArgs = (args: unknown) => boolean;

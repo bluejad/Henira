@@ -3,7 +3,12 @@
 // 摘要消息插在区间起点）→ callId 配对（孤儿 tool/call 合成错误结果，防 400）→
 // 审批问答对 / 审计事件跳过 → reasoning 不回灌模型。
 
-import type { ModelMessage, SessionAttachment, SessionEvent, ToolCallDraft } from "@reins/protocol";
+import type {
+  ModelMessage,
+  SessionAttachment,
+  SessionEvent,
+  ToolCallDraft,
+} from "@henira/protocol";
 import { overlaps, type ReplaceInterval, readSurfaceOp } from "./surface-op.js";
 
 const MESSAGE_TYPES = new Set(["user/message", "system/message", "assistant/message"]);

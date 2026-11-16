@@ -1,4 +1,4 @@
-# @reins/plugin-loop
+# @henira/plugin-loop
 
 loop 槽位官方插件：turn/step 状态机 + 忙时投递（排队持久化 + 插话升格）+ 16ms 增量攒批 + 中断纪律五条。循环权独占：续跑判据 = 收到的 tool-call 事件，不信 finish reason。
 
@@ -9,7 +9,7 @@ loop 槽位官方插件：turn/step 状态机 + 忙时投递（排队持久化 +
 ## 用法
 
 ```ts
-import { loopPlugin } from "@reins/plugin-loop";
+import { loopPlugin } from "@henira/plugin-loop";
 
 createHarness().use(loopPlugin()); // options: { maxStepsPerTurn? }——可选默认不设（D-045）
 

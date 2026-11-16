@@ -1,5 +1,5 @@
 {
-  "name": "@reins/protocol",
+  "name": "@henira/protocol",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -15,6 +15,6 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@reins/kernel": "workspace:*"
+    "@henira/kernel": "workspace:*"
   }
 }

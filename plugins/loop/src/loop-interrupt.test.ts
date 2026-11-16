@@ -1,17 +1,17 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness, type ServiceDefinition } from "@reins/kernel";
-import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
-import { sessionPlugin } from "@reins/plugin-session";
-import { toolsPlugin } from "@reins/plugin-tools";
+import { createHarness, type ServiceDefinition } from "@henira/kernel";
+import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
+import { sessionPlugin } from "@henira/plugin-session";
+import { toolsPlugin } from "@henira/plugin-tools";
 import {
-  asReinsContext,
+  asHeniraContext,
   type Decision,
   type LlmRequest,
   type LlmService,
   type ToolDefinition,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loopPlugin } from "./service.js";
 
@@ -20,7 +20,7 @@ import { loopPlugin } from "./service.js";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(tmpdir(), "reins-loop-int-"));
+  root = await fs.mkdtemp(path.join(tmpdir(), "henira-loop-int-"));
 });
 
 afterEach(async () => {
@@ -84,7 +84,7 @@ async function startedLoop(
     .use(configStub())
     .use(loopPlugin());
   await harness.start();
-  const ctx = asReinsContext(harness.context);
+  const ctx = asHeniraContext(harness.context);
   ctx.get("tools").register(tool);
   return { harness, ctx, loop: ctx.get("loop"), session: ctx.get("session"), mock };
 }

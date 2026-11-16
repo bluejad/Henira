@@ -1,16 +1,16 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness } from "@reins/kernel";
+import { createHarness } from "@henira/kernel";
 import {
   type ApprovalOptions,
-  asReinsContext,
+  asHeniraContext,
   type Decision,
+  type HeniraContext,
   type PermissionRequest,
-  type ReinsContext,
   type ToolContext,
   type ToolOutcome,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type PipelineDeps, runBatch, runOne } from "./pipeline.js";
 import { ToolRegistry } from "./registry.js";
@@ -22,7 +22,7 @@ import { toolsPlugin } from "./service.js";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(tmpdir(), "reins-tools-"));
+  root = await fs.mkdtemp(path.join(tmpdir(), "henira-tools-"));
 });
 
 afterEach(async () => {
@@ -65,7 +65,7 @@ function mkToolCtx(
   };
 }
 
-function makeDeps(ctx: ReinsContext, opts: Partial<PipelineDeps> = {}): PipelineDeps {
+function makeDeps(ctx: HeniraContext, opts: Partial<PipelineDeps> = {}): PipelineDeps {
   const registry = new ToolRegistry();
   return { registry, events: ctx.events, ...opts };
 }
@@ -288,7 +288,7 @@ describe("runOne 五段管线", () => {
   it("toolsPlugin 经 kernel 公共注册路径装配：register + project + execute 全通（P8）", async () => {
     const harness = createHarness().use(toolsPlugin({}));
     await harness.start();
-    const ctx = asReinsContext(harness.context);
+    const ctx = asHeniraContext(harness.context);
     const tools = ctx.get("tools");
     const dispose = tools.register(readTool);
     expect(tools.project().map((t) => t.name)).toEqual(["read"]);

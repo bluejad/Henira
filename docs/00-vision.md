@@ -2,7 +2,7 @@
 
 ## 一句话
 
-Reins 是一个开源的 Agent Harness 框架：**把驾驭 AI Agent 必需的内核做扎实，其余一切交给插件。**
+Henira 是一个开源的 Agent Harness 框架：**把驾驭 AI Agent 必需的内核做扎实，其余一切交给插件。**
 
 ## 核心哲学（项目的存在理由）
 
@@ -10,7 +10,7 @@ Reins 是一个开源的 Agent Harness 框架：**把驾驭 AI Agent 必需的�
 
 - 内核（kernel）只提供机制：服务槽位、依赖装配、事件总线（4 种模式）、可逆装卸；契约层（protocol）提供一切槽位接口与词表。
 - **会话、工具、审批、循环是官方语义插件**，上下文压缩、子智能体、具体工具是官方能力插件——它们与社区插件走同一条注册路径、同权、无特权 API，**任何官方插件都可以被整包替换**（沙箱、评测等其余能力在发布后按 backlog 补）。
-- 装配双轨：开发者用 TS API（`createHarness().use(...)`）与项目 `reins.config.ts`；最终用户在界面上点（落 `~/.reins/config/settings.json`，D-015）；无 YAML patch。
+- 装配双轨：开发者用 TS API（`createHarness().use(...)`）与项目 `henira.config.ts`；最终用户在界面上点（落 `~/.henira/config/settings.json`，D-015）；无 YAML patch。
 
 > 目的不是抢占无人占领的生态位，而是做我们自己的。
 > ——2026-11-11 讨论定论。不围绕竞品空白做设计，按"什么是必须的"划分内核边界。

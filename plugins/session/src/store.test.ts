@@ -20,7 +20,7 @@ let root: string;
 const open: SessionHandle[] = [];
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(tmpdir(), "reins-session-"));
+  root = await fs.mkdtemp(path.join(tmpdir(), "henira-session-"));
 });
 
 afterEach(async () => {

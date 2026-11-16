@@ -1,11 +1,11 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness, type ServiceDefinition } from "@reins/kernel";
-import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
-import { sessionPlugin } from "@reins/plugin-session";
-import { toolsPlugin } from "@reins/plugin-tools";
-import { asReinsContext, type Decision, type LlmService } from "@reins/protocol";
+import { createHarness, type ServiceDefinition } from "@henira/kernel";
+import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
+import { sessionPlugin } from "@henira/plugin-session";
+import { toolsPlugin } from "@henira/plugin-tools";
+import { asHeniraContext, type Decision, type LlmService } from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // 整链装配的真实插件只有 session / tools / loop 自身；llm = mockLlm（脚本驱动），
@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(tmpdir(), "reins-loop-"));
+  root = await fs.mkdtemp(path.join(tmpdir(), "henira-loop-"));
 });
 
 afterEach(async () => {
@@ -73,7 +73,7 @@ const readTool = {
   execute: async () => ({ content: "file body" }),
 };
 
-import type { ToolDefinition } from "@reins/protocol";
+import type { ToolDefinition } from "@henira/protocol";
 
 async function startedLoop(
   script: Parameters<typeof mockLlm>[0],
@@ -91,7 +91,7 @@ async function startedLoop(
     .use(configStub())
     .use((await import("./service.js")).loopPlugin({ maxStepsPerTurn }));
   await harness.start();
-  const ctx = asReinsContext(harness.context);
+  const ctx = asHeniraContext(harness.context);
   ctx.get("tools").register(toolOverride ?? readTool);
   return { harness, ctx, loop: ctx.get("loop"), mock, sessionDir, session: ctx.get("session") };
 }
@@ -258,7 +258,7 @@ describe("turn/step 状态机（loop.md §1）", () => {
       .use(configStub())
       .use((await import("./service.js")).loopPlugin());
     await harness.start();
-    const ctx = asReinsContext(harness.context);
+    const ctx = asHeniraContext(harness.context);
     // 直接 send（闲时直发会开新回合）→ 队列条目随后被冲刷
     await new Promise((r) => setTimeout(r, 30)); // 等 send 的后台回合跑完 + 队列冲刷
     const loop = ctx.get("loop");

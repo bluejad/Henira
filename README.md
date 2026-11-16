@@ -1,4 +1,4 @@
-# Reins
+# Henira
 
 > 开源 Agent Harness 框架 —— 内核只做机制，其余一切皆插件。
 >
@@ -14,7 +14,7 @@
 
 | 约定 / Convention      | 值 / Value                      |
 | ---------------------- | ------------------------------- |
-| npm scope              | `@reins/*`                      |
-| CLI 命令 / CLI command | `reins`                         |
+| npm scope              | `@henira/*`                     |
+| CLI 命令 / CLI command | `henira`                        |
 | 平台 / Platform        | Node.js ≥ 20 · TypeScript · ESM |
 | 许可证 / License       | MIT                             |

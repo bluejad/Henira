@@ -3,8 +3,8 @@
 // seq 必须连续递增（写入路径保证，读取时钉住）。
 
 import { promises as fs } from "node:fs";
-import type { SessionEvent, SessionHeader } from "@reins/protocol";
-import { validatorFor } from "@reins/protocol";
+import type { SessionEvent, SessionHeader } from "@henira/protocol";
+import { validatorFor } from "@henira/protocol";
 
 export class SessionVersionError extends Error {
   constructor(found: unknown) {

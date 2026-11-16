@@ -2,7 +2,7 @@
 // 结构事件永不攒批，opencode "block starts are not batched" 同规；16ms = 一帧，
 // 60fps 渲染的通行攒批窗口）。
 
-import type { LoopEvent } from "@reins/protocol";
+import type { LoopEvent } from "@henira/protocol";
 
 const BATCH_WINDOW_MS = 16;
 

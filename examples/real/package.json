@@ -1,5 +1,5 @@
 {
-  "name": "@reins/example-real",
+  "name": "@henira/example-real",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,17 +7,17 @@
     "start": "node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
-    "@reins/config-loader": "workspace:*",
-    "@reins/plugin-approval": "workspace:*",
-    "@reins/plugin-llm": "workspace:*",
-    "@reins/plugin-loop": "workspace:*",
-    "@reins/plugin-session": "workspace:*",
-    "@reins/plugin-tools": "workspace:*",
-    "@reins/protocol": "workspace:*"
+    "@henira/config-loader": "workspace:*",
+    "@henira/plugin-approval": "workspace:*",
+    "@henira/plugin-llm": "workspace:*",
+    "@henira/plugin-loop": "workspace:*",
+    "@henira/plugin-session": "workspace:*",
+    "@henira/plugin-tools": "workspace:*",
+    "@henira/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@reins/kernel": "workspace:*",
-    "@reins/llm-mock": "workspace:*",
+    "@henira/kernel": "workspace:*",
+    "@henira/llm-mock": "workspace:*",
     "@types/node": "^24.0.0"
   }
 }

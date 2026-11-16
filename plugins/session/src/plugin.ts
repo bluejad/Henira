@@ -3,7 +3,7 @@
 // 目录布局归宿主 / data-directory.md（D-014），插件只认显式目录。
 // 校验器注册随包导入生效（index.ts 顶部对 validators.js 的副作用导入，session.md §3）。
 
-import type { ServiceDefinition } from "@reins/kernel";
+import type { ServiceDefinition } from "@henira/kernel";
 import "./validators.js"; // 官方 15 变体随本包装载注册进开放注册表（session.md §3）——插件自足，不走 index 也在场
 import { createSession, type SessionHandle } from "./service.js";
 

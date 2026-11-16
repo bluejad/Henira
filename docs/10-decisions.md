@@ -626,3 +626,17 @@
 - **理由**：文档是下一个写码 AI 的入口；欠账随里程碑只增不减，随包诞生是唯一不欠的时点。识别口径取邻域（工具对象的 name 与 inputSchema 相邻，ServiceDefinition 的槽位名远离 inputSchema）——闸门是兜底不是穷举，新形状照旧随包写 md。
 - **备注**：AGENTS.md（总纪律 / 文档粒度表 / 命令表）；scripts/check-docs.mjs；M2 欠账当轮补齐（10 份包 README + echo / list-cwd 两个工具 md）。
 - **后续修订**：决定 1 的根清单随 **test-support/ 根**加入扩为四根（packages / plugins / examples / test-support，2026-11-16 划位）——测试支撑件（llm-mock 起）住专属根、整根不进发布集；README 与工具 md 闸门（check:docs）与依赖闸门（check:deps）同扫四根。
+
+## D-053 品牌更名：Reins → Henira，npm scope 定案 `@henira`
+
+- **状态**：已定 · 2026-11-16 · 首次公开发布（GitHub push）前的品牌总决
+- **背景**：推送前占名普查发现 npm scope `@reins` 已被占（prc5 的 17 个 React 工具包，约 2 年未动）——品牌与发布 scope 只能二选一：改 scope 保品牌（`@reins-harness`，永久疙瘩）或整体换名。项目所有者拍板：**整体换名，造一个独一无二、词根有意义的新词**（"用的人多了就自然顺"，Kubernetes 同款路线）。两轮 16 词普查后 Henira 全绿胜出。
+- **决定**：
+  1. **品牌整体更名 Reins → Henira**，词源 = 古希腊语 ἡνία"缰绳/马勒"（三源验源），与 Kubernetes（希腊语 κυβερνήτης"舵手"）同族同构：舵手驭船，驭手（ἡνίοχος）驭马——README 第一行的话术。
+  2. **改名清单**（全库机械扫换，单条提交）：npm scope `@reins/*` → `@henira/*`；类型 API `ReinsContext` / `asReinsContext` / `ReinsConfigService` → `HeniraContext` / `asHeniraContext` / `HeniraConfigService`；环境变量 `REINS_*` → `HENIRA_*`（模板变量认读清单同步为认 `${HENIRA_PLUGIN_ROOT}` / `${HENIRA_PROJECT_DIR}`）；钩子自有前缀 `reins/` → `henira/`；运行数据根 `~/.reins` / 项目 `.reins/` → `~/.henira` / `.henira/`；配置文件 `reins.config.ts` → `henira.config.ts`；系统提示身份行 "You are Reins" → "You are Henira"；内核日志前缀 `[reins:kernel]` → `[henira:kernel]`。**本条目之前的旧条目（含 `@reins/*`、`reins.config.ts` 等旧写法）为历史记录，一字不改**（append-only）。
+  3. **防混闸**：`check:deps` 尾部新增"品牌单一性检查"——除本文件历史条目外，任何入库文件出现 `reins`（任意大小写）即红；CI 同跑。旧品牌写法从此在活代码 / 活文档里不可能复活。
+  4. **普查存档（2026-11-16，两轮 16 词；取证面 = npm 散包 / scope / 全文提及、GitHub 工具类目、PyPI / Docker Hub / Homebrew / 域名 RDAP）**：
+     - 词典词全灭：Bridle / Rein / Tack（npm 用户名占位）、Snaffle（散包被活跃终端工具占）、bridon（活跃包连带 `@bridon`）、volte（死包占散包名）、farrier（**被活跃 coding-agent harness 工具占**，关键词 claude-code / ai-agents——马具隐喻词典已被同行挖空的铁证）、rienda（西语"缰绳"，GitHub 有同名 Go agent harness 仓）、arnes（西语"马具"，活跃 npm agent 工具 + 多个西语 agent 仓）、lorum（2026-09 被占）、freno（**github/freno 733★ 官方节流服务**）、manege（manage 拼错噪音 4387，可发现性死）、brido（Docker Hub 被占 + 任天堂 Birdo 一字邻 + 1989 年巴基斯坦品牌）、peiran（.dev 2025-10 被注册 + 常见中国人名，非造词）；
+     - **Henira 全绿**：npm 散包 / scope / 全文提及零；PyPI、Docker Hub、Homebrew 全空；GitHub 工具类目零撞名（全站仅 2 处无关用户名字母子串）；henira.dev / henira.io 未注册；通用网络仅软件类目之外的小时尚品牌与内容创作者。已知代价：英语读者一眼可能误读为 hernia（搜索引擎不窜，口头一次性纠正成本）。
+- **理由**：①类目隐喻词典（英语马具族 + 西语 arnés / rienda + farrier 这类冷词）已被全球同行挖空——Reins 撞名不是名字不幸，是正中类目靶心的副产品，造词是唯一空白区；②造词的 scope 即品牌（`@henira`），"scope 与品牌分叉"和"新旧 scope 混用"两个风险从结构上消失；③词根有魂：缰绳 = 驾驭 AI agent 的本义，与 Kubernetes 的希腊舵手互为镜像，公开话术一行讲完。
+- **备注**：scripts/check-deps.mjs（品牌单一性检查）；发布占坑账——npm org `henira` 与 Docker Hub org `henira` 于 M4 发布前注册（免费），henira.com 不追；henira.dev 域名暂缓购买（项目所有者拍板，购买时尽快注册）。作者邮箱卫生（QQ 邮箱 → GitHub noreply 历史重写）属贡献者身份管理，非项目决策，不另立 ADR。

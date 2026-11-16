@@ -3,8 +3,8 @@
 // 判定链经 ToolContext.requestPermission 消费——ToolContext 由 loop 装配（把 approval
 // 槽位接进来），本件自身不 inject approval（§1：ToolContext 注入一切依赖）。
 
-import type { ServiceDefinition } from "@reins/kernel";
-import type { ToolCall, ToolContext, ToolOutcome, ToolsService } from "@reins/protocol";
+import type { ServiceDefinition } from "@henira/kernel";
+import type { ToolCall, ToolContext, ToolOutcome, ToolsService } from "@henira/protocol";
 import { type PipelineDeps, type PipelineOptions, runBatch, runOne } from "./pipeline.js";
 import { ToolRegistry } from "./registry.js";
 

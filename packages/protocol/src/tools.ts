@@ -1,7 +1,7 @@
 // tools 槽位契约（interfaces.md protocol 段，2026-11-16 定稿）。
 // 五段管线与 pre-execute×判定链组合语义见 tools-approval.md §2 / §2.1。
 
-import type { Disposable } from "@reins/kernel";
+import type { Disposable } from "@henira/kernel";
 import type { ApprovalOptions, Decision, PermissionRequest } from "./approval.js";
 import type { ConfigService } from "./config.js";
 import type { JsonSchema, WireToolSchema } from "./llm.js";

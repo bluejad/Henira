@@ -1,4 +1,4 @@
-# @reins/plugin-tools
+# @henira/plugin-tools
 
 tools 槽位官方插件：工具注册表 + 五段执行管线 + 统一出口限量。两条缝挂 ctx.events（`tools/pre-execute` / `tools/post-execute`，D-027 命名）；判定链经 ToolContext.requestPermission 消费（ToolContext 由 loop 装配，本包无 inject）。
 
@@ -9,7 +9,7 @@ tools 槽位官方插件：工具注册表 + 五段执行管线 + 统一出口�
 ## 用法
 
 ```ts
-import { toolsPlugin } from "@reins/plugin-tools";
+import { toolsPlugin } from "@henira/plugin-tools";
 
 createHarness().use(toolsPlugin({})); // options 全可省
 ctx.get("tools").register(myTool); // start 后注册工具（ToolDefinition）

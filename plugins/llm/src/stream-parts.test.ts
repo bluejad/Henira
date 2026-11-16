@@ -1,7 +1,7 @@
 // AI SDK → StreamEvent 映射测试：合成 TextStreamPart 直接喂 mapper（不联网、不装 provider）。
 // P3 三不变量 + 截断调用不产事件 + 错误 rejection 通道在此锁定。
 
-import { LlmError, type StreamEvent } from "@reins/protocol";
+import { LlmError, type StreamEvent } from "@henira/protocol";
 import { describe, expect, it } from "vitest";
 import { mapFinishReason, mapUsage, StreamEventMapper, ToolCallAssembler } from "./stream-parts.js";
 

@@ -7,8 +7,8 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { SessionEvent, SessionEventInput, SessionHeader } from "@reins/protocol";
-import { validatorFor } from "@reins/protocol";
+import type { SessionEvent, SessionEventInput, SessionHeader } from "@henira/protocol";
+import { validatorFor } from "@henira/protocol";
 import { acquireSessionLock, type SessionLock } from "./lock.js";
 import { readSessionFile } from "./reader.js";
 import { overlaps, type ReplaceInterval, readSurfaceOp } from "./surface-op.js";

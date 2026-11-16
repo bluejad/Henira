@@ -5,24 +5,24 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createConfigService } from "@reins/config-loader";
-import { createHarness } from "@reins/kernel";
-import { type MockEntry, mockLlm } from "@reins/llm-mock";
-import { approvalPlugin } from "@reins/plugin-approval";
-import { loopPlugin } from "@reins/plugin-loop";
-import { sessionPlugin } from "@reins/plugin-session";
-import { toolsPlugin } from "@reins/plugin-tools";
+import { createConfigService } from "@henira/config-loader";
+import { createHarness } from "@henira/kernel";
+import { type MockEntry, mockLlm } from "@henira/llm-mock";
+import { approvalPlugin } from "@henira/plugin-approval";
+import { loopPlugin } from "@henira/plugin-loop";
+import { sessionPlugin } from "@henira/plugin-session";
+import { toolsPlugin } from "@henira/plugin-tools";
 import {
-  asReinsContext,
+  asHeniraContext,
   type Decision,
+  type HeniraContext,
   type InteractionAnswer,
   type InteractionRequest,
   type InteractionService,
   type LlmService,
-  type ReinsContext,
   type ServiceDefinition,
   type ToolDefinition,
-} from "@reins/protocol";
+} from "@henira/protocol";
 
 export interface MockAssemblyOptions {
   /** 脚本化 StreamEvent 序列（一次模型调用一条） */
@@ -72,14 +72,14 @@ export const echoTool: ToolDefinition = {
 /** 装配 + start；返回类型化上下文与关键槽位 */
 export async function assembleMock(options: MockAssemblyOptions): Promise<{
   harness: ReturnType<typeof createHarness>;
-  ctx: ReinsContext;
+  ctx: HeniraContext;
   sessionDir: string;
   dispose: () => Promise<void>;
 }> {
   const sessionDir =
-    options.sessionDir ?? (await fs.mkdtemp(path.join(tmpdir(), "reins-example-")));
+    options.sessionDir ?? (await fs.mkdtemp(path.join(tmpdir(), "henira-example-")));
   const mock = mockLlm(options.script);
-  const globalDir = await fs.mkdtemp(path.join(tmpdir(), "reins-example-config-"));
+  const globalDir = await fs.mkdtemp(path.join(tmpdir(), "henira-example-config-"));
   // 真配置服务的最小 settings（mock 模型——llm 是桩，config 只需给得出 ModelConfig）
   await fs.writeFile(
     path.join(globalDir, "settings.json"),
@@ -98,7 +98,7 @@ export async function assembleMock(options: MockAssemblyOptions): Promise<{
     })
     .use(loopPlugin());
   await harness.start();
-  const ctx = asReinsContext(harness.context);
+  const ctx = asHeniraContext(harness.context);
   for (const tool of options.tools ?? [echoTool]) {
     ctx.get("tools").register(tool);
   }

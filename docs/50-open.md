@@ -21,7 +21,7 @@ _无。M1 开工前的阻塞项已全部定稿。_
 - [ ] 黑窗口聊天（cli 包）与 Repl 命令集、流式渲染——发布后启做
 - [ ] TUI 拓扑：**倾向 C1** 薄客户端连本地 server（终端"不起服务"的坑位由发布后 cli 聊天占住）——共同成本是 InteractionService 终端实现；发布后按需求定稿（[hosts.md](./20-architecture/hosts.md) §6）
 - [ ] 移动端层次：**倾向远程客户端先行**（复用①栈；第一步响应式网页 / PWA，原生壳后置）；proot 手机本地执行为执行环境课题单独立项；发布后按需求定稿（移动 UI 词表已随 D-033 推迟）
-- [ ] 本地沙箱插件设计：**倾向暂缓 + 容器过渡**（`reins serve` 跑进容器 / devcontainer 即得隔离；需 SandboxService 新槽位，开工时立 ADR）；与云已定不共用（D-036）
+- [ ] 本地沙箱插件设计：**倾向暂缓 + 容器过渡**（`henira serve` 跑进容器 / devcontainer 即得隔离；需 SandboxService 新槽位，开工时立 ADR）；与云已定不共用（D-036）
 - [ ] CI 矩阵（node 20/22/24 × win/linux/mac？）
 - [ ] 文档英文版时机（M4 判据已含 README 英文，docs 是否全翻）
 - [ ] 发布后的 backlog 排期（评测闭环、沙箱、ACP 等协议接入、进程边界 SDK、conformance 守护套件的再评估）
@@ -33,11 +33,11 @@ _已定稿归档区（勾掉的问题在这里留一行结论 + 指向）_
 - ✅ 文档结构粒度——docs/ 16 份文件（2026-11-11，D-009；2026-11-12 增 plugins.md、2026-11-13 增 hosts.md 后为 17；2026-11-14 调研存档定为两份、总数 16，D-047）
 - ✅ 架构形态——机制内核 + 一切皆插件，官方语义包可整包替换（2026-11-11，D-010）；放弃"语义内核 + 只增不改"方案
 - ✅ 守护方式——**不做 conformance 套件**（YAGNI，开源用户自主组装责任自负；生态成熟后再评估）；官方默认 = 安全默认 + 文档责任声明（D-010 配套）
-- ✅ 装配机制——TS API（开发者）+ `reins.config.ts`（开发者手写），**无 YAML patch**（2026-11-11，D-011；后由 D-015 收窄：最终用户面 = 界面 + settings.json）；重开后门：跨语言 SDK / 多 profile / 热改需求出现时从上往下加翻译层
+- ✅ 装配机制——TS API（开发者）+ `henira.config.ts`（开发者手写），**无 YAML patch**（2026-11-11，D-011；后由 D-015 收窄：最终用户面 = 界面 + settings.json）；重开后门：跨语言 SDK / 多 profile / 热改需求出现时从上往下加翻译层
 - ✅ 事件模式——定为 4 种：emit / serial / waterfall / **bail**（否决）（D-012①）
 - ✅ 槽位接口归属——全部放 protocol，kernel 保持纯机制（D-012②）
 - ✅ 插件物理位置——语义 5 + 能力 5 全进 `plugins/`，`packages/` 只留 kernel / protocol / 宿主（D-012③；后扩为 16 见 D-018 / D-043、再至 21 见 D-049）
-- ✅ config 读取器——独立小包 `@reins/config-loader`，宿主层共享（D-012④）
+- ✅ config 读取器——独立小包 `@henira/config-loader`，宿主层共享（D-012④）
 - ✅ 凭据硬拒清单——由官方 approval 插件承担（kernel 不承载业务策略）（D-012④）
 - ✅ 死循环熔断——官方插件，走 `loop/turn-stopping`（bail）缝（loop.md §4）
 - ✅ 交互槽位——新增 `InteractionService`（protocol），approval 只管策略，弹卡收答归宿主（D-013①）
@@ -45,21 +45,21 @@ _已定稿归档区（勾掉的问题在这里留一行结论 + 指向）_
 - ✅ protocol 最小化规则——只放"两个插件必须一致的东西"（D-013③）
 - ✅ 替换者责任清单——6 条写入 principles.md P8（D-013④）
 - ✅ bail 去留——保留；理由改为官方熔断插件的真实需求（D-013⑤）
-- ✅ 会话存储路径与运行数据目录——两层结构（`~/.reins/` + 项目内 `.reins/`）、`--<slug60>-<hash8>--` 命名、检查点平行树（2026-11-11，D-014，[data-directory.md](./20-architecture/data-directory.md)）
+- ✅ 会话存储路径与运行数据目录——两层结构（`~/.henira/` + 项目内 `.henira/`）、`--<slug60>-<hash8>--` 命名、检查点平行树（2026-11-11，D-014，[data-directory.md](./20-architecture/data-directory.md)）
 - ✅ JSONL 写入语义——追加 + `fsync`；读取时丢弃末尾半行；`tmp + rename` 只用于 meta / 注册表这类整体重写文件（2026-11-11，session.md §5）
 - ✅ 数据模型三处归属——压缩 = 替换记录（原事件永久保留、区间只前移）；审批问答对在回合内且不进模型历史、没有打开回合不记、先落 decided 再执行；权限分两层（会话内 = 事件，跨会话 = `config/permissions.json`）（2026-11-12，session.md §1.1 / §4、tools-approval.md §3.1）
 - ✅ **事件词表 v0**——15 个类型；信封 `{type, seq, time, data, ignorable?}` + 第 1 行不可变 `SessionHeader`；`turn/start`·`turn/end` 命名；每条事件显式带 turn/step；`surfaceOp` 作为压缩唯一机制入口；`turn/end.reason` 7 值；`request/header` 每请求快照；`assistant/attempt` 保留；保留域 + 包名前缀的命名规则；fork 实现 = 复制前缀，切点在半回合处补 `turn/end{forked}`（2026-11-12，session.md §2–§6）
-- ✅ **kernel 签名**——`name?`（插件可不占槽位）；`Veto = {by, reason, resume?}`、`bail(): Promise<Veto|undefined>`；四模式四条注册方法（`on` / `onSerial` / `onWaterfall` / `onBail`）；四类错误时机（缺槽位 / 重名在 use / start 后 use / inject 静态检查）；`effect()` 与 `stop()` 分工；类型化门面 `ReinsContext` 留 protocol（2026-11-12，interfaces.md §kernel）
+- ✅ **kernel 签名**——`name?`（插件可不占槽位）；`Veto = {by, reason, resume?}`、`bail(): Promise<Veto|undefined>`；四模式四条注册方法（`on` / `onSerial` / `onWaterfall` / `onBail`）；四类错误时机（缺槽位 / 重名在 use / start 后 use / inject 静态检查）；`effect()` 与 `stop()` 分工；类型化门面 `HeniraContext` 留 protocol（2026-11-12，interfaces.md §kernel）
 - ✅ **会话级数据归属**——附件、子代理记录、侧问、计划、任务全部进会话目录（相对路径，删除 / fork 只动一个目录）；`system/message.key` 同名最新者胜；压缩后重注入（2026-11-12，data-directory.md §2.1、session.md §2.2 / §4 / §6）
 - ✅ **侧问（sidechats）**——就是一个挂在主问上的主问：`sessions/<sessionId>/sidechats/<sideChatId>/` 嵌套小会话目录，结构同会话目录，不并入主日志（2026-11-12，data-directory.md §2.1）
 - ✅ **计划 / 任务的存储**——会话目录内的文件：`plans/index.json` + `plans/<slug>.md` + `tasks/<id>.json`（通用清单字段；刻意不设 `sessionId` 与 `path`）；会话日志与 `meta.json` 不含计划 / 任务字段；只有插件写、不支持手工改；日志照记，对不上时按日志重建。**同日曾先定为"无独立文件、状态只在日志"，后改定为文件方案**——同步是所有会话内文件的共性问题，统一处理即可（2026-11-12，data-directory.md §2.2）
-- ✅ **计划与任务是一个插件**——`@reins/plugin-tasks`（外圈，不占槽位，无需 ADR；计划部分可关）：两者共用"一条主线"状态，拆开则两个插件互改对方数据、须在 protocol 新增公共接口（2026-11-12，packages.md。**后被 D-049 修订**：共用状态改由任务服务承接——拆为 tasks 服务件 + plan / todo 工具件，当年"须新增公共接口"的顾虑正是服务化的前提）
-- ✅ **配置面**——官方默认预设从 config-loader 导出（无 config 文件即用它；想改 = TS import spread，无 patch 语法）；配置两文件：`~/.reins/config/settings.json`（界面上点、程序写：model / plugins / ui）与项目 `reins.config.ts`（开发者手写：model / plugins / options），同一项听项目的（2026-11-12，D-015，interfaces.md §config-loader、data-directory.md §2.3）
-- ✅ **插件启用与装配**——装了就生效 + settings.json 开关（缺 key = 启用）；装配三步（基础清单 → 加已装目录 → 去关掉的；同 id 不重复算，同名项目盖用户级）；**对新会话立即生效**，运行中会话不变；官方替换 = reins.config.ts 显式写清单，不做目录自动顶替；内圈 5 槽位不给关（2026-11-12，D-016，plugins.md §5）
+- ✅ **计划与任务是一个插件**——`@henira/plugin-tasks`（外圈，不占槽位，无需 ADR；计划部分可关）：两者共用"一条主线"状态，拆开则两个插件互改对方数据、须在 protocol 新增公共接口（2026-11-12，packages.md。**后被 D-049 修订**：共用状态改由任务服务承接——拆为 tasks 服务件 + plan / todo 工具件，当年"须新增公共接口"的顾虑正是服务化的前提）
+- ✅ **配置面**——官方默认预设从 config-loader 导出（无 config 文件即用它；想改 = TS import spread，无 patch 语法）；配置两文件：`~/.henira/config/settings.json`（界面上点、程序写：model / plugins / ui）与项目 `henira.config.ts`（开发者手写：model / plugins / options），同一项听项目的（2026-11-12，D-015，interfaces.md §config-loader、data-directory.md §2.3）
+- ✅ **插件启用与装配**——装了就生效 + settings.json 开关（缺 key = 启用）；装配三步（基础清单 → 加已装目录 → 去关掉的；同 id 不重复算，同名项目盖用户级）；**对新会话立即生效**，运行中会话不变；官方替换 = henira.config.ts 显式写清单，不做目录自动顶替；内圈 5 槽位不给关（2026-11-12，D-016，plugins.md §5）
 - ✅ **插件格式与来源**——版本目录 = 清单 + `index.js`（约定名，纯内容包可无）+ 开放内容目录（skills / commands / hooks / mcp / agents / ui + 自由区）；依赖发布时单文件打包；唯一用户侧来源 = **AI 自己创建**（内容包）；术语定"界面 UI"（2026-11-12，D-017，plugins.md。**后被 D-019 修订**：生态兼容恢复，排除的是导入 / 同步管线；**后被 D-021 补充**：`ui/` 可带界面模块代码；**后被 D-048 修订**：新增 `engine/` 引擎代码槽位、依赖放开 pnpm，`index.js` 占位作废）
 - ✅ **生态兼容澄清**——不做导入 / 同步管线（界面无入口、后台不扫描）与市场货架机器；格式采用行业标准（agentskills.io / MCP 标准协议 / 聚合 hooks.json / 生态变量），市面上现成的直接可用（2026-11-12，D-019，plugins.md §4）
 - ✅ **排期甲与里程碑调整**——官方插件 11 → **15**（+ skills / mcp / hooks / commands），全进 M4；"网页界面边界"升为 M4 前置；黑窗口聊天推迟到发布后（启动服务的命令保留）（2026-11-12，D-018，40-roadmap.md、packages.md）
-- ✅ **技能来源补口**——只读扫描项目 `.agents/skills/` 与用户 `~/.agents/skills/`（agentskills.io 标准）；优先级 项目插件 > 项目 `.agents` > 用户插件 > 用户 `.agents`；不创建 / 不复制 / 不登记；不新造 `~/.reins/skills`（2026-11-12，D-020，plugins.md §4、data-directory.md §1；后由 D-026 增第五级"官方随包"；**D-032 再调整为 项目 `.agents` > 项目插件 > 用户 `.agents` > 用户插件 > 官方随包**）
+- ✅ **技能来源补口**——只读扫描项目 `.agents/skills/` 与用户 `~/.agents/skills/`（agentskills.io 标准）；优先级 项目插件 > 项目 `.agents` > 用户插件 > 用户 `.agents`；不创建 / 不复制 / 不登记；不新造 `~/.henira/skills`（2026-11-12，D-020，plugins.md §4、data-directory.md §1；后由 D-026 增第五级"官方随包"；**D-032 再调整为 项目 `.agents` > 项目插件 > 用户 `.agents` > 用户插件 > 官方随包**）
 - ✅ **界面 UI 形态**——ESM 模块 + 类型化挂载点（不 eval、不 `new Function`）；`ui/main.js` 导出 `apply(ctx)`，门面先只有 `registerSlot`（后由 D-028 扩为 12 方法宿主门面）；v1 三个挂载点 `session.top` / `composer.above` / `sidebar.right`；`ui/` 是唯一可带代码的口子（2026-11-12，D-021，plugins.md §3/§4；**后由 D-048 新增 `engine/` 引擎代码槽位，`ui/` 不再是唯一代码口子**）
 - ✅ **替换粒度**——整份清单 + TS 表达式（`defaultPreset.filter / map / spread`），不设按 id 的补丁层；同一槽位两个插件 = 内核报错（2026-11-12，D-022，interfaces.md §config-loader）
 - ✅ **内核自研**——不 vendor cordis；M1 增"语义钉子"测试清单，M2 收尾设 vendor 评估闸门（2026-11-12，D-023，interfaces.md §kernel、40-roadmap.md M1/M2）
@@ -77,7 +77,7 @@ _已定稿归档区（勾掉的问题在这里留一行结论 + 指向）_
 - ✅ **宿主形态总口径**——引擎是库、宿主决定住处；三拓扑 ①一对多 / ②一对一（①的退化用法）/ ③零服务；Web 与桌面住 ①、headless 与 sdk 住 ③；server 是宿主之一不是必经层（2026-11-13，D-034，hosts.md）
 - ✅ **桌面宿主＝A1**——utilityProcess 起 server 子进程＋窗口加载回环；server 升正式宿主；回环三件套（只绑 127.0.0.1 / 随机端口 / Host 校验＋token 位）（2026-11-13，D-035，hosts.md、packages.md）
 - ✅ **云端＝分层丙案**——token / user 字段进 server，容器编排 = `examples/cloud` 样例，不立 cloud 宿主包；云容器本身即沙箱（2026-11-13，D-036，hosts.md、packages.md）
-- ✅ **npm 形态与 headless 入口**——`@reins/sdk` 纯 TS（零 React）+ `@reins/web` 可嵌入（注入 client），不造 `@reins/sdk/web` 子路径、不把 UI 搬进 sdk；headless = cli 子命令 `reins run`，不立独立包（2026-11-13，D-037，hosts.md、packages.md）
+- ✅ **npm 形态与 headless 入口**——`@henira/sdk` 纯 TS（零 React）+ `@henira/web` 可嵌入（注入 client），不造 `@henira/sdk/web` 子路径、不把 UI 搬进 sdk；headless = cli 子命令 `henira run`，不立独立包（2026-11-13，D-037，hosts.md、packages.md）
 - ✅ **web 升正式宿主**——与 server 同级，"宿主示例"表述移除（2026-11-13，D-038，packages.md、00-vision.md）
 - ✅ **examples 目录形态**——mock（离线 e2e 载体，M2）+ real（真实模型 demo，M2）+ cloud（部署样例，D-036）三者角色已定（2026-11-13，packages.md、40-roadmap.md）
 - ✅ **fork 复制粒度**——整目录复制（含分叉点后产生的子代理记录 / 侧问；计划 / 任务按日志重建到分叉点）；"截断丢弃 transcript"式裁剪不采用：裁剪要对日志外的文件做时间对齐，机器不小、收益只是"分叉会话里少看见几条记录"（2026-11-13，session.md §6）
@@ -98,4 +98,4 @@ _已定稿归档区（勾掉的问题在这里留一行结论 + 指向）_
 - ✅ **开源卫生：一切引用可公开对证**——来源标签封闭词表（公开仓库实名 + `[用户]`）；教训三分类：公开锚点（公开仓库 + file:line）/ 通用真理无主语 / 独家判断自持，不编归属；实证数字一律无主语；引用统一公开锚点（2026-11-14，D-047；D-004 表述随改）
 - ✅ **AI 创建插件开放引擎代码（engine/ 槽位，D-048）**——版本目录新增 `engine/`（与素材槽平级；ESM 模块加载不 eval；与官方同一套 API，P8 字面同权）；同 id + `engine/` 经确认卡显式替换官方（项目 > 用户 > 官方 npm；版本升级重弹、同版本一次；失败 / 崩溃 / 关闭自动回落官方）；**16 个官方插件含内圈 5 全部可换，无特例**（"一般情况下没人去换的，但是要能替换"）；依赖放开 = `engine/` 标准 Node 包，AI 自己 `pnpm install` 走审批链、装载器零安装机器；硬规矩 = kernel / protocol 不进依赖表、宿主 import map 注入唯一实例（2026-11-15，D-048，plugins.md §1–§7.1、data-directory.md；dsh plugin-manager 四道闸实证：审批升权 tools.ts:39-43 / 构建脚本 README:64 / 兼容门 :69-71 / inspect :48 / 回滚 :104）
 - ✅ **能力服务化（D-049）**——官方插件对外能力**一律服务，只有一种写法**（单消费者亦然，不做两轨道）；跨包共享必经服务，注入声明在引擎模块导出（`export const inject`）、装配层预检（服务不在场 = 该件不装载 + 告警）；清单开放不封顶、第三方（AI 插件）同权提供与消费；**围栏跟着能力走**（修订 D-039"围栏进工具"）；替换两级粒度（工具件 / 服务件，同一套 D-048 确认卡与回落）；界面挂点 = 界面侧服务（theme / shortcuts 词表 M3 对齐）；按族拆包 fs / shell / tasks——**官方件 16 → 21**；盒（插件）/ 货（工具）/ 通道（服务）/ 清单（配置）词表入 plugins.md §1（2026-11-15，D-049，plugins.md / interfaces.md 能力服务表 / packages.md / data-directory.md / roadmap / principles P8；dsh 全库 ~60 服务取证：tool-fs inject=['tools','fs',…] tool-fs/src/index.ts:23、shell 契约+四实现+四工具包、compaction 单消费者也跨包成服务、todo=sessionProjections）
-- ✅ **mock LLM 测试设施形态**——独立测试支撑包（@reins/llm-mock，原定 `packages/llm-mock`，后随 test-support/ 根划位迁至 `test-support/llm-mock`——目录即宣言，产品包与测试假件分家）：llm 槽位的**脚本化 mock 实现**（一次性响应队列 + 兜底应答函数 + 请求捕获 + 造事件辅助 + `'hang'`/`Error` 条目；自校验 StreamEvent 不变量）。立独立包的两条理由：①mock 本质是 llm 槽位**第二种实现**——packages.md 卷首"出现第二种实现再拆包零迁移"；②插件互不 import 规则是 CI 强制，测试方 import mock 必须走非插件包（以 devDependency 消费）。取证四仓：dsh 槽位级 MockAdapter（mock-adapter.ts:72-85）+ 三层设施、opencode TestLLM（ai/src/testing.ts:36-51）发布为 /testing 出口、ZCode 每包自备、CC 用 VCR 录制重放（vcr.ts，CI 缺 fixture 硬拒）——两层互补，HTTP 线级 mock + 录制重放随适配器成熟后追加不互斥（2026-11-16，M2 计划定案；packages.md 树 + 依赖规则同步）
+- ✅ **mock LLM 测试设施形态**——独立测试支撑包（@henira/llm-mock，原定 `packages/llm-mock`，后随 test-support/ 根划位迁至 `test-support/llm-mock`——目录即宣言，产品包与测试假件分家）：llm 槽位的**脚本化 mock 实现**（一次性响应队列 + 兜底应答函数 + 请求捕获 + 造事件辅助 + `'hang'`/`Error` 条目；自校验 StreamEvent 不变量）。立独立包的两条理由：①mock 本质是 llm 槽位**第二种实现**——packages.md 卷首"出现第二种实现再拆包零迁移"；②插件互不 import 规则是 CI 强制，测试方 import mock 必须走非插件包（以 devDependency 消费）。取证四仓：dsh 槽位级 MockAdapter（mock-adapter.ts:72-85）+ 三层设施、opencode TestLLM（ai/src/testing.ts:36-51）发布为 /testing 出口、ZCode 每包自备、CC 用 VCR 录制重放（vcr.ts，CI 缺 fixture 硬拒）——两层互补，HTTP 线级 mock + 录制重放随适配器成熟后追加不互斥（2026-11-16，M2 计划定案；packages.md 树 + 依赖规则同步）

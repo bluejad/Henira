@@ -3,8 +3,8 @@ export {
   type ConfigLoaderOptions,
   CredentialMissingError,
   createConfigService,
+  type HeniraConfigService,
   NoDefaultModelError,
-  type ReinsConfigService,
   validateAttachments,
 } from "./config.js";
 export {

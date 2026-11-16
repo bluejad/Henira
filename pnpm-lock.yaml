@@ -26,29 +26,29 @@ importers:
 
   examples/mock:
     dependencies:
-      '@reins/config-loader':
+      '@henira/config-loader':
         specifier: workspace:*
         version: link:../../packages/config-loader
-      '@reins/llm-mock':
+      '@henira/llm-mock':
         specifier: workspace:*
         version: link:../../test-support/llm-mock
-      '@reins/plugin-approval':
+      '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
-      '@reins/plugin-loop':
+      '@henira/plugin-loop':
         specifier: workspace:*
         version: link:../../plugins/loop
-      '@reins/plugin-session':
+      '@henira/plugin-session':
         specifier: workspace:*
         version: link:../../plugins/session
-      '@reins/plugin-tools':
+      '@henira/plugin-tools':
         specifier: workspace:*
         version: link:../../plugins/tools
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
       '@types/node':
@@ -57,32 +57,32 @@ importers:
 
   examples/real:
     dependencies:
-      '@reins/config-loader':
+      '@henira/config-loader':
         specifier: workspace:*
         version: link:../../packages/config-loader
-      '@reins/plugin-approval':
+      '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
-      '@reins/plugin-llm':
+      '@henira/plugin-llm':
         specifier: workspace:*
         version: link:../../plugins/llm
-      '@reins/plugin-loop':
+      '@henira/plugin-loop':
         specifier: workspace:*
         version: link:../../plugins/loop
-      '@reins/plugin-session':
+      '@henira/plugin-session':
         specifier: workspace:*
         version: link:../../plugins/session
-      '@reins/plugin-tools':
+      '@henira/plugin-tools':
         specifier: workspace:*
         version: link:../../plugins/tools
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
-      '@reins/llm-mock':
+      '@henira/llm-mock':
         specifier: workspace:*
         version: link:../../test-support/llm-mock
       '@types/node':
@@ -91,7 +91,7 @@ importers:
 
   packages/config-loader:
     dependencies:
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
@@ -103,17 +103,17 @@ importers:
 
   packages/protocol:
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../kernel
 
   plugins/approval:
     dependencies:
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
       '@types/node':
@@ -128,14 +128,14 @@ importers:
       '@ai-sdk/provider':
         specifier: ^4.0.38
         version: 4.0.38
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       ai:
         specifier: ^7.0.173
         version: 7.0.173(zod@4.6.7)
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
       '@types/node':
@@ -144,20 +144,20 @@ importers:
 
   plugins/loop:
     dependencies:
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
-      '@reins/llm-mock':
+      '@henira/llm-mock':
         specifier: workspace:*
         version: link:../../test-support/llm-mock
-      '@reins/plugin-session':
+      '@henira/plugin-session':
         specifier: workspace:*
         version: link:../session
-      '@reins/plugin-tools':
+      '@henira/plugin-tools':
         specifier: workspace:*
         version: link:../tools
       '@types/node':
@@ -166,14 +166,14 @@ importers:
 
   plugins/session:
     dependencies:
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       zod:
         specifier: ^4.0.0
         version: 4.6.7
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
       '@types/node':
@@ -182,14 +182,14 @@ importers:
 
   plugins/tools:
     dependencies:
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
     devDependencies:
-      '@reins/kernel':
+      '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
       '@types/node':
@@ -198,7 +198,7 @@ importers:
 
   test-support/llm-mock:
     dependencies:
-      '@reins/protocol':
+      '@henira/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
     devDependencies:

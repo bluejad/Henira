@@ -1,4 +1,4 @@
-// @reins/llm-mock —— llm 槽位的脚本化 mock（50-open 归档 2026-11-16）。
+// @henira/llm-mock —— llm 槽位的脚本化 mock（50-open 归档 2026-11-16）。
 // 直接实现 protocol 的 LlmService 契约（槽位级，不碰 HTTP）：脚本按调用次序消费，
 // 尾部函数条目兼作兜底应答器；请求全量捕获供断言；'hang' / Error 条目演练失败路径。
 // 序列自校验把 P3 三不变量变成 mock 侧错误——脚本写错在构造期就报，不进测试。
@@ -9,8 +9,8 @@ import type {
   LlmService,
   StreamEvent,
   TokenUsage,
-} from "@reins/protocol";
-import { LlmError } from "@reins/protocol";
+} from "@henira/protocol";
+import { LlmError } from "@henira/protocol";
 
 /** 单次模型调用的应答：事件序列 / 异步流，或按请求动态生成（兜底应答器也用函数形态；
  * 函数收 (req, signal)——流形态条目靠 signal 自己实现 hang / 中途失败，如 dsh hangAfter） */

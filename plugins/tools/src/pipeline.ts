@@ -4,7 +4,7 @@
 //   可选超时）→ post-execute（waterfall）→ 出口限量 → 权威结果。
 // 失败一律结构化 error 结果回模型（拒执行不抛穿——错误也是权威结果，P8 替换者清单）。
 
-import type { EventBus } from "@reins/kernel";
+import type { EventBus } from "@henira/kernel";
 import type {
   ApprovalOptions,
   Decision,
@@ -13,7 +13,7 @@ import type {
   ToolCall,
   ToolContext,
   ToolOutcome,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { applyExitLimits, DEFAULT_EXIT_LIMITS, type ExitLimits } from "./limits.js";
 import type { ToolRegistry } from "./registry.js";
 

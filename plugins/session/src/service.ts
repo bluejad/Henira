@@ -7,7 +7,7 @@ import type {
   SessionEvent,
   SessionEventInput,
   SessionService,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { deriveMessages } from "./derive.js";
 import { forkSession } from "./fork.js";
 import { type CreateSessionOptions, SessionStore } from "./store.js";

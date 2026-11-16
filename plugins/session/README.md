@@ -1,4 +1,4 @@
-# @reins/plugin-session
+# @henira/plugin-session
 
 session 槽位官方插件：追加式 JSONL 会话账本（P1 不变量"模型可见 ⟺ 已落日志"）+ 派生消息 + fork。官方 15 个基础事件的 zod 校验器住本包（D-051），随装载注册进 protocol 开放注册表。
 
@@ -9,7 +9,7 @@ session 槽位官方插件：追加式 JSONL 会话账本（P1 不变量"模型�
 ## 用法
 
 ```ts
-import { sessionPlugin } from "@reins/plugin-session";
+import { sessionPlugin } from "@henira/plugin-session";
 
 createHarness().use(sessionPlugin({ directory: sessionsDir, cwd }));
 ```

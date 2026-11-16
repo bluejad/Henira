@@ -29,7 +29,7 @@
 5. **每 agent scoped context**：子 context 的注册随 scope 销毁 unwind——per-agent 工具/提示隔离的优雅解 → v1 砍掉，复杂度不值
 6. **审批 fail-closed 词表 + 日志审计对**（`unavailable` 显式存在且必须拒）→ **P5**
 7. **如实上报的执行完备度**（sandbox `full | partial`，承认平台差距）→ 沙箱插件时参考
-8. **SDK = 进程边界**（JSON-RPC 子进程，宿主语言无关、崩溃隔离）+ **profile/patch 的 row-id 覆盖模型**（配置系统最优雅的部分；**Reins 不采用该 patch 层，见 D-022**）→ v1 SDK 先做进程内 + HTTP，进程边界形态后续评估
+8. **SDK = 进程边界**（JSON-RPC 子进程，宿主语言无关、崩溃隔离）+ **profile/patch 的 row-id 覆盖模型**（配置系统最优雅的部分；**Henira 不采用该 patch 层，见 D-022**）→ v1 SDK 先做进程内 + HTTP，进程边界形态后续评估
 
 ## 应该避免的 5 个坑
 
@@ -39,19 +39,19 @@
 4. **agent-loop 内聚过多精细语义**（705 行：surface node / in-history 更新 / request series / inbox 认领）——MVP 先做"每步全量重建请求"的朴素版本
 5. **投机性通用机制**（PTC run_code、agent preset、HMR、动态插件 runner、`!!js` YAML loader）——成熟期产物，全部推迟；waterfall"必须调 next()"的隐式契约易写错，必须显式成文
 
-## 对 Reins 的直接落点
+## 对 Henira 的直接落点
 
 - 事件词表 v0 起自对其 13 个核心事件的吸收，定稿扩为 15 个（session.md §2.2）
-- **2026-11-11 重大更新**：Reins 决定采用其"一切可换"形态（D-010）——kernel（我们的精简 Cordis）+ protocol 为唯一不可替换层，官方语义插件（含 loop/approval）与社区插件同权可整包替换；但 **YAML patch 机器不搬**（D-011，TS API + reins.config.ts 替代）
+- **2026-11-11 重大更新**：Henira 决定采用其"一切可换"形态（D-010）——kernel（我们的精简 Cordis）+ protocol 为唯一不可替换层，官方语义插件（含 loop/approval）与社区插件同权可整包替换；但 **YAML patch 机器不搬**（D-011，TS API + henira.config.ts 替代）
 - P7 微内核 = Cordis 概念的精简重写（砍 fiber/scope/HMR，事件模式 5→4：emit/serial/waterfall/bail）
 - 审批 `Decision` 词表 = 其 approval.md 词表原样采纳
 
 ## 插件机制谱系（2026-11-12 补）
 
-- **界面求值**：dsh `evaluateClientHalf`（`packages/extensions/cordis-client-runner/src/client/evaluator.ts:173-210`）用 `new Function` 求值 client 半，参数 `React/console/styles/host/harness/traps/process/Buffer`；host 门面 = dsh 的 `host.call` + host 半 `harness.handle` 配对压成一个对象。Reins **不取求值路线**（D-021 改 ESM 模块，不 eval）。
-- **版本目录**：`<id>/<version>/` = dsh 的 Plugin → 不可变 Package（`cordis-host-runner/src/registry.ts:37-70`）；dsh 在内存、按会话所有，Reins 落盘为版本目录（版本级不可变，D-024）。
+- **界面求值**：dsh `evaluateClientHalf`（`packages/extensions/cordis-client-runner/src/client/evaluator.ts:173-210`）用 `new Function` 求值 client 半，参数 `React/console/styles/host/harness/traps/process/Buffer`；host 门面 = dsh 的 `host.call` + host 半 `harness.handle` 配对压成一个对象。Henira **不取求值路线**（D-021 改 ESM 模块，不 eval）。
+- **版本目录**：`<id>/<version>/` = dsh 的 Plugin → 不可变 Package（`cordis-host-runner/src/registry.ts:37-70`）；dsh 在内存、按会话所有，Henira 落盘为版本目录（版本级不可变，D-024）。
 - **创建技能**：`plugin-creator` = dsh 的 `cordis-plugin-development` 技能（SKILL.md + `references/` + 可复制 `templates/`，`packages/preset/agent-preset/skills/`）。
-- **祖宗自己转向了**：2026-09-16 note（`.agents/notes/implemented/architecture/2026-09-16-creator-persistent-plugin-management.md`）把模型侧 `cordis_define / run / stop / undefine / inspect_self` 全部退役，创造模式改走"AI 写 npm 组合包 + `cordis.patch.yml` → `plugin_manager install_bundle`"；e2e 断言这五个工具不在列表里（`apps/cli/tests/profiles/web/tests/creator-plugin-manager.expected.e2e.ts:76`）。→ Reins 的"AI 写文件、新会话生效"与祖宗演化同向。
-- **内容读者不是"插件包里的槽位目录"**：dsh 是服务 + 全局根——skills 六根按 rank 扫（含项目 / 用户 `.agents/skills`，`docs/subsystems/skills.zh.md:66-77`）；MCP 每台服务器一条配置（`mcp.zh.md:24`）；commands 由插件代码注册（`commands.zh.md:29-53`）；hooks 只做 Claude Code / Codex 的桥（`hook-protocol`）。Reins 的"包内 content 目录 + 读者认领"与 dsh 不同，是自己的选择（D-017）。
+- **祖宗自己转向了**：2026-09-16 note（`.agents/notes/implemented/architecture/2026-09-16-creator-persistent-plugin-management.md`）把模型侧 `cordis_define / run / stop / undefine / inspect_self` 全部退役，创造模式改走"AI 写 npm 组合包 + `cordis.patch.yml` → `plugin_manager install_bundle`"；e2e 断言这五个工具不在列表里（`apps/cli/tests/profiles/web/tests/creator-plugin-manager.expected.e2e.ts:76`）。→ Henira 的"AI 写文件、新会话生效"与祖宗演化同向。
+- **内容读者不是"插件包里的槽位目录"**：dsh 是服务 + 全局根——skills 六根按 rank 扫（含项目 / 用户 `.agents/skills`，`docs/subsystems/skills.zh.md:66-77`）；MCP 每台服务器一条配置（`mcp.zh.md:24`）；commands 由插件代码注册（`commands.zh.md:29-53`）；hooks 只做 Claude Code / Codex 的桥（`hook-protocol`）。Henira 的"包内 content 目录 + 读者认领"与 dsh 不同，是自己的选择（D-017）。
 - **落点**：D-020（技能只读根）、D-021（模块 + slot，不 eval）、D-022（无 patch 层）、D-023（内核自研 + 语义钉子）。
 - **落点（2026-11-15 补）**：**D-049 能力服务化** = 借鉴第 3 条"Capability Seam 三角色纪律（Service Definition / Provider / Consumer）"的全量采纳——能力一律服务、工具件是纯消费者、按族分包（fs 契约/实现/策略/工具包的摆法即照此）；全库约 60 个服务的注入清单为此决策的实证底稿。

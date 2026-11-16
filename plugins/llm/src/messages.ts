@@ -1,6 +1,6 @@
 // 引擎消息 → AI SDK 消息（D-040：适配器是唯一翻译点；P1 不变量保证此处可从日志重建）。
 
-import type { ModelMessage } from "@reins/protocol";
+import type { ModelMessage } from "@henira/protocol";
 import type { ModelMessage as AiModelMessage, ToolResultPart } from "ai";
 
 export function toAiMessages(messages: readonly ModelMessage[]): AiModelMessage[] {

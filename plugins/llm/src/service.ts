@@ -3,13 +3,13 @@
 // streamText 以 stopWhen: [once] 单步运行——循环权在 loop 插件，适配器只管一次请求周期；
 // 工具不交给 SDK 执行（执行是引擎侧 tools 管线的事，含审批）。
 
-import type { ServiceDefinition } from "@reins/kernel";
+import type { ServiceDefinition } from "@henira/kernel";
 import {
-  asReinsContext,
+  asHeniraContext,
   type LlmRequest,
   type LlmService,
   type StreamEvent,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { jsonSchema, streamText } from "ai";
 import { toAiMessages } from "./messages.js";
 import { resolveLanguageModel } from "./provider.js";
@@ -21,7 +21,7 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
     name: "llm",
     inject: ["config"],
     async start(ctx) {
-      const config = asReinsContext(ctx).get("config");
+      const config = asHeniraContext(ctx).get("config");
       const service: LlmService = {
         async *stream(req: LlmRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
           const apiKey = await config.credential(req.model.provider);

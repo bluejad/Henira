@@ -73,7 +73,7 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 ```
 
 - **fail-closed**：answerer（= `InteractionService`）缺失 / 抛错 / 返回不合规值 → 一律 `unavailable` → 必须拒 `[dsh]`；
-- **默认放行层（D-039，2026-11-13）**：无任何规则命中时，`isConcurrencySafe: true`（只读标记）**自动放行**并照常落 `approval/decided` 审计；其余照旧走缝与 answerer。`deny` 规则压倒一切（链首），显式 allow 规则也在默认层之前。web_fetch 类只读工具因此免问（Claude Code 默认放行抓取）。headless（`reins run`）开箱即可跑只读任务，写类靠 `permissions.json` 规则（§3.1）；
+- **默认放行层（D-039，2026-11-13）**：无任何规则命中时，`isConcurrencySafe: true`（只读标记）**自动放行**并照常落 `approval/decided` 审计；其余照旧走缝与 answerer。`deny` 规则压倒一切（链首），显式 allow 规则也在默认层之前。web_fetch 类只读工具因此免问（Claude Code 默认放行抓取）。headless（`henira run`）开箱即可跑只读任务，写类靠 `permissions.json` 规则（§3.1）；
 - **灾难操作硬拒（D-039）**：灾难性命令（`rm -rf /`、格式化、`dd`、shutdown 等）与凭据同列链外，**任何规则、任何标记都放不了行**；清单由官方 approval 插件承担，官方 shell 工具执行前内置检查；
 - **路径围栏跟着能力走（D-039 立、D-049 修订）**：默认放行层只看工具标记；"这条路径能不能碰"的判定住进 fs 能力服务（D-049）——官方 fs / shell 工具件与任何注入该服务的第三方件同样受围栏；工作区内直接执行、区外调 `requestPermission`（`ToolContext` 已注入）、凭据与灾难仍硬拒；
 - **钩子缝（D-027）**：`approval/request`（waterfall）位于规则链（含默认放行层）全未命中、交给宿主 answerer **之前**；监听者可返回 allow / deny / ask / undefined（ask = 照常弹卡）。凭据硬拒、灾难硬拒与 deny 规则仍在它之前，**钩子不能放行凭据与灾难操作**；
@@ -85,10 +85,10 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 
 判断标准一句话：**日志记"发生了什么"，规则记"以后怎么办"**。
 
-| 作用范围                            | 存哪                               | 形态                                                                                                                                                             | 理由                                                                              |
-| ----------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| **本会话内**（点"本会话允许 bash"） | 会话日志                           | `approval/decided{decision:'allowed-once', scope:'session'}` 事件（Decision 仍是四值，会话范围由 `scope` 表达）；撤销 = 追加 `approval/revoked{scope:'session'}` | 它是一次**发生过的决定**；随会话消亡；顺序由 `seq` 保证；不需要额外的可变文件     |
-| **跨会话**（"以后都别问 read"）     | `~/.reins/config/permissions.json` | 可手改的 JSON 规则                                                                                                                                               | 它是**策略**；用户要能编辑、随时撤销、所有会话共享；没人会去手改 7MB 的只追加日志 |
+| 作用范围                            | 存哪                                | 形态                                                                                                                                                             | 理由                                                                              |
+| ----------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **本会话内**（点"本会话允许 bash"） | 会话日志                            | `approval/decided{decision:'allowed-once', scope:'session'}` 事件（Decision 仍是四值，会话范围由 `scope` 表达）；撤销 = 追加 `approval/revoked{scope:'session'}` | 它是一次**发生过的决定**；随会话消亡；顺序由 `seq` 保证；不需要额外的可变文件     |
+| **跨会话**（"以后都别问 read"）     | `~/.henira/config/permissions.json` | 可手改的 JSON 规则                                                                                                                                               | 它是**策略**；用户要能编辑、随时撤销、所有会话共享；没人会去手改 7MB 的只追加日志 |
 
 跨会话规则形状（示例）：
 

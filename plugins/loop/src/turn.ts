@@ -4,26 +4,26 @@
 
 import { createHash } from "node:crypto";
 import type {
+  HeniraContext,
   LlmService,
   LoopEvent,
   ModelMessage,
-  ReinsContext,
   SessionService,
   ToolContext,
   ToolsService,
   TurnEndReason,
-} from "@reins/protocol";
+} from "@henira/protocol";
 import { DeltaBatcher } from "./batcher.js";
 import { BASE_SYSTEM_KEY, BASE_SYSTEM_PROMPT } from "./prompts.js";
 import type { PromptQueue } from "./queue.js";
 
 export interface LoopDeps {
-  ctx: ReinsContext;
+  ctx: HeniraContext;
   session: SessionService;
   llm: LlmService;
   tools: ToolsService;
-  approval: import("@reins/protocol").ApprovalService;
-  config: import("@reins/protocol").ConfigService;
+  approval: import("@henira/protocol").ApprovalService;
+  config: import("@henira/protocol").ConfigService;
   queue: PromptQueue;
   maxStepsPerTurn?: number; // 步数上限：机制可选、默认不设（D-045）
 }

@@ -4,8 +4,8 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { mockFinish, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
-import { readSessionFile } from "@reins/plugin-session";
+import { mockFinish, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
+import { readSessionFile } from "@henira/plugin-session";
 import { describe, expect, it } from "vitest";
 import { assembleMock, echoTool } from "./assemble.js";
 

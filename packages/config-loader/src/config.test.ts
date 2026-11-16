@@ -12,7 +12,7 @@ import {
 let globalDir: string;
 
 beforeEach(async () => {
-  globalDir = await fs.mkdtemp(path.join(tmpdir(), "reins-config-"));
+  globalDir = await fs.mkdtemp(path.join(tmpdir(), "henira-config-"));
 });
 
 afterEach(async () => {

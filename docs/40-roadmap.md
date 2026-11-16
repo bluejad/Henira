@@ -29,7 +29,7 @@
 
 ## M2 引擎闭环
 
-**内容**：`llm`（契约 + AI SDK 适配器 + mock LLM 测试设施）· `tools`（五段管线）· `approval`（fail-closed 状态机）· `loop`（状态机 + 中断纪律 + 16ms 合并）· `config-loader`（最小版：ConfigService + settings / permissions / credentials 装载 + models.dev 字典同步，D-040；reins.config.ts 装载与 applyConfig 随 M3）· `examples/`（mock 离线 + 真实模型）· 引擎五件以官方插件包落地（plugins/*，ServiceDefinition + 实现同包；mock LLM 测试设施 = 独立支撑包 test-support/llm-mock，50-open 归档 2026-11-16）
+**内容**：`llm`（契约 + AI SDK 适配器 + mock LLM 测试设施）· `tools`（五段管线）· `approval`（fail-closed 状态机）· `loop`（状态机 + 中断纪律 + 16ms 合并）· `config-loader`（最小版：ConfigService + settings / permissions / credentials 装载 + models.dev 字典同步，D-040；henira.config.ts 装载与 applyConfig 随 M3）· `examples/`（mock 离线 + 真实模型）· 引擎五件以官方插件包落地（plugins/*，ServiceDefinition + 实现同包；mock LLM 测试设施 = 独立支撑包 test-support/llm-mock，50-open 归档 2026-11-16）
 
 **完成判据**：
 
