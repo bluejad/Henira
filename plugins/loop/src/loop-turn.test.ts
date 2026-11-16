@@ -6,7 +6,7 @@ import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/
 import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
 import { asHeniraContext, type Decision, type LlmService } from "@henira/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 整链装配的真实插件只有 session / tools / loop 自身；llm = mockLlm（脚本驱动），
 // approval / interaction / config = 槽位桩。examples/mock e2e（commit 9）走同一套。
@@ -260,16 +260,21 @@ describe("turn/step 状态机（loop.md §1）", () => {
     await harness.start();
     const ctx = asHeniraContext(harness.context);
     // 直接 send（闲时直发会开新回合）→ 队列条目随后被冲刷
-    await new Promise((r) => setTimeout(r, 30)); // 等 send 的后台回合跑完 + 队列冲刷
+    await new Promise((r) => setTimeout(r, 30)); // 等 start 后的装载余波
     const loop = ctx.get("loop");
     await loop.send("触发");
-    await new Promise((r) => setTimeout(r, 40));
-    const texts = ctx
-      .get("session")
-      .events()
-      .filter((e) => e.type === "user/message")
-      .map((e) => (e.data as { content: string }).content);
-    expect(texts).toContain("重启前排队的一问"); // 装载的旧条目被冲刷成新回合
+    // 后台回合与队列冲刷无法 await——轮询账本直至旧条目落成新回合（固定 sleep 在慢机上有竞态）
+    await vi.waitFor(
+      () => {
+        const texts = ctx
+          .get("session")
+          .events()
+          .filter((e) => e.type === "user/message")
+          .map((e) => (e.data as { content: string }).content);
+        expect(texts).toContain("重启前排队的一问"); // 装载的旧条目被冲刷成新回合
+      },
+      { timeout: 2000, interval: 20 },
+    );
     await harness.dispose();
   });
 
