@@ -614,3 +614,14 @@
 - **备注**：
   - [dsh] 明确拒绝过运行时事件名注册并记录理由（`packages/core/session/src/known-event-types.ts:15-20`：注册"不区分省略安全性、会让读取依赖插件组成"）——但其插件与内核同仓编译，TS 声明合并即可扩展；我们的插件运行时装载（D-048 `engine/`），运行时注册是架构等价物。读取依赖插件组成的担忧由读侧 fail-closed 规则堵死：未知类型 ignorable:true 恒跳过、否则恒拒（[dsh] `packages/session/session-persistence/src/storage-contract.ts:74-80`，与 [session.md](./20-architecture/session.md) §3 同构）——同一份日志的读出与插件组成无关。
   - 派生清单照旧全部从注册表派生（P9-5）。落点：interfaces.md protocol 段、principles P3 / P9-5、packages.md 依赖规则、session.md §3。
+
+## D-052 文档粒度：包 README 随包诞生，提交自带文档
+
+- **状态**：已定 · 2026-11-16 · 修订 AGENTS.md「文档粒度」表「包」行
+- **背景**：M2 引擎闭环落了 10 个包与仓库最早出生的两个工具（examples 的 echo / list-cwd 演示工具），包 README 一个没有、工具 md 一个没有——AGENTS.md 粒度表「包」行的时点写的是"M4 起（npm 硬要求）"，把欠账合法化了；工具行规矩虽对（随包诞生）却没有机械闸，计划交付物漏排即漏写。对照：[dsh] 每包 README 是铁律（全部包无一缺席，包 README = 每包的事实卡）。项目所有者拍板：改规矩 + 当轮补齐欠账。
+- **决定**：
+  1. **包 README 时点 M4 → 随包诞生**：每个 workspace 包（packages / plugins / examples）自带 README.md，内容四件——职责一句话 / 槽位与契约出处（→ interfaces 小节）/ 文件 ↔ 设计映射 / 判据 ↔ 测试映射；npm 硬要求只是下限，不许欠账；
+  2. **提交自带文档**：新包提交含 README，新工具提交含 `tools/<名字>.md`；修改先改 md 再改码——AGENTS.md 总纪律"四层贯穿"扩为五层（功能 / 包 / 工具 / 接口 / 决策）；
+  3. **机械闸**：`pnpm check:docs`（CI 同跑）——每个包目录必须有 README.md；src 里声明的每个工具（inputSchema 邻域识别）必须有同名 `tools/<名字>.md`。条文靠自觉，闸门靠 CI——工具 md 欠账的根因就是"有规矩没闸门"。
+- **理由**：文档是下一个写码 AI 的入口；欠账随里程碑只增不减，随包诞生是唯一不欠的时点。识别口径取邻域（工具对象的 name 与 inputSchema 相邻，ServiceDefinition 的槽位名远离 inputSchema）——闸门是兜底不是穷举，新形状照旧随包写 md。
+- **备注**：AGENTS.md（总纪律 / 文档粒度表 / 命令表）；scripts/check-docs.mjs；M2 欠账当轮补齐（10 份包 README + echo / list-cwd 两个工具 md）。

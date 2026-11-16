@@ -27,3 +27,5 @@ jobs:
       - run: pnpm test
 
       - run: pnpm check:deps
+
+      - run: pnpm check:docs
