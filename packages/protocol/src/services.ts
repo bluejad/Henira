@@ -31,6 +31,8 @@ export type ModelMessage =
 export interface SessionService {
   /** 文件第 1 行的不可变身份（含 version） */
   header(): SessionHeader;
+  /** 会话目录（queue.json / attachments 等伴生文件的住处，data-directory.md §2.1） */
+  readonly directory: string;
   /** 校验 → 分配 seq → 追加 → fsync */
   append(input: SessionEventInput): Promise<SessionEvent>;
   /** 内存中的全部事件（追加序） */

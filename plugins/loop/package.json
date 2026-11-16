@@ -1,0 +1,27 @@
+{
+  "name": "@reins/plugin-loop",
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@reins/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@reins/kernel": "workspace:*",
+    "@reins/llm-mock": "workspace:*",
+    "@reins/plugin-session": "workspace:*",
+    "@reins/plugin-tools": "workspace:*",
+    "@types/node": "^24.0.0"
+  }
+}

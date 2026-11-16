@@ -4,6 +4,7 @@ export { atomicWriteFile } from "./atomic.js";
 export { deriveMessages } from "./derive.js";
 export { ForkCutOutOfRangeError, type ForkOptions, forkSession } from "./fork.js";
 export { acquireSessionLock, type SessionLock, SessionLockedError } from "./lock.js";
+export { type SessionPluginOptions, sessionPlugin } from "./plugin.js";
 export {
   readSessionFile,
   SessionCorruptError,

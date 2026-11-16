@@ -68,9 +68,12 @@ export function matchesRule(req: PermissionRequest, rule: PermissionRule): boole
       ? (req.args as { command: string }).command
       : undefined;
   if (rule.match.commandPrefix !== undefined) {
+    // 严格 boolean（optional chain 会漏出 undefined——消费端按 === 判定，不可三态）
+    // biome-ignore lint/complexity/useOptionalChain: 三态会破坏 Decision 判定契约
     return command !== undefined && command.startsWith(rule.match.commandPrefix);
   }
   if (rule.match.commandContains !== undefined) {
+    // biome-ignore lint/complexity/useOptionalChain: 同上，保持严格 boolean
     return command !== undefined && command.includes(rule.match.commandContains);
   }
   return true;

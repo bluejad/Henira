@@ -115,6 +115,7 @@ type SessionEventInput = { type: string; data: unknown; ignorable?: boolean };
 
 interface SessionService {
   header(): SessionHeader;                                  // 文件第 1 行的不可变身份（含 version）
+  readonly directory: string;                               // 会话目录（queue.json / 附件住处，data-directory §2.1）
   append(input: SessionEventInput): Promise<SessionEvent>;   // 校验 → 分配 seq → 追加 → fsync
   events(): readonly SessionEvent[];
   deriveMessages(): ModelMessage[];                          // 应用 surfaceOp 后的模型历史

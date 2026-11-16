@@ -65,8 +65,9 @@ for (const { manifest: pkg, location } of packages) {
   if (location === "plugins") {
     for (const [dep, section] of Object.entries(deps)) {
       if (dep.startsWith(PLUGIN_PREFIX) && dep !== pkg.name) {
+        if (section === "devDependencies") continue; // 测试装配通道：测试里装真同伴（镜像 examples 聚合），运行时仍零插件依赖
         failures.push(
-          `${pkg.name}: ${dep} 出现在 ${section}（规则 2：插件互不 import 实现，互消费只经槽位 ctx.get）`,
+          `${pkg.name}: ${dep} 出现在 ${section}（规则 2：插件互不 import 实现，互消费只经槽位 ctx.get；devDependencies 仅供测试装配）`,
         );
         continue;
       }

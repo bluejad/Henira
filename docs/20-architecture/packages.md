@@ -136,7 +136,7 @@ plugins/*（21 个官方插件：服务件 + 工具件按族分包，D-049）
 ## 依赖规则（CI 强制）
 
 1. `kernel` 运行时零依赖；`protocol` 运行时零依赖、**互不依赖实现**——protocol 仅以类型引用 kernel 机制形状（`HarnessContext` 等），kernel 不认识任何业务接口（机制类型归 kernel，业务契约归 protocol）；zod 不属于协议层（D-051：官方事件校验器由 session 包实现，zod 是其实现细节）；
-2. `plugins/*` 只依赖 kernel + protocol + 第三方库；**禁止插件互相 import 实现**——运行时经槽位互消费，**能力共享 = 注入服务（ctx.get，D-049 唯一通道）**；共享类型/纯函数下沉 protocol；测试支撑包 `@reins/llm-mock` 不是插件：仅供各包**测试**与 examples 以 devDependency 消费，不进发布集（50-open 归档 2026-11-16）；
+2. `plugins/*` 只依赖 kernel + protocol + 第三方库；**禁止插件互相 import 实现**——运行时经槽位互消费，**能力共享 = 注入服务（ctx.get，D-049 唯一通道）**；共享类型/纯函数下沉 protocol；**插件互依赖的例外通道 = devDependencies 仅测试装配**（测试里装真同伴，镜像 examples 聚合；dependencies 运行时仍然全禁）；测试支撑包 `@reins/llm-mock` 不是插件：仅供各包**测试**与 examples 以 devDependency 消费，不进发布集（50-open 归档 2026-11-16）；
 3. 宿主（config-loader / server / sdk / cli / web / desktop / tui）依赖 kernel + protocol，并按需把 plugins/* 聚合进预设；宿主之间不互相依赖（cli 与 web 都经 sdk；desktop 复用 server 与 web 的产物，不依赖其包）；
 4. `sdk` 双形态共用同一套 protocol 契约：进程内（聚合插件）与远程（连 server）行为一致；
 5. 禁止循环依赖——CI 加依赖方向检查（dependency-cruiser 或等价物）；

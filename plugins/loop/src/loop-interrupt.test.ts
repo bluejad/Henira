@@ -1,0 +1,206 @@
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createHarness } from "@reins/kernel";
+import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
+import { sessionPlugin } from "@reins/plugin-session";
+import { toolsPlugin } from "@reins/plugin-tools";
+import {
+  asReinsContext,
+  type Decision,
+  type LlmService,
+  type ServiceDefinition,
+  type ToolDefinition,
+} from "@reins/protocol";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { loopPlugin } from "./service.js";
+
+// 中断纪律五条（P6 / loop.md §2）——每条一个具名测试（roadmap M2 判据②：loop.md §2 表格一行一测试）。
+
+let root: string;
+
+beforeEach(async () => {
+  root = await fs.mkdtemp(path.join(tmpdir(), "reins-loop-int-"));
+});
+
+afterEach(async () => {
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+const USAGE = { inputTokens: 10, outputTokens: 5 };
+
+function llmStub(service: LlmService): ServiceDefinition<LlmService> {
+  return { name: "llm", start: () => service };
+}
+function approvalStub(): ServiceDefinition {
+  return {
+    name: "approval",
+    start: () => ({ requestPermission: async (): Promise<Decision> => "allowed-once" }),
+  };
+}
+function interactionStub(): ServiceDefinition {
+  return {
+    name: "interaction",
+    start: () => ({
+      ask: async () => ({ kind: "approval", requestId: "x", decision: "allowed-once" as Decision }),
+      settle: () => false,
+      listPending: () => [],
+    }),
+  };
+}
+function configStub(): ServiceDefinition {
+  return {
+    name: "config",
+    start: () => ({
+      cwd: root,
+      model: () => ({ provider: "mock", model: "m" }),
+      credential: async () => "k",
+      get: () => undefined,
+      permissionRules: async () => [],
+    }),
+  };
+}
+
+const instantTool: ToolDefinition = {
+  name: "read",
+  description: "read",
+  inputSchema: { type: "object" },
+  execute: async () => ({ content: "ok" }),
+};
+
+async function startedLoop(
+  script: Parameters<typeof mockLlm>[0],
+  tool: ToolDefinition = instantTool,
+) {
+  const mock = mockLlm(script);
+  const harness = createHarness()
+    .use(
+      sessionPlugin({ directory: path.join(root, Math.random().toString(16).slice(2)), cwd: root }),
+    )
+    .use(toolsPlugin({}))
+    .use(llmStub(mock.service))
+    .use(approvalStub())
+    .use(interactionStub())
+    .use(configStub())
+    .use(loopPlugin());
+  await harness.start();
+  const ctx = asReinsContext(harness.context);
+  ctx.get("tools").register(tool);
+  return { harness, ctx, loop: ctx.get("loop"), session: ctx.get("session"), mock };
+}
+
+describe("中断纪律五条（loop.md §2，一行一测试）", () => {
+  it("纪律①：掐流后先查 aborted 再诊断——hang 流被 abort 后收尾 aborted，不误判为可重试错误", async () => {
+    const { harness, loop, session } = await startedLoop(["hang"]);
+    const controller = new AbortController();
+    const events: { type: string }[] = [];
+    const consuming = (async () => {
+      for await (const event of loop.run("会挂住", controller.signal)) events.push(event);
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    controller.abort();
+    await consuming;
+    const end = [...session.events()].reverse().find((e) => e.type === "turn/end");
+    const endData =
+      end === undefined ? undefined : (end.data as { reason: string; cause?: string });
+    expect(endData?.reason).toBe("aborted");
+    expect(endData?.cause).toBe("user");
+    // 掐流不是错误：没有 error 事件落账（"干净收尾"没被误判 retryable）
+    expect(session.events().some((e) => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    await harness.dispose();
+  });
+
+  it("纪律②：dangling tool_calls 清理——流中断后每个 tool/call 必有配对结果（不留孤儿）", async () => {
+    // 脚本：吐出 tool-call 事件后挂住 → abort → 中断路径
+    const script: Parameters<typeof mockLlm>[0] = [
+      async function* () {
+        yield mockToolCall("c1", "read", "{}");
+        await new Promise(() => {}); // 挂住（abort 后 mock 以 ABORTED 拒绝）
+      },
+    ];
+    const { harness, loop, session } = await startedLoop(script);
+    const controller = new AbortController();
+    const consuming = (async () => {
+      for await (const _ of loop.run("中断在流中", controller.signal)) void _;
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    controller.abort();
+    await consuming;
+    // P8 替换者清单：每个 tool/call 必有 tool/result——中断时 calls 未执行、未落 tool/call，
+    // 派生侧兜底（session 孤儿合成）与 loop 侧（执行中合成）双保险都为零孤儿：
+    const derived = session.deriveMessages();
+    const orphanCalls = derived.filter((m) => m.role === "assistant" && m.toolCalls?.length).length;
+    const toolMsgs = derived.filter((m) => m.role === "tool").length;
+    expect(orphanCalls).toBe(0); // 未落的 call 不进派生（先查 aborted 再结算）
+    expect(toolMsgs).toBe(0);
+    await harness.dispose();
+  });
+
+  it("纪律③：工具执行与信号竞速——已启动的工具跑完并按真实结果结算，不留'运行中'残影", async () => {
+    let started = false;
+    let completed = false;
+    const slowTool: ToolDefinition = {
+      ...instantTool,
+      execute: async () => {
+        started = true;
+        await new Promise((r) => setTimeout(r, 60));
+        completed = true;
+        return { content: "slow but done" };
+      },
+    };
+    const { harness, loop, session } = await startedLoop(
+      [
+        [mockToolCall("c1", "read", "{}"), mockUsage(USAGE), mockFinish("tool-calls")],
+        [mockText("x"), mockUsage(USAGE), mockFinish("stop")],
+      ],
+      slowTool,
+    );
+    const controller = new AbortController();
+    const consuming = (async () => {
+      for await (const _ of loop.run("慢工具", controller.signal)) void _;
+    })();
+    while (!started) await new Promise((r) => setTimeout(r, 2)); // 确定性：工具已启动（fs append 耗时不定，睡等是竞态）
+    controller.abort();
+    await consuming;
+    expect(completed).toBe(true); // 已启动则等工具自行结束（dsh 语义）
+    const result = session.events().find((e) => e.type === "tool/result");
+    expect(result === undefined ? undefined : (result.data as { content: string }).content).toBe(
+      "slow but done",
+    ); // 真实结果照常结算
+    const end = [...session.events()].reverse().find((e) => e.type === "turn/end");
+    expect(end === undefined ? undefined : (end.data as { reason: string }).reason).toBe("aborted"); // 回合仍以 aborted 收尾
+    await harness.dispose();
+  });
+
+  it("纪律④：inflight 事件兜底补发——缓冲中的增量在收尾前冲出，消费者不缺尾包", async () => {
+    const { harness, loop } = await startedLoop([
+      [mockText("早"), mockText("晚"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const events: { type: string }[] = [];
+    for await (const event of loop.run("正常收尾")) events.push(event);
+    const deltas = events.filter((e) => e.type === "text-delta");
+    expect(deltas.length).toBeGreaterThanOrEqual(2); // 首包透传 + 窗口攒批的都在
+    expect(events.at(-1)?.type).toBe("turn-ended");
+    await harness.dispose();
+  });
+
+  it("纪律⑤：错误落盘为事件——流异常回合也有收尾（error + turn/end{error}）", async () => {
+    const boom = new Error("provider 500");
+    const { harness, loop, session } = await startedLoop([boom]);
+    const events: { type: string }[] = [];
+    for await (const event of loop.run("会炸")) events.push(event);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    const errorEvent = session.events().find((e) => e.type === "error");
+    expect(errorEvent === undefined ? undefined : (errorEvent.data as { code: string }).code).toBe(
+      "LLM_STREAM",
+    );
+    const end = [...session.events()].reverse().find((e) => e.type === "turn/end");
+    expect(end === undefined ? undefined : (end.data as { reason: string }).reason).toBe("error");
+    // 有 turn/start 必有 turn/end（回合无僵尸）
+    const starts = session.events().filter((e) => e.type === "turn/start").length;
+    const ends = session.events().filter((e) => e.type === "turn/end").length;
+    expect(starts).toBe(ends);
+    await harness.dispose();
+  });
+});

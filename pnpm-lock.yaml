@@ -93,6 +93,28 @@ importers:
         specifier: ^24.0.0
         version: 24.19.2
 
+  plugins/loop:
+    dependencies:
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@reins/llm-mock':
+        specifier: workspace:*
+        version: link:../../packages/llm-mock
+      '@reins/plugin-session':
+        specifier: workspace:*
+        version: link:../session
+      '@reins/plugin-tools':
+        specifier: workspace:*
+        version: link:../../packages/plugin-tools
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
   plugins/session:
     dependencies:
       '@reins/protocol':
