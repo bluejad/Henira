@@ -70,6 +70,7 @@ const harness = createHarness()
     },
   })
   .use(approvalPlugin())
+  .use({ name: "config", start: () => configService }) // config 槽位（与 mock 装配同一条路径）
   .use(loopPlugin());
 await harness.start();
 const ctx = asHeniraContext(harness.context);
