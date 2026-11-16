@@ -23,7 +23,7 @@ Reins = 开源 Agent Harness：内核只做机制，其余一切皆插件（含 
 ## 硬红线（违反＝打回）
 
 - `kernel` / `protocol` 不进任何插件依赖表——宿主 import map 注入唯一实例（D-048；CI 的 `pnpm check:deps` 机器拦）。
-- 协议只收裸 JSON Schema，不建 zod 转换糖；zod 只许住在 kernel / protocol（D-044）。
+- 协议只收裸 JSON Schema，不建 zod 转换糖；zod 不进 kernel / protocol——官方事件校验器由 session 包实现（D-044 / D-051）。
 - 一切引用可公开对证：来源只用 `[dsh]` / `[zcode]` / `[opencode]` / `[用户]`（词表唯一出处 = principles.md 顶部「来源标注」）；闭源产品仅行为层、不设标签；本地机器路径零出现（D-047）。
 - 无特权 API：官方插件也走公共注册路径（P8）。
 - 凭据只住 `config/credentials.json`，永不进代码、日志、事件、插件文件（D-030）。

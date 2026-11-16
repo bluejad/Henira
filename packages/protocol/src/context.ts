@@ -3,11 +3,23 @@
 // 本文件仅以类型引用 kernel 机制形状（依赖规则 1，packages.md）。
 
 import type { HarnessContext } from "@reins/kernel";
+import type { ApprovalService } from "./approval.js";
+import type { ConfigService } from "./config.js";
+import type { InteractionService } from "./interaction.js";
+import type { LlmService } from "./llm.js";
+import type { LoopService } from "./loop.js";
 import type { SessionService } from "./services.js";
+import type { ToolsService } from "./tools.js";
 
-/** 槽位名 → 服务类型。随各服务契约定稿扩项（packages.md 能力服务表），不封顶 */
+/** 槽位名 → 服务类型。commands 槽随 plugin-commands 落码（M6）进入（D-025） */
 export interface SlotMap {
   session: SessionService;
+  llm: LlmService;
+  tools: ToolsService;
+  approval: ApprovalService;
+  loop: LoopService;
+  interaction: InteractionService;
+  config: ConfigService;
 }
 
 export type ReinsContext = Omit<HarnessContext, "get"> & {
