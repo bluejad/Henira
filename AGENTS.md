@@ -40,6 +40,13 @@ Henira = 开源 Agent Harness：内核只做机制，其余一切皆插件（含
 - 模块划分照 packages.md 的族边界；每包文件布局随 interfaces.md 小节定稿，不临场发明。
 - 依赖方向由 CI 拦，不靠自觉。
 
+## CI 纪律
+
+本地全绿不算数——CI 是唯一诚实的裁判。以下两条是它两次真红换来的规矩：
+
+- 构建缓存 / 产物永不入库：`.gitignore` 规则必须赶在首次提交之前立好——tracked 文件绕过 ignore，fresh clone 带着过期缓存必炸（tsbuildinfo 事故；这类雷本地永远看不见）。
+- 异步断言禁固定 sleep：等不到的后台过程一律 `vi.waitFor(断言, { timeout, interval })` 轮询；时红时绿且与提交内容无关 = flaky 首要信号（docs-only 提交也红过一次 = 实证）。
+
 ## 文档粒度（跟物种走）
 
 | 物种                | 粒度                                                                                                                             | 时点                                            |
