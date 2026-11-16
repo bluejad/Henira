@@ -11,7 +11,7 @@ import {
   type StreamEvent,
 } from "@henira/protocol";
 import { jsonSchema, streamText } from "ai";
-import { toAiMessages } from "./messages.js";
+import { toAiInstructions, toAiMessages } from "./messages.js";
 import { resolveLanguageModel } from "./provider.js";
 import { StreamEventMapper } from "./stream-parts.js";
 
@@ -27,8 +27,10 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
           const apiKey = await config.credential(req.model.provider);
           const model = resolveLanguageModel(req.model, { apiKey });
           const mapper = new StreamEventMapper();
+          const instructions = toAiInstructions(req.messages);
           const result = streamText({
             model,
+            ...(instructions ? { instructions } : {}), // system 块唯一通道（AI SDK 不收 system 消息）
             messages: toAiMessages(req.messages),
             tools: Object.fromEntries(
               req.tools.map((tool) => [
