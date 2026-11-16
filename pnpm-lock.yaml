@@ -24,6 +24,71 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@26.6.6)
 
+  examples/mock:
+    dependencies:
+      '@reins/config-loader':
+        specifier: workspace:*
+        version: link:../../packages/config-loader
+      '@reins/llm-mock':
+        specifier: workspace:*
+        version: link:../../packages/llm-mock
+      '@reins/plugin-approval':
+        specifier: workspace:*
+        version: link:../../plugins/approval
+      '@reins/plugin-loop':
+        specifier: workspace:*
+        version: link:../../plugins/loop
+      '@reins/plugin-session':
+        specifier: workspace:*
+        version: link:../../plugins/session
+      '@reins/plugin-tools':
+        specifier: workspace:*
+        version: link:../../packages/plugin-tools
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  examples/real:
+    dependencies:
+      '@reins/config-loader':
+        specifier: workspace:*
+        version: link:../../packages/config-loader
+      '@reins/plugin-approval':
+        specifier: workspace:*
+        version: link:../../plugins/approval
+      '@reins/plugin-llm':
+        specifier: workspace:*
+        version: link:../../packages/plugin-llm
+      '@reins/plugin-loop':
+        specifier: workspace:*
+        version: link:../../plugins/loop
+      '@reins/plugin-session':
+        specifier: workspace:*
+        version: link:../../plugins/session
+      '@reins/plugin-tools':
+        specifier: workspace:*
+        version: link:../../packages/plugin-tools
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@reins/llm-mock':
+        specifier: workspace:*
+        version: link:../../packages/llm-mock
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
   packages/config-loader:
     dependencies:
       '@reins/protocol':

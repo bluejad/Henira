@@ -72,6 +72,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       await queue.load(); // 重启恢复（D-045）
 
       let current: TurnHandle | undefined;
+      let currentController: AbortController | undefined;
 
       const makeDeps = (): LoopDeps => ({
         ctx: cx,
@@ -131,11 +132,13 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         async *run(prompt, signal) {
           if (current !== undefined && !current.signal.aborted) throw new LoopBusyError();
           const controller = new AbortController();
+          currentController = controller;
           signal?.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
           try {
             yield* executeAndDrain(prompt, controller.signal);
           } finally {
             current = undefined;
+            currentController = undefined;
           }
         },
 
@@ -145,8 +148,14 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           }
           // 闲时直开回合：后台跑，事件经总线 loop/event 观察（D-045：无第二种投递语义）
           const controller = new AbortController();
+          currentController = controller;
           const gen = executeAndDrain(prompt, controller.signal);
-          void drainQuietly(gen).catch(() => {});
+          void drainQuietly(gen)
+            .finally(() => {
+              current = undefined;
+              currentController = undefined;
+            })
+            .catch(() => {});
           return { id: "", text: prompt, steer: false }; // id 空 = 未排队（直接开跑）
         },
 
@@ -155,7 +164,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         },
 
         async interrupt() {
-          current?.signal.abort();
+          currentController?.abort(); // 中止当前回合（中断纪律在 turn.ts 逐条收尾）
         },
       };
       return service;

@@ -12,10 +12,18 @@ import type {
 } from "@reins/protocol";
 import { LlmError } from "@reins/protocol";
 
-/** 单次模型调用的应答：事件序列，或按请求动态生成（兜底应答器也用函数形态） */
+/** 单次模型调用的应答：事件序列 / 异步流，或按请求动态生成（兜底应答器也用函数形态；
+ * 函数收 (req, signal)——流形态条目靠 signal 自己实现 hang / 中途失败，如 dsh hangAfter） */
 export type MockTurn =
   | readonly StreamEvent[]
-  | ((req: LlmRequest) => readonly StreamEvent[] | Promise<readonly StreamEvent[]>);
+  | AsyncIterable<StreamEvent>
+  | ((
+      req: LlmRequest,
+      signal: AbortSignal,
+    ) =>
+      | readonly StreamEvent[]
+      | AsyncIterable<StreamEvent>
+      | Promise<readonly StreamEvent[] | AsyncIterable<StreamEvent>>);
 
 /** 脚本条目：应答 | 'hang'（挂起直至 abort）| Error（流以此拒绝） */
 export type MockEntry = MockTurn | "hang" | Error;
@@ -111,7 +119,13 @@ async function* consume(
     return;
   }
   if (entry instanceof Error) throw entry;
-  const events = typeof entry === "function" ? await entry(req) : entry;
+  const events = typeof entry === "function" ? await entry(req, signal) : entry;
+  if (!Array.isArray(events)) {
+    // 流形态（generator 条目）：透传不整体校验——这类条目演练挂起 / 中断，
+    // "finish 之后不得有事件"由消费方（loop 纪律 1）与静态数组条目的构造期校验负责
+    yield* events;
+    return;
+  }
   validateSequence(events, "函数条目响应");
   yield* events;
 }

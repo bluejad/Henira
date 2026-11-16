@@ -1,6 +1,6 @@
 {
   "files": {
-    "includes": ["**", "!**/dist"]
+    "includes": ["**", "!**/dist", "!packages/config-loader/src/models-dev-snapshot.json"]
   },
   "formatter": {
     "indentStyle": "space",

@@ -1,0 +1,23 @@
+{
+  "name": "@reins/example-real",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts"
+  },
+  "dependencies": {
+    "@reins/config-loader": "workspace:*",
+    "@reins/plugin-approval": "workspace:*",
+    "@reins/plugin-llm": "workspace:*",
+    "@reins/plugin-loop": "workspace:*",
+    "@reins/plugin-session": "workspace:*",
+    "@reins/plugin-tools": "workspace:*",
+    "@reins/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@reins/kernel": "workspace:*",
+    "@reins/llm-mock": "workspace:*",
+    "@types/node": "^24.0.0"
+  }
+}

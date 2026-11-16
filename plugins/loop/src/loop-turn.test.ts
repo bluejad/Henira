@@ -1,16 +1,11 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness } from "@reins/kernel";
+import { createHarness, type ServiceDefinition } from "@reins/kernel";
 import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
 import { sessionPlugin } from "@reins/plugin-session";
 import { toolsPlugin } from "@reins/plugin-tools";
-import {
-  asReinsContext,
-  type Decision,
-  type LlmService,
-  type ServiceDefinition,
-} from "@reins/protocol";
+import { asReinsContext, type Decision, type LlmService } from "@reins/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // 整链装配的真实插件只有 session / tools / loop 自身；llm = mockLlm（脚本驱动），

@@ -85,9 +85,6 @@ export async function runTurnCore(
   let step = 0;
   let endReason: TurnEndReason = "completed";
   let turnUsage = { inputTokens: 0, outputTokens: 0 };
-  const modelConfig = await deps.config.model();
-  const model = `${modelConfig.provider}/${modelConfig.model}`;
-
   try {
     while (true) {
       if (signal.aborted) {
@@ -111,7 +108,7 @@ export async function runTurnCore(
         });
       }
 
-      const outcome = await runStep({ turn, step, model, deps, batcher, signal });
+      const outcome = await runStep({ turn, step, deps, batcher, signal });
       turnUsage = outcome.usage;
       const interrupted = signal.aborted;
       await session.append({
@@ -126,6 +123,13 @@ export async function runTurnCore(
       endReason = outcome.outcome;
       break;
     }
+  } catch (err) {
+    // 纪律 5（回合级兜底）：setup / 结算的引擎级异常同样落盘为事件 + 有收尾。
+    // 注意 abort 不走这里：runStep 先查 signal.aborted 以 aborted 返回（纪律 1）
+    const message = err instanceof Error ? err.message : String(err);
+    await session.append({ type: "error", data: { turn, step, code: "ENGINE", message } });
+    batcher.pushStructural({ type: "error", message });
+    endReason = "error";
   } finally {
     batcher.flushNow(); // 纪律 4：inflight 增量兜底补发
   }
@@ -141,7 +145,7 @@ export async function runTurnCore(
       step += 1;
       await session.append({ type: "step/start", data: { turn, step } });
       ctx.events.emit("step/start", { turn, step });
-      const more = await runStep({ turn, step, model, deps, batcher, signal });
+      const more = await runStep({ turn, step, deps, batcher, signal });
       endReason = more.outcome === "tool-round" ? "completed" : more.outcome;
       await session.append({ type: "step/end", data: { turn, step, usage: more.usage } });
     }
@@ -166,7 +170,6 @@ type StepOutcome = "tool-round" | TurnEndReason;
 interface StepArgs {
   turn: string;
   step: number;
-  model: string;
   deps: LoopDeps;
   batcher: DeltaBatcher;
   signal: AbortSignal;
@@ -178,11 +181,13 @@ interface StepResult {
 }
 
 async function runStep(args: StepArgs): Promise<StepResult> {
-  const { turn, step, model, deps, batcher, signal } = args;
+  const { turn, step, deps, batcher, signal } = args;
   const { session, llm, tools, approval, config } = deps; // ctx.events 只在 runTurnCore 用
   const messages = session.deriveMessages();
   const wireTools = tools.project();
-  const request = { model: await config.model(), messages, tools: wireTools };
+  const modelConfig = await config.model();
+  const model = `${modelConfig.provider}/${modelConfig.model}`;
+  const request = { model: modelConfig, messages, tools: wireTools };
   await session.append({
     type: "request/header",
     data: {

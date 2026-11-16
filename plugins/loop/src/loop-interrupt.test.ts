@@ -1,15 +1,15 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness } from "@reins/kernel";
+import { createHarness, type ServiceDefinition } from "@reins/kernel";
 import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@reins/llm-mock";
 import { sessionPlugin } from "@reins/plugin-session";
 import { toolsPlugin } from "@reins/plugin-tools";
 import {
   asReinsContext,
   type Decision,
+  type LlmRequest,
   type LlmService,
-  type ServiceDefinition,
   type ToolDefinition,
 } from "@reins/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -114,9 +114,14 @@ describe("中断纪律五条（loop.md §2，一行一测试）", () => {
   it("纪律②：dangling tool_calls 清理——流中断后每个 tool/call 必有配对结果（不留孤儿）", async () => {
     // 脚本：吐出 tool-call 事件后挂住 → abort → 中断路径
     const script: Parameters<typeof mockLlm>[0] = [
-      async function* () {
+      async function* (_req: LlmRequest, signal: AbortSignal) {
         yield mockToolCall("c1", "read", "{}");
-        await new Promise(() => {}); // 挂住（abort 后 mock 以 ABORTED 拒绝）
+        // 挂住直至 abort（signal 钩子——hang 条目的等价物）
+        await new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted by test signal")), {
+            once: true,
+          });
+        });
       },
     ];
     const { harness, loop, session } = await startedLoop(script);

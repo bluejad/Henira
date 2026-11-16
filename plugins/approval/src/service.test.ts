@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHarness } from "@reins/kernel";
+import { createHarness, type ServiceDefinition } from "@reins/kernel";
 import {
   type ApprovalOptions,
   asReinsContext,
@@ -9,7 +9,6 @@ import {
   type InteractionAnswer,
   type InteractionRequest,
   type PermissionRule,
-  type ServiceDefinition,
 } from "@reins/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { approvalPlugin } from "./service.js";
@@ -69,7 +68,7 @@ function interactionStub(
     name: "interaction",
     start() {
       return {
-        async ask(req): Promise<InteractionAnswer> {
+        async ask(req: InteractionRequest): Promise<InteractionAnswer> {
           requests.push(req);
           const next = script.shift();
           const answer = typeof next === "function" ? next(req) : next;
