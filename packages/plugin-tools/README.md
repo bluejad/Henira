@@ -6,6 +6,23 @@ tools 槽位官方插件：工具注册表 + 五段执行管线 + 统一出口�
 - 设计文档：[tools-approval.md](../../docs/20-architecture/tools-approval.md) §1.1 / §2 / §2.1（已定稿）
 - 装载期 schema 校验：非法 JSON Schema 即抛（D-044）——装配层捕获后插件跳过 + 告警（D-029）
 
+## 用法
+
+```ts
+import { toolsPlugin } from "@reins/plugin-tools";
+
+createHarness().use(toolsPlugin({})); // options 全可省
+ctx.get("tools").register(myTool); // start 后注册工具（ToolDefinition）
+```
+
+| options            | 缺省                  | 含义                                                     |
+| ------------------ | --------------------- | -------------------------------------------------------- |
+| `defaultTimeoutMs` | 不设                  | 工具执行超时（ms）——abort 是唯一取消出口，超时是可选加项 |
+| `limits`           | 2000 行 / 50KB        | 统一出口限量（tools-approval §1.1）                      |
+| `artifactsDir`     | 会话目录 `artifacts/` | 超限完整输出的落盘目录                                   |
+
+判定链经 `ToolContext.requestPermission` 消费（由 loop 装配，本包无 inject）。
+
 ## 文件 ↔ 设计
 
 | 文件        | 职责                                                                                                                                                                                                                                                                 | 设计出处                            |

@@ -6,6 +6,22 @@ session 槽位官方插件：追加式 JSONL 会话账本（P1 不变量"模型�
 - 设计文档：[session.md](../../docs/20-architecture/session.md)（全篇已定稿）
 - 目录布局归宿主 / [data-directory.md](../../docs/20-architecture/data-directory.md)（D-014），插件只认显式目录
 
+## 用法
+
+```ts
+import { sessionPlugin } from "@reins/plugin-session";
+
+createHarness().use(sessionPlugin({ directory: sessionsDir, cwd }));
+```
+
+| options     | 含义                                           |
+| ----------- | ---------------------------------------------- |
+| `directory` | 会话目录（data-directory.md 布局；装配方决定） |
+| `cwd`       | 会话工作区（SessionHeader.cwd）                |
+| `user?`     | 云端归属（D-036），本地缺省                    |
+
+开档 = 存在即装载、缺即新建；官方 15 个基础事件的校验器随本包装载注册进开放注册表。
+
 ## 文件 ↔ 设计
 
 | 文件          | 职责                                                                                                                                          | 设计出处                  |

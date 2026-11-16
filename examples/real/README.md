@@ -34,3 +34,10 @@ pnpm --filter @reins/example-real start
 写类工具会被 headless 应答器自动拒绝（fail-closed 演示）。
 
 会话文件落在临时目录（stdout 打印），`session.v1.jsonl` 可直接回放。
+
+## 文件 ↔ 设计
+
+| 文件                                     | 职责                                                                  | 设计出处                     |
+| ---------------------------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| main.ts                                  | 装配（real llmPlugin + 引擎件 + headless 自动拒应答器）+ env 门控引导 | roadmap M2 判据⑦ / D-030     |
+| [tools/list-cwd.md](./tools/list-cwd.md) | `list-cwd` 只读演示工具档案                                           | tools-approval §3 默认放行层 |

@@ -5,6 +5,24 @@ config 槽位宿主实现：三文件装载（settings.json / permissions.json /
 - 契约出处：[interfaces.md](../../docs/20-architecture/interfaces.md) protocol 段 config 部分（model / get 异步，文件 backing）
 - 设计出处：D-013②（宿主实现，llm / approval 不直接读 env 或文件）· D-040（字典：bundled 快照兜底 + 运行时拉取 + 本地缓存 + 手写覆盖）· [data-directory.md](../../docs/20-architecture/data-directory.md)（三文件位置与形状）
 
+## 用法
+
+```ts
+import { createConfigService } from "@reins/config-loader";
+
+const config = createConfigService({ cwd, globalDir }); // globalDir 缺省 ~/.reins/config；测试注入临时目录
+createHarness().use({ name: "config", start: () => config }); // 宿主装配的常见形态（examples 同款）
+
+const model = await config.model(); // settings.json 默认模型 → ModelConfig（字典预填参数）
+const key = await config.credential(provider); // credentials.json；缺 → CredentialMissingError
+```
+
+| options      | 含义                                                |
+| ------------ | --------------------------------------------------- |
+| `cwd`        | 项目 cwd（会话工作区）                              |
+| `globalDir`  | 全局配置目录（缺省 `~/.reins/config`）              |
+| `fetchImpl?` | 测试注入 fetch；undefined = 不拉取，快照 / 缓存兜底 |
+
 ## 文件 ↔ 设计
 
 | 文件          | 职责                                                                                                                                                                                                                                          | 设计出处               |

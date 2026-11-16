@@ -6,6 +6,19 @@ loop 槽位官方插件：turn/step 状态机 + 忙时投递（排队持久化 +
 - 设计文档：[loop.md](../../docs/20-architecture/loop.md)（§2 纪律 / §3 攒批 / §4 缝载荷已定稿）
 - 忙时投递唯一化：D-045；基底系统块英文：D-050 第 2 款
 
+## 用法
+
+```ts
+import { loopPlugin } from "@reins/plugin-loop";
+
+createHarness().use(loopPlugin()); // options: { maxStepsPerTurn? }——可选默认不设（D-045）
+
+for await (const event of ctx.get("loop").run(prompt, signal)) consume(event);
+ctx.get("loop").send(text); // 闲 = 直开回合；忙 = 入队（queue.json）
+ctx.get("loop").steer(entryId); // 插话升格：step 边界进场，不打断工具
+ctx.get("loop").interrupt(); // 掐当前回合
+```
+
 ## 文件 ↔ 设计
 
 | 文件       | 职责                                                                                                                                                                                                                                                               | 设计出处                                    |

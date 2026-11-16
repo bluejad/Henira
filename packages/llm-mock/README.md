@@ -4,6 +4,7 @@
 
 - 用法：`mockLlm(script)` —— 脚本条目按调用次序消费（事件数组 / AsyncIterable / 函数（收 `(req, signal)`）/ `"hang"` / `Error`），尾部函数条目兼作兜底应答器；`requests[]` 捕获全部模型请求供断言；造事件辅助 `mockText / mockReasoning / mockToolCall / mockUsage / mockFinish`。
 - 契约出处：直接实现 [interfaces.md](../../docs/20-architecture/interfaces.md) protocol 段的 `LlmService`——槽位级 mock，不碰 HTTP（[dsh] 槽位级 MockAdapter 同构）。
+- 失败语义（〔dsh packages/test-support/llm-mock-server/README.md "What can go wrong" 同款〕）：脚本耗尽且无兜底函数条目 → 直接报错（测试脚本 bug，非引擎错误）；`"hang"` 挂起只会以 abort 拒绝收场——由测试用 signal 掐停。
 
 ## 文件 ↔ 设计
 

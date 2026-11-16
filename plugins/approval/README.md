@@ -6,6 +6,16 @@ approval 槽位官方插件：判定链全序 + fail-closed 答复矩阵 + 审�
 - 设计文档：[tools-approval.md](../../docs/20-architecture/tools-approval.md) §3（判定链全序）/ §3.3（载荷，已定稿）
 - turn/step 定位：监听 loop 在总线上广播的 turn/start + step/start（kernel 语义：emit 只达 on 监听者，onSerial 不行）
 
+## 用法
+
+```ts
+import { approvalPlugin } from "@reins/plugin-approval";
+
+createHarness().use(approvalPlugin()); // 无 options；inject: ["session", "tools", "interaction", "config"]
+```
+
+四个被注入槽位都必须在装配里（缺失 start 一次报全）；`interaction` 是弹卡出口——headless / 测试用自动应答器，见 [examples/mock](../../examples/mock/README.md) 的 `autoAnswerInteraction`。
+
 ## 文件 ↔ 设计
 
 | 文件             | 职责                                                                                                                                                                                                                                                                            | 设计出处                      |

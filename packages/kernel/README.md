@@ -6,6 +6,20 @@
 - 包边界：[packages.md](../../docs/20-architecture/packages.md) 依赖规则 1（运行时零依赖）
 - 语义钉子：[40-roadmap.md](../../docs/40-roadmap.md) M1 判据②（D-023，cordis 边界五条）
 
+## 用法
+
+```ts
+import { asReinsContext } from "@reins/protocol";
+import { createHarness } from "@reins/kernel";
+
+const harness = createHarness().use(sessionPlugin).use(toolsPlugin); // use() 只能在 start() 前（静态装配，D-011）
+await harness.start(); // inject 缺失 / 依赖环在这里一次报全（topology.ts）
+const tools = asReinsContext(harness.context).get("tools"); // 类型化门面取槽位
+await harness.dispose(); // 可逆卸载（D-023 钉子有测试）
+```
+
+一个插件 = 一个 `ServiceDefinition`（省略 `name` = 不占槽位的纯行为件）；事件四模式挂 `ctx.events`。完整五件套装配见 [examples/mock](../../examples/mock/README.md)。〔minimal composition 段式照 [dsh] packages/fs/tool-fs/README.md〕
+
 ## 文件 ↔ 设计
 
 | 文件        | 职责                                                                                                               | 设计出处                                    |
