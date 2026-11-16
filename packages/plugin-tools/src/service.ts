@@ -28,6 +28,7 @@ export function toolsPlugin(options: ToolsPluginOptions = {}): ServiceDefinition
       const service: ToolsService = {
         register: (def) => registry.register(def),
         project: (filter) => registry.project(filter),
+        isConcurrencySafe: (name) => registry.resolve(name)?.def.isConcurrencySafe,
         execute: (call: ToolCall, toolCtx: ToolContext): Promise<ToolOutcome> =>
           runOne(call, toolCtx, deps),
         run: (calls, toolCtx) => runBatch(calls, toolCtx, deps),

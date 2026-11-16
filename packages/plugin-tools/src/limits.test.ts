@@ -35,9 +35,10 @@ describe("applyExitLimits（统一出口限量 §1.1）", () => {
       spillName: "c1.txt",
     });
     expect(out.truncated).toBeDefined();
-    expect(out.truncated?.path).toBe(path.join(dir, "c1.txt"));
+    const spillPath = out.truncated?.path;
+    expect(spillPath).toBe(path.join(dir, "c1.txt"));
     expect(out.truncated?.preview.length).toBeLessThanOrEqual(2000);
-    const spilled = await fs.readFile(out.truncated!.path, "utf8");
+    const spilled = await fs.readFile(spillPath ?? "", "utf8");
     expect(spilled).toBe(text); // 完整原文落盘
     await fs.rm(dir, { recursive: true, force: true });
   });

@@ -80,6 +80,19 @@ importers:
         specifier: workspace:*
         version: link:../kernel
 
+  plugins/approval:
+    dependencies:
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
   plugins/session:
     dependencies:
       '@reins/protocol':

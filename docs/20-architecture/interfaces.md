@@ -228,6 +228,7 @@ interface ToolFilter {
 interface ToolsService {
   register(tool: ToolDefinition): Disposable;
   project(filter?: ToolFilter): WireToolSchema[]; // 模型可见清单（声明式过滤）
+  isConcurrencySafe(name: string): boolean | undefined; // D-039 默认放行层查询
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolOutcome>;
   // 批执行（loop 的每步调用入口）：连续 isConcurrencySafe 并行（上限 10），其余串行；结果按原顺序回写
   run(calls: readonly ToolCall[], ctx: ToolContext): Promise<ToolOutcome[]>;

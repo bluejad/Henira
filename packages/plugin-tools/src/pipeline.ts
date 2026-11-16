@@ -14,7 +14,6 @@ import type {
   ToolContext,
   ToolOutcome,
 } from "@reins/protocol";
-import { mergeGateVerdict } from "@reins/protocol";
 import { applyExitLimits, DEFAULT_EXIT_LIMITS, type ExitLimits } from "./limits.js";
 import type { ToolRegistry } from "./registry.js";
 
