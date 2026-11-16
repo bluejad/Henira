@@ -1,0 +1,154 @@
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  ATTACHMENT_LIMITS,
+  CredentialMissingError,
+  NoDefaultModelError,
+  validateAttachments,
+} from "./config.js";
+
+let globalDir: string;
+
+beforeEach(async () => {
+  globalDir = await fs.mkdtemp(path.join(tmpdir(), "reins-config-"));
+});
+
+afterEach(async () => {
+  await fs.rm(globalDir, { recursive: true, force: true });
+});
+
+const write = async (name: string, data: unknown): Promise<void> => {
+  await fs.writeFile(path.join(globalDir, name), JSON.stringify(data), "utf8");
+};
+
+import { type ConfigLoaderOptions, createConfigService } from "./config.js";
+
+async function service(opts: Partial<ConfigLoaderOptions> = {}) {
+  return createConfigService({ cwd: "/w", globalDir, ...opts });
+}
+
+describe("ConfigService（D-013②）", () => {
+  it("model()：settings 默认 + <provider>/<model> 拆分 + 快照能力字段", async () => {
+    await write("settings.json", { version: 1, model: "zhipuai/glm-4.6" });
+    const svc = await service();
+    const config = await svc.model();
+    expect(config.provider).toBe("zhipuai");
+    expect(config.model).toBe("glm-4.6");
+    expect(config.contextWindow).toBeGreaterThan(0); // 快照兜底在场（D-040）
+  });
+
+  it("models.json 手写覆盖字典：baseUrl 与能力字段覆盖快照（D-040）", async () => {
+    await write("settings.json", { model: "selfhost/main" });
+    await write("models.json", {
+      providers: {
+        selfhost: {
+          baseUrl: "http://127.0.0.1:8000/v1",
+          models: { main: { contextWindow: 12345 } },
+        },
+      },
+    });
+    const svc = await service();
+    const config = await svc.model();
+    expect(config.baseUrl).toBe("http://127.0.0.1:8000/v1");
+    expect(config.contextWindow).toBe(12345); // 手写 > 快照
+  });
+
+  it("无默认模型 → NoDefaultModelError；坏 id 形状报错", async () => {
+    const svc = await service();
+    await expect(svc.model()).rejects.toBeInstanceOf(NoDefaultModelError);
+    await expect(svc.model("just-a-name")).rejects.toThrow(/<provider>\/<model>/);
+  });
+
+  it("credential()：credentials.json 读 key；缺失 → CredentialMissingError（不读 env，D-030）", async () => {
+    await write("credentials.json", { providers: { zhipuai: "sk-secret" } });
+    const svc = await service();
+    await expect(svc.credential("zhipuai")).resolves.toBe("sk-secret");
+    await expect(svc.credential("openai")).rejects.toBeInstanceOf(CredentialMissingError);
+  });
+
+  it("get()：插件自有配置段（settings plugins.<id>.options）", async () => {
+    await write("settings.json", {
+      plugins: { "plugin-shell": { enabled: true, options: { shell: "pwsh" } } },
+    });
+    const svc = await service();
+    expect(await svc.get<{ shell: string }>("plugin-shell")).toEqual({ shell: "pwsh" });
+    expect(await svc.get("nope")).toBeUndefined();
+  });
+
+  it("permissionRules()：合法条目收、非法行静默跳过（可手改文件不炸会话）", async () => {
+    await write("permissions.json", {
+      rules: [
+        { match: { tool: "read" }, decision: "allow" },
+        { match: { tool: "bash", commandContains: "rm -rf" }, decision: "deny" },
+        { garbage: true },
+        { match: { tool: "x" }, decision: "maybe" },
+      ],
+    });
+    const svc = await service();
+    const rules = await svc.permissionRules();
+    expect(rules).toHaveLength(2);
+    expect(rules[0].match.tool).toBe("read");
+  });
+
+  it("文件全缺：permissionRules 空表、get undefined（缺省可用，嵌入式零配置）", async () => {
+    const svc = await service();
+    expect(await svc.permissionRules()).toEqual([]);
+    expect(await svc.get("x")).toBeUndefined();
+  });
+});
+
+describe("models.dev 字典同步（D-040）", () => {
+  it("refresh()：fetch 成功 → 写缓存；断网（fetch 抛）→ 静默 false，快照仍可查", async () => {
+    const fake = (async () => ({
+      ok: true,
+      json: async () => ({
+        myprov: { models: { big: { limit: { context: 999_999, output: 8_000 } } } },
+      }),
+    })) as unknown as typeof fetch;
+    const svc1 = await service({ fetchImpl: fake });
+    await svc1.refreshDictionary();
+    const config = await svc1.model("myprov/big");
+    expect(config.contextWindow).toBe(999_999);
+    const cached = await fs.readFile(path.join(globalDir, "models-dev-cache.json"), "utf8");
+    expect(cached).toContain("myprov");
+
+    // 新实例：缓存覆盖快照路径 + fetch 断网静默
+    const offline = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    const svc2 = await service({ fetchImpl: offline });
+    const config2 = await svc2.model("myprov/big");
+    expect(config2.contextWindow).toBe(999_999); // 缓存兜底
+  });
+});
+
+describe("validateAttachments（session.md §2.2 宿主入口校验）", () => {
+  const att = (p: string, mime?: string) => ({ path: p, mime });
+
+  it("超单文件 / 超总量 / 超个数 → 抛", () => {
+    expect(() => validateAttachments([att("a.bin")], [ATTACHMENT_LIMITS.fileBytes + 1])).toThrow(
+      /exceeds/,
+    );
+    expect(() =>
+      validateAttachments([att("a.png", "image/png")], [ATTACHMENT_LIMITS.imageBytes + 1]),
+    ).toThrow(/exceeds/);
+    expect(() =>
+      validateAttachments(
+        Array.from({ length: 101 }, (_, i) => att(`f${i}`)),
+        Array.from({ length: 101 }, () => 1),
+      ),
+    ).toThrow(/exceed 100/);
+    expect(() =>
+      validateAttachments(
+        [att("a"), att("b"), att("c")],
+        [18_000_000, 18_000_000, 18_000_000], // 每个低于单文件帽，总超 50MB
+      ),
+    ).toThrow(/total/);
+  });
+
+  it("限内通过；图片按更严上限", () => {
+    expect(() => validateAttachments([att("a.png", "image/png")], [100])).not.toThrow();
+  });
+});

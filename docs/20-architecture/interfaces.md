@@ -277,9 +277,9 @@ interface PermissionRule {
 // 配置面（D-013②）：宿主实现（config-loader）；llm / approval 不直接读 env 或文件
 interface ConfigService {
   readonly cwd: string;
-  model(id?: string): ModelConfig;                 // 只含能力字段（contextWindow 等），不含密钥
+  model(id?: string): Promise<ModelConfig>;        // 只含能力字段（contextWindow 等），不含密钥
   credential(providerId: string): Promise<string>; // 仅 llm 适配器调用
-  get<T>(key: string): T | undefined;              // 插件自有配置段（settings.json plugins.<id>.options
+  get<T>(key: string): Promise<T | undefined>;     // 插件自有配置段（settings.json plugins.<id>.options
                                                    //  与项目 reins.config.ts options 合并，项目优先）
   permissionRules(): Promise<readonly PermissionRule[]>; // permissions.json 规则（approval 经此读，§3.1）
 }

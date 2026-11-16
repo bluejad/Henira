@@ -53,7 +53,7 @@ function configStub(): ServiceDefinition {
     name: "config",
     start: () => ({
       cwd: root,
-      model: () => ({ provider: "mock", model: "m" }),
+      model: async () => ({ provider: "mock", model: "m" }),
       credential: async () => "k",
       get: () => undefined,
       permissionRules: async () => [],

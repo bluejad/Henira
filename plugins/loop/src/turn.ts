@@ -85,7 +85,8 @@ export async function runTurnCore(
   let step = 0;
   let endReason: TurnEndReason = "completed";
   let turnUsage = { inputTokens: 0, outputTokens: 0 };
-  const model = `${deps.config.model().provider}/${deps.config.model().model}`;
+  const modelConfig = await deps.config.model();
+  const model = `${modelConfig.provider}/${modelConfig.model}`;
 
   try {
     while (true) {
@@ -181,7 +182,7 @@ async function runStep(args: StepArgs): Promise<StepResult> {
   const { session, llm, tools, approval, config } = deps; // ctx.events 只在 runTurnCore 用
   const messages = session.deriveMessages();
   const wireTools = tools.project();
-  const request = { model: config.model(), messages, tools: wireTools };
+  const request = { model: await config.model(), messages, tools: wireTools };
   await session.append({
     type: "request/header",
     data: {

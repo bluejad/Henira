@@ -6,6 +6,7 @@
     { "path": "packages/llm-mock" },
     { "path": "packages/plugin-llm" },
     { "path": "packages/plugin-tools" },
+    { "path": "packages/config-loader" },
     { "path": "plugins/session" }
   ]
 }

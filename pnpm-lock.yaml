@@ -24,6 +24,16 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@26.6.6)
 
+  packages/config-loader:
+    dependencies:
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
   packages/kernel: {}
 
   packages/llm-mock:
