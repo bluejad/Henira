@@ -2,7 +2,7 @@
 
 > 依据原则 **P6（loop 状态机 + 中断纪律）**、**P8（一切皆插件）**、**P9（红线）**。
 > 定位：`plugin-loop` 是**官方 loop 插件**（官方预设默认装载；可被整包替换，中断纪律等语义责任随替换转移，见 D-010）。
-> 状态：**已定稿**（2026-11-14 收口：忙时投递与插话、步数上限，D-045；缝的载荷类型随落码在 interfaces.md 定稿）。loop 是全框架语义最重的插件，实施顺序放在其余语义插件之后。
+> 状态：**已定稿**（2026-11-14 收口：忙时投递与插话、步数上限，D-045；2026-11-16 收口：三缝载荷类型）。loop 是全框架语义最重的插件，实施顺序放在其余语义插件之后。
 
 ---
 
@@ -44,9 +44,24 @@ turn（用户回合）
 | `tools/post-execute` | 工具执行后（归 plugin-tools，D-027）        | 结果剪枝、检查点捕获                   |
 | `loop/turn-stopping` | 回合将结束（**bail** 模式，可否决，D-012①） | 熔断续跑、排队消费                     |
 
-**待讨论**：
+**缝载荷类型（定稿 · 2026-11-16，接口形状同 [interfaces.md](./interfaces.md) protocol 段）**：
 
-- [ ] 各缝的载荷类型（`loop/pre-step` 等 waterfall 值的形状）——落码前在 [interfaces.md](./interfaces.md) 定稿
+```ts
+// loop/pre-step（waterfall）：每步请求前——压缩预算投影与提醒注入在此改写
+interface PreStepValue {
+  messages: ModelMessage[]; // 本步将发送的派生历史
+  tools: WireToolSchema[]; // 本步工具清单投影
+}
+// loop/request（waterfall）：请求对象定稿前——温度 / 上限 / 投影改写
+interface RequestValue {
+  request: LlmRequest;
+}
+// loop/turn-stopping（bail）：回合将结束——返回 Veto{by, reason, resume?} 否决并续跑（D-012①）
+interface TurnStoppingValue {
+  turn: string;
+  reason: TurnEndReason;
+}
+```
 
 _已定稿：死循环熔断 → 官方插件，走 `loop/turn-stopping`（bail）缝（2026-11-11）。_
 _已定稿：bail 的 `Veto` 形状 = `{ by, reason, resume? }`（[interfaces.md](./interfaces.md) §kernel、[principles.md](./principles.md) P7，2026-11-12）。_

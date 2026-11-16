@@ -47,6 +47,14 @@ interface ToolDefinition {
 - 并行执行：连续多个 `isConcurrencySafe` 工具调用可 `Promise.all`，结果按原顺序回写；
 - 可见性双层：模型请求前的工具清单投影（声明式过滤）+ 执行时 `isAllowed` 兜底校验。
 
+### 2.1 pre-execute 裁决与判定链的组合（定稿 · 2026-11-16）
+
+- 跨监听者单调合并：**deny > ask > allow**（后注册不得放宽先注册的拒绝——单调性 [dsh]）；
+- **deny = 链前拒**：不进判定链、无审批审计对；`tool/call` 与 `tool/result{isError}` 照记（P8 替换者清单"每个 tool/call 必有 tool/result"）；
+- **ask = 抬高下限**：判定链照常执行，但默认放行层（只读标记）不得自动通过——直达 `approval/request` 缝与 answerer（沙箱闸要求过目时，只读工具也不能静默放行）；
+- **allow / 无监听者表态**：判定链全程权威（§3 全序）——pre-execute 任何裁决都放不了凭据与灾难操作（§3 钩子规则同源）；
+- requestPermission 对每次未被链前拒的调用**必然执行**：管线先查闸、判定链管终审（Claude Code 行为层同构：管线内钩子先于权限检查、deny 短路）。
+
 ## 3. 审批状态机（语义已定；由官方 approval 插件实现）
 
 **归属（D-012④ / D-013①）**：fail-closed 语义、判定链、审计事件对、**凭据硬拒清单**全部由官方 approval 插件承担并默认装载——kernel 是纯机制，不承载业务策略；替换此插件者接管语义责任。**弹卡、收答、断线重放不在此列**：那是宿主能力，经 protocol 的 `InteractionService` 槽位（由引擎所在进程实现，归属见 [packages.md](./packages.md)「槽位实现归属」；测试用 mock）。

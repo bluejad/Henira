@@ -1,7 +1,7 @@
 # 关键接口形状（TS 签名草案）
 
 > 各包对外 API 的**形状级草案**——定方向不锁细节，实施时在此文件同步演进。
-> 状态：**kernel 段、config-loader 段与插件 UI 门面已定稿**（2026-11-12）；**protocol 段的信封类型、事件注册表（D-051）与 SessionService 已定稿**（2026-11-16）；其余槽位接口仍为形状级草案，各包落码前定稿。
+> 状态：**kernel 段、config-loader 段与插件 UI 门面已定稿**（2026-11-12）；**protocol 段全部定稿**——信封类型、事件注册表（D-051）、SessionService（2026-11-16）与引擎五槽接口及全部 DTO（2026-11-16，M2 开工定稿）；sdk / web 段等其余小节落码前定稿。
 
 ---
 
@@ -95,10 +95,10 @@ interface SlotMap {
   tools: ToolsService;
   approval: ApprovalService;
   loop: LoopService;
-  commands: CommandService;
   interaction: InteractionService;
   config: ConfigService;
 }
+// commands 槽随 plugin-commands 落码（M6）进入 SlotMap（D-025；接口形状已定稿于 protocol 段）
 type ReinsContext = Omit<HarnessContext, "get"> & {
   get<K extends keyof SlotMap>(slot: K): SlotMap[K];
 };
@@ -122,52 +122,193 @@ interface SessionService {
   replay(visitor: (e: SessionEvent) => void | Promise<void>): Promise<void>;
 }
 
+// ── 引擎 DTO（M2 定稿 · 2026-11-16）──────────────────────────
+
+type JsonSchema = Record<string, unknown>; // 裸 JSON Schema（D-044）：书写层形状；装载期由 tools 校验
+
+/** 模型配置：能力字段由 models.dev 字典预填、手写覆盖（D-040）；不含凭据（D-013②） */
+interface ModelConfig {
+  provider: string; // 供应商标识（credentials / 字典键）
+  model: string; // 模型 id
+  baseUrl?: string; // OpenAI 兼容端点（自建 / 代理）
+  contextWindow?: number; // 能力字段——引擎内禁止厂商备表（P9-4），只从配置解析
+  maxOutputTokens?: number;
+}
+
+interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+
+/** 封闭词表（对齐 AI SDK finish reason 集；error / other 映射 unknown + 流 rejection） */
+type FinishReason = "stop" | "tool-calls" | "length" | "content-filter" | "unknown";
+
+/** llm 流失败的类型化错误（rejection 通道，不进 StreamEvent——失败不走事件） */
+class LlmError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "LlmError";
+  }
+}
+
+// StreamEvent：封闭判别联合（不变量见 P3，测试锁定）。失败 = 流 rejection（携带 LlmError）；
+// 中断由 loop 先查自有 AbortController 再诊断（P6 纪律 1）。
+type StreamEvent =
+  | { type: 'text-delta';      text: string }
+  | { type: 'reasoning-delta'; text: string }
+  | { type: 'tool-call';       callId: string; name: string; argsText: string }  // 恒为原始 JSON
+  | { type: 'usage';           usage: TokenUsage }                               // 先于 finish
+  | { type: 'finish';          reason: FinishReason };
+
+interface LlmRequest {
+  model: ModelConfig;
+  messages: ModelMessage[];
+  tools: WireToolSchema[]; // 本请求投影给模型的工具清单
+  temperature?: number;
+  maxTokens?: number;
+}
+
+interface WireToolSchema { // tools.project() 的产物 = 模型可见清单形状
+  name: string;
+  description: string;
+  inputSchema: JsonSchema;
+}
+
 interface LlmService {
-  prepareCall(config: ModelConfig): PreparedCall;   // 能力探测产物：contextWindow 等
   stream(req: LlmRequest, signal: AbortSignal): AsyncIterable<StreamEvent>;
+}
+// prepareCall 从 M2 契约移除（无消费者；M1 纪律：只有定稿契约进 protocol）——
+// contextWindow 经 ModelConfig 解析（P3），压缩预算接口随 M5 压缩设计文档回归。
+
+/** 引擎侧工具调用（与 StreamEvent 同源）；日志侧对偶 = ToolCallDraft.arguments */
+interface ToolCall {
+  callId: string;
+  name: string;
+  argsText: string; // 恒为原始 JSON 文本
+}
+
+interface ToolDefinition {
+  name: string; // 全局唯一，注册时查重
+  description: string; // 给模型看
+  inputSchema: JsonSchema; // 裸 JSON Schema（D-044）
+  isConcurrencySafe?: boolean; // 只读标记：默认放行层（D-039）与并行调度共用
+  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
+}
+
+interface ToolContext {
+  cwd: string;
+  signal: AbortSignal;
+  requestPermission(req: PermissionRequest): Promise<Decision>; // 判定链唯一入口
+  config: ConfigService;
+}
+
+interface ToolResult {
+  content: string; // 模型可见文本（出口限量已应用，tools-approval §1.1）
+  isError?: boolean;
+  __meta?: Record<string, unknown>; // 带外通道（P4）：检查点/引用/图片元数据，loop 分流，不进模型上下文
+}
+
+interface ToolOutcome {
+  result: ToolResult;
+  truncated?: { path: string; preview: string }; // 超限落盘留路径（tools-approval §1.1）
+}
+
+interface ToolFilter {
+  include?: readonly string[];
+  exclude?: readonly string[];
 }
 
 interface ToolsService {
   register(tool: ToolDefinition): Disposable;
-  project(filter?: ToolFilter): WireToolSchema[];   // 模型可见清单（声明式过滤）
+  project(filter?: ToolFilter): WireToolSchema[]; // 模型可见清单（声明式过滤）
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolOutcome>;
 }
 
-type Decision = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
+type Decision = "allowed-once" | "rejected" | "cancelled" | "unavailable";
+
+/** 审批载荷（D-046 定稿）：引擎一字不加工；显示折叠归界面 UI */
+interface PermissionRequest {
+  tool: string;
+  args: unknown; // 完整原样
+  reason?: string;
+}
 
 // 审批策略（D-013①：只管规则与 fail-closed，不碰 UI）
 interface ApprovalService {
   requestPermission(req: PermissionRequest, signal?: AbortSignal): Promise<Decision>;
 }
 
-// 交互通道（D-013①）：引擎所在进程的宿主实现（①=server；③=cli / sdk 嵌入方，sdk 自带缺省实现；测试用 mock），approval 与工具经它触达用户
+// 交互通道（D-013①）：引擎所在进程的宿主实现（①=server；③=cli / sdk 嵌入方，sdk 自带缺省实现；
+// 测试与 examples 用 mock 自动应答）。M2 只定审批交互；question 类随其首个消费者定稿时扩展。
 type InteractionRequest =
-  | { kind: 'approval'; requestId: string; toolName: string; args: unknown; reason?: string }
-  | { kind: 'question'; requestId: string; questions: Question[] };
+  | { kind: 'approval'; requestId: string; toolName: string; args: unknown; reason?: string };
 
 type InteractionAnswer =
-  | { kind: 'approval'; requestId: string; decision: Decision }
-  | { kind: 'question'; requestId: string; answers: string[][] };
+  | { kind: 'approval'; requestId: string; decision: Decision };
 
 interface InteractionService {
   ask(req: InteractionRequest, signal?: AbortSignal): Promise<InteractionAnswer>;
-  settle(requestId: string, answer: InteractionAnswer): boolean;  // 幂等，先答者赢
-  listPending(): readonly InteractionRequest[];                    // 断线 / 刷新重放
+  settle(requestId: string, answer: InteractionAnswer): boolean; // 幂等，先答者赢
+  listPending(): readonly InteractionRequest[]; // 断线 / 刷新重放（P5）
 }
 
-// 配置面（D-013②）：宿主实现；llm / approval 不直接读 env 或文件
+/** 跨会话权限规则（tools-approval §3.1 permissions.json；deny 压倒一切，链首） */
+interface PermissionRule {
+  match: { tool: string; commandPrefix?: string; commandContains?: string };
+  decision: "allow" | "deny";
+}
+
+// 配置面（D-013②）：宿主实现（config-loader）；llm / approval 不直接读 env 或文件
 interface ConfigService {
   readonly cwd: string;
   model(id?: string): ModelConfig;                 // 只含能力字段（contextWindow 等），不含密钥
   credential(providerId: string): Promise<string>; // 仅 llm 适配器调用
   get<T>(key: string): T | undefined;              // 插件自有配置段（settings.json plugins.<id>.options
                                                    //  与项目 reins.config.ts options 合并，项目优先）
+  permissionRules(): Promise<readonly PermissionRule[]>; // permissions.json 规则（approval 经此读，§3.1）
 }
 
+/** turn/end.reason 7 值（session.md §2.4 同源）；interrupted / forked 只由 session 补写产生，loop 不发 */
+type TurnEndReason =
+  | "completed"
+  | "aborted"
+  | "blocked"
+  | "error"
+  | "max-tokens"
+  | "interrupted"
+  | "forked";
+
+interface QueuedPrompt {
+  id: string;
+  text: string;
+  steer: boolean; // true = "立即发送"插话条目（下一 step 边界进场，D-045）
+}
+
+// run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——opencode
+// `publish-llm-event.ts:289` "block starts are not batched" 同规）。定稿 2026-11-16。
+type LoopEvent =
+  | { type: "text-delta"; text: string }
+  | { type: "reasoning-delta"; text: string }
+  | { type: "tool-started"; callId: string; name: string }
+  | { type: "tool-finished"; callId: string; name: string; isError: boolean }
+  | { type: "approval-requested"; requestId: string; tool: string; reason?: string }
+  | { type: "turn-ended"; reason: TurnEndReason }
+  | { type: "error"; message: string };
+
 interface LoopService {
-  run(prompt: string, signal?: AbortSignal): AsyncIterable<LoopEvent>;
-  send(prompt: string): Promise<void>;          // 排队（回合运行中）
-  interrupt(signal?: AbortSignal): Promise<void>;
+  run(prompt: string, signal?: AbortSignal): AsyncIterable<LoopEvent>; // 开启一回合并流出事件
+  send(prompt: string, opts?: { steer?: boolean }): Promise<QueuedPrompt>;
+  //   闲时 = 直接开新回合（事件照常落账本；无返回 iterable——消费者经总线 / 会话事件观察）；
+  //   忙时入队（queue.json 持久化，重启恢复，D-045）
+  steer(entryId: string): Promise<boolean>; // 队列条目"立即发送" = 插话升格
+  interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}）
 }
 
 // 命令收集（D-025）：官方 plugin-commands 实现并占 `commands` 槽位；宿主只消费
@@ -181,14 +322,6 @@ interface CommandService {
   list(): Promise<CommandInfo[]>;                       // 本会话可见的 commands/
   expand(name: string, args: string): Promise<string>;  // 替换 $ARGUMENTS，返回待发送文本
 }
-
-// StreamEvent：封闭判别联合（不变量见 P3）
-type StreamEvent =
-  | { type: 'text-delta';      text: string }
-  | { type: 'reasoning-delta'; text: string }
-  | { type: 'tool-call';       callId: string; name: string; argsText: string }  // 恒为原始 JSON
-  | { type: 'usage';           usage: TokenUsage }                               // 先于 finish
-  | { type: 'finish';          reason: FinishReason };
 
 // 事件注册表：开放 map（P1）；校验器 = 最小 duck 接口（D-051：protocol 零依赖、
 // 只认"会 safeParse 的校验器"，不认 schema 库牌子；官方 15 变体由 session 包用 zod 实现）
@@ -252,19 +385,10 @@ applyConfig(harness: Harness, cfg: ReinsConfig): void;   // 翻译成 .use() 调
 
 ## tools / approval（官方插件实现，签名经槽位接口暴露）
 
-```ts
-function defineTool(def: ToolDefinition): ToolDefinition;
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: JsonSchema; // 裸 JSON Schema（D-044：协议唯一形状——模型投影 / MCP tools/list / AI 创建同形零转换；装载期校验，非法 → 插件跳过 + 告警）
-  isConcurrencySafe?: boolean;
-  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
-}
-// ToolResult 带 __ 前缀带外通道（P4）：__meta 等由 loop 路由，不进模型上下文
-// 官方插件直写 JSON Schema（dsh 同款），不建转换糖；execute 入参不靠 schema 推导 TS 类型（松散 args + 引擎校验 + 工具测试钉）
-```
+- **定稿形状全部在 protocol 段**（2026-11-16）：ToolDefinition / ToolContext / ToolResult / ToolOutcome / PermissionRequest / Decision / PermissionRule；
+- `defineTool(def): ToolDefinition` —— 类型推断辅助，住 `@reins/plugin-tools` 出口（不进 protocol，D-013③）；
+- 官方插件直写 JSON Schema（dsh 同款），不建转换糖；execute 入参不靠 schema 推导 TS 类型（松散 args + 引擎校验 + 工具测试钉）；装载期校验非法 schema → 插件跳过 + 告警（接 D-029）；
+- ToolResult 带 `__` 前缀带外通道（P4）：`__meta` 等由 loop 路由，不进模型上下文。
 
 ## 能力服务与注入装载（D-049）
 
@@ -415,17 +539,9 @@ interface SessionRef {
 
 ## loop（官方插件；对外形状 = LoopService）
 
-```ts
-// run() 产出的 LoopEvent（经 16ms 合并后发出）：
-type LoopEvent =
-  | { type: 'text-delta'; … }
-  | { type: 'tool-started'; … }
-  | { type: 'tool-finished'; … }
-  | { type: 'approval-requested'; … }
-  | { type: 'turn-ended'; reason: TurnEndReason }
-  | { type: 'error'; … };
-// 中断纪律五条 + 16ms 合并 = 官方 loop 的实现纪律（P6，测试锁定）
-```
+- **定稿形状全部在 protocol 段**（2026-11-16）：LoopService / LoopEvent / TurnEndReason / QueuedPrompt；
+- 中断纪律五条 + 16ms 合并 = 官方 loop 的实现纪律（P6，测试锁定；16ms = 一帧间隔，UI 工程通行做法）；
+- 三缝载荷（[loop.md](./loop.md) §4 定稿）：`loop/pre-step` → PreStepValue / `loop/request` → RequestValue / `loop/turn-stopping` → TurnStoppingValue。
 
 ---
 
