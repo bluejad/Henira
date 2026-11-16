@@ -4,9 +4,9 @@
 >
 > Open-source Agent Harness framework — the kernel provides mechanisms only; everything else is a plugin.
 
-**当前状态：架构设计已定稿（[docs/INDEX.md](./docs/INDEX.md)），M1 内核与数据落地——`kernel` / `protocol` / `session` 三包有码有测试，尚无可运行产品。**
+**当前状态：架构设计已定稿（[docs/INDEX.md](./docs/INDEX.md)），M2 引擎闭环落地——内核 / 契约 / 五件官方引擎插件（session / llm / tools / approval / loop）+ config-loader + mock 离线 e2e 全部有码有测试（188 测试）；真实模型回合待自备 key（examples/real）。**
 
-**Status: architecture finalized (see [docs/INDEX.md](./docs/INDEX.md)); M1 (kernel, protocol, session) implemented with tests — no runnable product yet.**
+**Status: architecture finalized (see [docs/INDEX.md](./docs/INDEX.md)); M2 engine loop complete — kernel / protocol / five official engine plugins (session, llm, tools, approval, loop) + config-loader + offline mock e2e, 188 tests green; real-model turn awaiting your own key (examples/real).**
 
 - 📚 文档总索引 / Docs index：[docs/INDEX.md](./docs/INDEX.md)
 - 🗺️ 里程碑 / Roadmap：[docs/40-roadmap.md](./docs/40-roadmap.md)
