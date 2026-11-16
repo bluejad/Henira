@@ -2,6 +2,7 @@
   "references": [
     { "path": "packages/kernel" },
     { "path": "packages/protocol" },
+    { "path": "packages/llm-mock" },
     { "path": "plugins/session" }
   ]
 }

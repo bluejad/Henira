@@ -26,6 +26,16 @@ importers:
 
   packages/kernel: {}
 
+  packages/llm-mock:
+    dependencies:
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
   packages/protocol:
     devDependencies:
       '@reins/kernel':
