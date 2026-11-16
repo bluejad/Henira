@@ -31,7 +31,7 @@ importers:
         version: link:../../packages/config-loader
       '@reins/llm-mock':
         specifier: workspace:*
-        version: link:../../packages/llm-mock
+        version: link:../../test-support/llm-mock
       '@reins/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
@@ -84,7 +84,7 @@ importers:
         version: link:../../packages/kernel
       '@reins/llm-mock':
         specifier: workspace:*
-        version: link:../../packages/llm-mock
+        version: link:../../test-support/llm-mock
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2
@@ -100,16 +100,6 @@ importers:
         version: 24.19.2
 
   packages/kernel: {}
-
-  packages/llm-mock:
-    dependencies:
-      '@reins/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.19.2
 
   packages/protocol:
     devDependencies:
@@ -163,7 +153,7 @@ importers:
         version: link:../../packages/kernel
       '@reins/llm-mock':
         specifier: workspace:*
-        version: link:../../packages/llm-mock
+        version: link:../../test-support/llm-mock
       '@reins/plugin-session':
         specifier: workspace:*
         version: link:../session
@@ -202,6 +192,16 @@ importers:
       '@reins/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  test-support/llm-mock:
+    dependencies:
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2

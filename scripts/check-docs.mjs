@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOTS = ["packages", "plugins", "examples"];
+const ROOTS = ["packages", "plugins", "examples", "test-support"];
 const TOOL_NAME_RE = /name:\s*"([a-z][a-z0-9_-]*)"/g;
 const NEIGHBORHOOD = 3; // inputSchema 出现行的上下各 3 行
 

@@ -3,7 +3,7 @@
   "references": [
     { "path": "packages/kernel" },
     { "path": "packages/protocol" },
-    { "path": "packages/llm-mock" },
+    { "path": "test-support/llm-mock" },
     { "path": "packages/config-loader" },
     { "path": "plugins/session" },
     { "path": "plugins/llm" },

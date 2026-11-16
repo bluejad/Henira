@@ -625,3 +625,4 @@
   3. **机械闸**：`pnpm check:docs`（CI 同跑）——每个包目录必须有 README.md；src 里声明的每个工具（inputSchema 邻域识别）必须有同名 `tools/<名字>.md`。条文靠自觉，闸门靠 CI——工具 md 欠账的根因就是"有规矩没闸门"。
 - **理由**：文档是下一个写码 AI 的入口；欠账随里程碑只增不减，随包诞生是唯一不欠的时点。识别口径取邻域（工具对象的 name 与 inputSchema 相邻，ServiceDefinition 的槽位名远离 inputSchema）——闸门是兜底不是穷举，新形状照旧随包写 md。
 - **备注**：AGENTS.md（总纪律 / 文档粒度表 / 命令表）；scripts/check-docs.mjs；M2 欠账当轮补齐（10 份包 README + echo / list-cwd 两个工具 md）。
+- **后续修订**：决定 1 的根清单随 **test-support/ 根**加入扩为四根（packages / plugins / examples / test-support，2026-11-16 划位）——测试支撑件（llm-mock 起）住专属根、整根不进发布集；README 与工具 md 闸门（check:docs）与依赖闸门（check:deps）同扫四根。

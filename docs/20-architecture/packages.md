@@ -5,7 +5,7 @@
 > dsh 约 350 包的成因要拆开看：契约/实现/策略三角色分立的理念已收（槽位进 protocol、换实现走 D-048、
 > 策略叠服务外层，D-049）；不抄的只是"一个角色一个 npm 包"——包数跟真实实现数走，
 > 出现第二种实现（如沙箱版 fs）再拆包零迁移；生成式 catalog / 文档机器是规模的函数（调研坑 1、2），
-> 我们全库 30 余包（packages 10 ＋ plugins 21 ＋ examples 3）用不上，长到那个体量再议。
+> 我们全库 30 余包（packages 9 ＋ plugins 21 ＋ examples 3 ＋ test-support 1）用不上，长到那个体量再议。
 > 架构形态依据 **D-010（机制内核 + 一切皆插件）** 与 **D-012（落地细节四条）**。
 > 运行时数据目录（`~/.reins/` 与项目内 `.reins/`）见 [data-directory.md](./data-directory.md)（D-014）。
 
@@ -32,12 +32,8 @@ reins\                              ← 仓库根（仓库根目录名即 Reins�
 │   ├── web\              @reins/web            React 19 会话界面（正式宿主，D-038；插件管理面 + UI 宿主门面）
 │   ├── desktop\          @reins/desktop        Electron 薄壳宿主（中远期，D-035）：
 │   │                                          utilityProcess 起 server 子进程 + 窗口加载回环地址
-│   ├── tui\              @reins/tui            终端宿主（占位，发布后按需求建，50-open 🟢）：
-│   │                                          C1 薄客户端连本地 server，终端自身不起服务
-│   └── llm-mock\         @reins/llm-mock       测试支撑包（非插件，50-open 归档 2026-11-16）：
-│                                              llm 槽位的脚本化 mock 实现（响应队列 + 兜底应答 +
-│                                              请求捕获 + hang/throw 条目，自校验 StreamEvent 不变量）；
-│                                              仅供各包测试与 examples 消费（devDependency），不进官方清单
+│   └── tui\              @reins/tui            终端宿主（占位，发布后按需求建，50-open 🟢）：
+│                                              C1 薄客户端连本地 server，终端自身不起服务
 ├── plugins\                        ← 全部官方插件（与社区插件同权、同一条注册路径，
 │   │                                  任何包可被整包替换——位置即宣言，D-012③）
 │   ├── session\          @reins/plugin-session       事件溯源会话（官方默认实现）
@@ -64,6 +60,12 @@ reins\                              ← 仓库根（仓库根目录名即 Reins�
 │   ├── commands\         @reins/plugin-commands      命令收集（扫 commands/，占 commands 槽位，宿主消费）
 │   └── web-ui\           @reins/plugin-web-ui        官方默认界面套件（D-043）：布局 + 会话列表 / 对话面板 /
 │                                                    输入框 / 审批卡各件各占槽；真插件，M3 随 web 诞生
+├── test-support\                   ← 测试支撑件（假模型 / 假 server / 测试夹具）——目录即宣言：
+│   │                                  产品包与测试假件一眼分家，整根不进发布集、不做官方件
+│   └── llm-mock\         @reins/llm-mock       llm 槽位的脚本化 mock 实现（50-open 归档 2026-11-16）：
+│                                              响应队列 + 兜底应答 + 请求捕获 + hang/throw 条目，
+│                                              自校验 StreamEvent 不变量；仅供各包测试与
+│                                              examples 消费（devDependency），不进官方清单
 ├── examples\                       ← 最小示例与部署样例
 │   ├── mock\                         离线可跑（mock LLM，无需 API key，兼作 e2e 测试载体）
 │   ├── real\                         真实模型 demo（用户自备 key）
@@ -136,7 +138,7 @@ plugins/*（21 个官方插件：服务件 + 工具件按族分包，D-049）
 ## 依赖规则（CI 强制）
 
 1. `kernel` 运行时零依赖；`protocol` 运行时零依赖、**互不依赖实现**——protocol 仅以类型引用 kernel 机制形状（`HarnessContext` 等），kernel 不认识任何业务接口（机制类型归 kernel，业务契约归 protocol）；zod 不属于协议层（D-051：官方事件校验器由 session 包实现，zod 是其实现细节）；
-2. `plugins/*` 只依赖 kernel + protocol + 第三方库；**禁止插件互相 import 实现**——运行时经槽位互消费，**能力共享 = 注入服务（ctx.get，D-049 唯一通道）**；共享类型/纯函数下沉 protocol；**插件互依赖的例外通道 = devDependencies 仅测试装配**（测试里装真同伴，镜像 examples 聚合；dependencies 运行时仍然全禁）；测试支撑包 `@reins/llm-mock` 不是插件：仅供各包**测试**与 examples 以 devDependency 消费，不进发布集（50-open 归档 2026-11-16）；
+2. `plugins/*` 只依赖 kernel + protocol + 第三方库；**禁止插件互相 import 实现**——运行时经槽位互消费，**能力共享 = 注入服务（ctx.get，D-049 唯一通道）**；共享类型/纯函数下沉 protocol；**插件互依赖的例外通道 = devDependencies 仅测试装配**（测试里装真同伴，镜像 examples 聚合；dependencies 运行时仍然全禁）；测试支撑包 `@reins/llm-mock` 不是插件：仅供各包**测试**与 examples 以 devDependency 消费，不进发布集（50-open 归档 2026-11-16）；测试支撑件住 `test-support\` 根（2026-11-16 划位——目录即宣言，与 packages / plugins / examples 平级，check:deps / check:docs 同扫四根）；
 3. 宿主（config-loader / server / sdk / cli / web / desktop / tui）依赖 kernel + protocol，并按需把 plugins/* 聚合进预设；宿主之间不互相依赖（cli 与 web 都经 sdk；desktop 复用 server 与 web 的产物，不依赖其包）；
 4. `sdk` 双形态共用同一套 protocol 契约：进程内（聚合插件）与远程（连 server）行为一致；
 5. 禁止循环依赖——CI 加依赖方向检查（dependency-cruiser 或等价物）；

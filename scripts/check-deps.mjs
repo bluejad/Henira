@@ -18,7 +18,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOTS = ["packages", "plugins", "examples"];
+const ROOTS = ["packages", "plugins", "examples", "test-support"];
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies"];
 const CONTRACT_PACKAGES = ["@reins/protocol"];
 const TEST_SUPPORT_PACKAGES = ["@reins/llm-mock"];
