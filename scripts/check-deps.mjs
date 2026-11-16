@@ -1,16 +1,28 @@
 #!/usr/bin/env node
-// 依赖方向检查（docs/20-architecture/packages.md 规则；D-048）。
-// 规则一：plugins/* 与 examples/* 下的包，依赖表禁止出现 @reins/kernel 与 @reins/protocol
-//         ——宿主经 import map 注入唯一实例，任何依赖段（dependencies / devDependencies / peerDependencies）都算违反。
-// 规则二：@reins/* 内部依赖不得成环。
+// 依赖方向检查（docs/20-architecture/packages.md「依赖规则」节逐条落地；CI 同跑）。
+//
+// 规则 1：kernel / protocol 运行时零依赖——两者 dependencies 必须为空。
+// 规则 2：plugins/* 依赖白名单 = @reins/protocol（契约层）+ 第三方库；
+//         @reins/kernel 仅允许 devDependencies（插件只做类型引用——ServiceDefinition 等，
+//         运行时零 import）；@reins/llm-mock 测试支撑包仅允许 devDependencies（50-open 归档
+//         2026-11-16）；**禁止任何其他 @reins/* 依赖，尤其是 @reins/plugin-***
+//         ——插件互不 import 实现，互消费只经槽位（ctx.get，D-049）。
+//         D-048 的「kernel / protocol 不进依赖表」管的是用户侧 AI 创建插件包（engine/，
+//         装载层拦截，M4 实装），不约束仓库内官方插件——官方插件是产品本体，
+//         契约依赖走 protocol（packages.md 规则 2 为准，docs > 脚本注释）。
+// 规则 3：宿主（config-loader / server / sdk / cli / web…）与 examples 聚合一切
+//         （kernel / protocol / plugins / 第三方），只查成环与工作区成员资格。
+// 规则 4：@reins/* 内部依赖不得成环。
 // 空工作区（无任何包）时全部通过；包随里程碑落地后此检查逐步生效。
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOTS = ["packages", "plugins", "examples"];
-const KERNEL_SEAMS = ["@reins/kernel", "@reins/protocol"];
 const DEP_SECTIONS = ["dependencies", "devDependencies", "peerDependencies"];
+const CONTRACT_PACKAGES = ["@reins/protocol"];
+const TEST_SUPPORT_PACKAGES = ["@reins/llm-mock"];
+const PLUGIN_PREFIX = "@reins/plugin-";
 
 function listWorkspacePackages() {
   const found = [];
@@ -23,7 +35,6 @@ function listWorkspacePackages() {
       if (existsSync(manifest)) {
         found.push({
           manifest: JSON.parse(readFileSync(manifest, "utf8")),
-          // 身份按位置定：plugins/ 与 examples/ 下的一律按插件纪律管
           location: root,
         });
       }
@@ -42,16 +53,43 @@ for (const { manifest: pkg, location } of packages) {
     for (const dep of Object.keys(pkg[section] ?? {})) deps[dep] = section;
   }
 
-  if (location === "plugins" || location === "examples") {
-    for (const banned of KERNEL_SEAMS) {
-      if (deps[banned]) {
+  // 规则 1：契约层与内核运行时零依赖
+  if (pkg.name === "@reins/kernel" || pkg.name === "@reins/protocol") {
+    const runtime = Object.keys(pkg.dependencies ?? {});
+    if (runtime.length > 0) {
+      failures.push(`${pkg.name}: 规则 1 运行时零依赖，dependencies 非空（${runtime.join(", ")}）`);
+    }
+  }
+
+  // 规则 2：plugins/* 依赖白名单
+  if (location === "plugins") {
+    for (const [dep, section] of Object.entries(deps)) {
+      if (dep.startsWith(PLUGIN_PREFIX) && dep !== pkg.name) {
         failures.push(
-          `${pkg.name}: ${banned} 出现在 ${deps[banned]}（D-048：宿主 import map 注入，不进依赖表）`,
+          `${pkg.name}: ${dep} 出现在 ${section}（规则 2：插件互不 import 实现，互消费只经槽位 ctx.get）`,
         );
+        continue;
+      }
+      if (dep === "@reins/kernel" && section === "dependencies") {
+        failures.push(
+          `${pkg.name}: @reins/kernel 出现在 dependencies（插件只做类型引用 → devDependencies）`,
+        );
+        continue;
+      }
+      if (TEST_SUPPORT_PACKAGES.includes(dep) && section !== "devDependencies") {
+        failures.push(
+          `${pkg.name}: ${dep} 是测试支撑包，只许 devDependencies（50-open 归档 2026-11-16）`,
+        );
+        continue;
+      }
+      const known = [...CONTRACT_PACKAGES, "@reins/kernel", ...TEST_SUPPORT_PACKAGES];
+      if (dep.startsWith("@reins/") && !known.includes(dep) && !dep.startsWith(PLUGIN_PREFIX)) {
+        failures.push(`${pkg.name}: 非白名单 @reins 依赖 ${dep} 出现在 ${section}（规则 2）`);
       }
     }
   }
 
+  // 工作区成员资格：@reins/* 依赖必须指向本工作区内的包
   for (const dep of Object.keys(deps)) {
     if (dep.startsWith("@reins/") && !byName.has(dep)) {
       failures.push(`${pkg.name}: 依赖的 ${dep} 不在本工作区内`);
@@ -59,7 +97,7 @@ for (const { manifest: pkg, location } of packages) {
   }
 }
 
-// 环检测：只看 @reins/* 内部边
+// 规则 4：环检测——只看 @reins/* 内部边
 const graph = new Map();
 for (const { manifest: pkg } of packages) {
   const edges = [];

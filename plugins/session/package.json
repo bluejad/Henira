@@ -1,5 +1,5 @@
 {
-  "name": "@reins/session",
+  "name": "@reins/plugin-session",
   "version": "0.0.0",
   "type": "module",
   "files": [
@@ -19,6 +19,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@reins/kernel": "workspace:*",
     "@types/node": "^24.0.0"
   }
 }

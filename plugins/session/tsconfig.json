@@ -13,6 +13,13 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "references": [{ "path": "../protocol" }],
+  "references": [
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../../packages/kernel"
+    }
+  ],
   "include": ["src"]
 }

@@ -32,15 +32,18 @@ importers:
         specifier: workspace:*
         version: link:../kernel
 
-  packages/session:
+  plugins/session:
     dependencies:
       '@reins/protocol':
         specifier: workspace:*
-        version: link:../protocol
+        version: link:../../packages/protocol
       zod:
         specifier: ^4.0.0
         version: 4.6.7
     devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2

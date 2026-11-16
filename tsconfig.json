@@ -2,6 +2,6 @@
   "references": [
     { "path": "packages/kernel" },
     { "path": "packages/protocol" },
-    { "path": "packages/session" }
+    { "path": "plugins/session" }
   ]
 }
