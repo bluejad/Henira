@@ -7,7 +7,8 @@
 import type { ServiceDefinition } from "@henira/kernel";
 import { asHeniraContext, type LoopEvent, type LoopService } from "@henira/protocol";
 import { PromptQueue } from "./queue.js";
-import { type LoopDeps, runTurnCore, systemPromptHash, type TurnHandle } from "./turn.js";
+import { systemPromptHash } from "./step.js";
+import { type LoopDeps, runTurnCore, type TurnHandle } from "./turn.js";
 
 export { systemPromptHash };
 
