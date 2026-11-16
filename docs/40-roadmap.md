@@ -58,7 +58,7 @@
 
 ## M4 插件与发布（首发批）
 
-**前置**：网页界面 v1 边界定稿（界面 UI 形态与三个挂载点已定，D-021；UI 位置静态申报已定，D-031；宿主槽位词表已定，D-033；交互方向已定双向事件流，D-042；设置页范围按 M3 判据执行；命令进输入框随读者 4 批挪 M6 前置，D-041）
+**前置**：网页界面 v1 边界定稿（界面 UI 形态与三个挂载点已定，D-021；UI 位置静态申报已定，D-031；宿主槽位词表已定，D-033；交互方向已定双向事件流，D-042；设置页范围按 M3 判据执行；命令进输入框随读者 4 批挪 M6 前置，D-041）· **发布账号前置（占坑账，D-053）**：npm 账号开启 2FA（npm 2027-01 起发布强制 ＋ `@henira` scope 资产保护；npm org `henira` 已注册 2026-11-16）＋ Docker Hub 注册 `henira` 用户名占命名空间
 
 **内容**：首发批官方插件 10 个（引擎 5：session / llm / tools / approval / loop ＋ fs 族 3（fs / fs-tools / fs-search）＋ shell 族 2（shell / shell-tools），D-041 / D-049）· fs / shell 服务契约在 [interfaces.md](./20-architecture/interfaces.md) 定稿（活文件，D-049）· 界面 UI 模块契约与 13 方法宿主门面（[plugins.md](./20-architecture/plugins.md) §4，D-021 / D-028 / D-042）· 插件管理面（列表 / 详情 / 版本 / 卸载 / 数据区，D-029）· 插件安全基线（D-030）· 《插件规范》定稿 · changesets 版本流程 · npm 首发准备 · v0.1.0 tag
 
