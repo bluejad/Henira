@@ -2,7 +2,7 @@
 // 五段管线与 pre-execute×判定链组合语义见 tools-approval.md §2 / §2.1。
 
 import type { Disposable } from "@reins/kernel";
-import type { Decision, PermissionRequest } from "./approval.js";
+import type { ApprovalOptions, Decision, PermissionRequest } from "./approval.js";
 import type { ConfigService } from "./config.js";
 import type { JsonSchema, WireToolSchema } from "./llm.js";
 
@@ -29,8 +29,8 @@ export interface ToolDefinition {
 export interface ToolContext {
   cwd: string;
   signal: AbortSignal;
-  /** 判定链唯一入口（tools-approval §2.1：管线先查闸、判定链管终审） */
-  requestPermission(req: PermissionRequest): Promise<Decision>;
+  /** 判定链唯一入口（tools-approval §2.1：管线先查闸、判定链管终审；floor 语义见 ApprovalOptions） */
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
   config: ConfigService;
 }
 
@@ -58,4 +58,38 @@ export interface ToolsService {
   /** 模型可见清单（声明式过滤） */
   project(filter?: ToolFilter): WireToolSchema[];
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolOutcome>;
+  /** 批执行（loop 每步调用入口）：连续 isConcurrencySafe 并行（上限 10），其余串行；结果按原顺序回写 */
+  run(calls: readonly ToolCall[], ctx: ToolContext): Promise<ToolOutcome[]>;
+}
+
+/** `tools/pre-execute` waterfall 值：监听者经 mergeGateVerdict 合并表态（deny > ask > allow，单调） */
+export interface GateVerdict {
+  tool: string;
+  args: unknown;
+  verdict: "allow" | "deny" | "ask";
+  /** 谁表的态（排查用） */
+  by?: string;
+  reason?: string;
+}
+
+/** 单调合并：deny > ask > allow；后注册者不得放宽先注册者的表态（tools-approval §2.1） */
+export function mergeGateVerdict(
+  prev: GateVerdict,
+  next: Pick<GateVerdict, "verdict"> & Partial<Pick<GateVerdict, "by" | "reason">>,
+): GateVerdict {
+  const rank = { allow: 0, ask: 1, deny: 2 } as const;
+  const verdict = rank[next.verdict] >= rank[prev.verdict] ? next.verdict : prev.verdict;
+  return {
+    tool: prev.tool,
+    args: prev.args,
+    verdict,
+    by: verdict === next.verdict ? (next.by ?? prev.by) : prev.by,
+    reason: verdict === next.verdict ? (next.reason ?? prev.reason) : prev.reason,
+  };
+}
+
+/** `tools/post-execute` waterfall 值：监听者可检视/替换结果（附加上下文） */
+export interface PostExecuteValue {
+  call: ToolCall;
+  outcome: ToolOutcome;
 }

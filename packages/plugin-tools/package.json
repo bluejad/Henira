@@ -1,0 +1,25 @@
+{
+  "name": "@reins/plugin-tools",
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@reins/protocol": "workspace:*",
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@reins/kernel": "workspace:*",
+    "@types/node": "^24.0.0"
+  }
+}

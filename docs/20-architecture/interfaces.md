@@ -229,6 +229,8 @@ interface ToolsService {
   register(tool: ToolDefinition): Disposable;
   project(filter?: ToolFilter): WireToolSchema[]; // 模型可见清单（声明式过滤）
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolOutcome>;
+  // 批执行（loop 的每步调用入口）：连续 isConcurrencySafe 并行（上限 10），其余串行；结果按原顺序回写
+  run(calls: readonly ToolCall[], ctx: ToolContext): Promise<ToolOutcome[]>;
 }
 
 type Decision = "allowed-once" | "rejected" | "cancelled" | "unavailable";
@@ -241,8 +243,13 @@ interface PermissionRequest {
 }
 
 // 审批策略（D-013①：只管规则与 fail-closed，不碰 UI）
+interface ApprovalOptions {
+  signal?: AbortSignal;
+  /** 闸门抬高下限（tools-approval §2.1）：pre-execute 监听者表态 ask → 默认放行层不得自动通过 */
+  floor?: "ask";
+}
 interface ApprovalService {
-  requestPermission(req: PermissionRequest, signal?: AbortSignal): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
 }
 
 // 交互通道（D-013①）：引擎所在进程的宿主实现（①=server；③=cli / sdk 嵌入方，sdk 自带缺省实现；
@@ -385,7 +392,7 @@ applyConfig(harness: Harness, cfg: ReinsConfig): void;   // 翻译成 .use() 调
 
 ## tools / approval（官方插件实现，签名经槽位接口暴露）
 
-- **定稿形状全部在 protocol 段**（2026-11-16）：ToolDefinition / ToolContext / ToolResult / ToolOutcome / PermissionRequest / Decision / PermissionRule；
+- **定稿形状全部在 protocol 段**（2026-11-16）：ToolDefinition / ToolContext / ToolResult / ToolOutcome / PermissionRequest / Decision / PermissionRule / GateVerdict（`tools/pre-execute` waterfall 值 + mergeGateVerdict 单调合并）/ PostExecuteValue（`tools/post-execute` waterfall 值）；
 - `defineTool(def): ToolDefinition` —— 类型推断辅助，住 `@reins/plugin-tools` 出口（不进 protocol，D-013③）；
 - 官方插件直写 JSON Schema（dsh 同款），不建转换糖；execute 入参不靠 schema 推导 TS 类型（松散 args + 引擎校验 + 工具测试钉）；装载期校验非法 schema → 插件跳过 + 告警（接 D-029）；
 - ToolResult 带 `__` 前缀带外通道（P4）：`__meta` 等由 loop 路由，不进模型上下文。

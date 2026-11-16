@@ -19,6 +19,12 @@ export interface PermissionRule {
 }
 
 // 审批策略（D-013①：只管规则与 fail-closed，不碰 UI；弹卡收答经 InteractionService）
+export interface ApprovalOptions {
+  signal?: AbortSignal;
+  /** 闸门抬高下限（tools-approval §2.1）：pre-execute 监听者表态 ask → 默认放行层不得自动通过 */
+  floor?: "ask";
+}
+
 export interface ApprovalService {
-  requestPermission(req: PermissionRequest, signal?: AbortSignal): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
 }

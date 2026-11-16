@@ -5,6 +5,7 @@
     { "path": "packages/protocol" },
     { "path": "packages/llm-mock" },
     { "path": "packages/plugin-llm" },
+    { "path": "packages/plugin-tools" },
     { "path": "plugins/session" }
   ]
 }
