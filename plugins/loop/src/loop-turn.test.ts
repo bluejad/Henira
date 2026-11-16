@@ -168,7 +168,7 @@ describe("turn/step 状态机（loop.md §1）", () => {
   });
 
   it("忙时投递唯一 = 排队（D-045）：run 中 send 入队并持久化 queue.json；回合末自动开新回合", async () => {
-    const { harness, loop, sessionDir } = await startedLoop([
+    const { harness, ctx, loop, sessionDir } = await startedLoop([
       // 第一回合：慢速文本流，留出 send() 窗口
       (req) => {
         void req;
@@ -183,10 +183,14 @@ describe("turn/step 状态机（loop.md §1）", () => {
       [mockText("第二回合"), mockUsage(USAGE), mockFinish("stop")],
     ]);
     const events: string[] = [];
+    // 回合已开的确定性信号：bus turn/start（先订阅再 run——固定 sleep 在慢机上是竞态）
+    const turnStarted = new Promise<void>((resolve) => {
+      ctx.events.on("turn/start", () => resolve());
+    });
     const consuming = (async () => {
       for await (const event of loop.run("第一")) events.push(event.type);
     })();
-    await new Promise((r) => setTimeout(r, 5)); // 回合已开（current 在场）
+    await turnStarted;
     const queued = await loop.send("插进来的第二问");
     expect(queued.id).not.toBe(""); // 真实队列条目
     const raw = await fs.readFile(path.join(sessionDir, "queue.json"), "utf8"); // 持久化
@@ -260,7 +264,7 @@ describe("turn/step 状态机（loop.md §1）", () => {
     await harness.start();
     const ctx = asHeniraContext(harness.context);
     // 直接 send（闲时直发会开新回合）→ 队列条目随后被冲刷
-    await new Promise((r) => setTimeout(r, 30)); // 等 start 后的装载余波
+    // （queue.load() 在 plugin start 内 await——harness.start() 返回即装载完毕，无需等余波）
     const loop = ctx.get("loop");
     await loop.send("触发");
     // 后台回合与队列冲刷无法 await——轮询账本直至旧条目落成新回合（固定 sleep 在慢机上有竞态）
