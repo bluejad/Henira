@@ -39,13 +39,13 @@
 - [x] 审批 fail-closed：answerer 缺失/抛错/不合规 → unavailable 必拒（`plugins/approval/src/service.test.ts` fail-closed 矩阵）
 - [x] 判定链全序有测试：凭据/灾难硬拒 → deny → allow 规则 → 默认放行（只读标记）→ `approval/request` 缝 → answerer fail-closed（`plugins/approval/src/chain.test.ts` + `service.test.ts` 全序各段，D-039）
 - [x] StreamEvent 三条不变量有测试锁定（`plugins/llm/src/stream-parts.test.ts` 映射侧 + `test-support/llm-mock/src/mock.test.ts` 构造期自校验）
-- [ ] 真实模型 smoke：examples/real 用真实 key 跑通一个带工具调用的回合——**设施就绪**（examples/real README 三步：settings / models.json / credentials.json 0600），回合待用户持 key 真跑（env 门控不进 CI，诚实不预勾）
+- [x] 真实模型 smoke：examples/real 真跑通带工具调用的回合（2026-11-16 三家真 provider 点火全过——DeepSeek / 智谱 coding plan / Agnes，通用 openai-compatible 适配器零改动；修复提交 c9c8212 / e8b1b68；env 门控不进 CI）
 
 **M2 收尾决策闸门（D-023）——已评估（2026-11-16），维持自研**：引擎闭环全程内核零 bug（M2 的全部摩擦都在脚手架层：TS 5.9 升级 / biome 规则 / JSON 导入 / dist 陈旧，与 kernel 无关）；未出现"会话内热加插件 / 配置热重载"的真需求。不 vendor cordis core。
 
 ## M3 宿主与界面
 
-**内容**：`server`（Hono + SSE EventBus：每订阅者 bounded queue、心跳；回环三件套——默认只绑 127.0.0.1 / 随机端口 / Host 校验＋可选 token 位，D-035）· `sdk`（进程内 + 远程双形态；纯 TS 零 React，D-037）· `web`（会话列表 / 事件流渲染 / 审批卡 / 输入框 / 设置页；**可嵌入**——界面组件以注入 client 的形式暴露，建 web 之前生效，D-037；`createWebApp` 挑件 layout 参数概要，D-043）· **官方界面插件包 `plugin-web-ui`**（D-043：web 界面即此包——真插件，布局与各件各占槽）· `cli` 骨架（`serve` 命令，D-018；`run` 入口不单列排期，D-037）· **组织约束（首发生效，D-043 第 8 条）：web 界面代码自第一行起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列** · 界面挂点语义 = 界面侧服务（D-049）；theme / shortcuts 等界面词表随本批对齐公开实现清单逐个定 · **文案语言（D-050）：界面文案从第一行起走 locale 词表、不写死组件，首发仅 `zh` 一份字典；引擎消息按 D-050 第 2 款定英文、永不本地化**
+**内容**：`server`（Hono + SSE EventBus：每订阅者 bounded queue、心跳；回环三件套——默认只绑 127.0.0.1 / 随机端口 / Host 校验＋可选 token 位，D-035）· **投影器（账本→行快照/增量；行模型核心与 ZCode 同构，ServerEvent 词表已定稿于 [interfaces.md](./20-architecture/interfaces.md) server 段）** · `sdk`（进程内 + 远程双形态；纯 TS 零 React，D-037）· `web`（会话列表 / 事件流渲染 / 审批卡 / 输入框 / 设置页；**可嵌入**——界面组件以注入 client 的形式暴露，建 web 之前生效，D-037；`createWebApp` 挑件 layout 参数概要，D-043）· **官方界面插件包 `plugin-web-ui`**（D-043：web 界面即此包——真插件，布局与各件各占槽）· `cli` 骨架（`serve` 命令，D-018；`run` 入口不单列排期，D-037）· **组织约束（首发生效，D-043 第 8 条）：web 界面代码自第一行起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列** · 界面挂点语义 = 界面侧服务（D-049）；theme / shortcuts 等界面词表随本批对齐公开实现清单逐个定 · **文案语言（D-050）：界面文案从第一行起走 locale 词表、不写死组件，首发仅 `zh` 一份字典；引擎消息按 D-050 第 2 款定英文、永不本地化**
 
 **完成判据**：
 

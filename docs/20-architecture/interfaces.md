@@ -1,7 +1,7 @@
 # 关键接口形状（TS 签名草案）
 
 > 各包对外 API 的**形状级草案**——定方向不锁细节，实施时在此文件同步演进。
-> 状态：**kernel 段、config-loader 段与插件 UI 门面已定稿**（2026-11-12）；**protocol 段全部定稿**——信封类型、事件注册表（D-051）、SessionService（2026-11-16）与引擎五槽接口及全部 DTO（2026-11-16，M2 开工定稿）；sdk / web 段等其余小节落码前定稿。
+> 状态：**kernel 段、config-loader 段与插件 UI 门面已定稿**（2026-11-12）；**protocol 段全部定稿**——信封类型、事件注册表（D-051）、SessionService（2026-11-16）与引擎五槽接口及全部 DTO（2026-11-16，M2 开工定稿）；**server / sdk / web 段定稿**（2026-11-17，M3 开工定稿）。
 
 ---
 
@@ -439,40 +439,218 @@ applyConfig(harness: Harness, cfg: HeniraConfig): void;   // 翻译成 .use() �
 | `skills`（技能目录）                                   | `plugin-skills`                       | M6 随设计文档 |
 | `commands`                                             | `plugin-commands`（D-025 已是服务）   | 已定          |
 
-## sdk —— 双形态客户端
+## server —— HTTP + SSE 宿主（正式宿主，D-035；定稿 2026-11-17）
+
+> 把引擎端成 HTTP：REST 命令面 + SSE 投影流。不含业务策略（packages.md）；宿主契约四样（hosts.md §3）在此全部落地——配置注入（每会话装配）、InteractionService 实现①（审批卡经 SSE 推给网页、答案经 HTTP 端点收回，web 页是呈现端不是实现者）、事件消费（SSE）、输入投递（prompt / steer / interrupt 端点）。
+
+### 会话注册表（每会话一个 harness 实例，hosts.md §3 定稿语义）
 
 ```ts
-// 形态一：进程内（CLI / 测试 / 嵌入）——聚合插件后暴露统一门面
-function createRuntime(opts: RuntimeOptions): Promise<HeniraRuntime>;
-
-// 形态二：远程（Web / 跨进程）
-class HeniraClient {
-  constructor(baseUrl: string);
-  sessions(): SessionCollection;
-  watch(sessionId: string): AsyncIterable<ServerEvent>; // SSE
-  settleApproval(sessionId: string, requestId: string, d: Decision): Promise<void>;
+interface SessionSummary {
+  id: string;
+  cwd: string;
+  title?: string; // meta.json 标题；缺省截取首条用户消息
+  updatedAt: number;
+  busy: boolean; // 回合进行中（投影 state 提供）
 }
+// POST /api/sessions { cwd? } → SessionSummary：装配三步 ①③（D-016：官方 preset + settings.plugins
+//   enabled 过滤）；②已装插件目录扫描装载随 M4（M3 判据无一条需要，克制不预建机器）。
+//   会话内 session 槽由宿主以装饰组合占据：宿主自己的 ServiceDefinition 包住 sessionPlugin，
+//   SessionHandle.append 接进投影器（装配权属宿主 D-016；引擎与协议零改动）。
+// GET /api/sessions → SessionSummary[]
 ```
 
-## web —— 正式宿主（可嵌入界面，D-037 / D-038）
+### REST 命令面
+
+```text
+POST /api/sessions                          { cwd? }    → SessionSummary
+GET  /api/sessions                                      → SessionSummary[]
+GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口）
+POST /api/sessions/:id/prompt               { text }    → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）
+POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
+POST /api/sessions/:id/interrupt                        → { ok: true }
+POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
+GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
+GET  /api/server/info                                   → { version; startedAt; model }
+GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
+PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
+GET  /api/models                                        → 模型清单（models.dev 字典 + 手写覆盖；无密钥）
+PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
+```
+
+### ServerEvent 词表（server → 客户端的唯一词表；行模型核心与 ZCode 同构，类型实现时落 `@henira/protocol`——纯 DTO，运行时零依赖不变）
 
 ```ts
-// 界面从外部注入 client；web 自身的宿主用法 = 注入同源（本地 server）client 的特例。
-// npm 用户 = @henira/sdk（client）+ @henira/web（界面）两包组合；所有 web 系宿主都说 server 协议（D-034①）。
-// layout 挑件（D-043 第 7 条概要，落码时定稿）：完全体（缺省）/ 只中间对话区 / 只输入框 / 自定义组合——
-// 零件 = plugin-web-ui 的件（会话列表 / 对话面板 / 输入框 / 审批卡…），与插件用件同一零件库（编译期出口）。
-function createWebApp(opts: {
-  client: HeniraClient;
-  layout?: "full" | "center" | "composer" | ComponentSpec[]; // 不传 = 完全体
-}): WebApp;
+type RowId = string; // 会话内单调唯一；账本事实的确定性函数（回放重建 rowId 不变）
 
+interface UserRow {
+  kind: "user";
+  rowId: RowId;
+  turn: string;
+  text: string;
+  source: "send" | "steer" | "veto";
+}
+interface AssistantRow {
+  kind: "assistant";
+  rowId: RowId;
+  turn: string;
+  step: number;
+  text: string;
+  reasoning?: string;
+  streaming: boolean;
+  model?: string;
+  finishReason?: string;
+}
+interface ToolRow {
+  kind: "tool";
+  rowId: RowId;
+  turn: string;
+  step: number;
+  callId: string;
+  name: string;
+  status: "running" | "done" | "error";
+  input: string; // 模型原始 argsText（P3-1）
+  output?: { content: string; isError: boolean; durationMs: number };
+}
+interface ApprovalRow {
+  kind: "approval";
+  rowId: RowId;
+  turn: string;
+  step: number;
+  requestId: string;
+  toolName: string;
+  argsSummary?: string;
+  status: "pending" | "settled";
+  decision?: Decision;
+}
+interface ErrorRow {
+  kind: "error";
+  rowId: RowId;
+  turn?: string;
+  code?: string;
+  message: string;
+}
+type Row = UserRow | AssistantRow | ToolRow | ApprovalRow | ErrorRow;
+
+interface SessionState {
+  busy: boolean;
+  lastTurnId?: string;
+} // turn/start…turn/end 之间 = busy（账本事实派生）
+interface SessionSnapshot {
+  sessionId: string;
+  seq: number;
+  rows: Row[];
+  state: SessionState;
+}
+
+// 封闭增量语法（4 操作）——结构变化换整行、文本增长用增量；表达不了的结构变化 → 整体快照
+type Delta =
+  | { op: "row.appended"; row: Row }
+  | { op: "row.delta"; rowId: RowId; field: "text" | "reasoning"; text: string } // 流式追加，仅限 streaming 行
+  | { op: "row.upserted"; row: Row } // 行整体替换（账本权威落定 / 状态迁移）
+  | { op: "state.updated"; state: SessionState }; // 键级整体替换，键内绝不深合并
+
+// SSE 帧信封（GET /api/events；帧序 = connected → 逐会话快照帧 → 增量帧混排）
+type ServerFrame =
+  | { kind: "connected"; server: { version: string; startedAt: number } }
+  | { kind: "snapshot"; sessionId: string; snapshot: SessionSnapshot }
+  | { kind: "delta"; sessionId: string; seq: number; delta: Delta };
+```
+
+**客户端纪律（断档不猜）**：每会话记 `lastSeq`；增量帧仅当 `seq === lastSeq + 1` 时应用，否则调 snapshot 端点整体替换并重置水位——客户端永不猜中间态。
+
+### 投影器（server 包内部模块）
+
+- **唯一权威输入 = 会话账本**：历史与断线重建都从账本回放——快照永远从真相重建，实时路径任何漂移都被账本兜底（自愈）；
+- 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
+- 行构造纯函数共享：快照 = 从空投影顺序 apply 全部账本事件；增量 = 逐追加 apply；两路同一套行构造逻辑（一个词表，无第二 reducer）；
+- **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；
+- seq 在扇出层按会话编发（快照帧携带当前水位，增量帧 +1 单调）；
+- 队列状态不投影（D-045：队列不是对话事实，不进账本）；busy/lastTurnId 由账本 turn/start…turn/end 派生；
+- rowId + seq 游标为将来留口：per-session 订阅与 rowsRange 分页是加法不是重构（见文末备考）。
+
+### SSE 传输形状
+
+- 单端点 `GET /api/events`；首帧 `connected`，随后**逐会话快照帧**，之后增量帧按会话混排；
+- 心跳：15s 注释帧（传输层）；每订阅者有界队列，溢出断开（客户端重连 = 重拉快照）；
+- **volatile 显式声明**（无 Last-Event-ID）：断线期间的帧不补发，重连 = connected + 全量快照——判据②的审批卡重放由快照携带挂起审批行天然达成。
+
+### 回环三件套（D-035，判据⑤）
+
+1. 默认只绑 `127.0.0.1`（对公网 / 局域网开放 = 显式配置）；
+2. 随机端口（`HENIRA_PORT` 可覆盖）；
+3. Host / Origin 头校验（防恶意网页解析到回环冒充访问本机服务）；`HENIRA_SERVER_TOKEN` 设置时启用 Bearer / `?token=` 校验（可选 token 位，命中即换 HttpOnly cookie）。
+
+> **功能面加法生长（备考）**：行协议当前 5 行类型 / 4 增量操作 / 快照 + 心跳——行模型核心与 ZCode 同构，功能面按各自功能批**往协议加方法**：附件（M4）、插件管理面（M4）、tasks / plans（M5）、subagent（M5）、文件 diff（发布后）。重开条件：分屏工作台 / 超长会话初始渲染需求出现 → 评估 rowsRange 分页；多路复用 / 桌面中继需求出现 → 升级 WS 传输层（行协议词表不动）。
+
+## sdk —— 双形态客户端（D-037 纯 TS 零 React；定稿 2026-11-17）
+
+```ts
+// 两形态实现同一门面接口、吐同一 ServerEvent 词表（进程内与远端行为一致，同一测试套件锁定；
+// D-034① 所有 web 系宿主说同一协议）。
+interface PromptReceipt {
+  queued: boolean;
+  id: string | null;
+} // id = 排队条目 id（忙时）；null = 闲时直跑
+
+interface HeniraFacade {
+  createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
+  listSessions(): Promise<SessionSummary[]>;
+  prompt(sessionId: string, text: string): Promise<PromptReceipt>; // D-045 单口
+  steer(sessionId: string, entryId: string): Promise<boolean>;
+  interrupt(sessionId: string): Promise<void>;
+  settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
+  snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉
+  events(): AsyncIterable<ServerFrame>; // 全局帧流（connected/快照/增量），
+  //   内置断档不猜纪律与重连
+}
+
+// 形态一：进程内（cli run / 测试 / 嵌入③）——loadConfig → applyConfig → createHarness 聚合官方
+//   preset + 缺省 fail-closed InteractionService（没人应答一律拒；嵌入方可整只替换，packages.md 槽位归属）
+function createRuntime(opts: RuntimeOptions): Promise<HeniraFacade>;
+
+// 形态二：远端（Web / 跨进程①）——REST + SSE 解析 + 重连 + 断档重拉；token 可选
+function createClient(opts: {
+  baseUrl: string;
+  token?: string;
+  fetch?: typeof fetch;
+}): HeniraFacade;
+```
+
+- 词表类型真源 = `@henira/protocol`（Row / Delta / ServerFrame / SessionSnapshot / SessionState / PromptReceipt）；进程内形态在宿主进程内合成同一词表，不经过 HTTP。
+
+## web —— 正式宿主（可嵌入界面，D-037 / D-038 / D-043；定稿 2026-11-17）
+
+```ts
+// 界面从外部注入 client；web 自身的宿主用法 = 注入同源 client 的特例。
+// npm 用户 = @henira/sdk（client）+ @henira/web（界面）两包组合；所有 web 系宿主都说 server 协议（D-034①）。
+// web 客户端 = 哑渲染器：行 store 应用增量 → 渲染行（事件→UI 组装逻辑在 server 投影器，客户端零 reducer）；
+// 流式文本用透明度浮现（DOM 首帧完整、只动画透明度——虚拟滚动测高稳定）。
+type Layout = "full" | "center" | "composer" | { parts: WebPartSpec[] }; // 缺省 = 完全体（D-043 第 7 条定稿）
+function createWebApp(opts: { client: HeniraFacade; layout?: Layout }): WebApp;
 interface WebApp {
   mount(el: HTMLElement): void;
   dispose(): Promise<void>;
 }
+
+// ── 官方件承重缝（件 + 会话上下文一起给）──
+interface WebPartContext {
+  client: HeniraFacade;
+  sessionId: string | null; // 当前会话（null = 未选中）
+  t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud）
+  theme: "light" | "dark";
+}
+type WebPart = (ctx: WebPartContext) => ReactNode;
 ```
 
-形状级草案，落码前定稿；不 eval（D-021）。**web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列（D-043 第 8 条，首发约束）**。插件界面挂载与宿主门面（13 方法）见下节。
+- **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
+- **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
+- **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
+- **视觉语言（设计基线）**：
+  - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
+  - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；
+  - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT，light/regular 档细线），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
+  - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）。
 
 ## 插件 UI 宿主门面（web 系宿主实现，D-028）
 
@@ -487,24 +665,25 @@ interface UiModuleContext {
 
 interface PluginUiHost {
   // 对话：发起仍单口 sendPrompt；接收 = 双向事件流（D-042：订阅 opt-in、增量可并、终局必达）
-  sendPrompt(text: string): Promise<TurnReceipt>;
-  subscribe(filter: EventFilter, cb: (e: SessionEvent) => void): Disposable;
-  //   EventFilter = { types?: string[]; turnId?: string } —— 本会话事件流，有界队列背压
-  onTurnFinished(receipt: TurnReceipt, cb: (result: TurnResult) => void): Disposable; // 恰一次（自己发起回合的便捷终局）
-  prefill(input: { chip?: string; text: string }): void; // 只回填不发送
-  renderMarkdown(text: string, opts?: { highlight?: boolean }): unknown; // web 宿主返回 React 元素
+  sendPrompt(text: string): Promise<TurnReceipt>; // ✓ M3
+  subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable; // ✓ M3
+  //   EventFilter = { sessionId?: string; types?: string[] } —— 行词表帧流（ServerFrame），
+  //   types 过滤 Row["kind"] / 帧类；有界队列背压；与 web 宿主同一词表（断档不猜纪律随帧）
+  onTurnFinished(receipt: TurnReceipt, cb: (result: TurnResult) => void): Disposable; // ✓ M3 恰一次（自己发起回合的便捷终局）
+  prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送
+  renderMarkdown(text: string, opts?: { highlight?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素
 
   // 数据
-  useResource(address: string): ResourceSnapshot; // React hook 语义：仅 render 期调用
-  listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>;
-  listDir(path: string): Promise<DirEntry[]>; // 只限会话工作区；隐藏项不返
-  listSessionsByCwd(cwd: string): Promise<SessionRef[]>;
+  useResource(address: string): ResourceSnapshot; // ⏳ M4 占位（M3 返回 { status: "failed", error: "随 M4（plugin-mcp）落地" }）；React hook 语义：仅 render 期调用
+  listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // ⏳ M4 占位（M3 返回 []——插件管理面随 M4）
+  listDir(path: string): Promise<DirEntry[]>; // ✓ M3（经 server files 端点）；只限会话工作区；隐藏项不返
+  listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3（经 GET /api/sessions）
 
   // 宿主
-  getSession(): { sessionId: string; cwd: string } | null;
-  openInExplorer(path: string): Promise<boolean>; // 仅桌面宿主；其他宿主返回 false
-  openPlugin(id: string, view?: unknown): void;
-  getInitialView(): unknown; // 读后即焚、按插件隔离
+  getSession(): { sessionId: string; cwd: string } | null; // ✓ M3
+  openInExplorer(path: string): Promise<boolean>; // ✓ M3 仅桌面宿主；其他宿主返回 false
+  openPlugin(id: string, view?: unknown): void; // ✓ M3 最小实现（聚焦 / 无视图时提示）
+  getInitialView(): unknown; // ✓ M3 读后即焚、按插件隔离
 }
 
 interface TurnReceipt {
@@ -560,7 +739,7 @@ interface SessionRef {
 }
 ```
 
-- 官方界面件（会话列表 / 对话面板 / 输入框 / 审批卡…）经**宿主标准件出口**供插件 import（import map，与 react 同口子，D-043）；件与**会话上下文**一起给——连着哪个会话、往哪发、流式增量从哪来（承重缝，形状 M3 定稿）；没装东西的区域槽**收起**（不渲染不占宽）；
+- 官方界面件（会话列表 / 对话面板 / 输入框 / 审批卡…）经**宿主标准件出口**供插件 import（import map，与 react 同口子，D-043）；件与**会话上下文**一起给——连着哪个会话、往哪发、流式增量从哪来（**承重缝已定稿 = `WebPartContext`，见 web 段**）；没装东西的区域槽**收起**（不渲染不占宽）；
 - `useResource` 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；只允许同一插件 `mcp/` 里声明过的 server（越权 403）；2 秒共享轮询、30 秒超时、200 KB 截断；失败保留上次数据；
 - `onTurnFinished` 只收该 UI 模块自己发起那一轮的终稿；终局映射见 [plugins.md](./plugins.md) §4；
 - `openInExplorer` 是能力查询：非桌面宿主返回 `false`，UI 模块应自行降级；
