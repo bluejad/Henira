@@ -298,7 +298,7 @@ async function runStep(args: StepArgs): Promise<StepResult> {
           callId: call.callId,
           isError: outcome.result.isError ?? false,
           content: outcome.result.content,
-          durationMs: 0,
+          durationMs: outcome.durationMs,
           ...(outcome.result.__meta ? { meta: outcome.result.__meta } : {}),
         },
       });

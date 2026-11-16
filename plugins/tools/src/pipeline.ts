@@ -31,7 +31,7 @@ export interface PipelineDeps extends PipelineOptions {
 }
 
 function errorOutcome(content: string): ToolOutcome {
-  return { result: { content, isError: true } };
+  return { result: { content, isError: true }, durationMs: 0 }; // 未到 execute 的拒 = 0（审计事实不造假）
 }
 
 /** 段1 parseArgs：JSON 解析 + schema 校验，失败 → 结构化错误回模型重发 */
@@ -95,6 +95,7 @@ async function executeTool(
 ): Promise<ToolOutcome> {
   if (ctx.signal.aborted)
     return errorOutcome("[aborted-before-dispatch] tool was aborted before it started");
+  const startedAt = Date.now();
   const running = execute(args, ctx);
   const timeoutMs = deps.timeoutMs;
   try {
@@ -111,11 +112,14 @@ async function executeTool(
               timer.unref?.();
             }),
           ]);
-    return { result };
+    return { result, durationMs: Date.now() - startedAt };
   } catch (err) {
     // 自报错误保留原样（工具自己的错误信息是给模型看的事实）；超时 / 抛错同为 isError 结果
     const message = err instanceof Error ? err.message : String(err);
-    return errorOutcome(`[error] ${message}`);
+    return {
+      result: { content: `[error] ${message}`, isError: true },
+      durationMs: Date.now() - startedAt, // 跑过才拒的也是真实耗时
+    };
   }
 }
 
@@ -155,6 +159,7 @@ export async function runOne(
   return {
     result: { ...outcome.result, content: limited.content },
     truncated: limited.truncated ?? outcome.truncated,
+    durationMs: outcome.durationMs,
   };
 }
 

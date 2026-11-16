@@ -219,6 +219,7 @@ interface ToolResult {
 interface ToolOutcome {
   result: ToolResult;
   truncated?: { path: string; preview: string }; // 超限落盘留路径（tools-approval §1.1）
+  durationMs: number; // execute 段真实耗时；未到 execute 的链前拒/解析拒为 0（审计事实不造假）
 }
 
 interface ToolFilter {

@@ -15,7 +15,7 @@ describe("applyExitLimits（统一出口限量 §1.1）", () => {
     const text = Array.from({ length: 3000 }, (_, i) => `L${i}`).join("\n");
     const out = await applyExitLimits(text, { maxLines: 2000, maxBytes: 1_000_000 });
     expect(out.content).toContain("[truncated]");
-    expect(out.content).toContain("3000 行");
+    expect(out.content).toContain("3000 lines");
     expect(out.content.split("\n").length).toBe(2001); // 2000 行 + 尾注
     expect(out.content).toContain("L1999");
     expect(out.content).not.toContain("L2500");
@@ -23,7 +23,7 @@ describe("applyExitLimits（统一出口限量 §1.1）", () => {
 
   it("超字节：无落盘目录 → 尾注明示未保留；truncated 缺省", async () => {
     const out = await applyExitLimits("x".repeat(60_000), DEFAULT_EXIT_LIMITS);
-    expect(out.content).toContain("完整输出未保留");
+    expect(out.content).toContain("full output not kept");
     expect(out.truncated).toBeUndefined();
   });
 

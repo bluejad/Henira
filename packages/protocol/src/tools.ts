@@ -46,6 +46,8 @@ export interface ToolOutcome {
   result: ToolResult;
   /** 超限落盘留路径（tools-approval §1.1：头部预览 + 完整输出路径） */
   truncated?: { path: string; preview: string };
+  /** execute 段真实耗时；未到 execute 的链前拒/解析拒为 0（审计事实不造假） */
+  durationMs: number;
 }
 
 export interface ToolFilter {

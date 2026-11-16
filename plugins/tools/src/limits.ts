@@ -75,9 +75,9 @@ export async function applyExitLimits(
     fullPath = path.join(opts.spillDir, opts.spillName);
     await fs.writeFile(fullPath, text, "utf8");
   }
-  const where = fullPath ?? "（未配置落盘目录，完整输出未保留）";
+  const where = fullPath ?? "(no spill directory configured; full output not kept)";
   const content =
-    `${head}\n[truncated] 输出超限（${lines.length} 行 / ${Buffer.byteLength(text, "utf8")} 字节），` +
-    `已保留头部，完整输出：${where}`;
+    `${head}\n[truncated] output exceeds limit (${lines.length} lines / ${Buffer.byteLength(text, "utf8")} bytes); ` +
+    `head kept; full output: ${where}`;
   return { content, truncated: fullPath ? { path: fullPath, preview } : undefined };
 }
