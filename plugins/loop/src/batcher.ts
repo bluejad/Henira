@@ -1,6 +1,6 @@
 // 16ms 增量攒批（loop.md §3：loop 是合并唯一地点；首包不等待——定时器与首事件竞速；
 // 结构事件永不攒批，opencode "block starts are not batched" 同规；16ms = 一帧，
-// Claude Code Ink fork 的 FRAME_INTERVAL_MS = 16 同值）。
+// 60fps 渲染的通行攒批窗口）。
 
 import type { LoopEvent } from "@reins/protocol";
 
