@@ -235,6 +235,25 @@ interface ToolsService {
   run(calls: readonly ToolCall[], ctx: ToolContext): Promise<ToolOutcome[]>;
 }
 
+// `tools/pre-execute` waterfall 值：监听者经 mergeGateVerdict 合并表态（deny > ask > allow，单调）
+interface GateVerdict {
+  tool: string;
+  args: unknown;
+  verdict: "allow" | "deny" | "ask";
+  by?: string; // 谁表的态（排查用）
+  reason?: string;
+}
+function mergeGateVerdict(
+  prev: GateVerdict,
+  next: Pick<GateVerdict, "verdict"> & Partial<Pick<GateVerdict, "by" | "reason">>,
+): GateVerdict; // 单调合并：deny > ask > allow；后注册者不得放宽先注册者的表态（tools-approval §2.1）
+
+// `tools/post-execute` waterfall 值：监听者可检视/替换结果（附加上下文）
+interface PostExecuteValue {
+  call: ToolCall;
+  outcome: ToolOutcome;
+}
+
 type Decision = "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
 /** 审批载荷（D-046 定稿）：引擎一字不加工；显示折叠归界面 UI */

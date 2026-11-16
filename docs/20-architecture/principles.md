@@ -29,16 +29,16 @@
 
 - 统一事件流契约：**封闭判别联合**（新增变体 = 编译报错），配套 `assertNever`；
 - 接口不变量写进注释并测试锁定：
-  1. `tool_call` 的 `argsText` 恒为模型原始 JSON 文本（截断防线只在 loop 层写一次，两条传输路径通用）；
+  1. `tool_call` 的 `argsText` 恒为模型原始 JSON 文本；被截断的调用不产 `tool_call` 事件（适配器侧），工具出口限量在 tools 层统一收口（[tools-approval.md](./tools-approval.md) §1.1）；
   2. `usage` 先于 `finish` 发出；
-  3. `tool_call` 在流结束后集中发；
+  3. `tool_call` 集中在 `usage` / `finish` 之前发（结构事件前，测试锁定）；
 - 能力探测（contextWindow、systemPromptUpdate 等）是**模型配置的解析产物**——引擎内禁止厂商备表（P9-4）；模型参数字典 = models.dev，配置层同步、手写覆盖字典（D-040）；
 - 官方默认适配器基于 Vercel AI SDK provider 层（决策 D-007）。
 
 ## P4 工具执行管线（官方 tools 插件实现）
 
 - `defineTool({ name, inputSchema（裸 JSON Schema，D-044）, execute(args, ctx), isConcurrencySafe? })`；
-- 管线五段：**`tools/pre-execute` waterfall（allow / deny / ask）→ execute（超时 + AbortController 竞速）→ `tools/post-execute` → 权威结果**；
+- 管线五段：**parseArgs（按 inputSchema 校验）→ `tools/pre-execute` waterfall（allow / deny / ask，单调合并）→ 判定链（经 `ToolContext.requestPermission`）→ execute（超时 + AbortController 竞速）→ `tools/post-execute` → 权威结果**（顺序逐字见 [tools-approval.md](./tools-approval.md) §2）；
 - ToolResult 带 `__` 前缀**带外通道**：检查点路径、任务引用、图片附件等元数据由 loop 路由到引擎/呈现层，不进模型上下文语义；
 - 只读工具标记 `isConcurrencySafe`，可并行执行；
 - 双层防护：声明式可见性过滤（模型根本看不到不该看的工具）+ 执行时兜底校验（防幻觉调用）。
@@ -80,7 +80,7 @@
 - 插件**能增能换**：任何官方插件可被第三方实现整包替换——包括 loop 与 approval 本身（D-010）；
 - 插件能力四件事：**注册工具 / 注册事件类型 / 挂事件钩子 / 占据并实现槽位**——仅此四件，不做更多（扩展面收敛）。界面挂载（`ctx.registerSlot`）与 `ctx.host` 门面（D-028）是宿主提供的 UI 模块契约，不属于内核扩展面（D-021）；
 - 语义责任规则：**官方默认 = 安全默认**；替换官方语义插件者接管语义责任（一句文档声明，无守护套件，D-010 配套取舍）；
-- 目录即宣言：全部官方插件物理放在 `plugins/`，`packages/` 只留机制、契约与宿主（D-012③）。
+- 目录即宣言：全部官方插件物理放在 `plugins/`，`packages/` 只留机制、契约与宿主，测试支撑件住 `test-support/`（D-012③；test-support 划位 2026-11-16，见 D-052 后续修订）。
 - **protocol 最小化规则**（D-013③）：protocol 只放"两个插件必须达成一致的东西"——槽位接口、事件信封与词表、跨插件 DTO；不放便利类型、不放单插件内部类型、不放产品概念。新增 protocol 类型先回答"谁和谁必须一致？"，答不出就不进；
 - **替换者责任清单**（D-013④）——替换官方语义插件者必须自行保证以下语义；这是"安全默认"的实质内容，不是建议：
   1. **session**：只追加；"模型可见 ⟺ 已落日志"；未知事件类型无 `ignorable` 必须拒读；fork 边界落标记；

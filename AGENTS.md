@@ -68,7 +68,7 @@ Reins = 开源 Agent Harness：内核只做机制，其余一切皆插件（含 
 
 - 工序遵循 Superpowers 工作流（brainstorm → 计划 → worktree → TDD → 评审闸 → 收尾；github.com/obra/superpowers）。未装该 skill 的环境等效执行：先计划获批再动码、测试先行、评审不过不前进。
 - 本仓库对接点：其"设计获批"＝对应 interfaces.md 小节（或功能设计文档）改定且项目所有者点头。
-- 每包落码前先翻参考实现取 file:line——dsh / OpenCode / ZCode（公开仓库，出处见 [docs/30-research/](docs/30-research/)）。本文件与任何文档不写本机克隆路径。
+- 每包落码前先翻参考实现取 file:line——dsh / OpenCode / ZCode（公开仓库，出处见 [docs/30-research/](docs/30-research/)）；闭源产品（Claude Code）作行为层对照、不引源码路径（D-047）。本文件与任何文档不写本机克隆路径。
 
 ## 裁决与验收
 
