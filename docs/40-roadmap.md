@@ -38,7 +38,7 @@
 - [x] 忙时投递：排队持久化（queue.json）+ 条目"立即发送"在 step 边界进场不打断工具，有测试（`plugins/loop/src/loop-turn.test.ts` 忙时投递 / 插话 / 重启恢复三测试，D-045）
 - [x] 审批 fail-closed：answerer 缺失/抛错/不合规 → unavailable 必拒（`plugins/approval/src/service.test.ts` fail-closed 矩阵）
 - [x] 判定链全序有测试：凭据/灾难硬拒 → deny → allow 规则 → 默认放行（只读标记）→ `approval/request` 缝 → answerer fail-closed（`plugins/approval/src/chain.test.ts` + `service.test.ts` 全序各段，D-039）
-- [x] StreamEvent 三条不变量有测试锁定（`packages/plugin-llm/src/stream-parts.test.ts` 映射侧 + `packages/llm-mock/src/mock.test.ts` 构造期自校验）
+- [x] StreamEvent 三条不变量有测试锁定（`plugins/llm/src/stream-parts.test.ts` 映射侧 + `packages/llm-mock/src/mock.test.ts` 构造期自校验）
 - [ ] 真实模型 smoke：examples/real 用真实 key 跑通一个带工具调用的回合——**设施就绪**（examples/real README 三步：settings / models.json / credentials.json 0600），回合待用户持 key 真跑（env 门控不进 CI，诚实不预勾）
 
 **M2 收尾决策闸门（D-023）——已评估（2026-11-16），维持自研**：引擎闭环全程内核零 bug（M2 的全部摩擦都在脚手架层：TS 5.9 升级 / biome 规则 / JSON 导入 / dist 陈旧，与 kernel 无关）；未出现"会话内热加插件 / 配置热重载"的真需求。不 vendor cordis core。

@@ -43,7 +43,7 @@ importers:
         version: link:../../plugins/session
       '@reins/plugin-tools':
         specifier: workspace:*
-        version: link:../../packages/plugin-tools
+        version: link:../../plugins/tools
       '@reins/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -65,7 +65,7 @@ importers:
         version: link:../../plugins/approval
       '@reins/plugin-llm':
         specifier: workspace:*
-        version: link:../../packages/plugin-llm
+        version: link:../../plugins/llm
       '@reins/plugin-loop':
         specifier: workspace:*
         version: link:../../plugins/loop
@@ -74,7 +74,7 @@ importers:
         version: link:../../plugins/session
       '@reins/plugin-tools':
         specifier: workspace:*
-        version: link:../../packages/plugin-tools
+        version: link:../../plugins/tools
       '@reins/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -111,44 +111,6 @@ importers:
         specifier: ^24.0.0
         version: 24.19.2
 
-  packages/plugin-llm:
-    dependencies:
-      '@ai-sdk/openai-compatible':
-        specifier: ^3.0.92
-        version: 3.0.92(zod@4.6.7)
-      '@ai-sdk/provider':
-        specifier: ^4.0.38
-        version: 4.0.38
-      '@reins/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      ai:
-        specifier: ^7.0.173
-        version: 7.0.173(zod@4.6.7)
-    devDependencies:
-      '@reins/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.19.2
-
-  packages/plugin-tools:
-    dependencies:
-      '@reins/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      ajv:
-        specifier: ^8.17.1
-        version: 8.20.0
-    devDependencies:
-      '@reins/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.19.2
-
   packages/protocol:
     devDependencies:
       '@reins/kernel':
@@ -160,6 +122,28 @@ importers:
       '@reins/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/llm:
+    dependencies:
+      '@ai-sdk/openai-compatible':
+        specifier: ^3.0.92
+        version: 3.0.92(zod@4.6.7)
+      '@ai-sdk/provider':
+        specifier: ^4.0.38
+        version: 4.0.38
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      ai:
+        specifier: ^7.0.173
+        version: 7.0.173(zod@4.6.7)
     devDependencies:
       '@reins/kernel':
         specifier: workspace:*
@@ -185,7 +169,7 @@ importers:
         version: link:../session
       '@reins/plugin-tools':
         specifier: workspace:*
-        version: link:../../packages/plugin-tools
+        version: link:../tools
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2
@@ -198,6 +182,22 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.7
+    devDependencies:
+      '@reins/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/tools:
+    dependencies:
+      '@reins/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
     devDependencies:
       '@reins/kernel':
         specifier: workspace:*

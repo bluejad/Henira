@@ -4,9 +4,11 @@
     { "path": "packages/kernel" },
     { "path": "packages/protocol" },
     { "path": "packages/llm-mock" },
-    { "path": "packages/plugin-llm" },
-    { "path": "packages/plugin-tools" },
     { "path": "packages/config-loader" },
-    { "path": "plugins/session" }
+    { "path": "plugins/session" },
+    { "path": "plugins/llm" },
+    { "path": "plugins/tools" },
+    { "path": "plugins/approval" },
+    { "path": "plugins/loop" }
   ]
 }

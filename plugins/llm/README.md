@@ -13,7 +13,7 @@ import { llmPlugin } from "@reins/plugin-llm";
 createHarness().use(llmPlugin()); // 无 options；inject: ["config"]——装配里必须有 config 槽（次序由拓扑排序解决，缺失 start 一次报全）
 ```
 
-模型与凭据全走配置（D-013② / D-030）：默认模型住 `settings.json`、baseUrl 覆盖住 `models.json`、key 只住 `credentials.json`（0600）——本适配器自身不读 env / 文件。离线测试用 [@reins/llm-mock](../llm-mock/README.md) 直接实现 `LlmService`（不开 HTTP）。真实回合装配见 [examples/real](../../examples/real/README.md)。
+模型与凭据全走配置（D-013② / D-030）：默认模型住 `settings.json`、baseUrl 覆盖住 `models.json`、key 只住 `credentials.json`（0600）——本适配器自身不读 env / 文件。离线测试用 [@reins/llm-mock](../../packages/llm-mock/README.md) 直接实现 `LlmService`（不开 HTTP）。真实回合装配见 [examples/real](../../examples/real/README.md)。
 
 ## 文件 ↔ 设计
 
