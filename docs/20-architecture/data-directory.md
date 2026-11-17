@@ -147,13 +147,13 @@
     "office-tools": { "version": "1.2.0" },                // 钉住版本
     "plugin-fetch": { "options": { "timeoutMs": 30000 } }  // 插件参数
   },
-  "ui": { "theme": "dark" }                                // 界面偏好
+  "ui": { "theme": "sea", "locale": "ja" }                 // 界面偏好（官方 light/dark/zh 或已装资产包 id，D-059）
 }
 ```
 
 - `model`：默认模型（`models.json` 里注册的 id）；缺省取 `models.json` 第一个；
 - `plugins.<id>`：`enabled`（**缺 key = 启用**，显式 `false` 才停用）、`version`（钉住生效版本，缺省最高）、`options`（插件参数，经 `ConfigService.get` 下发）；
-- `ui`：界面偏好（主题等），宿主消费；
+- `ui`：界面偏好，宿主消费——`theme` / `locale` 为字符串 id：官方 `light` / `dark` / `zh` 或已装语言包/主题包 id（D-059；安全模式回落官方默认）；
 - 同一项若项目 `henira.config.ts` 也写了，**听项目的**。
 
 **装配三步**（每次新会话执行，D-016）：① 基础清单 = 项目 `henira.config.ts` 写了 `plugins` 听它的，否则官方出厂清单（config-loader 导出）；② 加上已装目录里的插件（`~/.henira/plugins/` 与项目 `.henira/plugins/`，同 id 不重复算，同名项目盖用户级；用户包 id 撞官方且带 `engine/` → 经确认卡替换官方，D-048）；③ 去掉 `enabled: false` 的。对**新会话**立即生效，运行中的会话不变；内圈 5 槽位不给关。插件目录格式与槽位见 [plugins.md](./plugins.md)。

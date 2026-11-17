@@ -92,6 +92,10 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       });
     },
 
+    async listUiAssets() {
+      return requestJson("/api/ui-assets");
+    },
+
     async listDir(sessionId, dirPath) {
       const query = dirPath === undefined ? "" : `?path=${encodeURIComponent(dirPath)}`;
       return requestJson(`/api/sessions/${sessionId}/files${query}`);

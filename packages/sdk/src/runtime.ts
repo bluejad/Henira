@@ -7,7 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createConfigService, SNAPSHOT } from "@henira/config-loader";
+import { createConfigService, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
@@ -215,6 +215,10 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async putCredential(providerId, key) {
       await writeCredential(globalDir, providerId, key);
+    },
+
+    async listUiAssets() {
+      return scanUiAssets(globalDir);
     },
 
     async listDir(sessionId, dirPath) {

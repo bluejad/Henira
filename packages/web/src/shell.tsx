@@ -5,6 +5,8 @@ import {
   type PluginUiHost,
   type RowStoreLike,
   type SlotPart,
+  type UiAssetLocale,
+  type UiAssetTheme,
   type WebPart,
   type WebSlotName,
   zh,
@@ -21,13 +23,17 @@ export type ShellProps = {
   client: HeniraFacade;
   layout: Layout;
   host: PluginUiHost;
-  theme: "light" | "dark";
+  /** 主题 id：官方 light/dark 或已装主题包名（D-059） */
+  theme: string;
+  /** 语言包覆盖字典（D-059：缺 key 回落官方 zh，zh 也缺才 fail-loud；undefined = 官方 zh） */
+  localeOverride?: Record<string, string>;
   safeMode: boolean;
   /** 受控选中态：宿主单一真源（开场自动选 + 列表点选都走 onSelectSession，e2e 锁住开场选中） */
   sessionId: string | null;
   onSelectSession(sessionId: string | null): void;
   onToggleSafe(on: boolean): void;
-  onTheme(next: "light" | "dark"): void;
+  onTheme(next: string, cssUrl?: string): void;
+  onLocale(dict: Record<string, string> | undefined, localeId: string): void;
 };
 
 /** 承重缝上下文（件消费）——createContext 传递，件收到的 props 即此对象 */
@@ -36,7 +42,7 @@ type WebPartContextValue = {
   sessionId: string | null;
   selectSession(sessionId: string | null): void;
   t(key: string): string;
-  theme: "light" | "dark";
+  theme: string;
   store: RowStoreLike;
   host: PluginUiHost;
   slots: ReadonlyMap<string, readonly SlotPart[]>;
@@ -44,15 +50,19 @@ type WebPartContextValue = {
 
 const PartContext = createContext<WebPartContextValue>(undefined as never);
 
-const t = (key: string): string => {
-  const value = (zh as Record<string, string>)[key];
-  if (value === undefined) throw new Error(`missing locale key: ${key}`); // D-050 fail-loud
-  return value;
-};
+/** D-050 取字工厂（D-059 语言包）：覆盖字典缺 key 回落官方 zh，zh 也缺才 fail-loud */
+const makeT =
+  (override?: Record<string, string>): ((key: string) => string) =>
+  (key: string): string => {
+    const value = override?.[key] ?? (zh as Record<string, string>)[key];
+    if (value === undefined) throw new Error(`missing locale key: ${key}`);
+    return value;
+  };
 
 export function Shell(props: ShellProps) {
   const { store, client, layout, safeMode } = props;
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const t = makeT(props.localeOverride);
 
   const ctxValue = useMemo<WebPartContextValue>(
     () => ({
@@ -67,7 +77,16 @@ export function Shell(props: ShellProps) {
       host: props.host,
       slots: props.slots,
     }),
-    [client, props.sessionId, props.onSelectSession, store, props.theme, props.host, props.slots],
+    [
+      client,
+      props.sessionId,
+      props.onSelectSession,
+      store,
+      props.theme,
+      props.host,
+      props.slots,
+      t,
+    ],
   );
 
   const showSidebar = layout === "full";
@@ -156,10 +175,12 @@ export function Shell(props: ShellProps) {
           <SettingsPanel
             client={client}
             theme={props.theme}
+            t={t}
             onClose={() => {
               setSettingsOpen(false);
             }}
             onTheme={props.onTheme}
+            onLocale={props.onLocale}
           />
         ) : null}
         {safeMode ? (
@@ -183,30 +204,43 @@ export function Shell(props: ShellProps) {
   );
 }
 
-// ── 设置浮层（判据③：默认模型 / 主题 / 密钥录入）────────────────────
+// ── 设置浮层（判据③：默认模型 / 主题 / 密钥录入；D-059：主题/语言下拉列已装资产包）──
 
 function SettingsPanel(props: {
   client: HeniraFacade;
-  theme: "light" | "dark";
+  theme: string;
+  t(key: string): string;
   onClose(): void;
-  onTheme(next: "light" | "dark"): void;
+  onTheme(next: string, cssUrl?: string): void;
+  onLocale(dict: Record<string, string> | undefined, localeId: string): void;
 }) {
   const [model, setModel] = useState("");
   const [provider, setProvider] = useState("");
   const [key, setKey] = useState("");
   const [saved, setSaved] = useState(false);
+  const [localeId, setLocaleId] = useState("zh");
+  const [locales, setLocales] = useState<UiAssetLocale[]>([]);
+  const [themes, setThemes] = useState<UiAssetTheme[]>([]);
 
   useEffect(() => {
-    // 挂载拉一次当前模型（浮层每次打开重挂载，恰跑一次）
+    // 挂载拉一次当前模型 + 已装资产清单（浮层每次打开重挂载，恰跑一次）
     void props.client.getSettings().then((s) => {
       if (s.model !== undefined) setModel(s.model);
+      if (s.ui?.locale !== undefined) setLocaleId(s.ui.locale);
     });
+    void props.client
+      .listUiAssets()
+      .then((a) => {
+        setLocales(a.locales);
+        setThemes(a.themes);
+      })
+      .catch(() => {});
   }, [props.client]);
 
   const save = (): void => {
-    const patch: { model?: string; ui?: { theme?: string } } = {};
+    const patch: { model?: string; ui?: { theme?: string; locale?: string } } = {};
     if (model.trim() !== "") patch.model = model.trim();
-    patch.ui = { theme: props.theme };
+    patch.ui = { theme: props.theme, locale: localeId };
     const job = props.client.putSettings(patch).then(() => {
       if (provider.trim() !== "" && key.trim() !== "") {
         return props.client.putCredential(provider.trim(), key.trim());
@@ -220,10 +254,30 @@ function SettingsPanel(props: {
       .catch(() => {});
   };
 
+  const changeTheme = (id: string): void => {
+    props.onTheme(id, themes.find((t) => t.name === id)?.url);
+  };
+
+  const changeLocale = (lang: string): void => {
+    setLocaleId(lang);
+    if (lang === "zh") {
+      props.onLocale(undefined, "zh"); // 官方 zh = 无覆盖字典
+      return;
+    }
+    const url = locales.find((l) => l.lang === lang)?.url;
+    if (url === undefined) return;
+    void fetch(url)
+      .then((r) => r.json())
+      .then((dict: Record<string, string>) => {
+        props.onLocale(dict, lang);
+      })
+      .catch(() => {});
+  };
+
   return (
     <div
       role="dialog"
-      aria-label={t("settings.title")}
+      aria-label={props.t("settings.title")}
       style={{
         position: "fixed",
         inset: 0,
@@ -243,18 +297,18 @@ function SettingsPanel(props: {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
-          <strong>{t("settings.title")}</strong>
+          <strong>{props.t("settings.title")}</strong>
           <button type="button" onClick={props.onClose}>
             ✕
           </button>
         </div>
         <label style={{ display: "block", marginBottom: "12px" }}>
           <div style={{ color: "var(--henira-text-muted)", marginBottom: "4px" }}>
-            {t("settings.model")}
+            {props.t("settings.model")}
           </div>
           <input
             value={model}
-            placeholder={t("settings.modelPlaceholder")}
+            placeholder={props.t("settings.modelPlaceholder")}
             onChange={(e) => {
               setModel(e.target.value);
             }}
@@ -263,35 +317,54 @@ function SettingsPanel(props: {
         </label>
         <label style={{ display: "block", marginBottom: "12px" }}>
           <div style={{ color: "var(--henira-text-muted)", marginBottom: "4px" }}>
-            {t("settings.theme")}
+            {props.t("settings.theme")}
           </div>
           <select
             value={props.theme}
             onChange={(e) => {
-              props.onTheme(e.target.value as "light" | "dark");
+              changeTheme(e.target.value);
             }}
             style={inputStyle}
           >
-            <option value="light">{t("settings.theme.light")}</option>
-            <option value="dark">{t("settings.theme.dark")}</option>
+            <option value="light">{props.t("settings.theme.light")}</option>
+            <option value="dark">{props.t("settings.theme.dark")}</option>
+            {themes.map((theme) => (
+              <option key={`${theme.pluginId}@${theme.version}/${theme.name}`} value={theme.name}>
+                {theme.name}
+              </option>
+            ))}
           </select>
         </label>
         <label style={{ display: "block", marginBottom: "12px" }}>
           <div style={{ color: "var(--henira-text-muted)", marginBottom: "4px" }}>
-            {t("settings.locale")}
+            {props.t("settings.locale")}
           </div>
-          <select style={inputStyle} disabled value="zh">
-            <option value="zh">{t("settings.locale.zh")}</option>
+          <select
+            value={localeId}
+            onChange={(e) => {
+              changeLocale(e.target.value);
+            }}
+            style={inputStyle}
+          >
+            <option value="zh">{props.t("settings.locale.zh")}</option>
+            {locales.map((locale) => (
+              <option
+                key={`${locale.pluginId}@${locale.version}/${locale.lang}`}
+                value={locale.lang}
+              >
+                {locale.lang}
+              </option>
+            ))}
           </select>
         </label>
         <div style={{ marginBottom: "12px" }}>
           <div style={{ color: "var(--henira-text-muted)", marginBottom: "4px" }}>
-            {t("settings.credential")}
+            {props.t("settings.credential")}
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
             <input
               value={provider}
-              placeholder={t("settings.credentialProvider")}
+              placeholder={props.t("settings.credentialProvider")}
               onChange={(e) => {
                 setProvider(e.target.value);
               }}
@@ -300,7 +373,7 @@ function SettingsPanel(props: {
             <input
               value={key}
               type="password"
-              placeholder={t("settings.credentialPlaceholder")}
+              placeholder={props.t("settings.credentialPlaceholder")}
               onChange={(e) => {
                 setKey(e.target.value);
               }}
@@ -312,10 +385,10 @@ function SettingsPanel(props: {
           style={{ display: "flex", justifyContent: "flex-end", gap: "8px", alignItems: "center" }}
         >
           {saved ? (
-            <span style={{ color: "var(--henira-ok-text)" }}>{t("settings.saved")}</span>
+            <span style={{ color: "var(--henira-ok-text)" }}>{props.t("settings.saved")}</span>
           ) : null}
           <button type="button" className="henira-primary" onClick={save}>
-            {t("settings.save")}
+            {props.t("settings.save")}
           </button>
         </div>
       </div>

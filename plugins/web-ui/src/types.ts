@@ -23,6 +23,8 @@ export interface HeniraClientLike {
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   events(): AsyncIterable<ServerFrame>;
+  /** 界面资产清单（D-059：已装语言包/主题包） */
+  listUiAssets(): Promise<UiAssets>;
 }
 
 /** 行 store 最小结构面（哑渲染器的数据源：快照整体替换 + 增量；断档不猜纪律在 client） */
@@ -32,13 +34,33 @@ export interface RowStoreLike {
   subscribe(cb: () => void): Disposable;
 }
 
+/** 界面资产（D-059 语言包/主题包清单）——与 sdk/config-loader 的 UiAssets 结构同形（结构化声明，
+ *  插件不依赖宿主层包） */
+export interface UiAssetLocale {
+  pluginId: string;
+  version: string;
+  lang: string;
+  url: string;
+}
+export interface UiAssetTheme {
+  pluginId: string;
+  version: string;
+  name: string;
+  url: string;
+}
+export interface UiAssets {
+  locales: UiAssetLocale[];
+  themes: UiAssetTheme[];
+}
+
 /** 官方件承重缝（interfaces.md web 段定稿）：件 + 会话上下文一起给 */
 export interface WebPartContext {
   client: HeniraClientLike;
   sessionId: string | null; // 当前会话（null = 未选中）
   selectSession(sessionId: string | null): void; // 切会话（会话列表 → 宿主状态）
-  t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud）
-  theme: "light" | "dark";
+  t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud；D-059 语言包覆盖优先、回落 zh）
+  /** 主题 id：官方 light/dark 或已装主题包名（D-059） */
+  theme: string;
   store: RowStoreLike; // 流式增量从哪来
   host: PluginUiHost;
   /** 槽位只读视图（区域槽 + 行级 keyed 槽，D-057）：官方默认件不在表内——未被顶替时生效 */

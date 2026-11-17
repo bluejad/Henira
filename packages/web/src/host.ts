@@ -28,8 +28,8 @@ export type Layout =
 export interface WebAppOptions {
   client: HeniraFacade;
   layout?: Layout;
-  /** 初始主题（缺省浅色；设置页保存后经 setTheme 切换） */
-  theme?: "light" | "dark";
+  /** 初始主题 id（官方 light/dark 或已装主题包名，D-059；缺省浅色） */
+  theme?: string;
   /** 强制安全模式（URL ?ui=safe 由入口解析后传入；双击 Alt 运行时切换） */
   safeMode?: boolean;
 }
@@ -37,7 +37,8 @@ export interface WebAppOptions {
 export interface WebApp {
   mount(el: HTMLElement): void;
   dispose(): Promise<void>;
-  setTheme(theme: "light" | "dark"): void;
+  /** 切主题：官方 id 或主题包名；主题包须带 cssUrl（宿主注入 <link>，D-059） */
+  setTheme(theme: string, cssUrl?: string): void;
   /** 安全模式运行时切换（双击 Alt 的宿主入口） */
   setSafeMode(on: boolean): void;
 }
@@ -48,7 +49,12 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   let container: HTMLElement | undefined;
   let sessionId: string | null = null;
   let sessionCwd = "";
-  let theme: "light" | "dark" = opts.theme ?? "light";
+  let theme: string = opts.theme ?? "light";
+  /** 已知主题包的 css 资产地址（onTheme 传入；applyTheme 据此注入 <link>，D-059） */
+  const themeUrls = new Map<string, string>();
+  let themeLink: HTMLLinkElement | undefined;
+  /** 语言包覆盖字典（D-059：缺 key 回落官方 zh；undefined = 官方 zh） */
+  let localeOverride: Record<string, string> | undefined;
   let safeMode = opts.safeMode ?? false;
   const turnListeners = new Set<
     (result: { ok: boolean; text?: string; reason?: string }) => void
@@ -192,9 +198,36 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     }
   }
 
+  /** 主题落地：容器 data-theme + 第三方主题包 <link> 注入（官方 light/dark 无 link，D-059） */
+  function applyTheme(): void {
+    if (container === undefined) return;
+    container.dataset.theme = theme;
+    const url = themeUrls.get(theme);
+    if (url === undefined) {
+      themeLink?.remove();
+      themeLink = undefined;
+      return;
+    }
+    if (themeLink === undefined) {
+      themeLink = document.createElement("link");
+      themeLink.rel = "stylesheet";
+      themeLink.dataset.heniraTheme = "true"; // 回落清理锚点（安全模式/官方主题移除用）
+      document.head.append(themeLink);
+    }
+    themeLink.href = url;
+  }
+
+  /** D-059：安全模式回落官方默认——第三方主题/语言收起（官方 light/zh） */
+  function enterSafeMode(): void {
+    theme = "light";
+    themeLink?.remove();
+    themeLink = undefined;
+    localeOverride = undefined;
+  }
+
   function render(): void {
     if (root === undefined || container === undefined) return;
-    container.dataset.theme = theme;
+    applyTheme();
     const props: ShellProps = {
       store,
       slots,
@@ -202,6 +235,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       layout: opts.layout ?? "full",
       host: hostFacade,
       theme,
+      localeOverride,
       safeMode,
       sessionId,
       onSelectSession: (id) => {
@@ -219,11 +253,17 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         safeMode = on;
         moduleDispose?.();
         moduleDispose = undefined;
+        if (on) enterSafeMode();
         renderSlots();
         render();
       },
-      onTheme: (next) => {
+      onTheme: (next, cssUrl) => {
         theme = next;
+        if (cssUrl !== undefined) themeUrls.set(next, cssUrl);
+        applyTheme();
+      },
+      onLocale: (dict) => {
+        localeOverride = dict !== undefined && Object.keys(dict).length > 0 ? dict : undefined;
         render();
       },
     };
@@ -257,6 +297,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
             safeMode = !safeMode;
             moduleDispose?.();
             moduleDispose = undefined;
+            if (safeMode) enterSafeMode();
             renderSlots();
             render();
             lastAlt = 0;
@@ -274,14 +315,16 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       root?.unmount();
       await opts.client.stop();
     },
-    setTheme(next) {
+    setTheme(next, cssUrl) {
       theme = next;
-      render();
+      if (cssUrl !== undefined) themeUrls.set(next, cssUrl);
+      applyTheme();
     },
     setSafeMode(on) {
       safeMode = on;
       moduleDispose?.();
       moduleDispose = undefined;
+      if (on) enterSafeMode();
       renderSlots();
       render();
     },

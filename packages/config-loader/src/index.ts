@@ -15,3 +15,9 @@ export {
 } from "./dictionary.js";
 export { type HeniraConfig, loadConfig } from "./load.js";
 export { bundledSkillDirs, defaultPreset, type PluginEntry } from "./preset.js";
+export {
+  scanUiAssets,
+  type UiAssetLocale,
+  type UiAssets,
+  type UiAssetTheme,
+} from "./ui-assets.js";

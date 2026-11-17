@@ -5,6 +5,7 @@
 import { existsSync, promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { scanUiAssets } from "@henira/config-loader";
 import { DECISIONS, rebuildProjection, type ServerFrame } from "@henira/protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -234,6 +235,35 @@ export function createApp(deps: AppDeps): Hono {
     if (!parsed.success) return c.json({ error: "key required" }, 400);
     await writeCredential(deps.globalDir, c.req.param("provider"), parsed.data.key);
     return c.json({ ok: true }); // GET 无对应端点（D-030：明文永不回读）
+  });
+
+  // ── 界面资产（D-059 语言包/主题包）：清单 + 只读伺服（同 ui/ 静态路由纪律：只读版本目录、禁穿越）──
+  app.get("/api/ui-assets", async (c) => {
+    return c.json(await scanUiAssets(deps.globalDir));
+  });
+
+  const SAFE_SEG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+  app.get("/api/ui-assets/:id/:version/:kind/:file", async (c) => {
+    const { id, version, kind, file } = c.req.param();
+    if (
+      !SAFE_SEG.test(id) ||
+      !SAFE_SEG.test(version) ||
+      !SAFE_SEG.test(file) ||
+      (kind !== "locales" && kind !== "themes")
+    ) {
+      return c.json({ error: "invalid asset path" }, 400);
+    }
+    const root = path.resolve(deps.globalDir, "plugins");
+    const resolved = path.resolve(root, id, version, kind, file);
+    if (!resolved.startsWith(root + path.sep)) return c.json({ error: "invalid asset path" }, 400);
+    try {
+      const body = await fs.readFile(resolved);
+      const mime =
+        kind === "locales" ? "application/json; charset=utf-8" : "text/css; charset=utf-8";
+      return c.body(new Uint8Array(body), 200, { "Content-Type": mime });
+    } catch {
+      return c.json({ error: "asset not found" }, 404);
+    }
   });
 
   // ── SSE 事件流（唯一事件口）──

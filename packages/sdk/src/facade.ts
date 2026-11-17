@@ -2,6 +2,7 @@
 // 吐同一 ServerEvent 词表——"进程内与远程行为一致"由同一测试套件对双形态跑锁。
 // 纯 TS 零 React（sdk 不携带界面，D-037）。
 
+import type { UiAssets } from "@henira/config-loader";
 import type {
   Decision,
   PromptReceipt,
@@ -51,6 +52,8 @@ export interface HeniraFacade {
   listModels(): Promise<ModelCatalog>;
   /** 密钥写入（credentials.json 0600；无对应读取面——D-030 明文永不回读） */
   putCredential(providerId: string, key: string): Promise<void>;
+  /** 界面资产清单（D-059 语言包/主题包；runtime 进程内直扫 globalDir、client 走 /api/ui-assets） */
+  listUiAssets(): Promise<UiAssets>;
   /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;
   /** 全局帧流（connected → 逐会话快照 → 增量）；远端形态内置重连 + 断档不猜（跳号即重拉快照换发） */

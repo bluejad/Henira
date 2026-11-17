@@ -35,7 +35,7 @@ const llmStub = (service: LlmService): ServiceDefinition<LlmService> => ({
 async function makeServer(
   script: readonly MockEntry[],
   opts?: { token?: string },
-): Promise<Ctx & { mock: { requests: readonly unknown[] } }> {
+): Promise<Ctx & { mock: { requests: readonly unknown[] }; globalDir: string }> {
   const { mockLlm } = await import("@henira/llm-mock");
   const mock = mockLlm(script);
   const dataDir = path.join(root, `data-${Math.random().toString(36).slice(2, 8)}`);
@@ -57,6 +57,7 @@ async function makeServer(
     server,
     base: server.url,
     mock,
+    globalDir,
     cleanup: async () => {
       await server.stop();
       await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
@@ -436,6 +437,47 @@ describe("REST 面与设置", () => {
       expect(list.some((s) => s.id === id)).toBe(true);
     } finally {
       await second.stop();
+    }
+  });
+
+  it("ui-assets（D-059）：清单枚举已装语言包 + 资产只读伺服 + 穿越与非法 kind 拒绝", async () => {
+    const { base, globalDir, cleanup } = await makeServer([]);
+    try {
+      const v = path.join(globalDir, "plugins", "ja-pack", "1.0.0");
+      await fs.mkdir(path.join(v, "locales"), { recursive: true });
+      await fs.writeFile(
+        path.join(v, "locales", "ja.json"),
+        JSON.stringify({ "row.reasoning": "思考" }),
+        "utf8",
+      );
+      const list = (await (await fetch(`${base}/api/ui-assets`)).json()) as {
+        locales: { pluginId: string; version: string; lang: string; url: string }[];
+        themes: unknown[];
+      };
+      expect(list.locales).toEqual([
+        {
+          pluginId: "ja-pack",
+          version: "1.0.0",
+          lang: "ja",
+          url: "/api/ui-assets/ja-pack/1.0.0/locales/ja.json",
+        },
+      ]);
+      expect(list.themes).toEqual([]);
+      const file = await fetch(`${base}/api/ui-assets/ja-pack/1.0.0/locales/ja.json`);
+      expect(file.status).toBe(200);
+      expect(await file.json()).toEqual({ "row.reasoning": "思考" });
+      // 穿越与非法段：编码斜杠段（SAFE_SEG 拒）→ 400；编码点段被 HTTP 栈规范化吞掉 → 404（仍安全，
+      // 路由层 SAFE_SEG + startsWith 双防线在，观察行为按栈规范化结果断言）；不存在的资产 → 404
+      expect((await fetch(`${base}/api/ui-assets/ja%2Fpack/1.0.0/locales/ja.json`)).status).toBe(
+        400,
+      );
+      expect((await fetch(`${base}/api/ui-assets/ja-pack/%2E%2E/locales/ja.json`)).status).toBe(
+        404,
+      );
+      expect((await fetch(`${base}/api/ui-assets/ja-pack/1.0.0/nope/ja.json`)).status).toBe(400);
+      expect((await fetch(`${base}/api/ui-assets/ja-pack/1.0.0/locales/ko.json`)).status).toBe(404);
+    } finally {
+      await cleanup();
     }
   });
 });
