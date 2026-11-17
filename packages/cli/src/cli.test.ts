@@ -33,9 +33,13 @@ describe("serve 点火车", () => {
       await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
     });
 
-    // 盯 stdout 拿 URL（serve 打印 listening 行）
+    // 盯 stdout 拿 URL（serve 打印 listening 行）；stderr 收集进失败消息（子进程崩溃自诊断）
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
     const url = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("serve did not print URL in 10s")), 10_000);
+      const timer = setTimeout(() => reject(new Error(`serve did not print URL in 10s\nstderr: ${stderr}`)), 10_000);
       child.stdout?.on("data", (chunk: Buffer) => {
         const match = /listening on (http:\/\/\S+)/.exec(chunk.toString());
         if (match !== null) {
@@ -43,9 +47,9 @@ describe("serve 点火车", () => {
           resolve(match[1]);
         }
       });
-      child.on("exit", () => {
+      child.on("exit", (code, signal) => {
         clearTimeout(timer);
-        reject(new Error("serve exited before printing URL"));
+        reject(new Error(`serve exited before printing URL (code=${code} signal=${signal})\nstderr: ${stderr}`));
       });
     });
 
