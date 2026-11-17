@@ -94,6 +94,7 @@ describe("createWebApp", () => {
     expect(el.dataset.theme).toBe("sea"); // 容器切主题 id
     const link = document.head.querySelector("link[data-henira-theme]");
     expect(link?.getAttribute("href")).toBe("/api/ui-assets/sea-pack/1.0.0/themes/sea.css");
+    expect(themeSelect.value).toBe("sea"); // 显示值跟随主题（onTheme 漏 render 回归锚，R125）
     // 安全模式回落官方默认：第三方主题/语言收起（D-059 决定 4）
     app.setSafeMode(true);
     expect(el.dataset.theme).toBe("light");

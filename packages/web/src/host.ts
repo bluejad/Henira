@@ -262,6 +262,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         theme = next;
         if (cssUrl !== undefined) themeUrls.set(next, cssUrl);
         applyTheme();
+        render(); // 主题变了要重渲 React 侧——漏了则设置浮层下拉显示值与实际主题脱节（R125）
       },
       onLocale: (dict) => {
         localeOverride = dict !== undefined && Object.keys(dict).length > 0 ? dict : undefined;
