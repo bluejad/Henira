@@ -13,16 +13,19 @@ export class DeltaBatcher {
 
   constructor(private readonly flush: (events: readonly LoopEvent[]) => void) {}
 
-  /** 增量事件：入缓冲；首包立即透传（不等待窗口），后续按 16ms 窗口攒批 */
+  /** 增量事件：入缓冲；首包立即透传（不等待窗口），后续按 16ms 窗口攒批（窗口随增量自动续期） */
   pushDelta(event: LoopEvent): void {
     if (!this.#firstSeen) {
       this.#firstSeen = true;
-      this.flush([event]);
+      this.flush([event]); // 首包不等待
+    } else {
+      this.#buffer.push(event);
+    }
+    if (this.#timer === undefined) {
+      // 无定时器即装（flush 后不重装的旧实现会饿死后续增量——长流只出首包与尾段）
       this.#timer = setTimeout(() => this.flushNow(), BATCH_WINDOW_MS);
       this.#timer.unref?.();
-      return;
     }
-    this.#buffer.push(event);
   }
 
   /** 结构事件：先冲缓冲（保序），再立即透传自身 */
