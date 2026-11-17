@@ -22,6 +22,8 @@ export const zh = {
   "composer.send": "发送",
   "composer.stop": "停止",
   "composer.steerHint": "回合进行中，消息将作为插话进场",
+  "composer.model": "模型",
+  "composer.sendFailed": "发送失败，消息已留在输入框",
   "approval.title": "权限请求",
   "approval.allow": "允许",
   "approval.deny": "拒绝",

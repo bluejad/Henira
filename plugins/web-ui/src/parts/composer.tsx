@@ -1,21 +1,25 @@
-// 官方件：输入区（槽 composer）。发送 = D-045 单口（闲直跑 / 忙入队）；busy 时显示停止
-// 与插话提示——发送即排队条目，step 边界进场（steer 语义经 loop）。
-// 审批接管 dock（M4 批 A 视觉二轮，dsh/ZCode 行为层参照）：pending 审批卡渲染在输入卡上方，
-// 存在 pending 时 Enter 让位给审批卡（Enter=允许、Esc=拒绝在卡内监听），composer 不发送。
-// 卡化输入区：16px 圆角卡 + focus-within 边框变 accent（ZCode 行为层参照）+ 自动增高 textarea
-// + 圆形 accent 发送键。
+// 官方件：输入区（槽 composer）。两层卡（ZCode ConversationComposer 行为层：输入行上、工具排下）。
+// 发送/停止语义照 ZCode（showStopControl = canStop && !hasDraftToSubmit）：忙+有草稿=发送（排队
+// 插话）、忙+空草稿=停止——有字时圆钮恒为发送，杜绝「打着字点按钮却停了回合」的歧义。
+// 审批接管 dock（M4 批 A 视觉二轮）：pending 审批卡渲染在输入卡上方，Enter 让位语义照旧。
+// prompt 失败不静默：草稿回填 + 行内错误提示。工具排左侧 = 模型选择器（宿主实现设置/目录面时
+// 渲染；值与清单来自 getSettings/listModels，变更走 putSettings——既有真功能接线）。
 
 import type { ApprovalRow, Row } from "@henira/protocol";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
-import { SendGlyph, StopGlyph } from "./icons.js";
+import { CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
 
 const TEXTAREA_MAX_HEIGHT = 200;
 const EMPTY_ROWS: readonly Row[] = [];
+const EMPTY_MODELS: readonly string[] = [];
 
 export const Composer: WebPart = (ctx: WebPartContext) => {
   const [draft, setDraft] = useState("");
+  const [sendFailed, setSendFailed] = useState(false);
+  const [model, setModel] = useState("");
+  const [models, setModels] = useState<readonly string[]>(EMPTY_MODELS);
   // 两个稳定维度分开订阅（busy 布尔 / rows 数组引用）——不取整个快照对象
   // （store 契约只保证行数组引用稳定；getSnapshot 每次新对象会让 useSyncExternalStore 死循环）
   const busy = useSyncExternalStore(
@@ -35,6 +39,31 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     (row: Row): row is ApprovalRow => row.kind === "approval" && row.status === "pending",
   );
 
+  // 模型选择器数据（宿主三方法齐备才接；缺任一则整个选择器不渲染）
+  const settingsReady =
+    ctx.client.getSettings !== undefined &&
+    ctx.client.listModels !== undefined &&
+    ctx.client.putSettings !== undefined;
+  useEffect(() => {
+    if (!settingsReady) return;
+    void ctx.client
+      .getSettings?.()
+      .then((s) => {
+        if (s.model !== undefined) setModel(s.model);
+      })
+      .catch(() => {});
+    void ctx.client
+      .listModels?.()
+      .then((catalog) => {
+        const names: string[] = [];
+        for (const [provider, entry] of Object.entries(catalog.providers)) {
+          for (const m of entry.models ?? []) names.push(`${provider}/${m}`);
+        }
+        setModels(names);
+      })
+      .catch(() => {});
+  }, [ctx.client, settingsReady]);
+
   useEffect(() => {
     // 草稿清空（发送成功）后复位自动增高
     const el = areaRef.current;
@@ -46,9 +75,11 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     if (text === "" || ctx.sessionId === null) return;
     if (pendingApprovals.length > 0) return; // 审批接管中：Enter 已被审批卡消费
     setDraft("");
+    setSendFailed(false);
     void ctx.client.prompt(ctx.sessionId, text).catch(() => {
-      // 发送失败回填草稿（用户不丢输入）
+      // 发送失败回填草稿（用户不丢输入）+ 行内可见提示（不静默，R125）
       setDraft(text);
+      setSendFailed(true);
     });
   };
 
@@ -56,13 +87,29 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     if (ctx.sessionId !== null) void ctx.client.interrupt(ctx.sessionId);
   };
 
+  const changeModel = useCallback(
+    (next: string): void => {
+      setModel(next);
+      void ctx.client.putSettings?.({ model: next }).catch(() => {});
+    },
+    [ctx.client],
+  );
+
   const autoGrow = (el: HTMLTextAreaElement): void => {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
   };
 
+  const hasDraft = draft.trim() !== "";
+  const showStop = busy && !hasDraft; // ZCode 语义：流式中空草稿才是停止；有草稿恒为发送（排队）
+
   return (
     <div className="henira-composer">
+      {sendFailed ? (
+        <p role="alert" className="henira-send-error">
+          {ctx.t("composer.sendFailed")}
+        </p>
+      ) : null}
       {pendingApprovals.map((row) => (
         <ApprovalCard key={row.rowId} row={row} ctx={ctx} />
       ))}
@@ -84,29 +131,51 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
           }}
         />
         <div className="henira-composer-bar">
-          {busy ? (
-            <span style={{ fontSize: "var(--henira-fs-sm)", color: "var(--henira-text-muted)" }}>
-              {ctx.t("composer.steerHint")}
+          {settingsReady && models.length > 0 ? (
+            <span className="henira-model-select">
+              <select
+                aria-label={ctx.t("composer.model")}
+                value={model}
+                onChange={(e) => {
+                  changeModel(e.target.value);
+                }}
+              >
+                {model !== "" && !models.includes(model) ? (
+                  <option value={model}>{model}</option>
+                ) : null}
+                {models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <span className="henira-model-caret">
+                <CaretGlyph size={10} />
+              </span>
             </span>
-          ) : (
-            <span />
-          )}
+          ) : null}
           {busy ? (
+            <span className="henira-composer-hint">{ctx.t("composer.steerHint")}</span>
+          ) : null}
+          <span style={{ marginLeft: "auto" }} />
+          {showStop ? (
             <button
               type="button"
-              className="henira-primary"
-              onClick={stop}
+              className="henira-icon-round henira-stop"
               aria-label={ctx.t("composer.stop")}
+              title={ctx.t("composer.stop")}
+              onClick={stop}
             >
-              <StopGlyph size={14} /> {ctx.t("composer.stop")}
+              <StopGlyph size={14} />
             </button>
           ) : (
             <button
               type="button"
-              className="henira-icon-round"
-              onClick={submit}
-              disabled={draft.trim() === "" || ctx.sessionId === null}
+              className="henira-icon-round henira-primary"
               aria-label={ctx.t("composer.send")}
+              title={ctx.t("composer.send")}
+              onClick={submit}
+              disabled={!hasDraft || ctx.sessionId === null}
             >
               <SendGlyph size={16} />
             </button>

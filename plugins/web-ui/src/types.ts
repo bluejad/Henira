@@ -25,6 +25,15 @@ export interface HeniraClientLike {
   events(): AsyncIterable<ServerFrame>;
   /** 界面资产清单（D-059：已装语言包/主题包） */
   listUiAssets(): Promise<UiAssets>;
+  /** 设置读（可选——结构同形 sdk SettingsData；凭据永不出现，D-030） */
+  getSettings?(): Promise<{ version: 1; model?: string; ui?: { theme?: string; locale?: string } }>;
+  /** 设置写（可选——输入卡模型选择器消费；程序写面） */
+  putSettings?(patch: {
+    model?: string;
+    ui?: { theme?: string; locale?: string };
+  }): Promise<{ version: 1 }>;
+  /** 模型目录（可选——手写覆盖 + models.dev 快照清单；无密钥） */
+  listModels?(): Promise<{ providers: Record<string, { baseUrl?: string; models?: string[] }> }>;
 }
 
 /** 行 store 最小结构面（哑渲染器的数据源：快照整体替换 + 增量；断档不猜纪律在 client） */

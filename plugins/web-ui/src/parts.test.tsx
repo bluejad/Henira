@@ -137,7 +137,7 @@ describe("SessionList", () => {
 });
 
 describe("Composer", () => {
-  it("Enter 发送走 client.prompt；busy 时显示停止", async () => {
+  it("Enter 发送走 client.prompt；busy+空草稿 显示停止", async () => {
     const ctx = fixtureCtx();
     const prompt = vi.spyOn(ctx.client, "prompt");
     const { container } = render(<Composer {...ctx} />);
@@ -155,8 +155,66 @@ describe("Composer", () => {
     });
     cleanup();
     render(<Composer {...busyCtx} />);
-    expect(screen.getByText(t("composer.stop"))).toBeDefined();
+    expect(screen.getByRole("button", { name: t("composer.stop") })).toBeDefined();
     expect(screen.getByText(t("composer.steerHint"))).toBeDefined();
+  });
+
+  it("ZCode 语义：忙+有草稿=发送钮（排队插话）而非停止——点击发送走 prompt", async () => {
+    const ctx = fixtureCtx();
+    const promptSpy = vi.spyOn(ctx.client, "prompt");
+    const busyRows: Row[] = [];
+    const busyCtx = fixtureCtx({
+      ...ctx,
+      store: {
+        getSession: () => ({ rows: busyRows, state: { busy: true } }),
+        subscribe: () => () => {},
+      },
+    });
+    const { container } = render(<Composer {...busyCtx} />);
+    const area = container.querySelector("textarea") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "排队的话" } });
+    // 有草稿 → 停止钮不在场，发送钮点亮
+    expect(screen.queryByRole("button", { name: t("composer.stop") })).toBeNull();
+    const send = screen.getByRole("button", { name: t("composer.send") });
+    expect((send as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(send);
+    await waitFor(() => expect(promptSpy).toHaveBeenCalledWith("s-1", "排队的话"));
+  });
+
+  it("prompt 失败不静默：草稿回填 + 行内错误提示", async () => {
+    const ctx = fixtureCtx();
+    vi.spyOn(ctx.client, "prompt").mockRejectedValueOnce(new Error("boom"));
+    const { container } = render(<Composer {...ctx} />);
+    const area = container.querySelector("textarea") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "会失败的话" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    const hint = await screen.findByRole("alert");
+    expect(hint.textContent).toBe(t("composer.sendFailed"));
+    expect((container.querySelector("textarea") as HTMLTextAreaElement).value).toBe("会失败的话");
+  });
+
+  it("模型选择器：宿主三方法齐备时渲染清单，变更走 putSettings", async () => {
+    const putSettings = vi.fn().mockResolvedValue({ version: 1 });
+    const ctx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
+        listModels: async () => ({
+          providers: {
+            deepseek: { baseUrl: "x", models: ["deepseek-v4-flash", "deepseek-flash"] },
+          },
+        }),
+        putSettings,
+      },
+    });
+    const { container } = render(<Composer {...ctx} />);
+    const select = (await screen.findByRole("combobox", {
+      name: t("composer.model"),
+    })) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("deepseek/deepseek-v4-flash"));
+    fireEvent.change(select, { target: { value: "deepseek/deepseek-flash" } });
+    expect(putSettings).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
+    void container;
   });
 });
 

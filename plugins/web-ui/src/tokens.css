@@ -387,6 +387,7 @@ button:focus-visible > .henira-row-caret {
 }
 .henira-composer-card:focus-within {
   border-color: var(--henira-accent);
+  background: var(--henira-panel); /* focus 底色微提亮（ZCode bg-input → input-focused 行为层） */
 }
 .henira-composer-card textarea {
   display: block;
@@ -394,13 +395,16 @@ button:focus-visible > .henira-row-caret {
   box-sizing: border-box;
   resize: none;
   border: none;
-  outline: none;
   background: none;
   color: var(--henira-text);
   font: inherit;
   line-height: 1.6;
   padding: var(--henira-space-1) var(--henira-space-1);
   max-height: 200px;
+}
+/* 焦点指示只留卡边框一处（ZCode 行为层）——全局 textarea 焦点环在卡内排除（R125 蓝框双重指示） */
+.henira-composer-card textarea:focus-visible {
+  outline: none;
 }
 .henira-composer-bar {
   display: flex;
@@ -418,6 +422,67 @@ button:focus-visible > .henira-row-caret {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+/* 停止态圆钮（danger 实色——BC stop 行为层；发送=henira-primary 圆钮照旧） */
+.henira-app button.henira-icon-round.henira-stop {
+  background: var(--henira-danger-bg);
+  border-color: var(--henira-danger-text);
+  color: var(--henira-danger-text);
+}
+.henira-app button.henira-icon-round.henira-stop:hover {
+  background: var(--henira-danger-text);
+  color: var(--henira-panel);
+}
+/* 工具排：模型选择器（ghost 形态原生 select——ZCode ModelConfigSelect 行为层） */
+.henira-model-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+}
+.henira-model-select select {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 3px 20px 3px 8px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.henira-model-select select:hover {
+  color: var(--henira-text);
+  border-color: var(--henira-border);
+}
+.henira-model-select select:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+}
+.henira-model-caret {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  color: var(--henira-text-muted);
+  pointer-events: none;
+}
+.henira-composer-hint {
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 发送失败行内提示（prompt 失败不静默，R125） */
+.henira-send-error {
+  margin: 0 0 var(--henira-space-2);
+  color: var(--henira-danger-text);
+  background: var(--henira-danger-bg);
+  border-radius: var(--henira-radius);
+  padding: var(--henira-space-1) var(--henira-space-3);
+  font-size: var(--henira-fs-sm);
 }
 
 /* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
