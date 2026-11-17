@@ -2,6 +2,7 @@
 // web 宿主测试：槽位激活（公共注册路径）与安全模式（编译期出口）双通道 / 槽位收起 / 主题接线 /
 // D-059 主题包下拉（<link> 注入与安全模式回落）。
 
+import { zh } from "@henira/plugin-web-ui";
 import type { HeniraFacade } from "@henira/sdk";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,7 +51,7 @@ describe("createWebApp", () => {
     app.mount(el);
     await new Promise((r) => setTimeout(r, 50));
     expect(el.querySelector(".henira-sessions")).not.toBeNull(); // 同一零件库
-    expect(el.textContent).toContain("safe mode");
+    expect(el.textContent).toContain(zh["app.safeMode"]); // 徽标文案走字典（死键活化）
     await app.dispose();
     el.remove();
   });

@@ -28,6 +28,10 @@ CI 同序（workflow 内 `--with-deps chromium` 装 OS 依赖），截图上传�
 | src/forms.e2e.ts     | mock 逐形态验收（M4 批 A 判据③ mock 半边）：推理块+usage / 错误回合 / 审批拒绝 / 中断收尾 / 多工具并行 / 插话 steer / 输出截断（每用例独立 server + 截图 10-16） | roadmap M4 判据③ / D-057 / D-059                             |
 | src/real.e2e.ts      | 真 key 采样（env 门控不进 CI）：真 serve + 切 provider 逐形态真实 prompt + 截图 real/                                                                            | roadmap M4 判据③（真 key 半边）                              |
 | tools/probe.md       | probe 工具档案（非只读审批样本）                                                                                                                                 | AGENTS.md 一工具一 md                                        |
+| tools/echo-a.md      | echo-a 工具档案（多工具并行样本之一）                                                                                                                            | AGENTS.md 一工具一 md                                        |
+| tools/echo-b.md      | echo-b 工具档案（多工具并行样本之二）                                                                                                                            | AGENTS.md 一工具一 md                                        |
+| tools/slow-probe.md  | slow-probe 工具档案（插话 steer 样本：150ms 执行窗）                                                                                                             | AGENTS.md 一工具一 md                                        |
+| tools/big-output.md  | big-output 工具档案（输出截断样本：60KB 必然触发出口限量）                                                                                                       | AGENTS.md 一工具一 md                                        |
 
 ## 测试 ↔ 判据
 

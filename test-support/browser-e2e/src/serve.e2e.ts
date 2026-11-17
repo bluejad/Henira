@@ -147,7 +147,8 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
 
 test("safe mode: ui=safe entry and double-Alt toggle", async ({ page }) => {
   await page.goto(`${server.url}/?ui=safe`);
-  const badge = page.getByText("safe mode", { exact: true });
+  // 徽标文案走字典（app.safeMode 死键活化——shell 不再硬编码英文）
+  const badge = page.getByText(zh["app.safeMode"], { exact: true });
   await expect(badge).toBeVisible();
   await shot(page, "05-safe-mode.png");
 

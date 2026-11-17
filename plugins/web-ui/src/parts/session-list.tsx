@@ -1,8 +1,10 @@
 // 官方件：会话列表（槽 sidebar）。哑渲染件——数据经承重缝（client + store）来，件自身只渲染与交互。
+// 列表项 = 32px 行 + 16px 前置状态槽（busy 转圈 / idle 圆点——ZCode TaskListItem 行为层参照）。
 
 import type { SessionSummary } from "@henira/protocol";
 import { useCallback, useEffect, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
+import { SpinnerGlyph } from "./icons.js";
 
 export const SessionList: WebPart = (ctx: WebPartContext) => {
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
@@ -37,7 +39,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         height: "100%",
         borderRight: "1px solid var(--henira-border)",
         background: "var(--henira-surface)",
-        padding: "12px",
+        padding: "var(--henira-space-3)",
         boxSizing: "border-box",
         width: "var(--henira-sidebar-width)",
       }}
@@ -47,7 +49,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: "12px",
+          marginBottom: "var(--henira-space-3)",
         }}
       >
         <strong style={{ color: "var(--henira-text-strong)" }}>{ctx.t("sessions.title")}</strong>
@@ -70,38 +72,64 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                     ctx.selectSession(s.id);
                   }}
                   style={{
-                    display: "block",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--henira-space-2)",
                     width: "100%",
                     textAlign: "left",
                     background: "transparent",
                     borderRadius: "var(--henira-radius)",
-                    padding: "var(--henira-space-2)",
+                    padding: "6px 10px",
+                    minHeight: "32px",
+                    boxSizing: "border-box",
                   }}
                 >
                   <span
-                    role={"img"}
+                    role="img"
                     aria-label={s.busy ? ctx.t("sessions.busy") : ctx.t("sessions.idle")}
                     style={{
-                      display: "inline-block",
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      marginRight: "8px",
-                      background: s.busy ? "var(--henira-warn-text)" : "var(--henira-ok-text)",
+                      display: "inline-flex",
+                      width: 16,
+                      justifyContent: "center",
+                      flexShrink: 0,
                     }}
-                  />
-                  <span className="henira-mono" style={{ fontSize: "12px" }}>
-                    {s.cwd.split(/[\\/]/).pop() || s.cwd}
+                  >
+                    {s.busy ? (
+                      <SpinnerGlyph size={14} color="var(--henira-info-text)" />
+                    ) : (
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: "7px",
+                          height: "7px",
+                          borderRadius: "50%",
+                          background: "var(--henira-border-strong)",
+                        }}
+                      />
+                    )}
                   </span>
                   <span
                     style={{
-                      color: "var(--henira-text-muted)",
-                      marginLeft: "8px",
-                      fontSize: "12px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      color: selected ? "var(--henira-text-strong)" : "var(--henira-text)",
                     }}
                   >
-                    {s.busy ? ctx.t("sessions.busy") : ""}
+                    {s.cwd.split(/[\\/]/).pop() || s.cwd}
                   </span>
+                  {s.busy ? (
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        color: "var(--henira-text-muted)",
+                        fontSize: "var(--henira-fs-sm)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {ctx.t("sessions.busy")}
+                    </span>
+                  ) : null}
                 </button>
               </li>
             );

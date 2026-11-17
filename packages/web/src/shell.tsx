@@ -193,11 +193,11 @@ export function Shell(props: ShellProps) {
               background: "var(--henira-warn-bg)",
               color: "var(--henira-warn-text)",
               borderRadius: "9999px",
-              fontSize: "12px",
+              fontSize: "var(--henira-fs-sm)",
               padding: "2px 10px",
             }}
           >
-            safe mode
+            {t("app.safeMode")}
           </div>
         ) : null}
       </div>

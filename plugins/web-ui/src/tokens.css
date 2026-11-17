@@ -418,19 +418,16 @@ button:focus-visible > .henira-row-caret {
   flex-shrink: 0;
 }
 
-/* ── 会话列表项（激活原死 class：hover / 选中态收口在此，组件零内联状态样式）── */
+/* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
 .henira-sessions li button {
   border: 1px solid transparent;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease;
+  transition: background 0.12s ease;
 }
 .henira-sessions li button:hover {
-  background: var(--henira-bg);
+  background: var(--henira-surface-hover);
 }
 .henira-sessions li button[data-active="true"] {
-  background: var(--henira-bg);
-  border-color: var(--henira-border-strong);
+  background: var(--henira-selected);
 }
 
 @media (prefers-reduced-motion: reduce) {
