@@ -18,10 +18,8 @@ test.skip(process.env.HENIRA_REAL !== "1", "真 key 采样：HENIRA_REAL=1 本�
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const HOME = os.homedir();
 const HANDSHAKE = path.join(HOME, ".henira", "state", "server.json");
-const PROVIDERS = Object.keys(
-  JSON.parse(await fs.readFile(path.join(HOME, ".henira", "config", "models.json"), "utf8"))
-    .providers ?? {},
-) as string[];
+// providers 在 beforeAll 懒读（顶层 await 会让 CI 上无 ~/.henira 的机器在模块加载期就炸——skip 也救不了加载期）
+let PROVIDERS: string[] = [];
 
 const FORMS: { name: string; prompt: string }[] = [
   {
@@ -73,6 +71,15 @@ async function waitHandshake(): Promise<void> {
 }
 
 test.beforeAll(async () => {
+  // providers 懒读：models.json 缺失（CI / 未配置机器）→ 空表，循环零次不炸
+  try {
+    PROVIDERS = Object.keys(
+      JSON.parse(await fs.readFile(path.join(HOME, ".henira", "config", "models.json"), "utf8"))
+        .providers ?? {},
+    ) as string[];
+  } catch {
+    PROVIDERS = [];
+  }
   await fs.rm(HANDSHAKE, { force: true }); // 陈旧握手（上次进程残留）先清掉
   child = spawn(
     process.execPath,
