@@ -1,0 +1,31 @@
+{
+  "name": "@henira/sdk",
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@henira/config-loader": "workspace:*",
+    "@henira/kernel": "workspace:*",
+    "@henira/plugin-approval": "workspace:*",
+    "@henira/plugin-llm": "workspace:*",
+    "@henira/plugin-loop": "workspace:*",
+    "@henira/plugin-session": "workspace:*",
+    "@henira/plugin-tools": "workspace:*",
+    "@henira/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@henira/llm-mock": "workspace:*",
+    "@henira/server": "workspace:*"
+  }
+}
