@@ -38,6 +38,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     events: async function* () {
       yield {} as ServerFrame;
     },
+    listUiAssets: async () => ({ locales: [], themes: [] }),
   };
   const rows: Row[] = [];
   const store: RowStoreLike = {
