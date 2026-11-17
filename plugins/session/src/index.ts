@@ -17,6 +17,7 @@ export {
   type CreateSessionResult,
   EventDataInvalidError,
   NoOpenTurnError,
+  SESSION_LOG_FILE,
   SessionStore,
   UnregisteredEventTypeError,
 } from "./store.js";

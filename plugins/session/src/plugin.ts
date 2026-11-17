@@ -12,6 +12,8 @@ export interface SessionPluginOptions {
   directory: string;
   /** 会话 cwd（SessionHeader.cwd） */
   cwd: string;
+  /** 会话 id（宿主指定身份——目录名 / 账本 header.id / 注册表键三方一致；缺省 store 自生成） */
+  id?: string;
   /** 云端归属（D-036）：部署时写入的用户标识，本地缺省 */
   user?: string;
 }
@@ -22,7 +24,12 @@ export function sessionPlugin(options: SessionPluginOptions): ServiceDefinition<
     name: "session",
     async start() {
       // kernel 在 start 返回后把返回值发布为槽位值（interfaces.md kernel 段）
-      return createSession({ dir: options.directory, cwd: options.cwd, user: options.user });
+      return createSession({
+        dir: options.directory,
+        cwd: options.cwd,
+        id: options.id,
+        user: options.user,
+      });
     },
     async stop(svc) {
       // stop 只收服务自身资源：文件锁与句柄（interfaces.md kernel 段两条约定）
