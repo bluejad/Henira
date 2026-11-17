@@ -4,12 +4,14 @@
 
 import { existsSync, promises as fs } from "node:fs";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { scanUiAssets } from "@henira/config-loader";
 import { DECISIONS, rebuildProjection, type ServerFrame } from "@henira/protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { type DirRegistry, isDrivesRoot, sameCwd } from "./dir-registry.js";
 import type { Fanout } from "./fanout.js";
 import type { SessionRegistry } from "./session-registry.js";
 import { readSettings, writeCredential, writeSettings } from "./settings-store.js";
@@ -20,6 +22,8 @@ const HEARTBEAT_MS = 15_000;
 
 export interface AppDeps {
   registry: SessionRegistry;
+  /** 登记工作目录注册表（data-directory §4 projects.json） */
+  dirs: DirRegistry;
   fanout: Fanout;
   globalDir: string;
   version: string;
@@ -88,7 +92,11 @@ export function createApp(deps: AppDeps): Hono {
   // ── 会话注册表 ──
   app.post("/api/sessions", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { cwd?: string };
+    if (body.cwd !== undefined && !isAbsoluteCwd(body.cwd)) {
+      return c.json({ error: "cwd must be an absolute path" }, 400);
+    }
     const entry = await deps.registry.create({ cwd: body.cwd });
+    await deps.dirs.upsert(entry.cwd, entry.id); // 带目录建会话 = 自动登记（data-directory §4 权威列表）
     return c.json({ id: entry.id, cwd: entry.cwd, busy: false });
   });
 
@@ -184,6 +192,88 @@ export function createApp(deps: AppDeps): Hono {
       });
     }
     return c.json(entries);
+  });
+
+  // ── 删会话（data-directory §7：删账本目录整棵；busy 拒绝——先中断再删）──
+  app.delete("/api/sessions/:id", async (c) => {
+    const id = c.req.param("id");
+    const entry = deps.registry.get(id);
+    if (entry?.projection.state.busy === true) {
+      return c.json(
+        { code: "session_busy", message: "session is busy; abort it before deletion" },
+        409,
+      );
+    }
+    const deleted = await deps.registry.deleteSession(id);
+    if (!deleted) return c.json({ error: "session not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  // ── 登记工作目录（data-directory §4 projects.json；D-060）──
+  app.get("/api/dirs", async (c) => {
+    return c.json(await deps.dirs.list());
+  });
+
+  app.post("/api/dirs", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { cwd?: string };
+    if (typeof body.cwd !== "string" || body.cwd.trim() === "") {
+      return c.json({ error: "cwd is required" }, 400);
+    }
+    if (!isAbsoluteCwd(body.cwd)) return c.json({ error: "cwd must be an absolute path" }, 400);
+    const resolved = path.resolve(body.cwd);
+    const stat = await fs.stat(resolved).catch(() => undefined);
+    if (stat === undefined)
+      return c.json({ error: "path does not exist or is not accessible" }, 400);
+    if (!stat.isDirectory()) return c.json({ error: "path exists but is not a directory" }, 400);
+    const dir = await deps.dirs.upsert(resolved);
+    return c.json({ ok: true, dir });
+  });
+
+  // busy 拒绝走 200 + {ok:false, blocked}（批操作语义，与删会话 409 双轨——BC 行为层）
+  app.delete("/api/dirs/:id", async (c) => {
+    const id = c.req.param("id");
+    const dir = await deps.dirs.get(id);
+    if (dir === undefined) return c.json({ ok: true }); // 未知 id 幂等
+    const blocked = [...deps.registry.sessions()]
+      .filter((e) => sameCwd(e.cwd, dir.cwd) && e.projection.state.busy)
+      .map((e) => e.id);
+    if (blocked.length > 0) return c.json({ ok: false, blocked });
+    // key 只从登记条目取（registry 侧形态闸兜底）——账本树+检查点树+登记条目三处同删（§7）
+    await deps.registry.removeProject(dir.key);
+    await deps.dirs.remove(id);
+    return c.json({ ok: true });
+  });
+
+  // ── 全局目录浏览（新增目录弹窗数据源；回环+token 中间件之上，D-060 信任边界 ADR）──
+  app.get("/api/dirs/browse", async (c) => {
+    const raw = c.req.query("path");
+    if (raw !== undefined && isDrivesRoot(raw)) {
+      // 盘符列表根：win32 枚举存在盘符（BC /api/dir_list __drives__ 行为层）
+      if (process.platform !== "win32") {
+        return c.json({ path: raw, items: [{ name: "/", path: "/", type: "directory" }] });
+      }
+      const items = [];
+      for (let i = 65; i <= 90; i++) {
+        const drive = `${String.fromCharCode(i)}:\\`;
+        if (existsSync(drive)) items.push({ name: drive, path: drive, type: "drive" });
+      }
+      return c.json({ path: raw, items });
+    }
+    const target = path.resolve(raw ?? os.homedir());
+    let dirents: import("node:fs").Dirent[];
+    try {
+      dirents = await fs.readdir(target, { withFileTypes: true });
+    } catch {
+      return c.json({ error: "directory does not exist or is not accessible" }, 404);
+    }
+    const items = [];
+    for (const dirent of dirents) {
+      if (dirent.name.startsWith(".")) continue; // 隐藏项不返
+      if (!dirent.isDirectory()) continue; // 弹窗只浏览目录
+      items.push({ name: dirent.name, path: path.join(target, dirent.name), type: "directory" });
+    }
+    items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    return c.json({ path: target, parent: path.dirname(target), items });
   });
 
   // ── 设置页（data-directory §2.3：程序写 settings.json；凭据只写不读 D-030）──
@@ -357,4 +447,9 @@ export function createApp(deps: AppDeps): Hono {
 function requireEntry(c: Context, deps: AppDeps) {
   const id = c.req.param("id");
   return id === undefined ? undefined : deps.registry.get(id);
+}
+
+/** 绝对路径判据（win32 盘符形或 posix 根形——BC project.add 校验行为层） */
+function isAbsoluteCwd(cwd: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("/") || cwd.startsWith("\\");
 }

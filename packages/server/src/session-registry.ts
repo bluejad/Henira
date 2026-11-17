@@ -6,7 +6,7 @@
 // key 由 cwd 确定性派生——无 projects.json 也能落位，注册表文件随 M4 项目批）。
 
 import { createHash, randomBytes } from "node:crypto";
-import { promises as fs, readFileSync } from "node:fs";
+import { existsSync, promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConfigService } from "@henira/config-loader";
@@ -231,6 +231,56 @@ export class SessionRegistry {
       await entry.harness.dispose().catch(() => {});
       this.#entries.delete(entry.id);
     }
+  }
+
+  /** 删单个会话（data-directory §7 删除会话语义）：账本目录整删 + 在订收尾；不在册 = false */
+  async deleteSession(id: string): Promise<boolean> {
+    if (!/^s-[0-9a-z]+-[0-9a-f]{6}$/.test(id)) return false; // id 形态闸（防路径段滥用）
+    const entry = this.#entries.get(id);
+    const dir = entry?.directory ?? (await this.#findSessionDir(id));
+    if (dir === undefined) return false;
+    await fs.rm(dir, { recursive: true, force: true });
+    if (entry !== undefined) {
+      entry.interaction.dispose();
+      await entry.harness.dispose().catch(() => {});
+      this.#entries.delete(id);
+    }
+    return true;
+  }
+
+  /** 删整个项目数据树（data-directory §7 删除项目）：projects/<key>/ + checkpoints/<key>/ +
+   *  在订该 cwd 会话收尾。key 只来自登记表条目（非用户输入路径），形态闸兜底防拼接滥用 */
+  async removeProject(key: string): Promise<void> {
+    if (!/^--[A-Za-z0-9._-]{1,60}-[0-9a-f]{8}--$/.test(key)) {
+      throw new Error(`invalid project key: ${key}`);
+    }
+    for (const entry of [...this.#entries.values()]) {
+      if (projectKey(entry.cwd) !== key) continue;
+      entry.interaction.dispose();
+      await entry.harness.dispose().catch(() => {});
+      this.#entries.delete(entry.id);
+    }
+    await fs.rm(path.join(this.#opts.dataDir, "projects", key), { recursive: true, force: true });
+    await fs.rm(path.join(this.#opts.dataDir, "checkpoints", key), {
+      recursive: true,
+      force: true,
+    });
+  }
+
+  /** 磁盘会话目录定位（projects/<key>/sessions/<id> 逐 key 扫；历史会话删除用） */
+  async #findSessionDir(id: string): Promise<string | undefined> {
+    const projectsDir = path.join(this.#opts.dataDir, "projects");
+    let keys: string[] = [];
+    try {
+      keys = await fs.readdir(projectsDir);
+    } catch {
+      return undefined;
+    }
+    for (const key of keys) {
+      const dir = path.join(projectsDir, key, "sessions", id);
+      if (existsSync(dir)) return dir;
+    }
+    return undefined;
   }
 
   /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号） */

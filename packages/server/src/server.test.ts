@@ -35,7 +35,7 @@ const llmStub = (service: LlmService): ServiceDefinition<LlmService> => ({
 async function makeServer(
   script: readonly MockEntry[],
   opts?: { token?: string },
-): Promise<Ctx & { mock: { requests: readonly unknown[] }; globalDir: string }> {
+): Promise<Ctx & { mock: { requests: readonly unknown[] }; globalDir: string; dataDir: string }> {
   const { mockLlm } = await import("@henira/llm-mock");
   const mock = mockLlm(script);
   const dataDir = path.join(root, `data-${Math.random().toString(36).slice(2, 8)}`);
@@ -58,6 +58,7 @@ async function makeServer(
     base: server.url,
     mock,
     globalDir,
+    dataDir,
     cleanup: async () => {
       await server.stop();
       await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
@@ -478,6 +479,195 @@ describe("REST 面与设置", () => {
       expect((await fetch(`${base}/api/ui-assets/ja-pack/1.0.0/locales/ko.json`)).status).toBe(404);
     } finally {
       await cleanup();
+    }
+  });
+});
+
+// ── 目录登记与删除（data-directory §4/§7；D-060）──
+
+describe("目录登记与删除", () => {
+  it("建会话带 cwd 自动登记 + 列表；cwd 相对路径 400（POST /api/sessions）", async () => {
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-autoreg-"));
+    const { base, cleanup } = await makeServer([]);
+    try {
+      const id = await createSession(base, cwd);
+      const dirs = (await (await fetch(`${base}/api/dirs`)).json()) as {
+        id: string;
+        cwd: string;
+        key: string;
+        displayName: string;
+        openCount: number;
+        lastSessionId?: string | null;
+      }[];
+      expect(dirs).toHaveLength(1);
+      expect(dirs[0]?.cwd).toBe(cwd);
+      expect(dirs[0]?.displayName).toBe(path.basename(cwd));
+      expect(dirs[0]?.openCount).toBe(1);
+      expect(dirs[0]?.lastSessionId).toBe(id);
+      expect(dirs[0]?.key).toMatch(/^--.+-[0-9a-f]{8}--$/);
+      const bad = await fetch(`${base}/api/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cwd: "relative/path" }),
+      });
+      expect(bad.status).toBe(400);
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("POST /api/dirs 登记校验序列（缺 cwd / 相对 / 不存在 / 非目录 / 成功）", async () => {
+    const { base, cleanup } = await makeServer([]);
+    const fileCwd = await fs.mkdtemp(path.join(tmpdir(), "henira-dirs-"));
+    try {
+      const post = async (body: unknown): Promise<Response> =>
+        fetch(`${base}/api/dirs`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      expect((await post({})).status).toBe(400);
+      expect((await post({ cwd: "demo" })).status).toBe(400); // 相对路径
+      expect((await post({ cwd: path.join(fileCwd, "missing") })).status).toBe(400); // 不存在
+      const notDir = path.join(fileCwd, "file.txt");
+      await fs.writeFile(notDir, "x");
+      expect((await post({ cwd: notDir })).status).toBe(400); // 不是目录
+      const ok = await post({ cwd: fileCwd });
+      expect(ok.status).toBe(200);
+      const body = (await ok.json()) as { ok: boolean; dir: { displayName: string } };
+      expect(body.ok).toBe(true);
+      expect(body.dir.displayName).toBe(path.basename(fileCwd));
+    } finally {
+      await cleanup();
+      await fs.rm(fileCwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("GET /api/dirs/browse：一层目录 + 隐藏项不返 + 不存在 404 + 盘符根（平台分档）", async () => {
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-browse-"));
+    await fs.mkdir(path.join(cwd, "sub"));
+    await fs.mkdir(path.join(cwd, ".hidden"));
+    const { base, cleanup } = await makeServer([]);
+    try {
+      const res = await fetch(`${base}/api/dirs/browse?path=${encodeURIComponent(cwd)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        path: string;
+        parent: string;
+        items: { name: string; path: string; type: string }[];
+      };
+      expect(body.path).toBe(cwd);
+      expect(body.parent).toBe(path.dirname(cwd));
+      expect(body.items).toEqual([{ name: "sub", path: path.join(cwd, "sub"), type: "directory" }]);
+      expect(
+        (await fetch(`${base}/api/dirs/browse?path=${encodeURIComponent(path.join(cwd, "nope"))}`))
+          .status,
+      ).toBe(404);
+      const drives = (await (await fetch(`${base}/api/dirs/browse?path=__drives__`)).json()) as {
+        items: { path: string; type: string }[];
+      };
+      if (process.platform === "win32") {
+        expect(drives.items.length).toBeGreaterThan(0);
+        expect(drives.items.every((i) => i.type === "drive")).toBe(true);
+      } else {
+        expect(drives.items).toEqual([{ name: "/", path: "/", type: "directory" }]);
+      }
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("DELETE /api/sessions/:id：busy 409 拒绝；闲时删账本目录 + 快照 404 + 列表移除", async () => {
+    const { base, cleanup } = await makeServer(["hang"]);
+    try {
+      const id = await createSession(base);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "跑起来" }),
+      });
+      await waitFor(async () => {
+        const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
+          id: string;
+          busy: boolean;
+        }[];
+        return list.find((s) => s.id === id)?.busy === true ? true : undefined;
+      });
+      const busy = await fetch(`${base}/api/sessions/${id}`, { method: "DELETE" });
+      expect(busy.status).toBe(409);
+      expect(((await busy.json()) as { code: string }).code).toBe("session_busy");
+      await fetch(`${base}/api/sessions/${id}/interrupt`, { method: "POST" });
+      await waitFor(async () => {
+        const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
+          id: string;
+          busy: boolean;
+        }[];
+        return list.find((s) => s.id === id)?.busy === false ? true : undefined;
+      });
+      const del = await fetch(`${base}/api/sessions/${id}`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      expect(((await del.json()) as { ok: boolean }).ok).toBe(true);
+      expect((await fetch(`${base}/api/sessions/${id}/snapshot`)).status).toBe(404);
+      const list = (await (await fetch(`${base}/api/sessions`)).json()) as { id: string }[];
+      expect(list.some((s) => s.id === id)).toBe(false); // 磁盘扫描也不在（账本目录已删）
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("DELETE /api/dirs/:id：busy blocked（200 语义响应）；闲时删账本树+检查点树+登记；未知 id 幂等", async () => {
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-dirdel-"));
+    const { base, dataDir, cleanup } = await makeServer(["hang"]);
+    try {
+      const id = await createSession(base, cwd);
+      const dirs = (await (await fetch(`${base}/api/dirs`)).json()) as {
+        id: string;
+        cwd: string;
+        key: string;
+      }[];
+      const entry = dirs.find((d) => d.cwd === cwd) as { id: string; key: string };
+      // busy → blocked（200 + {ok:false, blocked:[ids]}，非 4xx——批操作语义，与删会话 409 双轨）
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "跑起来" }),
+      });
+      await waitFor(async () => {
+        const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
+          id: string;
+          busy: boolean;
+        }[];
+        return list.find((s) => s.id === id)?.busy === true ? true : undefined;
+      });
+      const blocked = (await (
+        await fetch(`${base}/api/dirs/${entry.id}`, { method: "DELETE" })
+      ).json()) as { ok: boolean; blocked?: string[] };
+      expect(blocked.ok).toBe(false);
+      expect(blocked.blocked).toEqual([id]);
+      await fetch(`${base}/api/sessions/${id}/interrupt`, { method: "POST" });
+      await waitFor(async () => {
+        const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
+          id: string;
+          busy: boolean;
+        }[];
+        return list.find((s) => s.id === id)?.busy === false ? true : undefined;
+      });
+      const del = await fetch(`${base}/api/dirs/${entry.id}`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      expect(((await del.json()) as { ok: boolean }).ok).toBe(true);
+      await expect(fs.access(cwd)).resolves.toBeUndefined(); // 盘上工作目录本身不动（§7）
+      await expect(fs.access(path.join(dataDir, "projects", entry.key))).rejects.toThrow();
+      await expect(fs.access(path.join(dataDir, "checkpoints", entry.key))).rejects.toThrow();
+      expect(await (await fetch(`${base}/api/dirs`)).json()).toEqual([]); // 登记条目移除
+      // 未知 id 幂等
+      const again = await fetch(`${base}/api/dirs/nonexistent0`, { method: "DELETE" });
+      expect(again.status).toBe(200);
+      expect(((await again.json()) as { ok: boolean }).ok).toBe(true);
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
     }
   });
 });

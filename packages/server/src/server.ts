@@ -11,6 +11,7 @@ import type { ServiceDefinition } from "@henira/kernel";
 import type { LlmService } from "@henira/protocol";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
+import { DirRegistry } from "./dir-registry.js";
 import { Fanout } from "./fanout.js";
 import { SessionRegistry, serverVersion } from "./session-registry.js";
 
@@ -59,8 +60,10 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
     plugins: opts.plugins,
     fanout,
   });
+  const dirs = new DirRegistry({ dataDir });
   const app = createApp({
     registry,
+    dirs,
     fanout,
     globalDir,
     version,

@@ -122,3 +122,32 @@ export interface PromptReceipt {
   queued: boolean;
   id: string | null;
 }
+
+/** 登记工作目录（data-directory §4 projects.json 条目——权威工作区列表，可自愈复活） */
+export interface RegisteredDir {
+  /** sha256(canonical cwd) 前 16 位（大小写归一后） */
+  id: string;
+  cwd: string;
+  /** §4 命名（--slug-hash--，只给人看，查找不靠它） */
+  key: string;
+  displayName: string;
+  createdAt: number;
+  lastOpenedAt: number;
+  openCount: number;
+  lastSessionId?: string | null;
+}
+
+/** GET /api/dirs/browse 单层条目（全局目录浏览，D-060 信任边界） */
+export interface DirBrowseItem {
+  name: string;
+  path: string;
+  type: "drive" | "directory";
+}
+
+/** GET /api/dirs/browse 响应：一层目录内容（懒展开树逐层拉取） */
+export interface DirBrowse {
+  path: string;
+  /** 上一层目录（盘符根 = 自身）；盘符列表根（path=__drives__）= undefined */
+  parent?: string;
+  items: DirBrowseItem[];
+}
