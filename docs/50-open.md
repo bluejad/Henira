@@ -16,7 +16,12 @@ _无。M1 开工前的阻塞项已全部定稿。_
 - [ ] **`plugin-compaction` 设计文档**——成熟参数已取证照抄：预算 = 模型窗口 × 0.8（dsh `thresholdRatio 0.8`）、热尾巴按量 ≈ 窗口 10%、原子单元不拆 assistant + tool 结果、摘要失败降级必须可见（P2）、替换区间不碰头部系统块（session.md §4）、摘要请求由插件经模型槽位自调；M5 落码前定稿（D-041）
 - [ ] **`plugin-subagent` 设计文档**——成熟参数已取证：暴露为一个工具、并发上限 8 / 嵌套深度 1（dsh `subagent/src/index.ts:186,194`）、报告即工具结果（限长可配）、取消经 signal 传导（`ToolContext` 已有）、后台完成注入守卫（忙则排队、回合末冲刷，D-045 同款）；审批规则见 [tools-approval.md](./20-architecture/tools-approval.md) §3.2；M5 落码前定稿（D-041）
 
+- [ ] **熔断插件批次归属（M4 前拍板）**——D-045 步上限默认不设、死循环靠熔断兜底；D-013⑤ 定熔断 = 官方插件走 `loop/turn-stopping`（bail）缝，但 21 官方件清单与三批排期均无此件（2026-11-17 架构评判抓出）——bail 生产消费者缺位 = v0.1.0 默认装配死循环保护为空。建议进 M4 首发批（件小：bail / waterfall 语义已有测试锁定）；拍板后修订 D-041 批次表 + roadmap M4 内容行 + packages.md 清单 21→22
+
 ## 🟢 低优
+
+- [ ] **serial 事件模式去留**——kernel 四模式中 serial 消费 / 注册两侧当前全库零命中（2026-11-17 查实：emit = loop 全部引擎事件；waterfall = tools 管线两缝；bail = 熔断件待补见 🟡）。保留理由存在：plugin-hooks（M6 批）"事件上顺序执行外部命令"是 serial 语义的天然消费者——M6 落码时复评，届时仍无消费者再议删（kernel 模式 4→3 是架构动作，立 ADR）
+- [ ] **性能基准实测（M5 compaction 落码顺带）**——四项零实测：deriveMessages 长会话全量派生 / JSONL 单文件全量读入 / fork 整目录复制成本 / 断线重连全量快照；设计均有重开条件、无实测数字。可选：M4 取证 pass 捎带跑一个大日志 deriveMessages 基准先有个底
 
 - [ ] 黑窗口聊天（cli 包）与 Repl 命令集、流式渲染——发布后启做
 - [ ] TUI 拓扑：**倾向 C1** 薄客户端连本地 server（终端"不起服务"的坑位由发布后 cli 聊天占住）——共同成本是 InteractionService 终端实现；发布后按需求定稿（[hosts.md](./20-architecture/hosts.md) §6）

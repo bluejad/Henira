@@ -72,7 +72,7 @@
 - kernel 只提供**机制**：服务槽位 + `inject` 依赖排序 + **4 种事件模式**（`emit` / `serial` / `waterfall` / `bail`）+ **可逆卸载**（注册同步撤销、`stop()` 异步收尾）；装配 API：`createHarness().use(...)`（D-011）；
 - `bail` 语义显式成文：顺序执行 listener，谁返回反对即停，总线返回 `Veto = { by, reason, resume? }`（`resume` 携带续跑提示，无反对返回 `undefined`）——真实用户是**官方熔断插件**：在 `loop/turn-stopping` 否决回合结束并注入续跑提示（D-013⑤）。dsh 用 serial + 持久化 inbox 注入实现同一效果，我们不采用那套实现；bail 是我们的设计选择；
 - **kernel 不知道任何具体业务接口**——槽位接口（LoopService / ApprovalService 等）与事件词表全部在 protocol（D-012②）；
-- 体量目标 **< 1000 行**；**不做** fiber / scope / HMR / 动态加载 / 配置文件概念（嵌入式场景可零配置使用）。
+- 机制面 = 清单封顶：服务槽位 + inject 依赖排序 + 4 种事件模式 + 可逆卸载 + `createHarness` 装配 API——清单外**按需增**：需要时逐个评估、立 ADR 再加，不预先建造（当前清单外：fiber / scope / HMR / 动态加载 / 配置文件概念；嵌入式场景可零配置使用）。体量由机制面清单封顶，不由行数封顶（行数判据废止见 D-054）。
 
 ## P8 一切皆插件（含官方语义包）`[用户 + dsh]`
 
