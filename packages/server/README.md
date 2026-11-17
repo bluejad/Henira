@@ -18,7 +18,7 @@ await server.stop();
 ```
 
 ```ts
-import { Projection, rebuildProjection } from "@henira/server";
+import { Projection, rebuildProjection } from "@henira/protocol";
 
 // 投影器（宿主内部；此处为纯函数面）
 const p = rebuildProjection(session.events()); // 历史：全账本折叠

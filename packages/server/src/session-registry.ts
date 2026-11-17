@@ -21,12 +21,12 @@ import type { LlmService } from "@henira/protocol";
 import {
   asHeniraContext,
   type LoopEvent,
+  Projection,
   type SessionEvent,
   type SessionSummary,
 } from "@henira/protocol";
 import type { Fanout } from "./fanout.js";
 import { ServerInteraction } from "./interaction-service.js";
-import { Projection } from "./projection.js";
 import { isPluginEnabled, readSettings } from "./settings-store.js";
 
 export interface SessionEntry {

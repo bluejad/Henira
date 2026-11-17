@@ -5,17 +5,17 @@
 // 快照永远从真相重建，自愈）；②流式增量（总线 loop/event 打字机碎片，挂到当前流式 assistant 行）。
 // 步边界自愈：assistant/message / tool/result / approval/decided 落账即整行替换，冲掉流式漂移。
 
+import type { SessionEvent } from "./envelope.js";
 import type {
   ApprovalRow,
   AssistantRow,
   Delta,
   Row,
   RowId,
-  SessionEvent,
   SessionState,
   ToolRow,
   UserRow,
-} from "@henira/protocol";
+} from "./server-events.js";
 
 /** rowId 全部由账本事实确定性派生——直播路径与回放路径产出完全一致的标识 */
 const rowId = {

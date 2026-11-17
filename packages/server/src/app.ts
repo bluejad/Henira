@@ -5,12 +5,11 @@
 import { promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { DECISIONS, type ServerFrame } from "@henira/protocol";
+import { DECISIONS, rebuildProjection, type ServerFrame } from "@henira/protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { Fanout } from "./fanout.js";
-import { rebuildProjection } from "./projection.js";
 import type { SessionRegistry } from "./session-registry.js";
 import { readSettings, writeCredential, writeSettings } from "./settings-store.js";
 

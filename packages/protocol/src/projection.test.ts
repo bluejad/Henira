@@ -2,8 +2,8 @@
 // 中止冻结、直播与回放 rowId 一致、surfaceOp replace 重建标记。
 // 事件形状 = plugins/session/src/validators.ts 的官方 15 变体（账本唯一事实源）。
 
-import type { SessionEvent } from "@henira/protocol";
 import { describe, expect, it } from "vitest";
+import type { SessionEvent } from "./envelope.js";
 import { isReplaceSurface, Projection, rebuildProjection } from "./projection.js";
 
 /** 造账本事件：time 恒定（投影不读它），seq 由调用方排（u/e 行 rowId 依赖它） */
