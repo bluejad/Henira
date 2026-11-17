@@ -1,15 +1,41 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/kernel" },
-    { "path": "packages/protocol" },
-    { "path": "test-support/llm-mock" },
-    { "path": "packages/config-loader" },
-    { "path": "packages/server" },
-    { "path": "plugins/session" },
-    { "path": "plugins/llm" },
-    { "path": "plugins/tools" },
-    { "path": "plugins/approval" },
-    { "path": "plugins/loop" }
+    {
+      "path": "packages/kernel"
+    },
+    {
+      "path": "packages/protocol"
+    },
+    {
+      "path": "test-support/llm-mock"
+    },
+    {
+      "path": "packages/config-loader"
+    },
+    {
+      "path": "packages/server"
+    },
+    {
+      "path": "packages/sdk"
+    },
+    {
+      "path": "packages/cli"
+    },
+    {
+      "path": "plugins/session"
+    },
+    {
+      "path": "plugins/llm"
+    },
+    {
+      "path": "plugins/tools"
+    },
+    {
+      "path": "plugins/approval"
+    },
+    {
+      "path": "plugins/loop"
+    }
   ]
 }

@@ -4,9 +4,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": [
-      "ES2024"
-    ],
+    "lib": ["ES2024"],
     "strict": true,
     "esModuleInterop": true,
     "declaration": true,
@@ -30,7 +28,5 @@
       "path": "../tools"
     }
   ],
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }
