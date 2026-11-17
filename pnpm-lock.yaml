@@ -109,9 +109,43 @@ importers:
 
   packages/server:
     dependencies:
+      '@henira/config-loader':
+        specifier: workspace:*
+        version: link:../config-loader
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@henira/plugin-approval':
+        specifier: workspace:*
+        version: link:../../plugins/approval
+      '@henira/plugin-llm':
+        specifier: workspace:*
+        version: link:../../plugins/llm
+      '@henira/plugin-loop':
+        specifier: workspace:*
+        version: link:../../plugins/loop
+      '@henira/plugin-session':
+        specifier: workspace:*
+        version: link:../../plugins/session
+      '@henira/plugin-tools':
+        specifier: workspace:*
+        version: link:../../plugins/tools
       '@henira/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@hono/node-server':
+        specifier: ^2.1.8
+        version: 2.1.8(hono@4.13.18)
+      hono:
+        specifier: ^4.13.18
+        version: 4.13.18
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@henira/llm-mock':
+        specifier: workspace:*
+        version: link:../../test-support/llm-mock
 
   plugins/approval:
     dependencies:
@@ -520,6 +554,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@hono/node-server@2.1.8':
+    resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
+
   '@inquirer/external-editor@1.0.2':
     resolution: {integrity: sha512-yy9cOoBnx58TlsPrIxauKIFQTiyH+0MK4e97y4sV9ERbI+zDxw7i2hxHLCIEGIE/8PPvDxGhgzIOTSOWcs6/MQ==}
     engines: {node: '>=18'}
@@ -913,6 +953,10 @@ packages:
 
   graceful-fs@4.2.12:
     resolution: {integrity: sha512-iuyGF2E4oafQfPsRrG2wtY2ILupMhvtdrhzrxB+0VcjsPpSPttpfYdjnGFGsTi5MaJFjI1jOKHPQ6UTbTj9TAw==}
+
+  hono@4.13.18:
+    resolution: {integrity: sha512-H9q/E1XizaWstJxUW881dmLxEj+t/TrGGnyxINkm4+sK0qUwsMtFdo2BWI9Vs3cIS19MU6b6iCijoUoEf4f3DA==}
+    engines: {node: '>=16.9.0'}
 
   human-id@4.2.2:
     resolution: {integrity: sha512-Z+8unD6em/MJwyrkWQ2M3wygRGI1+MztbutiNwk1DCuEPXOZRWGjtcMPZYP1exY9iNZMhd7ZOSMQSo9WYtiQRw==}
@@ -1576,6 +1620,10 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@hono/node-server@2.1.8(hono@4.13.18)':
+    dependencies:
+      hono: 4.13.18
+
   '@inquirer/external-editor@1.0.2(@types/node@26.6.6)':
     dependencies:
       chardet: 2.2.0
@@ -1932,6 +1980,8 @@ snapshots:
       slash: 3.0.0
 
   graceful-fs@4.2.12: {}
+
+  hono@4.13.18: {}
 
   human-id@4.2.2: {}
 

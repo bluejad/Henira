@@ -13,6 +13,15 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "references": [{ "path": "../protocol" }],
+  "references": [
+    { "path": "../kernel" },
+    { "path": "../protocol" },
+    { "path": "../config-loader" },
+    { "path": "../../plugins/session" },
+    { "path": "../../plugins/approval" },
+    { "path": "../../plugins/llm" },
+    { "path": "../../plugins/loop" },
+    { "path": "../../plugins/tools" }
+  ],
   "include": ["src"]
 }
