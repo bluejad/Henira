@@ -18,8 +18,12 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   const rows = snapshot.rows;
   const lastText = rows[rows.length - 1]?.kind === "assistant" ? rows.length : 0;
   useEffect(() => {
-    // 新行到达滚到底（流式时由最后行长度变化触发——测高稳定因为 DOM 文本完整）
-    bottomRef.current?.scrollIntoView({ block: "end" });
+    // 新行到达滚到底（流式时由最后行长度变化触发——测高稳定因为 DOM 文本完整）；
+    // scrollIntoView 守卫（jsdom 等无滚动实现的环境直接跳过）
+    const bottom = bottomRef.current;
+    if (bottom !== null && typeof bottom.scrollIntoView === "function") {
+      bottom.scrollIntoView({ block: "end" });
+    }
   }, [rows.length, lastText]);
 
   return (
@@ -122,8 +126,7 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
       : row.status === "error"
         ? "var(--henira-danger-text)"
         : "var(--henira-ok-text)";
-  const Icon =
-    row.status === "running" ? "spinner" : row.status === "error" ? "x" : "check";
+  const Icon = row.status === "running" ? "spinner" : row.status === "error" ? "x" : "check";
   return (
     <div
       style={{
@@ -135,7 +138,13 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        {row.status === "running" ? <SpinnerGlyph size={14} color={statusColor} /> : row.status === "error" ? <XGlyph size={14} color={statusColor} /> : <CheckGlyph size={14} color={statusColor} />}
+        {row.status === "running" ? (
+          <SpinnerGlyph size={14} color={statusColor} />
+        ) : row.status === "error" ? (
+          <XGlyph size={14} color={statusColor} />
+        ) : (
+          <CheckGlyph size={14} color={statusColor} />
+        )}
         <span className="henira-mono" style={{ color: statusColor }}>
           {row.name}
         </span>
@@ -158,7 +167,9 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
       </pre>
       {row.output !== undefined ? (
         <details style={{ marginTop: "6px" }}>
-          <summary style={{ cursor: "pointer", color: "var(--henira-text-muted)", fontSize: "12px" }}>
+          <summary
+            style={{ cursor: "pointer", color: "var(--henira-text-muted)", fontSize: "12px" }}
+          >
             {row.output.isError ? ctx.t("error.title") : ctx.t("common.copy")}
           </summary>
           <pre
@@ -192,4 +203,3 @@ function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
     </div>
   );
 }
-
