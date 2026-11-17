@@ -17,13 +17,17 @@ pnpm test:e2e
 
 CI 同序（workflow 内 `--with-deps chromium` 装 OS 依赖），截图上传为 artifact（`artifacts/`，不入库）。
 
+真 key 采样（**不进 CI**）：`HENIRA_REAL=1 pnpm exec playwright test src/real.e2e.ts`——起真 `henira serve`（读用户真实 `~/.henira/config`），对 models.json 里每家 provider 逐形态真实 prompt（markdown/代码块/表格/长输出），截图 `artifacts/real/`。凭据纪律 D-030：key 只在 credentials.json，永不进代码/日志/CI。
+
 ## 文件 ↔ 设计
 
-| 文件                 | 职责                                                                                                                                                   | 设计出处                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| playwright.config.ts | testMatch 只认 `*.e2e.ts`（vitest 不扫——`pnpm test` 与浏览器 e2e 双轨互不干扰）；失败 trace 留档                                                       | CI 纪律（AGENTS.md）                                         |
-| src/serve.e2e.ts     | 两个用例：①serve 链路回合（busy 停止钮 / 审批卡收答 / 流式中断言 + 截图 / 新会话 + 会话切换 / 明暗双主题截图）②安全模式双通道（`?ui=safe` + 双击 Alt） | roadmap M4 浏览器 e2e 判据 / 判据④ / interfaces.md server 段 |
-| tools/probe.md       | probe 工具档案（非只读审批样本）                                                                                                                       | AGENTS.md 一工具一 md                                        |
+| 文件                 | 职责                                                                                                                                                             | 设计出处                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| playwright.config.ts | testMatch 只认 `*.e2e.ts`（vitest 不扫——`pnpm test` 与浏览器 e2e 双轨互不干扰）；失败 trace 留档                                                                 | CI 纪律（AGENTS.md）                                         |
+| src/serve.e2e.ts     | 两个用例：①serve 链路回合（busy 停止钮 / 审批卡收答 / 流式中断言 + 截图 / 新会话 + 会话切换 / 明暗双主题截图）②安全模式双通道（`?ui=safe` + 双击 Alt）           | roadmap M4 浏览器 e2e 判据 / 判据④ / interfaces.md server 段 |
+| src/forms.e2e.ts     | mock 逐形态验收（M4 批 A 判据③ mock 半边）：推理块+usage / 错误回合 / 审批拒绝 / 中断收尾 / 多工具并行 / 插话 steer / 输出截断（每用例独立 server + 截图 10-16） | roadmap M4 判据③ / D-057 / D-059                             |
+| src/real.e2e.ts      | 真 key 采样（env 门控不进 CI）：真 serve + 切 provider 逐形态真实 prompt + 截图 real/                                                                            | roadmap M4 判据③（真 key 半边）                              |
+| tools/probe.md       | probe 工具档案（非只读审批样本）                                                                                                                                 | AGENTS.md 一工具一 md                                        |
 
 ## 测试 ↔ 判据
 
