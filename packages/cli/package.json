@@ -1,0 +1,29 @@
+{
+  "name": "@henira/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "henira": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@henira/config-loader": "workspace:*",
+    "@henira/sdk": "workspace:*",
+    "@henira/server": "workspace:*",
+    "jiti": "^2.6.0"
+  },
+  "devDependencies": {
+    "@henira/kernel": "workspace:*"
+  }
+}

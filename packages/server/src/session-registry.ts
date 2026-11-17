@@ -47,6 +47,8 @@ export interface RegistryOptions {
   globalDir: string;
   /** llm 槽位替换（测试 / demo 注入；默认官方 llmPlugin） */
   llm?: ServiceDefinition<LlmService>;
+  /** 额外引擎插件（config.plugins 的自定义 definition——装配三步①的加法，D-016） */
+  plugins?: readonly ServiceDefinition<unknown>[];
   fanout: Fanout;
 }
 

@@ -26,6 +26,8 @@ export interface ServerOptions {
   token?: string;
   /** llm 槽位替换（测试 / demo 注入；默认官方 llmPlugin） */
   llm?: ServiceDefinition<LlmService>;
+  /** 额外引擎插件（henira.config.ts 清单加法，D-016①） */
+  plugins?: readonly ServiceDefinition<unknown>[];
 }
 
 export interface HeniraServer {
@@ -38,8 +40,8 @@ export interface HeniraServer {
 }
 
 export async function createServer(opts: ServerOptions = {}): Promise<HeniraServer> {
-  const dataDir = opts.dataDir ?? path.join(os.homedir(), ".henira");
-  const globalDir = opts.globalDir ?? path.join(dataDir, "config");
+  const dataDir = opts.dataDir ?? process.env.HENIRA_HOME ?? path.join(os.homedir(), ".henira");
+  const globalDir = opts.globalDir ?? process.env.HENIRA_CONFIG_DIR ?? path.join(dataDir, "config");
   const host = opts.host ?? "127.0.0.1"; // 三件套 ①
   const port = opts.port ?? 0; // 三件套 ②
   const token = opts.token ?? process.env.HENIRA_SERVER_TOKEN;
@@ -47,7 +49,13 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
   const startedAt = Date.now();
 
   const fanout = new Fanout(version);
-  const registry = new SessionRegistry({ dataDir, globalDir, llm: opts.llm, fanout });
+  const registry = new SessionRegistry({
+    dataDir,
+    globalDir,
+    llm: opts.llm,
+    plugins: opts.plugins,
+    fanout,
+  });
   const app = createApp({ registry, fanout, globalDir, version, startedAt, token });
 
   const server = serve({ fetch: app.fetch, hostname: host, port });

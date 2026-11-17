@@ -1,10 +1,15 @@
 // 官方默认预设（出厂清单，D-016）：无 config 文件时的装配来源。
 // M2 = 引擎 5 条 id-only（definition 由宿主 / examples 在装配时注入运行参数——会话目录
-// 每会话不同，静态清单无法携带）；M3 cli / server 扩全 21 条并接 definition 工厂。
+// 每会话不同，静态清单无法携带）；M3 起清单条目可带 definition（interfaces.md config-loader
+// 段定稿形状）——宿主 / cli 经 loadConfig 读出后喂 createHarness（D-016① 加法）。
 // 想基于默认改 = import 后 spread（D-022：TS 表达式即补丁）。
+
+import type { ServiceDefinition } from "@henira/kernel";
 
 export interface PluginEntry {
   id: string;
+  /** 引擎插件装配物；纯内容包条目省略（不占槽位，由读者扫目录） */
+  definition?: ServiceDefinition<unknown>;
   options?: Record<string, unknown>;
 }
 

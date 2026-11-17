@@ -42,6 +42,8 @@ export interface RuntimeOptions {
   llm?: ServiceDefinition<LlmService>;
   /** 工具注册（嵌入方组合面——每个新建会话注册；缺省空） */
   tools?: readonly import("@henira/protocol").ToolDefinition[];
+  /** 额外引擎插件（henira.config.ts 清单加法，D-016①） */
+  plugins?: readonly ServiceDefinition<unknown>[];
 }
 
 interface RuntimeSession {
@@ -73,8 +75,8 @@ export function autoRejectInteraction(): ServiceDefinition<InteractionService> {
 }
 
 export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFacade> {
-  const dataDir = opts.dataDir ?? path.join(os.homedir(), ".henira");
-  const globalDir = opts.globalDir ?? path.join(dataDir, "config");
+  const dataDir = opts.dataDir ?? process.env.HENIRA_HOME ?? path.join(os.homedir(), ".henira");
+  const globalDir = opts.globalDir ?? process.env.HENIRA_CONFIG_DIR ?? path.join(dataDir, "config");
   const settings = await readSettings(globalDir);
   const disabled = ["session", "tools", "llm", "approval", "loop", "interaction", "config"].filter(
     (id) => !isPluginEnabled(settings, id),
@@ -125,6 +127,9 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         .use(approvalPlugin())
         .use({ name: "config", start: () => createConfigService({ cwd, globalDir }) })
         .use(loopPlugin());
+      for (const extra of opts.plugins ?? []) {
+        harness.use(extra); // 额外引擎插件（项目 henira.config.ts 清单加法，D-016①）
+      }
       await harness.start();
       session.harness = harness;
       session.ctx = asHeniraContext(harness.context);
