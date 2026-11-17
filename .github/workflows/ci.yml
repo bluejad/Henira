@@ -26,6 +26,8 @@ jobs:
 
       - run: pnpm build
 
+      - run: ls packages/cli/dist packages/sdk/dist packages/server/dist || true
+
       - run: pnpm test
 
       - run: pnpm check:deps
