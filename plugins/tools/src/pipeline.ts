@@ -153,7 +153,7 @@ export async function runOne(
 
   const limits: ExitLimits = { ...DEFAULT_EXIT_LIMITS, ...deps.limits };
   const limited = await applyExitLimits(outcome.result.content, limits, {
-    spillDir: deps.artifactsDir,
+    spillDir: ctx.artifactsDir ?? deps.artifactsDir, // 会话目录 artifacts/ 优先（M4 批 A 接线）
     spillName: `${call.callId}.txt`,
   });
   return {

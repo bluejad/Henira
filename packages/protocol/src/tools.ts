@@ -32,6 +32,8 @@ export interface ToolContext {
   /** 判定链唯一入口（tools-approval §2.1：管线先查闸、判定链管终审；floor 语义见 ApprovalOptions） */
   requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
   config: ConfigService;
+  /** 工具输出超限落盘目录（截断 spill；loop 传会话目录 artifacts/——随会话同生共死，M4 批 A） */
+  artifactsDir?: string;
 }
 
 export interface ToolResult {

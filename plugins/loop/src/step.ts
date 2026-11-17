@@ -4,6 +4,7 @@
 // 纪律②（绝不留孤儿 tool/call）在结算段；纪律③（工具与信号竞速）委托 tools.run。
 
 import { createHash } from "node:crypto";
+import path from "node:path";
 import type { ModelMessage, ToolContext, TurnEndReason } from "@henira/protocol";
 import type { DeltaBatcher } from "./batcher.js";
 import type { LoopDeps } from "./turn.js"; // 仅类型引用（type import 擦除，无运行时环）
@@ -114,6 +115,8 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     signal,
     requestPermission: (req, opts) => approval.requestPermission(req, opts),
     config,
+    // 截断 spill：会话目录 artifacts/——随会话同生共死（M4 批 A 接线，此前全库无人传参）
+    artifactsDir: path.join(session.directory, "artifacts"),
   };
   for (const call of calls) {
     await session.append({
