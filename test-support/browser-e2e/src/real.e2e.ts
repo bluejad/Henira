@@ -103,7 +103,8 @@ async function shot(page: import("@playwright/test").Page, name: string): Promis
 }
 
 test("三家真 provider 经 serve 链路逐形态采样", async ({ page }) => {
-  test.setTimeout(600_000);
+  // 全表采样：时长随已配置 provider 数缩放（每家 4 形态，长输出形态最慢）
+  test.setTimeout(600_000 * Math.max(1, PROVIDERS.length));
   const auth = token === "" ? "" : `?token=${encodeURIComponent(token)}`;
   const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
     providers: Record<string, { models?: string[] }>;
@@ -138,9 +139,9 @@ test("三家真 provider 经 serve 链路逐形态采样", async ({ page }) => {
       await area.press("Enter");
       // 真发出门：submit 清草稿（同步）——选中未落定/空转时草稿保留，5 秒内必现真相
       await expect(area).toHaveValue("", { timeout: 5_000 });
-      // 收尾轮询走 REST 真相（快照 busy 落 false），不赌 UI 时序；长输出给足 3 分钟
+      // 收尾轮询走 REST 真相（快照 busy 落 false），不赌 UI 时序；长输出给足 5 分钟
       let settled = false;
-      for (let i = 0; i < 360; i++) {
+      for (let i = 0; i < 600; i++) {
         if (!(await sessionBusy())) {
           settled = true;
           break;
