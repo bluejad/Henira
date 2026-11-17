@@ -10,6 +10,7 @@
     "typecheck": "tsc -b",
     "build": "tsc -b tsconfig.build.json && cp packages/config-loader/src/models-dev-snapshot.json packages/config-loader/dist/models-dev-snapshot.json && node scripts/copy-web-tokens.mjs",
     "test": "vitest run --passWithNoTests",
+    "test:e2e": "pnpm --filter @henira/e2e-browser test",
     "lint": "biome check .",
     "fmt": "biome format --write .",
     "check:deps": "node scripts/check-deps.mjs",

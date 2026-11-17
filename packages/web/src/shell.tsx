@@ -22,6 +22,9 @@ export type ShellProps = {
   host: PluginUiHost;
   theme: "light" | "dark";
   safeMode: boolean;
+  /** 受控选中态：宿主单一真源（开场自动选 + 列表点选都走 onSelectSession，e2e 锁住开场选中） */
+  sessionId: string | null;
+  onSelectSession(sessionId: string | null): void;
   onToggleSafe(on: boolean): void;
   onTheme(next: "light" | "dark"): void;
 };
@@ -47,22 +50,21 @@ const t = (key: string): string => {
 
 export function Shell(props: ShellProps) {
   const { store, slots, client, layout, safeMode } = props;
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const ctxValue = useMemo<WebPartContextValue>(
     () => ({
       client,
-      sessionId,
+      sessionId: props.sessionId,
       selectSession: (id) => {
-        setSessionId(id);
+        props.onSelectSession(id);
       },
       t,
       theme: props.theme,
       store,
       host: props.host,
     }),
-    [client, sessionId, store, props.theme, props.host],
+    [client, props.sessionId, props.onSelectSession, store, props.theme, props.host],
   );
 
   const showSidebar = layout === "full";

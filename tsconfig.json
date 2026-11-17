@@ -11,6 +11,9 @@
       "path": "test-support/llm-mock"
     },
     {
+      "path": "test-support/browser-e2e"
+    },
+    {
       "path": "packages/config-loader"
     },
     {

@@ -1,0 +1,19 @@
+{
+  "name": "@henira/e2e-browser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@henira/llm-mock": "workspace:*",
+    "@henira/plugin-web-ui": "workspace:*",
+    "@henira/protocol": "workspace:*",
+    "@henira/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^24.0.0"
+  }
+}

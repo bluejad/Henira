@@ -11,6 +11,7 @@ const token = params.get("token") ?? undefined;
 const app = createWebApp({
   client: createClient({ baseUrl: window.location.origin, token: token ?? undefined }),
   layout: "full",
+  safeMode: params.get("ui") === "safe", // 判据④第二通道：自托管入口解析 ?ui=safe（e2e 锁住）
 });
 
 app.mount(document.getElementById("root") as HTMLElement);

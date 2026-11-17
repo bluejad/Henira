@@ -187,6 +187,18 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       host: hostFacade,
       theme,
       safeMode,
+      sessionId,
+      onSelectSession: (id) => {
+        sessionId = id;
+        // cwd 就近回查（SessionList 只传 id；facade 的 getSession 带 cwd 供 listDir 等用）
+        void opts.client
+          .listSessions()
+          .then((all) => {
+            sessionCwd = all.find((s) => s.id === id)?.cwd ?? "";
+          })
+          .catch(() => {});
+        render();
+      },
       onToggleSafe: (on) => {
         safeMode = on;
         moduleDispose?.();

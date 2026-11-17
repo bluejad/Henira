@@ -28,8 +28,22 @@ jobs:
 
       - run: pnpm test
 
+      # 浏览器 e2e（roadmap M4 判据：真浏览器 + 截图留档；jsdom 组件级不替代）
+      - run: pnpm --filter @henira/web bundle
+
+      - run: pnpm --filter @henira/e2e-browser exec playwright install --with-deps chromium
+
+      - run: pnpm test:e2e
+
       - run: pnpm check:deps
 
       - run: pnpm check:docs
 
       - run: pnpm check:ui-locale
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-e2e-screenshots
+          path: test-support/browser-e2e/artifacts
+          retention-days: 30

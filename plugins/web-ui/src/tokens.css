@@ -1,8 +1,10 @@
 /* 视觉 token（interfaces.md web 段视觉语言节定稿）：CSS 变量组，theme 切换 = 换变量组；
-   嵌入方零样式依赖（token 随组件注入）。暖单色基底 + 语义粉彩点缀；明暗双主题。 */
+   嵌入方零样式依赖（token 随组件注入）。暖单色基底 + 语义粉彩点缀；明暗双主题。
+   变量组挂在 .henira-app（宿主自己的容器，host.ts 以 data-theme 切换）——不动嵌入方
+   的 :root（浏览器 e2e 抓出 :root 版暗色永不生效：属性在容器、选择器在根，两处对不上）。 */
 
-:root,
-:root[data-theme="light"] {
+.henira-app,
+.henira-app[data-theme="light"] {
   --henira-bg: #f7f6f3;
   --henira-surface: #ffffff;
   --henira-border: #eaeaea;
@@ -26,7 +28,7 @@
   --henira-sidebar-width: 260px;
 }
 
-:root[data-theme="dark"] {
+.henira-app[data-theme="dark"] {
   --henira-bg: #191919;
   --henira-surface: #212121;
   --henira-border: #333333;

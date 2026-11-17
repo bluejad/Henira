@@ -4,7 +4,10 @@
       "**",
       "!**/dist",
       "!packages/config-loader/src/models-dev-snapshot.json",
-      "!**/dist-web"
+      "!**/dist-web",
+      "!test-support/browser-e2e/test-results",
+      "!test-support/browser-e2e/playwright-report",
+      "!test-support/browser-e2e/artifacts"
     ]
   },
   "formatter": {
