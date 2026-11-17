@@ -9,7 +9,8 @@ import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/prot
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
-import { CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
+import { BrainGlyph, CaretGlyph, CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
+import { DetailPane, DisclosureRow } from "./row-chrome.js";
 
 export const Conversation: WebPart = (ctx: WebPartContext) => {
   // useSyncExternalStore：store 引用稳定（未变化返回同一对象），快照整体替换语义
@@ -36,7 +37,10 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
         rows.map((row) => <RowView key={row.rowId} row={row} ctx={ctx} />)
       )}
       {snapshot.state.busy ? (
-        <p style={{ color: "var(--henira-text-muted)", fontStyle: "italic" }}>
+        <p
+          className="henira-sweep"
+          style={{ margin: "var(--henira-space-3) 0", fontSize: "var(--henira-fs-base)" }}
+        >
           {ctx.t("conversation.thinking")}
         </p>
       ) : null}
@@ -85,6 +89,7 @@ function Pill({
         borderRadius: "9999px",
         fontSize: "var(--henira-fs-sm)",
         padding: "1px 8px",
+        flexShrink: 0,
       }}
     >
       {children}
@@ -93,61 +98,56 @@ function Pill({
 }
 
 function UserView({ row }: { row: UserRow; ctx?: WebPartContext }) {
+  // 右对齐气泡（两家共识：user 右浅气泡 + assistant 左全宽裸排；中性 5% 派生面——
+  // 2026-11-17 用户拍板不走 dsh 浅蓝）；右上角收小角=朝向说话者的气泡性格语言。
   return (
     <div
       style={{
-        background: "var(--henira-surface)",
-        border: "1px solid var(--henira-border)",
-        borderRadius: "var(--henira-radius)",
-        padding: "var(--henira-space-2) var(--henira-space-3)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
         margin: "var(--henira-space-3) 0",
-        whiteSpace: "pre-wrap",
       }}
     >
       {row.source === "steer" || row.source === "veto" ? (
-        <Pill bg="var(--henira-info-bg)" color="var(--henira-info-text)">
-          {row.source}
-        </Pill>
+        <div style={{ marginBottom: "var(--henira-space-1)" }}>
+          <Pill bg="var(--henira-info-bg)" color="var(--henira-info-text)">
+            {row.source}
+          </Pill>
+        </div>
       ) : null}
-      {row.text}
+      <div
+        style={{
+          background: "var(--henira-surface)",
+          border: "1px solid var(--henira-border)",
+          borderRadius: "var(--henira-radius-lg)",
+          borderTopRightRadius: "2px",
+          padding: "var(--henira-space-2) var(--henira-space-3)",
+          maxWidth: "min(85%, 560px)",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "break-word",
+        }}
+      >
+        {row.text}
+      </div>
     </div>
   );
+}
+
+/** 推理流式摘要：取最近一个非空行的首段（流式中随最新思路推进——ZCode 行为层参照） */
+function reasoningPreview(reasoning: string): string {
+  const lines = reasoning.split("\n").filter((line) => line.trim() !== "");
+  return lines.length > 0 ? (lines[lines.length - 1] ?? "").trim() : "";
 }
 
 function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext }) {
   const streaming = row.streaming;
   const gallery = ctx.slots.get("conversation.images")?.[0] as WebPart | undefined;
+  const reasoning = row.reasoning !== undefined && row.reasoning !== "" ? row.reasoning : undefined;
   return (
     <div style={{ margin: "var(--henira-space-3) 0" }}>
-      {row.reasoning !== undefined && row.reasoning !== "" ? (
-        <details
-          style={{
-            marginBottom: "var(--henira-space-2)",
-            borderLeft: "2px solid var(--henira-border)",
-            paddingLeft: "10px",
-          }}
-        >
-          <summary
-            style={{
-              cursor: "pointer",
-              color: "var(--henira-text-muted)",
-              fontSize: "var(--henira-fs-sm)",
-              userSelect: "none",
-            }}
-          >
-            {ctx.t("row.reasoning")}
-          </summary>
-          <div
-            style={{
-              color: "var(--henira-text-muted)",
-              fontSize: "var(--henira-fs-md)",
-              whiteSpace: "pre-wrap",
-              marginTop: "var(--henira-space-1)",
-            }}
-          >
-            {row.reasoning}
-          </div>
-        </details>
+      {reasoning !== undefined ? (
+        <ReasoningView reasoning={reasoning} streaming={streaming === true} ctx={ctx} />
       ) : null}
       <div className={streaming ? "henira-streaming" : undefined}>
         {ctx.host.renderMarkdown(row.text, { streaming })}
@@ -160,16 +160,126 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
         </div>
       ) : null}
       {!streaming && row.usage !== undefined ? (
-        <div
-          className="henira-mono"
-          style={{ marginTop: "var(--henira-space-1)", fontSize: "var(--henira-fs-sm)" }}
-        >
-          <span style={{ color: "var(--henira-text-muted)" }} title={ctx.t("row.output")}>
+        <div style={{ marginTop: "var(--henira-space-1)" }}>
+          <span
+            className="henira-mono"
+            title={ctx.t("row.output")}
+            style={{
+              border: "1px solid var(--henira-border)",
+              borderRadius: "9999px",
+              padding: "1px 8px",
+              fontSize: "var(--henira-fs-sm)",
+              color: "var(--henira-text-muted)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
             {row.usage.inputTokens ?? 0}↑ {row.usage.outputTokens ?? 0}↓
           </span>
         </div>
       ) : null}
       {gallery !== undefined ? gallery(ctx) : null}
+    </div>
+  );
+}
+
+/** 推理块：折叠行（脑图标 + 状态词 + 流式摘要单行渐隐）+ 展开左导线纯文本（240px 上限滚动）。
+ * 流式中默认展开可见最新思路、完成态默认收起（ZCode 行为层参照）。 */
+function ReasoningView({
+  reasoning,
+  streaming,
+  ctx,
+}: {
+  reasoning: string;
+  streaming: boolean;
+  ctx: WebPartContext;
+}): React.ReactNode {
+  const [open, setOpen] = useState(streaming);
+  return (
+    <div style={{ margin: "0 0 var(--henira-space-2)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--henira-space-2)",
+          padding: "2px 4px",
+          borderRadius: "var(--henira-radius)",
+        }}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--henira-space-2)",
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: "pointer",
+            minWidth: 0,
+          }}
+        >
+          <BrainGlyph size={14} color="var(--henira-text-muted)" />
+          <span
+            className={streaming ? "henira-sweep" : undefined}
+            style={
+              streaming
+                ? { fontSize: "var(--henira-fs-sm)", userSelect: "none" }
+                : {
+                    fontSize: "var(--henira-fs-sm)",
+                    userSelect: "none",
+                    color: "var(--henira-text-muted)",
+                  }
+            }
+          >
+            {ctx.t("row.reasoning")}
+          </span>
+          {streaming ? (
+            <span
+              className="henira-fade-right"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                color: "var(--henira-text-muted)",
+                fontSize: "var(--henira-fs-sm)",
+              }}
+            >
+              {reasoningPreview(reasoning)}
+            </span>
+          ) : null}
+          <span
+            className="henira-row-caret"
+            style={{
+              display: "inline-flex",
+              color: "var(--henira-text-muted)",
+              transform: open ? "rotate(90deg)" : "none",
+              transition: "transform 0.12s ease",
+            }}
+          >
+            <CaretGlyph size={12} />
+          </span>
+        </button>
+      </div>
+      {open ? (
+        <div
+          style={{
+            marginTop: "var(--henira-space-1)",
+            marginLeft: "var(--henira-space-2)",
+            borderLeft: "2px solid var(--henira-border)",
+            paddingLeft: "var(--henira-space-3)",
+            maxHeight: 240,
+            overflowY: "auto",
+            color: "var(--henira-text-muted)",
+            fontSize: "var(--henira-fs-md)",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {reasoning}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -225,104 +335,86 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
       : isError
         ? "var(--henira-danger-text)"
         : "var(--henira-ok-text)";
+  const running = row.status === "running";
+  // 官方默认工具卡 = 组装行 chrome 原语（与 keyed 顶替件同一套，D-057 观感协调）
   return (
-    <div
-      style={{
-        border: `1px solid ${isError ? "var(--henira-danger-bg)" : "var(--henira-border)"}`,
-        borderRadius: "var(--henira-radius)",
-        margin: "var(--henira-space-2) 0",
-        padding: "var(--henira-space-2) var(--henira-space-3)",
-        background: "var(--henira-surface)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--henira-space-2)",
-          flexWrap: "wrap",
-        }}
-      >
-        {row.status === "running" ? (
+    <DisclosureRow
+      icon={
+        running ? (
           <SpinnerGlyph size={14} color={statusColor} />
         ) : isError ? (
           <XGlyph size={14} color={statusColor} />
         ) : (
           <CheckGlyph size={14} color={statusColor} />
-        )}
-        <span className="henira-mono" style={{ color: statusColor }}>
-          {row.name}
-        </span>
-        <span
-          className="henira-mono"
-          title={row.callId}
-          style={{ color: "var(--henira-text-muted)", fontSize: "var(--henira-fs-sm)" }}
-        >
-          #{row.callId}
-        </span>
-        {row.status === "done" && row.output !== undefined ? (
-          <span style={{ color: "var(--henira-text-muted)", fontSize: "var(--henira-fs-sm)" }}>
-            {row.output.durationMs}ms
-          </span>
-        ) : null}
-        {row.output?.truncated !== undefined ? (
-          <Pill
-            bg="var(--henira-warn-bg)"
-            color="var(--henira-warn-text)"
-            title={row.output.truncated.path}
-          >
-            {ctx.t("row.truncated")}
-          </Pill>
-        ) : null}
-      </div>
-      <pre
-        className="henira-mono"
-        style={{
-          margin: "var(--henira-space-2) 0 0",
-          color: "var(--henira-text-muted)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          fontSize: "var(--henira-fs-md)",
-        }}
-      >
-        {row.input}
-      </pre>
-      {row.output !== undefined ? (
-        <details style={{ marginTop: "var(--henira-space-2)" }}>
-          <summary
-            style={{
-              cursor: "pointer",
-              color: isError ? "var(--henira-danger-text)" : "var(--henira-text-muted)",
-              fontSize: "var(--henira-fs-sm)",
-              userSelect: "none",
-            }}
-          >
-            {isError ? ctx.t("error.title") : ctx.t("row.output")}
-          </summary>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginTop: "var(--henira-space-1)",
-              marginLeft: "var(--henira-space-2)",
-            }}
-          >
-            <CopyButton text={row.output.content} t={ctx.t} />
-          </div>
-          <pre
-            className="henira-mono"
-            style={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-              margin: "var(--henira-space-1) 0 0",
-              fontSize: "var(--henira-fs-md)",
-            }}
-          >
-            {row.output.content}
-          </pre>
-        </details>
-      ) : null}
-    </div>
+        )
+      }
+      title={row.name}
+      busy={running}
+      tone={statusColor}
+      meta={`#${row.callId}`}
+      summary={
+        <>
+          {row.status === "done" && row.output !== undefined ? (
+            <span style={{ fontVariantNumeric: "tabular-nums" }}>{row.output.durationMs}ms</span>
+          ) : null}
+          {row.output?.truncated !== undefined ? (
+            <Pill
+              bg="var(--henira-warn-bg)"
+              color="var(--henira-warn-text)"
+              title={row.output.truncated.path}
+            >
+              {ctx.t("row.truncated")}
+            </Pill>
+          ) : null}
+        </>
+      }
+      initialOpen={isError}
+    >
+      <DetailPane
+        sections={[
+          {
+            label: ctx.t("tool.input"),
+            body: (
+              <pre
+                className="henira-mono"
+                style={{
+                  margin: 0,
+                  color: "var(--henira-text-muted)",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  fontSize: "var(--henira-fs-md)",
+                }}
+              >
+                {row.input}
+              </pre>
+            ),
+          },
+          ...(row.output !== undefined
+            ? [
+                {
+                  label: isError ? ctx.t("error.title") : ctx.t("row.output"),
+                  tone: isError ? "var(--henira-danger-text)" : undefined,
+                  actions: <CopyButton text={row.output.content} t={ctx.t} />,
+                  maxHeight: 180,
+                  body: (
+                    <pre
+                      className="henira-mono"
+                      style={{
+                        margin: 0,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-all",
+                        fontSize: "var(--henira-fs-md)",
+                      }}
+                    >
+                      {row.output.content}
+                    </pre>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+    </DisclosureRow>
   );
 }
 

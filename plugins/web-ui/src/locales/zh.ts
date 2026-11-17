@@ -16,6 +16,7 @@ export const zh = {
   "row.interrupted": "已中断",
   "row.truncated": "输出已截断",
   "row.output": "输出",
+  "tool.input": "输入",
   "composer.placeholder": "输入消息，Enter 发送，Shift+Enter 换行",
   "composer.send": "发送",
   "composer.stop": "停止",

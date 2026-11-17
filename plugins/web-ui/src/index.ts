@@ -7,6 +7,7 @@ export { defaultParts, webUiModule } from "./module.js";
 export { ApprovalCard } from "./parts/approval-card.js";
 export { Composer } from "./parts/composer.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
+export { DetailPane, DisclosureRow, type DisclosureRowProps } from "./parts/row-chrome.js";
 export { SessionList } from "./parts/session-list.js";
 export type {
   HeniraClientLike,

@@ -5,10 +5,14 @@
 
 .henira-app,
 .henira-app[data-theme="light"] {
+  /* 层次 = 前景色派生透明度档（3/5/8/10/15%——ZCode 行为层参照 2026-11-17：面不靠描边
+     阴影靠细微透明度差；color-mix 派生自 --henira-text，明暗组各写一份保两主题对比成立） */
   --henira-bg: #f7f6f3;
-  --henira-surface: #ffffff;
-  --henira-border: #eaeaea;
-  --henira-border-strong: #d9d8d5;
+  --henira-surface: color-mix(in srgb, #2f3437 5%, transparent);
+  --henira-surface-hover: color-mix(in srgb, #2f3437 8%, transparent);
+  --henira-selected: color-mix(in srgb, #2f3437 10%, transparent);
+  --henira-border: color-mix(in srgb, #2f3437 10%, transparent);
+  --henira-border-strong: color-mix(in srgb, #2f3437 16%, transparent);
   --henira-text: #2f3437;
   --henira-text-strong: #111111;
   --henira-text-muted: #787774;
@@ -44,6 +48,8 @@
   --henira-shiki-token-deleted: #9f2f2d;
   --henira-mono: ui-monospace, "JetBrains Mono", "SF Mono", Consolas, monospace;
   --henira-radius: 6px;
+  --henira-radius-lg: 12px;
+  --henira-radius-xl: 16px;
   --henira-sidebar-width: 260px;
 
   /* 刻度（M4 批 A 视觉打磨）：4px 基距间距 / 四档字号 / 对话列限宽（<80ch 可读性） */
@@ -62,9 +68,11 @@
 
 .henira-app[data-theme="dark"] {
   --henira-bg: #191919;
-  --henira-surface: #212121;
-  --henira-border: #333333;
-  --henira-border-strong: #444444;
+  --henira-surface: color-mix(in srgb, #e8e6e3 6%, transparent);
+  --henira-surface-hover: color-mix(in srgb, #e8e6e3 9%, transparent);
+  --henira-selected: color-mix(in srgb, #e8e6e3 12%, transparent);
+  --henira-border: color-mix(in srgb, #e8e6e3 12%, transparent);
+  --henira-border-strong: color-mix(in srgb, #e8e6e3 20%, transparent);
   --henira-text: #e8e6e3;
   --henira-text-strong: #f7f6f3;
   --henira-text-muted: #9b9a97;
@@ -119,6 +127,49 @@
 .henira-streaming {
   opacity: 1;
   transition: opacity 0.18s ease-out;
+}
+
+/* 运行态扫光（运行态视觉语言：文字流光而非转圈 spinner——ZCode 行为层参照；
+   只用在"正在发生"的词上，一处动效语义一处用） */
+.henira-sweep {
+  background: linear-gradient(
+    100deg,
+    var(--henira-text-muted) 42%,
+    var(--henira-text-strong) 50%,
+    var(--henira-text-muted) 58%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: henira-sweep 2.4s linear infinite;
+}
+@keyframes henira-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* 单行摘要右端渐隐（推理流式摘要——文本尾部淡出而非硬裁切） */
+.henira-fade-right {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+}
+
+/* 折叠行箭头：静态安静、悬停发声（hover/聚焦才显形；展开态旋转在组件内联） */
+.henira-row-caret {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+button:hover > .henira-row-caret,
+button:focus-visible > .henira-row-caret {
+  opacity: 1;
 }
 
 /* markdown 渲染（host.renderMarkdown 唯一出口；raw HTML 不渲染；零 webfont）。
@@ -335,5 +386,6 @@
 @media (prefers-reduced-motion: reduce) {
   .henira-app * {
     transition: none !important;
+    animation: none !important;
   }
 }
