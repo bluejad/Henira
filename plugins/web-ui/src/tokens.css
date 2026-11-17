@@ -432,6 +432,44 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-selected);
 }
 
+/* 目录分组头（BC「目录」/ZCode projects view 行为层：chevron+名称+计数，安静可折叠） */
+.henira-app button.henira-session-group {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  min-height: 28px;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  padding: 4px 8px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-base);
+}
+.henira-app button.henira-session-group:hover {
+  border: none;
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-group-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--henira-text-muted);
+  transition: transform 0.12s ease;
+}
+.henira-session-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  text-align: center;
+  border: 1px solid var(--henira-border);
+  border-radius: 9999px;
+  padding: 0 5px;
+  font-size: var(--henira-fs-sm);
+  line-height: 16px;
+  color: var(--henira-text-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .henira-app * {
     transition: none !important;

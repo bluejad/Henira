@@ -109,13 +109,22 @@ export function Shell(props: ShellProps) {
               width: "var(--henira-sidebar-width)",
             }}
           >
-            <div
+            <div style={{ flex: 1, minHeight: 0 }}>
+              {partsOf("sidebar").map((Part) => (
+                <Part key={Part.name} {...ctxValue} />
+              ))}
+            </div>
+            {/* 底部固定行（ZCode WorkspaceSidebarFooter 行为层：footer shrink-0 收尾）——齿轮住左下 */}
+            <footer
               style={{
+                flexShrink: 0,
                 display: "flex",
-                justifyContent: "flex-end",
-                padding: "var(--henira-space-2) var(--henira-space-2) 0",
+                alignItems: "center",
+                padding: "var(--henira-space-2) var(--henira-space-4) var(--henira-space-4)",
                 background: "var(--henira-surface)",
                 borderRight: "1px solid var(--henira-border)",
+                boxSizing: "border-box",
+                width: "var(--henira-sidebar-width)",
               }}
             >
               <button
@@ -128,12 +137,7 @@ export function Shell(props: ShellProps) {
               >
                 <GearSixIcon size={16} />
               </button>
-            </div>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              {partsOf("sidebar").map((Part) => (
-                <Part key={Part.name} {...ctxValue} />
-              ))}
-            </div>
+            </footer>
           </div>
         ) : (
           <div style={{ padding: "8px" }}>

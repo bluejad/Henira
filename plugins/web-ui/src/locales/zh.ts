@@ -10,6 +10,7 @@ export const zh = {
   "sessions.empty": "还没有会话",
   "sessions.busy": "进行中",
   "sessions.idle": "空闲",
+  "sessions.ungrouped": "其他",
   "conversation.empty": "发一条消息开始对话",
   "conversation.thinking": "思考中…",
   "row.reasoning": "推理过程",
