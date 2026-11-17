@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "build": "tsc -b tsconfig.build.json && cp packages/config-loader/src/models-dev-snapshot.json packages/config-loader/dist/models-dev-snapshot.json",
+    "build": "tsc -b tsconfig.build.json --verbose && cp packages/config-loader/src/models-dev-snapshot.json packages/config-loader/dist/models-dev-snapshot.json",
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "fmt": "biome format --write .",
