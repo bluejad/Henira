@@ -132,11 +132,16 @@ function framesOf(sink: ServerFrame[], sessionId: string): ServerFrame[] {
   return sink.filter((f) => f.kind !== "connected" && f.sessionId === sessionId);
 }
 
-async function waitFor<T>(fn: () => T | undefined, timeoutMs = 5000): Promise<T> {
+/** 轮询等待谓词成立（CI 纪律：异步断言禁固定 sleep；fn 可同步可异步——async 返回值必须
+ *  await，否则 promise 对象恒 ≠ undefined 会立即假通过，R127 教训；返回类型自动剥 undefined） */
+async function waitFor<RT>(
+  fn: () => RT,
+  timeoutMs = 5000,
+): Promise<Exclude<Awaited<RT>, undefined>> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const value = fn();
-    if (value !== undefined) return value;
+    const value = await fn();
+    if (value !== undefined) return value as Exclude<Awaited<RT>, undefined>;
     if (Date.now() > deadline) throw new Error("waitFor timeout");
     await new Promise((r) => setTimeout(r, 20));
   }
@@ -226,6 +231,57 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
       );
       return done && ended ? true : undefined;
     });
+  });
+
+  it("目录登记：建会话带 cwd 自动登记 + addDir 校验拒绝 + browseDirs 一层 + deleteDir 收树", async () => {
+    const { facade } = await form.make([]);
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-sdk-dir-"));
+    cleanups.push(async () => {
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    });
+    await fs.mkdir(path.join(cwd, "sub"));
+
+    const session = await facade.createSession({ cwd });
+    const dirs1 = await facade.listDirs();
+    expect(dirs1.some((d) => d.cwd === cwd && d.lastSessionId === session.id)).toBe(true);
+
+    await expect(facade.addDir("relative/path")).rejects.toThrow(); // 相对路径
+    await expect(facade.addDir(path.join(cwd, "missing"))).rejects.toThrow(); // 不存在
+    const added = await facade.addDir(cwd);
+    expect(added.cwd).toBe(cwd);
+
+    const browse = await facade.browseDirs(cwd);
+    expect(browse.items.some((i) => i.name === "sub")).toBe(true);
+    await expect(facade.browseDirs(path.join(cwd, "missing"))).rejects.toThrow();
+
+    // 闲时删目录：登记移除 + 该 cwd 会话消失（在订/磁盘两边语义一致）
+    const delDir = dirs1.find((d) => d.cwd === cwd);
+    if (delDir !== undefined) {
+      await facade.deleteDir(delDir.id);
+      expect((await facade.listDirs()).some((d) => d.cwd === cwd)).toBe(false);
+      expect((await facade.listSessions()).some((s) => s.id === session.id)).toBe(false);
+    }
+  });
+
+  it("deleteSession：闲删后列表移除 + snapshot 拒绝；回合悬挂时拒绝（busy 保护）", async () => {
+    const { facade } = await form.make(["hang"]);
+    const session = await facade.createSession();
+    await facade.prompt(session.id, "跑起来");
+    // busy 判定：listSessions 形态差异（runtime 仅在订 / client 含磁盘）——统一按该会话 busy 位
+    await waitFor(async () => {
+      const hit = (await facade.listSessions()).find((s) => s.id === session.id);
+      return hit?.busy === true ? true : undefined;
+    });
+    await expect(facade.deleteSession(session.id)).rejects.toThrow(/busy/);
+
+    await facade.interrupt(session.id);
+    await waitFor(async () => {
+      const hit = (await facade.listSessions()).find((s) => s.id === session.id);
+      return hit?.busy === false ? true : undefined;
+    });
+    await facade.deleteSession(session.id);
+    expect((await facade.listSessions()).some((s) => s.id === session.id)).toBe(false);
+    await expect(facade.snapshot(session.id)).rejects.toThrow();
   });
 });
 

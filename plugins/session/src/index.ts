@@ -2,9 +2,17 @@ import "./validators.js"; // 官方 15 变体随本包装载注册进开放注�
 
 export { atomicWriteFile } from "./atomic.js";
 export { deriveMessages } from "./derive.js";
+export {
+  browseDirectories,
+  DirRegistry,
+  DRIVES_ROOT,
+  isDrivesRoot,
+  sameCwd,
+} from "./dir-registry.js";
 export { ForkCutOutOfRangeError, type ForkOptions, forkSession } from "./fork.js";
 export { acquireSessionLock, type SessionLock, SessionLockedError } from "./lock.js";
 export { type SessionPluginOptions, sessionPlugin } from "./plugin.js";
+export { projectKey } from "./project-key.js";
 export {
   readSessionFile,
   SessionCorruptError,

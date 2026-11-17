@@ -3,8 +3,8 @@
 // 语义）；InteractionService 缺省 = fail-closed 自动拒（没人应答一律拒，packages.md 槽位归属），
 // 嵌入方可整只替换。不写 server.json、不开端口——宿主职责到此为止。
 
-import { createHash, randomBytes } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createConfigService, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
@@ -13,7 +13,14 @@ import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
-import { type SessionHandle, sessionPlugin } from "@henira/plugin-session";
+import {
+  browseDirectories,
+  DirRegistry,
+  projectKey,
+  type SessionHandle,
+  sameCwd,
+  sessionPlugin,
+} from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
@@ -86,6 +93,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
   }
 
   const sessions = new Map<string, RuntimeSession>();
+  const dirs = new DirRegistry({ dataDir });
   const queues = new Map<object, ReturnType<typeof frameQueue>>();
   const seq = new Map<string, number>();
   const currentSeq = (sessionId: string): number => seq.get(sessionId) ?? 0;
@@ -103,6 +111,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
   const facade: HeniraFacade = {
     async createSession(sessionOpts) {
       const cwd = sessionOpts?.cwd ?? process.cwd();
+      if (!isAbsoluteCwd(cwd)) throw new Error("cwd must be an absolute path");
       const id = `s-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
       const directory = path.join(dataDir, "projects", projectKey(cwd), "sessions", id);
       await fs.mkdir(directory, { recursive: true });
@@ -149,6 +158,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         );
       });
       sessions.set(id, session);
+      await dirs.upsert(cwd, id); // 带目录建会话 = 自动登记（与 server 同一语义）
       deliver({
         kind: "snapshot",
         sessionId: id,
@@ -248,6 +258,61 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       return session.projection.snapshot(sessionId, currentSeq(sessionId));
     },
 
+    async listDirs() {
+      return dirs.list();
+    },
+
+    async addDir(cwd) {
+      if (!isAbsoluteCwd(cwd)) throw new Error("cwd must be an absolute path");
+      const resolved = path.resolve(cwd);
+      const stat = await fs.stat(resolved).catch(() => undefined);
+      if (stat === undefined) throw new Error("path does not exist or is not accessible");
+      if (!stat.isDirectory()) throw new Error("path exists but is not a directory");
+      return dirs.upsert(resolved);
+    },
+
+    async deleteDir(id) {
+      const dir = await dirs.get(id);
+      if (dir === undefined) return; // 未知 id 幂等（与 server 同一语义）
+      const blocked = [...sessions.values()]
+        .filter((s) => sameCwd(s.cwd, dir.cwd) && s.projection.state.busy)
+        .map((s) => s.id);
+      if (blocked.length > 0) {
+        throw new Error(`directory busy; abort sessions before deletion: ${blocked.join(", ")}`);
+      }
+      for (const session of [...sessions.values()]) {
+        if (projectKey(session.cwd) !== dir.key) continue;
+        await session.harness.dispose().catch(() => {});
+        sessions.delete(session.id);
+      }
+      // key 只来自登记条目（registry 形态闸同款兜底）；账本树+检查点树（data-directory §7）
+      await fs.rm(path.join(dataDir, "projects", dir.key), { recursive: true, force: true });
+      await fs.rm(path.join(dataDir, "checkpoints", dir.key), { recursive: true, force: true });
+      await dirs.remove(id);
+    },
+
+    async browseDirs(path) {
+      return browseDirectories(path);
+    },
+
+    async deleteSession(id) {
+      if (!/^s-[0-9a-z]+-[0-9a-f]{6}$/.test(id)) throw new Error(`session not found: ${id}`);
+      const session = sessions.get(id);
+      const dir =
+        session !== undefined
+          ? path.join(dataDir, "projects", projectKey(session.cwd), "sessions", id)
+          : await findSessionDir(dataDir, id);
+      if (dir === undefined) throw new Error(`session not found: ${id}`);
+      if (session?.projection.state.busy) {
+        throw new Error("session is busy; abort it before deletion");
+      }
+      await fs.rm(dir, { recursive: true, force: true });
+      if (session !== undefined) {
+        await session.harness.dispose().catch(() => {});
+        sessions.delete(id);
+      }
+    },
+
     async *events() {
       const queue = frameQueue();
       const key = {};
@@ -283,6 +348,27 @@ function requireSession(sessions: Map<string, RuntimeSession>, id: string): Runt
   return session;
 }
 
+/** 绝对路径判据（与 server 路由同式；win32 盘符形或 posix 根形） */
+function isAbsoluteCwd(cwd: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("/") || cwd.startsWith("\\");
+}
+
+/** 磁盘会话目录定位（projects/<key>/sessions/<id> 逐 key 扫；历史会话删除用） */
+async function findSessionDir(dataDir: string, id: string): Promise<string | undefined> {
+  const projectsDir = path.join(dataDir, "projects");
+  let keys: string[] = [];
+  try {
+    keys = await fs.readdir(projectsDir);
+  } catch {
+    return undefined;
+  }
+  for (const key of keys) {
+    const dir = path.join(projectsDir, key, "sessions", id);
+    if (existsSync(dir)) return dir;
+  }
+  return undefined;
+}
+
 /** 宿主装饰组合：append 旁路喂投影器（与 server 同一语义——引擎零改动） */
 function observedSession(
   real: ServiceDefinition<SessionHandle>,
@@ -313,19 +399,4 @@ function observedSession(
       await real.stop?.(svc);
     },
   };
-}
-
-/** data-directory §4 项目 key（与 server 同式；两宿主各自实现，规则 3 禁宿主互依） */
-function projectKey(cwd: string): string {
-  const canonical = cwd
-    .replace(/\\/g, "/")
-    .replace(/^[A-Za-z]:/, "")
-    .replace(/[:*"<>|?]/g, "_");
-  const slug =
-    canonical
-      .replace(/\//g, "-")
-      .slice(0, 60)
-      .replace(/^-+|-+$/g, "") || "root";
-  const hashSource = process.platform === "win32" ? canonical.toLowerCase() : canonical;
-  return `--${slug}-${createHash("sha256").update(hashSource).digest("hex").slice(0, 8)}--`;
 }

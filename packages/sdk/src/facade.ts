@@ -5,7 +5,9 @@
 import type { UiAssets } from "@henira/config-loader";
 import type {
   Decision,
+  DirBrowse,
   PromptReceipt,
+  RegisteredDir,
   ServerFrame,
   SessionSnapshot,
   SessionSummary,
@@ -56,6 +58,17 @@ export interface HeniraFacade {
   listUiAssets(): Promise<UiAssets>;
   /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;
+  /** 登记工作目录列表（data-directory §4 projects.json——权威工作区列表，含自愈） */
+  listDirs(): Promise<RegisteredDir[]>;
+  /** 登记工作目录（校验：绝对路径 + 存在 + 是目录；非法抛错） */
+  addDir(cwd: string): Promise<RegisteredDir>;
+  /** 删登记目录：该 cwd 全部会话数据 + 登记条目（盘上工作目录本身不动，data-directory §7）；
+   *  目录下有会话在跑 → 抛错（信息含 busy 会话 id——先中断再删） */
+  deleteDir(id: string): Promise<void>;
+  /** 全局目录浏览一层（新增目录弹窗数据源；path 缺省 homedir，__drives__ = 盘符列表根） */
+  browseDirs(path?: string): Promise<DirBrowse>;
+  /** 删单个会话（账本目录整棵；busy → 抛错——先中断再删） */
+  deleteSession(id: string): Promise<void>;
   /** 全局帧流（connected → 逐会话快照 → 增量）；远端形态内置重连 + 断档不猜（跳号即重拉快照换发） */
   events(): AsyncIterable<ServerFrame>;
 }

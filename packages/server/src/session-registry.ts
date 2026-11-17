@@ -2,10 +2,11 @@
 // 装配三步 M3 实现 ①③（D-016：引擎五件编程装配——与 examples 同一条路径；③ = settings.json
 // plugins.<id>.enabled === false 不装载）；②已装插件目录扫描装载随 M4（M3 判据无一条需要）。
 // 会话内 session 槽由本宿主装饰组合占据：SessionHandle.append 接进投影器（装配权属宿主
-// D-016；引擎与协议零改动）。会话目录按 data-directory §4 命名（projects/<key>/sessions/<id>，
-// key 由 cwd 确定性派生——无 projects.json 也能落位，注册表文件随 M4 项目批）。
+// D-016；引擎与协议零改动）。会话目录按 data-directory §4 命名（projects/<key>/sessions/<id>），
+// 登记工作目录注册表（projects.json）与 key 命名住 plugin-session（账本域共享知识，
+// 规则 3 禁宿主互依——不在 server/sdk 各自复制）。
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync, promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +16,12 @@ import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
-import { SESSION_LOG_FILE, type SessionHandle, sessionPlugin } from "@henira/plugin-session";
+import {
+  projectKey,
+  SESSION_LOG_FILE,
+  type SessionHandle,
+  sessionPlugin,
+} from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
 import type { LlmService } from "@henira/protocol";
 import {
@@ -28,6 +34,8 @@ import {
 import type { Fanout } from "./fanout.js";
 import { ServerInteraction } from "./interaction-service.js";
 import { isPluginEnabled, readSettings } from "./settings-store.js";
+
+export { projectKey }; // @henira/server 公共面保持（既有出口，实现下沉 plugin-session）
 
 export interface SessionEntry {
   id: string;
@@ -50,22 +58,6 @@ export interface RegistryOptions {
   /** 额外引擎插件（config.plugins 的自定义 definition——装配三步①的加法，D-016） */
   plugins?: readonly ServiceDefinition<unknown>[];
   fanout: Fanout;
-}
-
-/** data-directory §4：平台感知 key 命名（Windows 小写化哈希；目录名只给人看，查找不靠它） */
-export function projectKey(cwd: string): string {
-  const canonical = cwd
-    .replace(/\\/g, "/")
-    .replace(/^[A-Za-z]:/, "")
-    .replace(/[:*"<>|?]/g, "_");
-  const slug =
-    canonical
-      .replace(/\//g, "-")
-      .slice(0, 60)
-      .replace(/^-+|-+$/g, "") || "root";
-  const hashSource = process.platform === "win32" ? canonical.toLowerCase() : canonical;
-  const hash8 = createHash("sha256").update(hashSource).digest("hex").slice(0, 8);
-  return `--${slug}-${hash8}--`;
 }
 
 export class SessionRegistry {

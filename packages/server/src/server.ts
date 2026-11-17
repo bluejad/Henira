@@ -8,10 +8,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServiceDefinition } from "@henira/kernel";
+import { DirRegistry } from "@henira/plugin-session";
 import type { LlmService } from "@henira/protocol";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
-import { DirRegistry } from "./dir-registry.js";
 import { Fanout } from "./fanout.js";
 import { SessionRegistry, serverVersion } from "./session-registry.js";
 

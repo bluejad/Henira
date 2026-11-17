@@ -1,22 +1,18 @@
 // 登记工作目录注册表（data-directory §4 projects.json——权威工作区列表）：
 // id = sha256(canonical cwd) 前 16 位；条目含 id ↔ cwd ↔ key 映射，查找不靠目录名。
-// 可自愈（BC reconcileProjects 行为层）：list 时扫账本目录从会话头 cwd 复活缺失条目。
-// 原子重写（tmp+rename，与 settings.json 同一纪律）。
+// 可自愈：list 时扫账本目录从会话头 cwd 复活缺失条目（BC reconcileProjects 行为层）。
+// 原子重写（tmp+rename，与 settings.json 同一纪律）。住 plugin-session：账本域共享知识，
+// server 与 sdk 双宿主消费（规则 3 禁宿主互依——知识下沉引擎层）。
 
 import { createHash } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { type Dirent, existsSync, promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { SESSION_LOG_FILE } from "@henira/plugin-session";
-import type { RegisteredDir } from "@henira/protocol";
-import { projectKey } from "./session-registry.js";
+import type { DirBrowse, DirBrowseItem, RegisteredDir } from "@henira/protocol";
+import { projectKey } from "./project-key.js";
+import { SESSION_LOG_FILE } from "./store.js";
 
-const DRIVES_ROOT = "__drives__";
-
-interface ProjectsFile {
-  version: 1;
-  lastUpdatedAt: number;
-  projects: RegisteredDir[];
-}
+export const DRIVES_ROOT = "__drives__";
 
 export function isDrivesRoot(path: string): boolean {
   return path === DRIVES_ROOT;
@@ -35,6 +31,38 @@ function dirId(cwd: string): string {
 /** Windows 盘符大小写不敏感比较（删目录 busy 判据用，BC fullCwdFor 行为层） */
 export function sameCwd(a: string, b: string): boolean {
   return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/** 全局目录浏览一层（新增目录弹窗数据源）：path 缺省 homedir、__drives__ = 盘符列表根
+ *  （win32 枚举存在盘符）、一层 readdir 过滤隐藏项只回目录、按中文名排序。
+ *  双宿主共用（server 路由 / runtime 进程内），D-060 信任边界：回环 + token 之上只读。 */
+export async function browseDirectories(rawPath?: string): Promise<DirBrowse> {
+  if (rawPath !== undefined && isDrivesRoot(rawPath)) {
+    if (process.platform !== "win32") {
+      return { path: rawPath, items: [{ name: "/", path: "/", type: "directory" }] };
+    }
+    const drives: DirBrowseItem[] = [];
+    for (let i = 65; i <= 90; i++) {
+      const drive = `${String.fromCharCode(i)}:\\`;
+      if (existsSync(drive)) drives.push({ name: drive, path: drive, type: "drive" });
+    }
+    return { path: rawPath, items: drives };
+  }
+  const target = path.resolve(rawPath ?? os.homedir());
+  let dirents: Dirent[];
+  try {
+    dirents = await fs.readdir(target, { withFileTypes: true });
+  } catch {
+    throw new Error("directory does not exist or is not accessible");
+  }
+  const items: DirBrowseItem[] = [];
+  for (const dirent of dirents) {
+    if (dirent.name.startsWith(".")) continue; // 隐藏项不返
+    if (!dirent.isDirectory()) continue; // 弹窗只浏览目录
+    items.push({ name: dirent.name, path: path.join(target, dirent.name), type: "directory" });
+  }
+  items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
+  return { path: target, parent: path.dirname(target), items };
 }
 
 export class DirRegistry {
@@ -58,7 +86,7 @@ export class DirRegistry {
     return file.projects.find((p) => p.id === id);
   }
 
-  /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key；新条目置顶（BC 行为层） */
+  /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key 校正；新条目置顶（BC 行为层） */
   async upsert(cwd: string, sessionId?: string): Promise<RegisteredDir> {
     const resolved = path.resolve(cwd);
     const id = dirId(resolved);
@@ -179,4 +207,10 @@ export class DirRegistry {
     await fs.writeFile(tmp, `${JSON.stringify(file, null, 2)}\n`, "utf8");
     await fs.rename(tmp, target);
   }
+}
+
+interface ProjectsFile {
+  version: 1;
+  lastUpdatedAt: number;
+  projects: RegisteredDir[];
 }

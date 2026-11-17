@@ -97,12 +97,16 @@ function subscribe(base: string, sink: ServerFrame[], signal?: AbortSignal): voi
   })();
 }
 
-/** 轮询等待谓词成立（CI 纪律：异步断言禁固定 sleep） */
-async function waitFor<T>(fn: () => T | undefined, timeoutMs = 5000): Promise<T> {
+/** 轮询等待谓词成立（CI 纪律：异步断言禁固定 sleep；fn 可同步可异步——async 返回值必须
+ *  await，否则 promise 对象恒 ≠ undefined 会立即假通过，R127 教训；返回类型自动剥 undefined） */
+async function waitFor<RT>(
+  fn: () => RT,
+  timeoutMs = 5000,
+): Promise<Exclude<Awaited<RT>, undefined>> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const value = fn();
-    if (value !== undefined) return value;
+    const value = await fn();
+    if (value !== undefined) return value as Exclude<Awaited<RT>, undefined>;
     if (Date.now() > deadline) throw new Error("waitFor timeout");
     await new Promise((r) => setTimeout(r, 20));
   }

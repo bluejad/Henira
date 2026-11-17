@@ -4,14 +4,13 @@
 
 import { existsSync, promises as fs } from "node:fs";
 import { createRequire } from "node:module";
-import os from "node:os";
 import path from "node:path";
 import { scanUiAssets } from "@henira/config-loader";
+import { browseDirectories, type DirRegistry, sameCwd } from "@henira/plugin-session";
 import { DECISIONS, rebuildProjection, type ServerFrame } from "@henira/protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { type DirRegistry, isDrivesRoot, sameCwd } from "./dir-registry.js";
 import type { Fanout } from "./fanout.js";
 import type { SessionRegistry } from "./session-registry.js";
 import { readSettings, writeCredential, writeSettings } from "./settings-store.js";
@@ -244,36 +243,14 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true });
   });
 
-  // ── 全局目录浏览（新增目录弹窗数据源；回环+token 中间件之上，D-060 信任边界 ADR）──
+  // ── 全局目录浏览（新增目录弹窗数据源；共享实现住 plugin-session browseDirectories，
+  //      回环+token 中间件之上，D-060 信任边界 ADR）──
   app.get("/api/dirs/browse", async (c) => {
-    const raw = c.req.query("path");
-    if (raw !== undefined && isDrivesRoot(raw)) {
-      // 盘符列表根：win32 枚举存在盘符（BC /api/dir_list __drives__ 行为层）
-      if (process.platform !== "win32") {
-        return c.json({ path: raw, items: [{ name: "/", path: "/", type: "directory" }] });
-      }
-      const items = [];
-      for (let i = 65; i <= 90; i++) {
-        const drive = `${String.fromCharCode(i)}:\\`;
-        if (existsSync(drive)) items.push({ name: drive, path: drive, type: "drive" });
-      }
-      return c.json({ path: raw, items });
-    }
-    const target = path.resolve(raw ?? os.homedir());
-    let dirents: import("node:fs").Dirent[];
     try {
-      dirents = await fs.readdir(target, { withFileTypes: true });
+      return c.json(await browseDirectories(c.req.query("path")));
     } catch {
       return c.json({ error: "directory does not exist or is not accessible" }, 404);
     }
-    const items = [];
-    for (const dirent of dirents) {
-      if (dirent.name.startsWith(".")) continue; // 隐藏项不返
-      if (!dirent.isDirectory()) continue; // 弹窗只浏览目录
-      items.push({ name: dirent.name, path: path.join(target, dirent.name), type: "directory" });
-    }
-    items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
-    return c.json({ path: target, parent: path.dirname(target), items });
   });
 
   // ── 设置页（data-directory §2.3：程序写 settings.json；凭据只写不读 D-030）──

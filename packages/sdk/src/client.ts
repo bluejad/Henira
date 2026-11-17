@@ -2,7 +2,14 @@
 // 每会话记 lastSeq，增量帧 seq !== lastSeq+1 时丢弃该帧并回拉快照换发（消费端永不猜中间态）；
 // 重连后 server 重发 connected + 全量快照，水位自然重置。
 
-import type { PromptReceipt, ServerFrame, SessionSnapshot, SessionSummary } from "@henira/protocol";
+import type {
+  DirBrowse,
+  PromptReceipt,
+  RegisteredDir,
+  ServerFrame,
+  SessionSnapshot,
+  SessionSummary,
+} from "@henira/protocol";
 import { frameQueue, type HeniraFacade } from "./facade.js";
 
 export interface ClientOptions {
@@ -30,7 +37,14 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       ...init,
       headers: { "content-type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
     });
-    if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}`);
+    if (!res.ok) {
+      // 错误体结构化提取（session_busy 等 code 码透传——调用方可判别）
+      const body = (await res.json().catch(() => undefined)) as
+        | { code?: string; message?: string }
+        | undefined;
+      const detail = body?.code !== undefined ? ` ${body.code}` : "";
+      throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}${detail}`);
+    }
     return (await res.json()) as T;
   }
 
@@ -99,6 +113,38 @@ export function createClient(opts: ClientOptions): HeniraFacade {
     async listDir(sessionId, dirPath) {
       const query = dirPath === undefined ? "" : `?path=${encodeURIComponent(dirPath)}`;
       return requestJson(`/api/sessions/${sessionId}/files${query}`);
+    },
+
+    async listDirs() {
+      return requestJson<RegisteredDir[]>("/api/dirs");
+    },
+
+    async addDir(cwd) {
+      const res = await requestJson<{ ok: boolean; dir: RegisteredDir }>("/api/dirs", {
+        method: "POST",
+        body: JSON.stringify({ cwd }),
+      });
+      return res.dir;
+    },
+
+    async deleteDir(id) {
+      const res = await requestJson<{ ok: boolean; blocked?: string[] }>(`/api/dirs/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        throw new Error(
+          `directory busy; abort sessions before deletion: ${res.blocked?.join(", ")}`,
+        );
+      }
+    },
+
+    async browseDirs(path) {
+      const query = path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
+      return requestJson<DirBrowse>(`/api/dirs/browse${query}`);
+    },
+
+    async deleteSession(id) {
+      await requestJson(`/api/sessions/${id}`, { method: "DELETE" });
     },
 
     async snapshot(sessionId) {
