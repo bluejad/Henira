@@ -79,7 +79,7 @@ describe("SessionList", () => {
     const ctx = fixtureCtx();
     const createSession = vi.spyOn(ctx.client, "createSession");
     render(<SessionList {...ctx} />);
-    expect(screen.getByText(t("sessions.title"))).toBeDefined();
+    expect(screen.getByText(t("dirs.title"))).toBeDefined();
     await waitFor(() => expect(screen.getAllByRole("button").length).toBeGreaterThan(1));
     const newButton = screen.getByText(`+ ${t("sessions.new")}`);
     fireEvent.click(newButton);
@@ -137,6 +137,210 @@ describe("SessionList", () => {
       expect(header.getAttribute("aria-expanded")).toBe("true");
     });
     expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
+  });
+
+  it("目录区：登记目录驱动分组（空目录也显示）+ 未登记 cwd 补组；退化形态（宿主无方法）不渲染目录交互", async () => {
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      listDirs: async () => [
+        {
+          id: "d1",
+          cwd: "C:\\demo",
+          key: "--demo--",
+          displayName: "demo",
+          createdAt: 1,
+          lastOpenedAt: 2,
+          openCount: 1,
+        },
+        {
+          id: "d2",
+          cwd: "C:\\empty",
+          key: "--empty--",
+          displayName: "empty",
+          createdAt: 1,
+          lastOpenedAt: 3,
+          openCount: 1,
+        },
+      ],
+      addDir: async (cwd) => ({
+        id: "dn",
+        cwd,
+        key: "--n--",
+        displayName: cwd,
+        createdAt: 1,
+        lastOpenedAt: 1,
+        openCount: 1,
+      }),
+      browseDirs: async (p) => ({ path: p ?? "", items: [] }),
+      deleteDir: async () => {},
+      deleteSession: async () => {},
+    };
+    const { container } = render(<SessionList {...fixtureCtx({ client })} />);
+    await waitFor(() => {
+      // demo（1 会话）+ empty（0 会话也显示）+ other（未登记 cwd 补组）= 3 组
+      expect(container.querySelectorAll("button.henira-session-group").length).toBe(3);
+    });
+    const counts = [...container.querySelectorAll(".henira-session-count")].map(
+      (el) => el.textContent,
+    );
+    expect(counts).toEqual(["1", "0", "1"]); // 登记序 = listDirs 返回序（server 按 lastOpenedAt 排好）
+    expect(screen.getByRole("button", { name: t("dirs.add") })).toBeDefined();
+    expect(container.querySelector(`button[aria-label='${t("menu.newSession")}']`)).not.toBeNull();
+
+    // 退化形态：无可选方法 → 无新增目录入口、无组内 ＋，分组照旧
+    cleanup();
+    const bare = fixtureCtx();
+    render(<SessionList {...bare} />);
+    expect(screen.queryByRole("button", { name: t("dirs.add") })).toBeNull();
+  });
+
+  it("目录行 hover ＋ → 该目录新建会话（createSession({cwd})——服务端自动登记）", async () => {
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      listDirs: async () => [
+        {
+          id: "d1",
+          cwd: "C:\\demo",
+          key: "--demo--",
+          displayName: "demo",
+          createdAt: 1,
+          lastOpenedAt: 2,
+          openCount: 1,
+        },
+      ],
+      addDir: async (cwd) => ({
+        id: "dn",
+        cwd,
+        key: "--n--",
+        displayName: cwd,
+        createdAt: 1,
+        lastOpenedAt: 1,
+        openCount: 1,
+      }),
+      browseDirs: async (p) => ({ path: p ?? "", items: [] }),
+      deleteDir: async () => {},
+      deleteSession: async () => {},
+    };
+    const ctx = fixtureCtx({ client });
+    const createSession = vi.spyOn(ctx.client, "createSession");
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(
+        container.querySelector(`button[aria-label='${t("menu.newSession")}']`),
+      ).not.toBeNull();
+    });
+    fireEvent.click(
+      container.querySelector(`button[aria-label='${t("menu.newSession")}']`) as HTMLButtonElement,
+    );
+    expect(createSession).toHaveBeenCalledWith({ cwd: "C:\\demo" });
+  });
+
+  it("右键目录 → 菜单（新建会话/复制路径/删除目录）→ 删除确认弹窗 → deleteDir(id) + 刷新", async () => {
+    // 删「C:\empty」（无会话——busy 前置守卫会拦下有运行会话的目录，busy 拒绝形态在 server 侧用例锁）
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      listDirs: async () => [
+        {
+          id: "d1",
+          cwd: "C:\\empty",
+          key: "--empty--",
+          displayName: "empty",
+          createdAt: 1,
+          lastOpenedAt: 2,
+          openCount: 1,
+        },
+      ],
+      deleteDir: async () => {},
+      deleteSession: async () => {},
+    };
+    const ctx = fixtureCtx({ client });
+    const deleteDir = vi.spyOn(ctx.client, "deleteDir");
+    const listSessions = vi.spyOn(ctx.client, "listSessions");
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-group-row").length).toBe(3); // empty + demo + other
+    });
+    const emptyRow = [...container.querySelectorAll("button.henira-session-group")].find(
+      (r) => r.getAttribute("title") === "C:\\empty",
+    ) as HTMLElement;
+    fireEvent.contextMenu(emptyRow);
+    expect(screen.getByText(t("menu.deleteDir"))).toBeDefined();
+    expect(screen.getByText(t("menu.copyPath"))).toBeDefined();
+    fireEvent.click(screen.getByText(t("menu.deleteDir")));
+    // 确认弹窗：标题 + 删除钮
+    expect(screen.getByRole("dialog", { name: t("dirs.deleteTitle") })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    expect(deleteDir).toHaveBeenCalledWith("d1");
+    // 删除后刷新（listSessions 重拉）
+    await waitFor(() => expect(listSessions.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("右键会话 → 删除项（busy 会话 disabled；当前选中会话不提供删除）→ 确认后 deleteSession(id)", async () => {
+    // s-1 busy（demo 组）、s-2 idle（other 组，fixture sessionId=s-1 → s-2 非选中可删）
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      deleteSession: async () => {},
+    };
+    const ctx = fixtureCtx({ client });
+    const deleteSession = vi.spyOn(ctx.client, "deleteSession");
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
+    });
+    const rows = container.querySelectorAll(".henira-sessions li");
+    // busy 会话：菜单项 disabled + 提示
+    fireEvent.contextMenu(rows[0] as HTMLElement);
+    const busyItem = screen.getByRole("button", { name: t("menu.delete") });
+    expect(busyItem.hasAttribute("disabled")).toBe(true);
+    expect(busyItem.getAttribute("title")).toBe(t("menu.deleteBusy"));
+    fireEvent.keyDown(window, { key: "Escape" }); // 关菜单
+    // idle 非选中会话：删除 → 确认 → deleteSession("s-2")
+    fireEvent.contextMenu(rows[1] as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    expect(screen.getByRole("dialog", { name: t("sessions.deleteTitle") })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    expect(deleteSession).toHaveBeenCalledWith("s-2");
+  });
+
+  it("新增目录弹窗：browseDirs 树渲染 + 确认走 addDir(路径)；Escape 关闭", async () => {
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      listDirs: async () => [],
+      deleteDir: async () => {},
+      deleteSession: async () => {},
+      browseDirs: async (p) =>
+        p === "__drives__"
+          ? { path: p, items: [{ name: "C:\\", path: "C:\\", type: "drive" }] }
+          : {
+              path: p ?? "",
+              parent: "C:\\",
+              items: [{ name: "work", path: "C:\\work", type: "directory" }],
+            },
+      addDir: async (cwd) => ({
+        id: "dn",
+        cwd,
+        key: "--new--",
+        displayName: "work",
+        createdAt: 1,
+        lastOpenedAt: 1,
+        openCount: 1,
+      }),
+    };
+    const ctx = fixtureCtx({ client });
+    const addDir = vi.spyOn(ctx.client, "addDir");
+    render(<SessionList {...ctx} />);
+    fireEvent.click(await screen.findByRole("button", { name: t("dirs.add") }));
+    expect(screen.getByRole("dialog", { name: t("dirs.add") })).toBeDefined();
+    await waitFor(() => {
+      // 盘符层懒加载到树（行文本 = 图标+名称混排，按容器文本断言）
+      expect(screen.getByRole("dialog", { name: t("dirs.add") }).textContent).toContain("C:\\");
+    });
+    const input = screen.getByPlaceholderText(t("dirs.pathPlaceholder")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "C:\\work" } });
+    fireEvent.click(screen.getByRole("button", { name: t("dirs.confirm") }));
+    expect(addDir).toHaveBeenCalledWith("C:\\work");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: t("dirs.add") })).toBeNull();
   });
 });
 

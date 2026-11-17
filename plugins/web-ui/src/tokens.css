@@ -573,6 +573,233 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text-muted);
 }
 
+/* ── 侧栏目录区交互（R127）：hover 显隐 + 右键菜单 + 删除确认/新增目录弹窗 ── */
+/* hover 显隐（ZCode WorkspacePurposeSection / ProjectNodeContent 行为层：hover 才出现，
+   focus-within 键盘可达；data-open 常显出口留给菜单开着等状态） */
+.henira-hover-reveal {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.henira-sidebar-header:hover .henira-hover-reveal,
+.henira-sidebar-header:focus-within .henira-hover-reveal,
+.henira-group-row:hover .henira-hover-reveal,
+.henira-group-row:focus-within .henira-hover-reveal,
+.henira-hover-reveal[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.henira-sidebar-header button.henira-hover-reveal,
+.henira-group-row button.henira-hover-reveal {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  border-radius: var(--henira-radius);
+  padding: 2px 6px;
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-sidebar-header button.henira-hover-reveal:hover,
+.henira-group-row button.henira-hover-reveal:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-group-row {
+  display: flex;
+  align-items: center;
+}
+.henira-group-row > button.henira-session-group {
+  flex: 1;
+  min-width: 0;
+}
+.henira-group-add {
+  flex-shrink: 0;
+}
+
+/* 右键菜单（非模态浮层） */
+.henira-context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 148px;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+}
+.henira-menu-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+}
+.henira-menu-item:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+}
+.henira-menu-item:disabled {
+  color: var(--henira-text-muted);
+  cursor: not-allowed;
+}
+.henira-menu-item[data-danger="true"] {
+  color: var(--henira-danger-text);
+}
+.henira-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--henira-border);
+}
+
+/* 弹窗（删除确认 / 新增目录共用形态——BC ConfirmModal 行为层） */
+.henira-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.henira-dialog {
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius-lg);
+  padding: var(--henira-space-5);
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(600px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+}
+.henira-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--henira-space-3);
+}
+.henira-app .henira-dialog-head button {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-dialog-message {
+  margin: 0 0 var(--henira-space-2);
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text);
+}
+.henira-dialog-path {
+  margin: 0 0 var(--henira-space-2);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  word-break: break-all;
+}
+.henira-dialog-field {
+  display: block;
+  margin-bottom: var(--henira-space-3);
+}
+.henira-field-label {
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  margin-bottom: 4px;
+}
+.henira-field-hint {
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  margin-top: 4px;
+}
+.henira-input {
+  width: 100%;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-bg);
+  color: var(--henira-text);
+  padding: 6px 10px;
+  font: inherit;
+  box-sizing: border-box;
+}
+.henira-dir-tree {
+  flex: 1;
+  min-height: 160px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  padding: 4px;
+  margin-bottom: var(--henira-space-2);
+}
+.henira-dir-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border-radius: calc(var(--henira-radius) - 2px);
+}
+.henira-dir-row > .henira-dir-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-dir-row > .henira-dir-label:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-dir-row > .henira-dir-label[aria-current="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-dir-caret {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: var(--henira-text-muted);
+  cursor: pointer;
+  font-size: var(--henira-fs-sm);
+}
+.henira-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--henira-space-2);
+  margin-top: var(--henira-space-2);
+}
+.henira-danger {
+  background: var(--henira-danger-bg);
+  border: 1px solid var(--henira-danger-text);
+  color: var(--henira-danger-text);
+  border-radius: var(--henira-radius);
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.henira-danger:hover:not(:disabled) {
+  background: var(--henira-danger-text);
+  color: var(--henira-panel);
+}
+.henira-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .henira-app * {
     transition: none !important;

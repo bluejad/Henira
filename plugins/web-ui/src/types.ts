@@ -5,7 +5,9 @@
 import type { Disposable } from "@henira/kernel";
 import type {
   Decision,
+  DirBrowse,
   PromptReceipt,
+  RegisteredDir,
   Row,
   ServerFrame,
   SessionState,
@@ -34,6 +36,16 @@ export interface HeniraClientLike {
   }): Promise<{ version: 1 }>;
   /** 模型目录（可选——手写覆盖 + models.dev 快照清单；无密钥） */
   listModels?(): Promise<{ providers: Record<string, { baseUrl?: string; models?: string[] }> }>;
+  /** 登记工作目录列表（可选——侧栏目录区消费，data-directory §4；宿主缺方法 = 目录登记交互不渲染） */
+  listDirs?(): Promise<RegisteredDir[]>;
+  /** 登记工作目录（可选——校验：绝对路径+存在+是目录；非法抛错） */
+  addDir?(cwd: string): Promise<RegisteredDir>;
+  /** 删登记目录（可选——该 cwd 全部会话+登记条目；盘上工作目录不动；busy 抛错） */
+  deleteDir?(id: string): Promise<void>;
+  /** 全局目录浏览一层（可选——新增目录弹窗数据源；path 缺省 homedir，__drives__ = 盘符根） */
+  browseDirs?(path?: string): Promise<DirBrowse>;
+  /** 删单个会话（可选——账本目录整棵；busy 抛错） */
+  deleteSession?(id: string): Promise<void>;
 }
 
 /** 行 store 最小结构面（哑渲染器的数据源：快照整体替换 + 增量；断档不猜纪律在 client） */
