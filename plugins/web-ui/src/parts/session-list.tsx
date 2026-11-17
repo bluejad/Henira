@@ -27,9 +27,12 @@ function groupByCwd(sessions: readonly SessionSummary[]): Map<string, SessionSum
 
 const dirBasename = (cwd: string): string => cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";
 
-/** Windows 大小写不敏感 cwd 比较（busy 会话归组判据；与 plugin-session sameCwd 同式） */
+/** cwd 归一比较（busy 会话归组判据；与 plugin-session sameCwd 同式语义）。**浏览器 bundle
+ *  无 process**——按路径形状判平台（盘符形/反斜杠 = Windows → 大小写归一），不能用 process.platform
+ *  （R127 教训：jsdom 有 process 而 bundle 没有，22 组件绿拦不住真浏览器挂载即崩） */
 function sameCwd(a: string, b: string): boolean {
-  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const isWinPath = /^[A-Za-z]:[\/]/.test(a) || a.includes("\\");
+  return isWinPath ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 /** 渲染分组：登记目录优先（lastOpenedAt 序），未登记 cwd 补组，cwd 缺失归「其他」 */
@@ -202,7 +205,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                 setAddOpen(true);
               }}
             >
-              ＋目录
+              + {ctx.t("dirs.add")}
             </button>
           ) : null}
           <button type="button" className="henira-primary" onClick={createSession}>
@@ -259,7 +262,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                         createIn(group.cwd);
                       }}
                     >
-                      ＋
+                      +
                     </button>
                   ) : null}
                 </div>

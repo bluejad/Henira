@@ -160,3 +160,58 @@ test("safe mode: ui=safe entry and double-Alt toggle", async ({ page }) => {
   await page.keyboard.press("Alt");
   await expect(badge).toBeVisible();
 });
+
+// ── 用例 ③：目录区（R127 三拍板）——新增目录弹窗 / 按目录新建会话 / 右键删除 ──
+
+test("directory area: add dir dialog, per-dir session, right-click delete", async ({ page }) => {
+  const pickDir = await fs.mkdtemp(path.join(tmpdir(), "henira-e2e-pick-"));
+  try {
+    await page.goto(server.url);
+
+    // 区头 hover 才显「＋目录」（opacity+pointer-events 联动——先 hover 宿主行再点）
+    const header = page.locator(".henira-sidebar-header");
+    await header.hover();
+    await page.getByRole("button", { name: zh["dirs.add"] }).click();
+    const dialog = page.getByRole("dialog", { name: zh["dirs.add"] });
+    await expect(dialog).toBeVisible();
+    // 目录树根（此电脑）与路径输入框双通道；手敲绝对路径直接确定（树懒展开受真盘符影响不断言）
+    await expect(dialog.getByText(zh["dirs.computer"])).toBeVisible();
+    await dialog.getByPlaceholder(zh["dirs.pathPlaceholder"]).fill(pickDir);
+    await shot(page, "06-directory-dialog.png");
+    await dialog.getByRole("button", { name: zh["dirs.confirm"] }).click();
+    await expect(dialog).toBeHidden();
+
+    // 空登记目录也显示（组头 = 目录名 + 0 徽标）
+    const pickBase = path.basename(pickDir);
+    const groupBtn = page.locator("button.henira-session-group", { hasText: pickBase });
+    await expect(groupBtn).toBeVisible();
+
+    // 目录行 hover 显 ＋ → 在该目录新建会话（createSession({cwd}) → 自动登记 + li 出现）
+    const groupRow = page.locator(".henira-group-row", { hasText: pickBase });
+    await groupRow.hover();
+    await groupRow.getByRole("button", { name: zh["menu.newSession"] }).click();
+    const pickSession = page.locator(".henira-sessions li").filter({ hasText: pickBase });
+    await expect(pickSession).toHaveCount(1);
+    await shot(page, "07-directory-session.png");
+
+    // 右键会话 → 删除 → 确认弹窗（「永久删除」）→ 行消失
+    await pickSession.click({ button: "right" });
+    await page.getByRole("button", { name: zh["menu.delete"] }).click();
+    const confirm = page.getByRole("dialog", { name: zh["sessions.deleteTitle"] });
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByText(zh["sessions.deleteMessage"])).toBeVisible();
+    await shot(page, "08-delete-confirm.png");
+    await confirm.getByRole("button", { name: zh["menu.delete"] }).click();
+    await expect(pickSession).toHaveCount(0);
+
+    // 右键目录 → 删除目录 → 确认（登记条目移除——无会话目录随之消失）
+    await groupBtn.click({ button: "right" });
+    await page.getByRole("button", { name: zh["menu.deleteDir"] }).click();
+    const dirConfirm = page.getByRole("dialog", { name: zh["dirs.deleteTitle"] });
+    await expect(dirConfirm).toBeVisible();
+    await dirConfirm.getByRole("button", { name: zh["menu.delete"] }).click();
+    await expect(groupBtn).toHaveCount(0);
+  } finally {
+    await fs.rm(pickDir, { recursive: true, force: true }).catch(() => {});
+  }
+});

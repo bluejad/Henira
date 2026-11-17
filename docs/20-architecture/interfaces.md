@@ -465,14 +465,21 @@ interface SessionSummary {
 ### REST 命令面
 
 ```text
-POST /api/sessions                          { cwd? }    → SessionSummary
+POST /api/sessions                          { cwd? }    → SessionSummary   // cwd 传必须绝对路径（400）；建成功自动登记 projects.json（D-060）
 GET  /api/sessions                                      → SessionSummary[]
+DELETE /api/sessions/:id                                → { ok: true }     // busy → 409 { code: "session_busy" }；删账本目录整棵（data-directory §7）
 GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口）
 POST /api/sessions/:id/prompt               { text }    → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
+GET  /api/dirs                                          → RegisteredDir[]  // 登记工作目录（data-directory §4 projects.json，可自愈；D-060）
+POST /api/dirs                              { cwd }     → { ok: true; dir }  // 登记：绝对路径 + 存在 + 是目录（非法 400）
+DELETE /api/dirs/:id                                    → { ok: true }     // busy → 200 { ok: false; blocked: [sessionId] }（批操作语义响应，与删会话 409 双轨——D-060）；
+                                                        //   删 projects/<key>/ + checkpoints/<key>/ + 登记条目，盘上工作目录不动（data-directory §7）；未知 id 幂等
+GET  /api/dirs/browse?path=                             → DirBrowse        // 全局目录浏览一层（新增目录弹窗数据源；path 缺省 homedir、__drives__ = win32 盘符；
+                                                        //   隐藏项不返、只回目录；信任边界 = 回环三件套之上，D-060）
 GET  /api/server/info                                   → { version; startedAt; model }
 GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
@@ -603,6 +610,11 @@ interface HeniraFacade {
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉
+  listDirs(): Promise<RegisteredDir[]>; // 登记工作目录（data-directory §4 projects.json；D-060）
+  addDir(cwd: string): Promise<RegisteredDir>; // 登记（绝对路径 + 存在 + 是目录；非法抛错）
+  deleteDir(id: string): Promise<void>; // 删登记目录（该 cwd 全部会话 + 登记条目；盘上工作目录不动；busy 抛错——D-060）
+  browseDirs(path?: string): Promise<DirBrowse>; // 全局目录浏览一层（新增目录弹窗数据源；D-060）
+  deleteSession(id: string): Promise<void>; // 删单个会话（账本目录整棵；busy 抛错——D-060）
   events(): AsyncIterable<ServerFrame>; // 全局帧流（connected/快照/增量），
   //   内置断档不猜纪律与重连
 }
@@ -657,6 +669,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；
   - 布局与部件基线（批 A3，2026-11-17 用户拍板照 ZCode/BC 形态）：**会话列表按工作目录分组**（折叠组头 = caret + 目录名 + 会话数徽标，活跃会话所在组自动展开——BC「目录」/ZCode projects view 行为层）；**设置齿轮住侧栏左下**固定行（ZCode WorkspaceSidebarFooter 行为层）；**输入卡两层**（输入行上 / 工具排下；卡 focus-within 边框变 accent + 底色提亮、内部无独立焦点环），工具排左 = 模型选择器（宿主设置/目录面齐备时渲染，值变更走 putSettings）、右 = 圆形发送钮；**发送/停止语义 = ZCode**（忙+有草稿 = 发送排队、忙+空草稿 = 停止——有字时圆钮恒为发送）；prompt 失败回填草稿 + 行内错误提示（不静默）；**对话列宽三档**（列含内衬默认 808px → 视口 ≥1124px 896 → ≥1540px 1152，对话列与输入 dock 同档——ZCode conversationLayout 672/896/1152 行为层）；**滚动条细圆条**（14px 槽 / thumb 3px 透明边 padding-box 胶囊 / track 透明 / 色=border 派生档，对话列 `scrollbar-gutter: stable`——ZCode styles.css 数值档行为层，实现自家写法）；usage 徽章全 0 不渲染；
+  - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径——BC OpenDirectoryDialog 行为层自家写法）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——BC 确认弹窗 + busy 前置守卫语义）；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT，light/regular 档细线），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
   - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）；
   - 界面资产缝（D-059，**设计定稿落码随需**）：插件包可带 `locales/<lang>.json` 语言包（缺 key 回落官方 zh，不 fail-loud）与 `themes/<名>.css` 主题包（变量组追加进设置下拉，官方 light / dark 两档永在不可覆盖）；读者 = 官方界面件；`settings.ui.theme` / `ui.locale` 扩为任意已装 id；安全模式回落官方默认组合；**落码前这两个槽位合法但不被读取**（创建无害、无效果）。

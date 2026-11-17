@@ -708,3 +708,16 @@
   5. **边界不变**：引擎消息永英文、永不本地化（D-050 第 2 款）；判据⑥ check:ui-locale 不变（代码剥离注释后零 CJK、字典文件是唯一允许地——第三方语言包是内容，不在闸的扫描范围）；纯内容包无 `engine/` 不弹确认卡、不构成替换（D-032 / D-048 照旧）；资产经宿主静态路由伺服（与 `ui/` 同一套：只读版本目录、禁路径穿越，D-030）。
 - **理由**：AI 创建 = 安装（D-029）与"做个语言包插件装上就能切换"天然同构；纯内容槽是最短路径——语言包就是一个 JSON、主题包就是一段 CSS，零代码、零确认卡，也没有"资产里藏可执行代码"的面（对照 dsh 动态 UI 包 `new Function` 闭包求值，我们不采用那套）；机制底子全是现成的（词表化 D-050 / 变量组主题 / 嵌入方零样式依赖），缺的只是注册缝，落码是纯加法（读者扫描 + 下拉接线 + settings 形状扩展），不碰行模型、协议词表、13 方法门面。
 - **备注**：plugins.md §4 槽位表与校验表两行、interfaces.md web 段视觉语言资产缝条。**落码随需**：触发 = 真实多语言 / 第三方主题需求出现，或生态需要一个低门槛示范品类时；落码前这两个槽位合法但不被读取（AI 创建无害、暂无效果）；落码时 settings 形状扩展同步进 data-directory.md §2.3；不进 roadmap 判据。
+
+## D-060 目录登记与全局目录浏览：侧栏「目录」区的数据底盘与信任边界
+
+- **状态**：已定 · 2026-11-18 · data-directory §4 projects.json 首落地；50-open 无挂账
+- **背景**：用户拍板侧栏三件（2026-11-18）：①目录上方放「所有登记目录」，悬浮区头出「新增目录」，选目录用 BC 的方法（浏览器可拿完整路径）；②悬浮目录行出 ＋ 新建会话；③右键目录/会话起码可删。取证底账：ZCode「项目」区（hover 显隐 / 右键非模态菜单 / 软删）与 BC「目录」区（服务端目录树弹窗 / 确认弹窗+busy 守卫 / session.create 自动登记）。实现底盘缺口：server 零 DELETE 路由、projects.json 文档定稿未落地、全局目录浏览无端点。
+- **决定**：
+  1. **登记表 = data-directory §4 projects.json**（形状照文档定稿，一字不改）：`DirRegistry` 住 plugin-session（账本域共享知识——server 与 sdk 双宿主消费，规则 3 禁宿主互依的正确解是下沉引擎层，不在两宿主各复制一份 projectKey）；**可自愈**：list 时扫账本会话头复活缺失条目；`session.create {cwd}` 成功即自动 upsert（BC 行为层）；
+  2. **全局目录浏览端点 `GET /api/dirs/browse?path=`**：一层 readdir、隐藏项不返、只回目录、`__drives__` = win32 盘符枚举（BC dir_list 行为层）。**信任边界 = 回环三件套**（只绑 127.0.0.1 + Host/Origin 校验 + 可选 token，D-035 判据⑤在所有 /api/* 之上已生效）：本机信任模型下给浏览器补「选目录拿完整路径」的能力——浏览器 File System Access API 拿不到绝对路径，服务端代列是唯一通路（BC 同款解法）；实现住 plugin-session `browseDirectories` 共享函数，双宿主同语义；
+  3. **删除语义双轨**（BC 行为层照搬）：`DELETE /api/sessions/:id` busy → **409 + `session_busy`**（单资源硬拒）；`DELETE /api/dirs/:id` busy → **200 + `{ok:false, blocked:[busySessionIds]}`**（批操作语义响应，不抛 4xx）。删目录 = projects/&lt;key&gt;/ + checkpoints/&lt;key&gt;/ + 登记条目三处同删（data-directory §7），**盘上工作目录本身不动**；key 只从登记条目取 + registry 形态闸兜底（杜绝任意路径删除）；删会话 = 账本目录整棵（§7 已定稿语义）；
+  4. **web 侧 feature-detect**：`HeniraClientLike` 加五个可选方法（listDirs/addDir/deleteDir/browseDirs/deleteSession），宿主**五方法齐备才渲染目录区交互**，缺任一退化纯 cwd 分组（模型选择器三可选先例同款——不做半可用状态）；
+  5. **确认弹窗不学 ZCode 两击原位确认**：我们是硬删（fs.rmSync 不可恢复），ZCode 软删才敢无弹窗——删除一律模态确认（BC 语义），目录删额外列明删除范围 + busy 红框禁用。
+- **理由**：文档先行——data-directory §4/§7 一年前就把形状和删除语义定稿了，本批是兑现不是新设计；下沉 plugin-session 让 runtime 形态零复制拿到同语义（facade.test 双形态一致套件锁定）；信任边界沿用回环三件套不新增防线——全局 readdir 的暴露面是目录名列表（无文件内容），在只绑回环 + token 的既有模型内可接受；若将来对公网开放（显式配置才可能），browse 端点应随部署面重审。
+- **备注**：interfaces.md server 段 REST 面（四个新端点 + DELETE 方法入面）、sdk 段门面方法表（14→19）、web 段侧栏目录区形态条；data-directory.md §4 标注已落地；测试：server.test 五用例 + facade.test 双形态两用例 + parts.test 六用例。ZCode 有而不做（范围控制，随批记）：重命名/置顶/归档/拖拽排序/搜索/视图筛选/⋯按钮/「查看文件」。
