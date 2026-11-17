@@ -69,12 +69,14 @@
   --henira-column-max: 808px;
 }
 @media (min-width: 1124px) {
-  .henira-app {
+  /* 选择器必须 ≥ 基础块的 .henira-app[data-theme=...] 特异性 (0,2,0)——写 .henira-app (0,1,0)
+     会被基础块第二选择器钉死（2026-11-17 活体自审：列宽档在真元素上不生效的根因） */
+  .henira-app[data-theme] {
     --henira-column-max: 896px;
   }
 }
 @media (min-width: 1540px) {
-  .henira-app {
+  .henira-app[data-theme] {
     --henira-column-max: 1152px;
   }
 }
