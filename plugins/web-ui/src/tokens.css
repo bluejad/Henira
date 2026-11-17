@@ -65,6 +65,41 @@
   --henira-fs-base: 14px;
   --henira-fs-lg: 16px;
   --henira-content-width: 760px;
+  /* 对话列宽档（ZCode conversationLayout 三档行为层：672/896/1152→我们的列含内衬 808 起） */
+  --henira-column-max: 808px;
+}
+@media (min-width: 1124px) {
+  .henira-app {
+    --henira-column-max: 896px;
+  }
+}
+@media (min-width: 1540px) {
+  .henira-app {
+    --henira-column-max: 1152px;
+  }
+}
+
+/* 滚动条基础（数值档行为参照 ZCode：细圆条/透明 track/thumb=派生档色；实现自家写法） */
+.henira-app * {
+  scrollbar-width: auto;
+  scrollbar-color: var(--henira-border-strong) transparent;
+}
+.henira-app *::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+.henira-app *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.henira-app *::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: var(--henira-border-strong);
+  background-clip: padding-box;
+}
+.henira-app *::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .henira-app[data-theme="dark"] {
@@ -359,22 +394,23 @@ button:focus-visible > .henira-row-caret {
 }
 
 /* ── 对话面板（结构样式集中处，组件零内联状态样式）────────────────── */
-/* 限宽保可读（<80ch）+ 居中；行距给呼吸 */
+/* 限宽保可读（三档随视口，见 --henira-column-max）+ 居中；行距给呼吸 */
 .henira-conversation {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   box-sizing: border-box;
   width: 100%;
-  max-width: calc(var(--henira-content-width) + var(--henira-space-5) * 2);
+  max-width: var(--henira-column-max);
   margin: 0 auto;
   padding: var(--henira-space-5) var(--henira-space-5) var(--henira-space-6);
 }
 
-/* ── 输入区 dock（与对话列同轴限宽；审批卡与输入卡同宽接管——dsh/ZCode 同位）────── */
+/* ── 输入区 dock（与对话列同轴同档限宽；审批卡与输入卡同宽接管——dsh/ZCode 同位）────── */
 .henira-composer {
   box-sizing: border-box;
   width: 100%;
-  max-width: calc(var(--henira-content-width) + var(--henira-space-5) * 2);
+  max-width: var(--henira-column-max);
   margin: 0 auto;
   padding: 0 var(--henira-space-5) var(--henira-space-4);
 }

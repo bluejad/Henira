@@ -160,7 +160,9 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
           </Pill>
         </div>
       ) : null}
-      {!streaming && row.usage !== undefined ? (
+      {!streaming &&
+      row.usage !== undefined &&
+      (row.usage.inputTokens ?? 0) + (row.usage.outputTokens ?? 0) > 0 ? (
         <div style={{ marginTop: "var(--henira-space-1)" }}>
           <span
             className="henira-mono"
@@ -242,19 +244,6 @@ function ReasoningView({
           >
             {ctx.t("row.reasoning")}
           </span>
-          {streaming ? (
-            <span
-              className="henira-fade-right"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                color: "var(--henira-text-muted)",
-                fontSize: "var(--henira-fs-sm)",
-              }}
-            >
-              {reasoningPreview(reasoning)}
-            </span>
-          ) : null}
           <span
             className="henira-row-caret"
             style={{
@@ -268,6 +257,19 @@ function ReasoningView({
           </span>
         </button>
       </div>
+      {/* 流式摘要独立一行（R125 糙点⑤：不与标题行混排——ZCode 摘要独立 muted 行为层） */}
+      {streaming ? (
+        <div
+          className="henira-fade-right"
+          style={{
+            color: "var(--henira-text-muted)",
+            fontSize: "var(--henira-fs-sm)",
+            margin: "var(--henira-space-1) 0 0 var(--henira-space-5)",
+          }}
+        >
+          {reasoningPreview(reasoning)}
+        </div>
+      ) : null}
       {open ? (
         <div
           style={{

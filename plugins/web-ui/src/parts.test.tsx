@@ -334,6 +334,28 @@ describe("行级挂载点（D-057）", () => {
     expect(screen.getByText("画廊位在场")).toBeDefined();
   });
 
+  it("usage 徽章：有值渲染 12↑4↓；全 0（中断回合）不渲染（R125 糙点③）", () => {
+    const base = {
+      kind: "assistant",
+      rowId: "a:t-1:1",
+      turn: "t-1",
+      step: 1,
+      text: "答",
+      streaming: false,
+    } as const;
+    const withUsage: Row = { ...base, usage: { inputTokens: 12, outputTokens: 4 } };
+    const { container } = render(<Conversation {...ctxWithRows([withUsage], new Map())} />);
+    expect(container.textContent).toContain("12↑ 4↓");
+    cleanup();
+    const zeroUsage: Row = {
+      ...base,
+      rowId: "a:t-1:2",
+      usage: { inputTokens: 0, outputTokens: 0 },
+    };
+    const zero = render(<Conversation {...ctxWithRows([zeroUsage], new Map())} />);
+    expect(zero.container.textContent).not.toContain("↑");
+  });
+
   it("官方模块只注册区域槽（无 keyed 项——安全模式编译期出口无 keyed 缝 = 收起的结构保证）", () => {
     const registered: string[] = [];
     const host = fixtureCtx().host;
