@@ -1,7 +1,7 @@
 // 官方件：对话面板（槽 conversation）。哑渲染器——行来自 store（server 投影器是唯一组装处），
 // 件只做行→ReactNode 的纯呈现。流式文本透明度浮现（CSS .henira-streaming）。
 
-import type { ApprovalRow, AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
+import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
@@ -16,15 +16,11 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   );
   const bottomRef = useRef<HTMLDivElement>(null);
   const rows = snapshot.rows;
-  const lastText = rows[rows.length - 1]?.kind === "assistant" ? rows.length : 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rows.length 是渲染层的变化信号而非 effect 输入（有意豁免）
   useEffect(() => {
     // 新行到达滚到底（流式时由最后行长度变化触发——测高稳定因为 DOM 文本完整）；
-    // scrollIntoView 守卫（jsdom 等无滚动实现的环境直接跳过）
-    const bottom = bottomRef.current;
-    if (bottom !== null && typeof bottom.scrollIntoView === "function") {
-      bottom.scrollIntoView({ block: "end" });
-    }
-  }, [rows.length, lastText]);
+    // scrollIntoView 守卫（jsdom 等无滚动实现的环境直接跳过）。
+  }, [rows.length]);
 
   return (
     <div
@@ -61,7 +57,7 @@ function RowView({ row, ctx }: { row: Row; ctx: WebPartContext }): React.ReactNo
   }
 }
 
-function UserView({ row, ctx }: { row: UserRow; ctx: WebPartContext }) {
+function UserView({ row }: { row: UserRow; ctx: WebPartContext }) {
   return (
     <div
       style={{
@@ -126,7 +122,6 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
       : row.status === "error"
         ? "var(--henira-danger-text)"
         : "var(--henira-ok-text)";
-  const Icon = row.status === "running" ? "spinner" : row.status === "error" ? "x" : "check";
   return (
     <div
       style={{

@@ -10,7 +10,7 @@ import {
 } from "@henira/plugin-web-ui";
 import type { HeniraFacade } from "@henira/sdk";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
-import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
+import { createContext, type ReactNode, useMemo, useState } from "react";
 import type { Layout } from "./host.js";
 import type { RowStore } from "./store.js";
 
@@ -85,6 +85,7 @@ export function Shell(props: ShellProps) {
           >
             <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 8px 0" }}>
               <button
+                type="button"
                 aria-label={t("settings.open")}
                 title={t("settings.title")}
                 onClick={() => {
@@ -95,14 +96,15 @@ export function Shell(props: ShellProps) {
               </button>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              {partsOf("sidebar").map((Part, i) => (
-                <Part key={i} {...ctxValue} />
+              {partsOf("sidebar").map((Part) => (
+                <Part key={Part.name} {...ctxValue} />
               ))}
             </div>
           </div>
         ) : (
           <div style={{ padding: "8px" }}>
             <button
+              type="button"
               aria-label={t("settings.open")}
               onClick={() => {
                 setSettingsOpen(true);
@@ -123,15 +125,15 @@ export function Shell(props: ShellProps) {
                 overflow: "hidden",
               }}
             >
-              {partsOf("conversation").map((Part, i) => (
-                <Part key={i} {...ctxValue} />
+              {partsOf("conversation").map((Part) => (
+                <Part key={Part.name} {...ctxValue} />
               ))}
             </div>
           ) : null}
           {showComposer ? (
             <div>
-              {partsOf("composer").map((Part, i) => (
-                <Part key={i} {...ctxValue} />
+              {partsOf("composer").map((Part) => (
+                <Part key={Part.name} {...ctxValue} />
               ))}
             </div>
           ) : null}
@@ -180,13 +182,13 @@ function SettingsPanel(props: {
   const [key, setKey] = useState("");
   const [saved, setSaved] = useState(false);
 
-  useMemo(() => {
+  useState(() => {
+    // 仅首挂载拉一次（lazy initializer 恰跑一次，无依赖数组问题）
     void props.client.getSettings().then((s) => {
       if (s.model !== undefined) setModel(s.model);
     });
-    // 仅首挂载拉一次
-    // eslint 不在闸内；此处依赖数组空是有意为之
-  }, []);
+    return true;
+  });
 
   const save = (): void => {
     const patch: { model?: string; ui?: { theme?: string } } = {};
@@ -229,7 +231,9 @@ function SettingsPanel(props: {
       >
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
           <strong>{t("settings.title")}</strong>
-          <button onClick={props.onClose}>✕</button>
+          <button type="button" onClick={props.onClose}>
+            ✕
+          </button>
         </div>
         <label style={{ display: "block", marginBottom: "12px" }}>
           <div style={{ color: "var(--henira-text-muted)", marginBottom: "4px" }}>
@@ -297,7 +301,7 @@ function SettingsPanel(props: {
           {saved ? (
             <span style={{ color: "var(--henira-ok-text)" }}>{t("settings.saved")}</span>
           ) : null}
-          <button className="henira-primary" onClick={save}>
+          <button type="button" className="henira-primary" onClick={save}>
             {t("settings.save")}
           </button>
         </div>

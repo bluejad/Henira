@@ -65,10 +65,12 @@ export function ApprovalCard({
       ) : null}
       {pending ? (
         <div style={{ display: "flex", gap: "8px" }}>
-          <button className="henira-primary" onClick={() => decide("allowed-once")}>
+          <button type="button" className="henira-primary" onClick={() => decide("allowed-once")}>
             {ctx.t("approval.allow")}
           </button>
-          <button onClick={() => decide("rejected")}>{ctx.t("approval.deny")}</button>
+          <button type="button" onClick={() => decide("rejected")}>
+            {ctx.t("approval.deny")}
+          </button>
         </div>
       ) : row.decision !== undefined ? (
         <span

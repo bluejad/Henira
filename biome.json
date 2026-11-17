@@ -1,6 +1,11 @@
 {
   "files": {
-    "includes": ["**", "!**/dist", "!packages/config-loader/src/models-dev-snapshot.json"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!packages/config-loader/src/models-dev-snapshot.json",
+      "!**/dist-web"
+    ]
   },
   "formatter": {
     "indentStyle": "space",
@@ -11,5 +16,17 @@
     "rules": {
       "preset": "recommended"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["plugins/web-ui/src/tokens.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          }
+        }
+      }
+    }
+  ]
 }

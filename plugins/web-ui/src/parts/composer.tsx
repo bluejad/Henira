@@ -69,7 +69,12 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
         <div
           style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}
         >
-          <button className="henira-primary" onClick={stop} aria-label={ctx.t("composer.stop")}>
+          <button
+            type="button"
+            className="henira-primary"
+            onClick={stop}
+            aria-label={ctx.t("composer.stop")}
+          >
             <StopGlyph size={14} /> {ctx.t("composer.stop")}
           </button>
           <span style={{ fontSize: "11px", color: "var(--henira-text-muted)" }}>
@@ -78,6 +83,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
         </div>
       ) : (
         <button
+          type="button"
           className="henira-primary"
           onClick={submit}
           disabled={draft.trim() === "" || ctx.sessionId === null}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // 官方件测试（jsdom）：locale 取字 / 交互回调 / 哑渲染。件纯呈现——数据经承重缝注入。
 
-import type { ApprovalRow, Row, ServerFrame, SessionSummary } from "@henira/protocol";
+import type { ApprovalRow, Row, ServerFrame } from "@henira/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";

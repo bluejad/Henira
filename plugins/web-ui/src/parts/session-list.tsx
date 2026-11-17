@@ -51,7 +51,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         }}
       >
         <strong style={{ color: "var(--henira-text-strong)" }}>{ctx.t("sessions.title")}</strong>
-        <button className="henira-primary" onClick={createSession}>
+        <button type="button" className="henira-primary" onClick={createSession}>
           + {ctx.t("sessions.new")}
         </button>
       </div>
@@ -64,6 +64,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
             return (
               <li key={s.id} style={{ marginBottom: "2px" }}>
                 <button
+                  type="button"
                   onClick={() => {
                     ctx.selectSession(s.id);
                   }}
@@ -78,6 +79,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                   }}
                 >
                   <span
+                    role={"img"}
                     aria-label={s.busy ? ctx.t("sessions.busy") : ctx.t("sessions.idle")}
                     style={{
                       display: "inline-block",
