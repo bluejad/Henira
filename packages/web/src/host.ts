@@ -14,6 +14,7 @@ import {
 } from "@henira/plugin-web-ui";
 import type { ServerFrame, SessionSummary } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
+import { markdownNode } from "./markdown.js";
 import { Shell, type ShellProps } from "./shell.js";
 import { RowStore } from "./store.js";
 
@@ -120,8 +121,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     },
     prefill(_input: { text: string }) {}, // M3：官方输入框自管草稿；prefill 随命令进输入框批接线
     renderMarkdown(text: string) {
-      // M3 最小呈现（纯文本）；markdown 解析随插件生态需求再加
-      return text;
+      // markdown 落地（M4 批 A）：实现体在 markdown.ts（GFM；raw HTML 不渲染；无高亮 v1）
+      return markdownNode(text);
     },
     getSession() {
       return sessionId === null ? null : { sessionId, cwd: sessionCwd };

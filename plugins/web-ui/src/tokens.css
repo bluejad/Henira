@@ -72,6 +72,109 @@
   transition: opacity 0.18s ease-out;
 }
 
+/* markdown 渲染（host.renderMarkdown 唯一出口；raw HTML 不渲染；零 webfont）。
+   行为取舍：流式中未闭合围栏=代码块（settled grammar is the streaming one）；
+   宽表格自然宽度+横向滚动；图片限宽。 */
+.henira-md {
+  overflow-wrap: break-word;
+}
+.henira-md > :first-child {
+  margin-top: 0;
+}
+.henira-md > :last-child {
+  margin-bottom: 0;
+}
+.henira-md p {
+  margin: 0.5em 0;
+}
+.henira-md h1,
+.henira-md h2,
+.henira-md h3,
+.henira-md h4,
+.henira-md h5,
+.henira-md h6 {
+  margin: 1em 0 0.4em;
+  line-height: 1.4;
+  color: var(--henira-text-strong);
+}
+.henira-md h1 {
+  font-size: 1.35em;
+}
+.henira-md h2 {
+  font-size: 1.2em;
+}
+.henira-md h3 {
+  font-size: 1.08em;
+}
+.henira-md h4,
+.henira-md h5,
+.henira-md h6 {
+  font-size: 1em;
+}
+.henira-md ul,
+.henira-md ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.henira-md li {
+  margin: 0.2em 0;
+}
+.henira-md blockquote {
+  margin: 0.6em 0;
+  padding: 2px 12px;
+  border-left: 2px solid var(--henira-border-strong);
+  color: var(--henira-text-muted);
+}
+.henira-md code {
+  font-family: var(--henira-mono);
+  font-size: 13px;
+  background: var(--henira-bg);
+  border: 1px solid var(--henira-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.henira-md pre {
+  margin: 0.6em 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--henira-bg);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+}
+.henira-md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.henira-md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+.henira-md th,
+.henira-md td {
+  border: 1px solid var(--henira-border);
+  padding: 4px 10px;
+  text-align: left;
+}
+.henira-md th {
+  background: var(--henira-bg);
+  color: var(--henira-text-strong);
+}
+.henira-md img {
+  max-width: 100%;
+  border-radius: var(--henira-radius);
+}
+.henira-md hr {
+  border: none;
+  border-top: 1px solid var(--henira-border);
+  margin: 1em 0;
+}
+.henira-md a {
+  color: var(--henira-info-text);
+}
+
 .henira-app button {
   font: inherit;
   border: 1px solid var(--henira-border);

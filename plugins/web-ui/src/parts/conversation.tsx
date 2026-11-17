@@ -105,10 +105,7 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
           {row.reasoning}
         </p>
       ) : null}
-      <div
-        className={streaming ? "henira-streaming" : undefined}
-        style={{ whiteSpace: "pre-wrap" }}
-      >
+      <div className={streaming ? "henira-streaming" : undefined}>
         {ctx.host.renderMarkdown(row.text)}
       </div>
     </div>

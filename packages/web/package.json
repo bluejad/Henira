@@ -20,9 +20,11 @@
     "@henira/plugin-web-ui": "workspace:*",
     "@henira/protocol": "workspace:*",
     "@henira/sdk": "workspace:*",
+    "@phosphor-icons/react": "^2.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@phosphor-icons/react": "^2.1.1"
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
