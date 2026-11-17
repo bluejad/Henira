@@ -635,12 +635,15 @@ interface WebApp {
   dispose(): Promise<void>;
 }
 
-// ── 官方件承重缝（件 + 会话上下文一起给）──
+// ── 官方件承重缝（件 + 会话上下文一起给；M4 批 A 扩定——D-057 slots / D-059 主题字符串 id）──
 interface WebPartContext {
   client: HeniraFacade;
   sessionId: string | null; // 当前会话（null = 未选中）
-  t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud）
-  theme: "light" | "dark";
+  t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud；D-059 语言包覆盖优先、回落 zh）
+  theme: string; // 主题 id：官方 light/dark 或已装主题包名（D-059）
+  store: RowStoreLike; // 流式增量从哪来
+  host: PluginUiHost; // 宿主门面（13 方法）
+  slots: ReadonlyMap<string, readonly SlotPart[]>; // 槽位只读视图（区域 + keyed，D-057）
 }
 type WebPart = (ctx: WebPartContext) => ReactNode;
 ```
