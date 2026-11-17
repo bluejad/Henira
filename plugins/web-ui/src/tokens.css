@@ -368,6 +368,56 @@ button:focus-visible > .henira-row-caret {
   padding: var(--henira-space-5) var(--henira-space-5) var(--henira-space-6);
 }
 
+/* ── 输入区 dock（与对话列同轴限宽；审批卡与输入卡同宽接管——dsh/ZCode 同位）────── */
+.henira-composer {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--henira-content-width) + var(--henira-space-5) * 2);
+  margin: 0 auto;
+  padding: 0 var(--henira-space-5) var(--henira-space-4);
+}
+.henira-composer-card {
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius-xl);
+  background: var(--henira-surface);
+  padding: var(--henira-space-2) var(--henira-space-3) var(--henira-space-2);
+  transition: border-color 0.15s ease;
+}
+.henira-composer-card:focus-within {
+  border-color: var(--henira-accent);
+}
+.henira-composer-card textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  line-height: 1.6;
+  padding: var(--henira-space-1) var(--henira-space-1);
+  max-height: 200px;
+}
+.henira-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  margin-top: var(--henira-space-1);
+}
+.henira-app button.henira-icon-round {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 /* ── 会话列表项（激活原死 class：hover / 选中态收口在此，组件零内联状态样式）── */
 .henira-sessions li button {
   border: 1px solid transparent;

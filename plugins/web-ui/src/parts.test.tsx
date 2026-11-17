@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";
 import { webUiModule } from "./module.js";
-import { ApprovalCard } from "./parts/approval-card.js";
+import { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
 import { SessionList } from "./parts/session-list.js";
@@ -105,10 +105,11 @@ describe("Composer", () => {
     fireEvent.change(area, { target: { value: "你好" } });
     fireEvent.keyDown(area, { key: "Enter" });
     expect(prompt).toHaveBeenCalledWith("s-1", "你好");
-    // busy 形态
+    // busy 形态（store 契约=rows 引用稳定：快照提出闭包，getSnapshot 每次新对象会让 useSyncExternalStore 死循环）
+    const busyRows: Row[] = [];
     const busyCtx = fixtureCtx({
       store: {
-        getSession: () => ({ rows: [], state: { busy: true } }),
+        getSession: () => ({ rows: busyRows, state: { busy: true } }),
         subscribe: () => () => {},
       },
     });
@@ -120,21 +121,48 @@ describe("Composer", () => {
 });
 
 describe("ApprovalCard", () => {
+  const pendingRow = {
+    kind: "approval",
+    rowId: "p:r-1",
+    turn: "t-1",
+    step: 1,
+    requestId: "r-1",
+    toolName: "demo-write",
+    status: "pending",
+  } as ApprovalRow;
+
   it("pending 显示允许/拒绝；点击走 settleApproval", async () => {
     const ctx = fixtureCtx();
     const settle = vi.spyOn(ctx.client, "settleApproval");
-    const row = {
-      kind: "approval",
-      rowId: "p:r-1",
-      turn: "t-1",
-      step: 1,
-      requestId: "r-1",
-      toolName: "demo-write",
-      status: "pending",
-    } as ApprovalRow;
-    render(<ApprovalCard row={row} ctx={ctx} />);
+    render(<ApprovalCard row={pendingRow} ctx={ctx} />);
     fireEvent.click(screen.getByText(t("approval.allow")));
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once");
+  });
+
+  it("pending 审批接管 composer dock：卡渲染于输入卡上方，Enter 让位不发送", () => {
+    const approvalRows: Row[] = [pendingRow];
+    const ctx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: approvalRows, state: { busy: false } }),
+        subscribe: () => () => {},
+      },
+    });
+    const prompt = vi.spyOn(ctx.client, "prompt");
+    const { container } = render(<Composer {...ctx} />);
+    expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
+    fireEvent.keyDown(container.querySelector("textarea") as HTMLTextAreaElement, { key: "Enter" });
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it("settled 行走 ApprovalSettledRow：决策原文在场", () => {
+    const ctx = fixtureCtx();
+    render(
+      <ApprovalSettledRow
+        row={{ ...pendingRow, status: "settled", decision: "rejected" }}
+        ctx={ctx}
+      />,
+    );
+    expect(screen.getByText("rejected")).toBeDefined();
   });
 });
 

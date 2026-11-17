@@ -8,7 +8,7 @@
 import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
-import { ApprovalCard } from "./approval-card.js";
+import { ApprovalSettledRow } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 import { DetailPane, DisclosureRow } from "./row-chrome.js";
 
@@ -62,7 +62,8 @@ function RowView({ row, ctx }: { row: Row; ctx: WebPartContext }): React.ReactNo
     case "tool":
       return <ToolRowView row={row} ctx={ctx} />;
     case "approval":
-      return <ApprovalCard row={row} ctx={ctx} />;
+      // pending 审批在输入区上方 dock 渲染（composer.tsx 接管）；对话流内只留 settled 痕迹行
+      return row.status === "pending" ? null : <ApprovalSettledRow row={row} ctx={ctx} />;
     case "error":
       return <ErrorView row={row} ctx={ctx} />;
   }

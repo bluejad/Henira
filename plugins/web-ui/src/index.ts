@@ -4,7 +4,7 @@
 
 export { type Dict, zh } from "./locales/zh.js";
 export { defaultParts, webUiModule } from "./module.js";
-export { ApprovalCard } from "./parts/approval-card.js";
+export { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
 export { Composer } from "./parts/composer.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
 export { DetailPane, DisclosureRow, type DisclosureRowProps } from "./parts/row-chrome.js";
