@@ -38,6 +38,12 @@ describe("serve 点火车", () => {
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
+    try {
+      await fs.access(cliBin());
+    } catch {
+      const distContents = await fs.readdir(path.dirname(cliBin())).catch(() => ["(no dist dir)"]);
+      throw new Error(`cli bin missing: ${cliBin()}\ndist contents: ${distContents.join(", ")}`);
+    }
     const url = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`serve did not print URL in 10s\nstderr: ${stderr}`)), 10_000);
       child.stdout?.on("data", (chunk: Buffer) => {
