@@ -195,6 +195,10 @@ function ReasoningView({
   ctx: WebPartContext;
 }): React.ReactNode {
   const [open, setOpen] = useState(streaming);
+  // 完成态自动收起（ZCode autoCollapse 行为——流式看思路、完成还正文；用户可手动再展开）
+  useEffect(() => {
+    if (!streaming) setOpen(false);
+  }, [streaming]);
   return (
     <div style={{ margin: "0 0 var(--henira-space-2)" }}>
       <div
@@ -337,6 +341,11 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
         ? "var(--henira-danger-text)"
         : "var(--henira-ok-text)";
   const running = row.status === "running";
+  // 错误揭示（dsh/ZCode autoOpen 行为参照）：mount 时已 error 或执行中转 error 都要展开可见
+  const [revealed, setRevealed] = useState(isError);
+  useEffect(() => {
+    if (isError) setRevealed(true);
+  }, [isError]);
   // 官方默认工具卡 = 组装行 chrome 原语（与 keyed 顶替件同一套，D-057 观感协调）
   return (
     <DisclosureRow
@@ -369,7 +378,7 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
           ) : null}
         </>
       }
-      initialOpen={isError}
+      open={revealed ? true : undefined}
     >
       <DetailPane
         sections={[

@@ -290,9 +290,9 @@ function SettingsPanel(props: {
     >
       <div
         style={{
-          background: "var(--henira-surface)",
-          border: "1px solid var(--henira-border)",
-          borderRadius: "var(--henira-radius)",
+          background: "var(--henira-panel)",
+          border: "1px solid var(--henira-border-strong)",
+          borderRadius: "var(--henira-radius-lg)",
           padding: "24px",
           minWidth: "360px",
         }}
