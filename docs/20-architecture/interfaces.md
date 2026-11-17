@@ -488,7 +488,7 @@ interface UserRow {
   rowId: RowId;
   turn: string;
   text: string;
-  source: "send" | "steer" | "veto";
+  source: string; // 账本 user/message.source 原样（send / steer / veto / …开放词表，投影器不筛选）
 }
 interface AssistantRow {
   kind: "assistant";
@@ -559,7 +559,7 @@ type ServerFrame =
 
 **客户端纪律（断档不猜）**：每会话记 `lastSeq`；增量帧仅当 `seq === lastSeq + 1` 时应用，否则调 snapshot 端点整体替换并重置水位——客户端永不猜中间态。
 
-### 投影器（server 包内部模块）
+### 投影器（实现住 `@henira/protocol`——server 与 sdk 双形态共用的事件→行唯一组装处）
 
 - **唯一权威输入 = 会话账本**：历史与断线重建都从账本回放——快照永远从真相重建，实时路径任何漂移都被账本兜底（自愈）；
 - 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
@@ -579,7 +579,7 @@ type ServerFrame =
 
 1. 默认只绑 `127.0.0.1`（对公网 / 局域网开放 = 显式配置）；
 2. 随机端口（`HENIRA_PORT` 可覆盖）；
-3. Host / Origin 头校验（防恶意网页解析到回环冒充访问本机服务）；`HENIRA_SERVER_TOKEN` 设置时启用 Bearer / `?token=` 校验（可选 token 位，命中即换 HttpOnly cookie）。
+3. Host / Origin 头校验（防恶意网页解析到回环冒充访问本机服务）；`HENIRA_SERVER_TOKEN` 设置时启用 Bearer / `?token=` 校验（可选 token 位）。
 
 > **功能面加法生长（备考）**：行协议当前 5 行类型 / 4 增量操作 / 快照 + 心跳——行模型核心与 ZCode 同构，功能面按各自功能批**往协议加方法**：附件（M4）、插件管理面（M4）、tasks / plans（M5）、subagent（M5）、文件 diff（发布后）。重开条件：分屏工作台 / 超长会话初始渲染需求出现 → 评估 rowsRange 分页；多路复用 / 桌面中继需求出现 → 升级 WS 传输层（行协议词表不动）。
 
