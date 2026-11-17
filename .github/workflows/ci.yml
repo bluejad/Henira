@@ -24,6 +24,8 @@ jobs:
 
       - run: pnpm typecheck
 
+      - run: pnpm build
+
       - run: pnpm test
 
       - run: pnpm check:deps
