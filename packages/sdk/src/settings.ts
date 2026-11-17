@@ -28,3 +28,41 @@ export async function readSettings(globalDir: string): Promise<SettingsFile | un
     return undefined;
   }
 }
+
+export async function writeSettings(
+  globalDir: string,
+  patch: { model?: string; ui?: { theme?: string; locale?: string } },
+): Promise<SettingsFile> {
+  const current = (await readSettings(globalDir)) ?? { version: 1 as const };
+  const next: SettingsFile = {
+    ...current,
+    ...patch,
+    version: 1, // 恒为 1：调用方改不动版本位
+    ui: { ...current.ui, ...patch.ui },
+  };
+  await fs.writeFile(
+    path.join(globalDir, "settings.json"),
+    `${JSON.stringify(next, null, 2)}\n`,
+    "utf8",
+  );
+  return next;
+}
+
+export async function writeCredential(
+  globalDir: string,
+  providerId: string,
+  key: string,
+): Promise<void> {
+  const file = path.join(globalDir, "credentials.json");
+  let current: { providers?: Record<string, string> } = {};
+  try {
+    current = JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    // 首次写入
+  }
+  const next = { providers: { ...current.providers, [providerId]: key } };
+  const tmp = `${file}.tmp`;
+  await fs.writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await fs.rename(tmp, file);
+  await fs.chmod(file, 0o600).catch(() => {}); // Windows 尽力而为
+}

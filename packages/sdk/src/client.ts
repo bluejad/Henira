@@ -73,6 +73,30 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       return res.applied;
     },
 
+    async getSettings() {
+      return requestJson("/api/settings");
+    },
+
+    async putSettings(patch) {
+      return requestJson("/api/settings", { method: "PUT", body: JSON.stringify(patch) });
+    },
+
+    async listModels() {
+      return requestJson("/api/models");
+    },
+
+    async putCredential(providerId, key) {
+      await requestJson(`/api/credentials/${providerId}`, {
+        method: "PUT",
+        body: JSON.stringify({ key }),
+      });
+    },
+
+    async listDir(sessionId, dirPath) {
+      const query = dirPath === undefined ? "" : `?path=${encodeURIComponent(dirPath)}`;
+      return requestJson(`/api/sessions/${sessionId}/files${query}`);
+    },
+
     async snapshot(sessionId) {
       return requestJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`);
     },

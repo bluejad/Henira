@@ -7,7 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createConfigService } from "@henira/config-loader";
+import { createConfigService, SNAPSHOT } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
@@ -29,7 +29,7 @@ import {
   type SessionSummary,
 } from "@henira/protocol";
 import { frameQueue, type HeniraFacade } from "./facade.js";
-import { isPluginEnabled, readSettings } from "./settings.js";
+import { isPluginEnabled, readSettings, writeCredential, writeSettings } from "./settings.js";
 
 export interface RuntimeOptions {
   /** 运行数据目录（默认 ~/.henira；测试 / 多实例隔离用 HENIRA_HOME 语义） */
@@ -179,6 +179,64 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       return session.ctx
         .get("interaction")
         .settle(requestId, { kind: "approval", requestId, decision });
+    },
+
+    async getSettings() {
+      const s = await readSettings(globalDir);
+      return { version: 1, model: s?.model, ui: s?.ui };
+    },
+
+    async putSettings(patch) {
+      const next = await writeSettings(globalDir, patch);
+      return { version: 1, model: next.model, ui: next.ui };
+    },
+
+    async listModels() {
+      let overrides: { providers?: Record<string, { baseUrl?: string }> } = {};
+      try {
+        overrides = JSON.parse(
+          await fs.readFile(path.join(globalDir, "models.json"), "utf8"),
+        ) as typeof overrides;
+      } catch {
+        // 未配置
+      }
+      const providers: { providers: Record<string, { baseUrl?: string; models?: string[] }> } = {
+        providers: {},
+      };
+      for (const [id, value] of Object.entries(overrides.providers ?? {})) {
+        providers.providers[id] = { ...value };
+      }
+      for (const id of Object.keys(providers.providers)) {
+        const dict = SNAPSHOT[id];
+        providers.providers[id].models = dict === undefined ? undefined : Object.keys(dict.models);
+      }
+      return providers;
+    },
+
+    async putCredential(providerId, key) {
+      await writeCredential(globalDir, providerId, key);
+    },
+
+    async listDir(sessionId, dirPath) {
+      const session = requireSession(sessions, sessionId);
+      const root = path.resolve(session.cwd);
+      const target = path.resolve(root, dirPath ?? "");
+      if (target !== root && !target.startsWith(root + path.sep)) {
+        throw new Error("path escapes session workspace");
+      }
+      const dirents = await fs.readdir(target, { withFileTypes: true });
+      const entries: { name: string; kind: "file" | "dir"; size?: number; mtime?: number }[] = [];
+      for (const dirent of dirents) {
+        if (dirent.name.startsWith(".")) continue;
+        const stat = await fs.stat(path.join(target, dirent.name)).catch(() => undefined);
+        entries.push({
+          name: dirent.name,
+          kind: dirent.isDirectory() ? "dir" : "file",
+          size: dirent.isFile() ? stat?.size : undefined,
+          mtime: stat?.mtimeMs,
+        });
+      }
+      return entries;
     },
 
     async snapshot(sessionId) {

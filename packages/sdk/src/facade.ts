@@ -10,6 +10,23 @@ import type {
   SessionSummary,
 } from "@henira/protocol";
 
+export interface SettingsData {
+  version: 1;
+  model?: string;
+  ui?: { theme?: string; locale?: string };
+}
+
+export interface DirEntry {
+  name: string;
+  kind: "file" | "dir";
+  size?: number;
+  mtime?: number;
+}
+
+export interface ModelCatalog {
+  providers: Record<string, { baseUrl?: string; models?: string[] }>;
+}
+
 export interface HeniraFacade {
   /** 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接 */
   stop(): Promise<void>;
@@ -23,6 +40,19 @@ export interface HeniraFacade {
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   /** 初始渲染 + 断档重拉共用出口（快照永远从账本重建） */
   snapshot(sessionId: string): Promise<SessionSnapshot>;
+  /** 设置读（settings.json；凭据永不出现，D-030） */
+  getSettings(): Promise<SettingsData>;
+  /** 设置写（程序写；data-directory §2.3） */
+  putSettings(patch: {
+    model?: string;
+    ui?: { theme?: string; locale?: string };
+  }): Promise<SettingsData>;
+  /** 模型目录（手写覆盖 + models.dev 快照清单；无密钥） */
+  listModels(): Promise<ModelCatalog>;
+  /** 密钥写入（credentials.json 0600；无对应读取面——D-030 明文永不回读） */
+  putCredential(providerId: string, key: string): Promise<void>;
+  /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
+  listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;
   /** 全局帧流（connected → 逐会话快照 → 增量）；远端形态内置重连 + 断档不猜（跳号即重拉快照换发） */
   events(): AsyncIterable<ServerFrame>;
 }

@@ -21,7 +21,8 @@
     "@henira/config-loader": "workspace:*",
     "@henira/sdk": "workspace:*",
     "@henira/server": "workspace:*",
-    "jiti": "^2.6.0"
+    "jiti": "^2.6.0",
+    "@henira/protocol": "workspace:*"
   },
   "devDependencies": {
     "@henira/kernel": "workspace:*"

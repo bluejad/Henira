@@ -2,9 +2,10 @@
 // 握手文件（hosts.md §3 进程级共享；data-directory §2 state/ 住处）→ stop 收尾（关 server、
 // 销毁会话、清握手文件；SSE 长连接用 closeAllConnections 硬断——客户端重连走发现协议）。
 
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import type http from "node:http";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { ServiceDefinition } from "@henira/kernel";
 import type { LlmService } from "@henira/protocol";
@@ -28,6 +29,8 @@ export interface ServerOptions {
   llm?: ServiceDefinition<LlmService>;
   /** 额外引擎插件（henira.config.ts 清单加法，D-016①） */
   plugins?: readonly ServiceDefinition<unknown>[];
+  /** web 静态产物目录（缺省自动定位 packages/web/dist-web；找不到 = 纯 API） */
+  webDist?: string;
 }
 
 export interface HeniraServer {
@@ -56,7 +59,15 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
     plugins: opts.plugins,
     fanout,
   });
-  const app = createApp({ registry, fanout, globalDir, version, startedAt, token });
+  const app = createApp({
+    registry,
+    fanout,
+    globalDir,
+    version,
+    startedAt,
+    token,
+    webDist: opts.webDist ?? locateWebDist(),
+  });
 
   const server = serve({ fetch: app.fetch, hostname: host, port });
   await new Promise<void>((resolve) => {
@@ -98,4 +109,17 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
       await fs.rm(handshake, { force: true }).catch(() => {});
     },
   };
+}
+
+/** 从本包 dist 上溯定位 packages/web/dist-web（monorepo 布局；独立安装缺席 = 纯 API） */
+function locateWebDist(): string | undefined {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, "packages", "web", "dist-web");
+    if (existsSync(path.join(candidate, "index.html"))) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+  return undefined;
 }

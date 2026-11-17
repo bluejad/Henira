@@ -6,6 +6,7 @@
 
 import { loadConfig, type PluginEntry } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
+import type { LlmRequest, LlmService } from "@henira/protocol";
 import { createRuntime } from "@henira/sdk";
 import { createServer } from "@henira/server";
 
@@ -39,13 +40,33 @@ const HELP = `henira — open-source agent harness (kernel provides mechanisms; 
 
 Usage:
   henira serve [--port N] [--host H] [--cwd DIR]   start the HTTP + SSE host (D-018)
-  henira run "prompt" [--cwd DIR]                  one-shot headless task, in-process (D-037)
+  henira run "prompt" [--cwd DIR] [--mock]        one-shot headless task, in-process (D-037)
 
 Options:
   --cwd DIR     working directory (default: process cwd)
   --port N      server port (serve; default: random)
   --host H      server host (serve; default: 127.0.0.1)
+  --mock        use built-in mock LLM (offline demo; no credentials needed)
   --help        show this help`;
+
+/** mock LLM 桩（--mock：离线 demo；回应最后一条用户消息 + 固定 usage/finish） */
+function mockLlmService(): ServiceDefinition<LlmService> {
+  return {
+    name: "llm",
+    start(): LlmService {
+      return {
+        stream: async function* (req: LlmRequest, _signal: AbortSignal) {
+          const lastUser = [...req.messages].reverse().find((m) => m.role === "user");
+          const text =
+            typeof lastUser?.content === "string" ? lastUser.content.slice(0, 80) : "hello";
+          yield { type: "text-delta" as const, text: `[mock] ${text}` };
+          yield { type: "usage" as const, usage: { inputTokens: 1, outputTokens: 1 } };
+          yield { type: "finish" as const, reason: "stop" as const };
+        },
+      };
+    },
+  };
+}
 
 /** 项目 henira.config.ts 的插件清单 → 装配物（definition 缺省的纯内容包条目跳过——不占引擎槽位） */
 async function loadPluginDefinitions(cwd: string): Promise<ServiceDefinition<unknown>[]> {
@@ -63,6 +84,7 @@ async function serve(args: Args): Promise<void> {
     port: args.flags.has("port") ? Number(args.flags.get("port")) : undefined,
     host: args.flags.get("host"),
     plugins,
+    llm: args.flags.has("mock") ? mockLlmService() : undefined,
   });
   console.log(`henira serve listening on ${server.url}`);
   console.log("handshake: ~/.henira/state/server.json (clients discover via this file)");
@@ -83,7 +105,10 @@ async function run(args: Args): Promise<void> {
   const cwd = args.flags.get("cwd") ?? process.cwd();
   process.chdir(cwd);
   const plugins = await loadPluginDefinitions(process.cwd());
-  const runtime = await createRuntime({ plugins });
+  const runtime = await createRuntime({
+    plugins,
+    llm: args.flags.has("mock") ? mockLlmService() : undefined,
+  });
   const session = await runtime.createSession({ cwd: process.cwd() });
 
   // 事件流 → 终端投影：回合 busy=true 起步、busy=false 收尾即退出（headless 一次性语义）

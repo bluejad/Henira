@@ -31,3 +31,5 @@ jobs:
       - run: pnpm check:deps
 
       - run: pnpm check:docs
+
+      - run: pnpm check:ui-locale

@@ -1,0 +1,35 @@
+{
+  "name": "@henira/web",
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist",
+    "dist-web"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "bundle": "vite build --logLevel error"
+  },
+  "dependencies": {
+    "@henira/plugin-web-ui": "workspace:*",
+    "@henira/protocol": "workspace:*",
+    "@henira/sdk": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@phosphor-icons/react": "^2.1.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "jsdom": "^25.0.0",
+    "vite": "^6.0.0"
+  }
+}

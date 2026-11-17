@@ -2,7 +2,7 @@
 // 只绑回环由 server.ts 负责，此处管 Host/Origin 校验与可选 token）+ REST 路由 + SSE 端点。
 // SSE 帧序 = connected → 在订会话快照帧 → 增量帧混排；15s 注释心跳；有界队列溢出断开。
 
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { DECISIONS, rebuildProjection, type ServerFrame } from "@henira/protocol";
@@ -24,6 +24,8 @@ export interface AppDeps {
   version: string;
   startedAt: number;
   token?: string;
+  /** web 静态产物目录（packages/web/dist-web；缺席 = 纯 API 服务） */
+  webDist?: string;
 }
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -285,6 +287,39 @@ export function createApp(deps: AppDeps): Hono {
       }
     });
   });
+
+  // ── web 静态托管（同源 SPA；dist-web 缺席 = 纯 API 服务；必须最后注册——通配路由）──
+  const webDist = deps.webDist;
+  if (webDist !== undefined) {
+    const indexFile = path.join(webDist, "index.html");
+    if (existsSync(indexFile)) {
+      const MIME: Record<string, string> = {
+        ".html": "text/html; charset=utf-8",
+        ".js": "text/javascript",
+        ".css": "text/css",
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".ico": "image/x-icon",
+      };
+      app.get("*", async (c) => {
+        if (c.req.path.startsWith("/api/")) {
+          return c.json({ error: "not found" }, 404); // 未知 API 端点绝不 fallback 成页面（401/404 语义保真）
+        }
+        const rel = c.req.path === "/" ? "index.html" : c.req.path.slice(1);
+        const file = path.join(webDist, path.normalize(rel));
+        if (!file.startsWith(webDist)) return c.notFound(); // 路径围栏
+        try {
+          const body = await fs.readFile(file);
+          return c.body(body, 200, {
+            "content-type": MIME[path.extname(file)] ?? "application/octet-stream",
+          });
+        } catch {
+          const index = await fs.readFile(indexFile); // SPA fallback
+          return c.body(index, 200, { "content-type": MIME[".html"] });
+        }
+      });
+    }
+  }
 
   return app;
 }
