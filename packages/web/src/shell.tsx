@@ -4,6 +4,7 @@
 import {
   type PluginUiHost,
   type RowStoreLike,
+  type SlotPart,
   type WebPart,
   type WebSlotName,
   zh,
@@ -16,7 +17,7 @@ import type { RowStore } from "./store.js";
 
 export type ShellProps = {
   store: RowStore;
-  slots: Map<WebSlotName, WebPart[]>;
+  slots: ReadonlyMap<string, readonly SlotPart[]>;
   client: HeniraFacade;
   layout: Layout;
   host: PluginUiHost;
@@ -38,6 +39,7 @@ type WebPartContextValue = {
   theme: "light" | "dark";
   store: RowStoreLike;
   host: PluginUiHost;
+  slots: ReadonlyMap<string, readonly SlotPart[]>;
 };
 
 const PartContext = createContext<WebPartContextValue>(undefined as never);
@@ -49,7 +51,7 @@ const t = (key: string): string => {
 };
 
 export function Shell(props: ShellProps) {
-  const { store, slots, client, layout, safeMode } = props;
+  const { store, client, layout, safeMode } = props;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const ctxValue = useMemo<WebPartContextValue>(
@@ -63,14 +65,16 @@ export function Shell(props: ShellProps) {
       theme: props.theme,
       store,
       host: props.host,
+      slots: props.slots,
     }),
-    [client, props.sessionId, props.onSelectSession, store, props.theme, props.host],
+    [client, props.sessionId, props.onSelectSession, store, props.theme, props.host, props.slots],
   );
 
   const showSidebar = layout === "full";
   const showConversation = layout === "full" || layout === "center";
   const showComposer = layout === "full" || layout === "composer" || layout === "center";
-  const partsOf = (slot: WebSlotName): WebPart[] => slots.get(slot) ?? [];
+  // 区域槽只可能装 WebPart（webUiModule/defaultParts 只注册区域件）——keyed 件由行渲染侧消费
+  const partsOf = (slot: WebSlotName): WebPart[] => (props.slots.get(slot) ?? []) as WebPart[];
   // 槽位收起：未装件的槽不渲染不占宽（未装件槽位收起语义）
   const sidebarHas = partsOf("sidebar").length > 0;
 

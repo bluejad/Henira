@@ -1,9 +1,11 @@
 // 官方件：对话面板（槽 conversation）。哑渲染器——行来自 store（server 投影器是唯一组装处），
 // 件只做行→ReactNode 的纯呈现。流式文本透明度浮现（CSS .henira-streaming）。
+// 行级挂载点（D-057）：tool.call.view.<工具名>（keyed，顶替官方工具卡）/ conversation.images
+// （assistant 行尾画廊位，缺席默认 = markdown 内联图）/ turn.tail（回合尾追加位，官方无默认件）。
 
 import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
-import { useEffect, useRef, useSyncExternalStore } from "react";
-import type { WebPart, WebPartContext } from "../types.js";
+import { Fragment, useEffect, useRef, useSyncExternalStore } from "react";
+import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
 import { CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 
@@ -21,6 +23,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     // 新行到达滚到底（流式时由最后行长度变化触发——测高稳定因为 DOM 文本完整）；
     // scrollIntoView 守卫（jsdom 等无滚动实现的环境直接跳过）。
   }, [rows.length]);
+  const tailParts = ctx.slots.get("turn.tail") ?? [];
 
   return (
     <div
@@ -37,6 +40,10 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
           {ctx.t("conversation.thinking")}
         </p>
       ) : null}
+      {tailParts.map((part, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 追加位件为无状态纯呈现函数（注册序即渲染序、卸载即整表移除）——索引键无重排歧义
+        <Fragment key={i}>{(part as WebPart)(ctx)}</Fragment>
+      ))}
       <div ref={bottomRef} />
     </div>
   );
@@ -49,12 +56,18 @@ function RowView({ row, ctx }: { row: Row; ctx: WebPartContext }): React.ReactNo
     case "assistant":
       return <AssistantView row={row} ctx={ctx} />;
     case "tool":
-      return <ToolView row={row} ctx={ctx} />;
+      return <ToolRowView row={row} ctx={ctx} />;
     case "approval":
       return <ApprovalCard row={row} ctx={ctx} />;
     case "error":
       return <ErrorView row={row} ctx={ctx} />;
   }
+}
+
+/** 工具行：keyed 槽 tool.call.view.<工具名> 顶替官方工具卡（D-057；官方默认=未被顶替时生效） */
+function ToolRowView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }): React.ReactNode {
+  const view = ctx.slots.get(`tool.call.view.${row.name}`)?.[0] as ToolCallView | undefined;
+  return view !== undefined ? view({ ctx, row }) : <ToolView row={row} ctx={ctx} />;
 }
 
 function UserView({ row }: { row: UserRow; ctx: WebPartContext }) {
@@ -90,6 +103,7 @@ function UserView({ row }: { row: UserRow; ctx: WebPartContext }) {
 
 function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext }) {
   const streaming = row.streaming;
+  const gallery = ctx.slots.get("conversation.images")?.[0] as WebPart | undefined;
   return (
     <div style={{ margin: "12px 0" }}>
       {row.reasoning !== undefined && row.reasoning !== "" ? (
@@ -108,6 +122,7 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
       <div className={streaming ? "henira-streaming" : undefined}>
         {ctx.host.renderMarkdown(row.text)}
       </div>
+      {gallery !== undefined ? gallery(ctx) : null}
     </div>
   );
 }

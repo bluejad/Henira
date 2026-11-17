@@ -1,14 +1,22 @@
 // @vitest-environment jsdom
 // 官方件测试（jsdom）：locale 取字 / 交互回调 / 哑渲染。件纯呈现——数据经承重缝注入。
 
-import type { ApprovalRow, Row, ServerFrame } from "@henira/protocol";
+import type { ApprovalRow, Row, ServerFrame, ToolRow } from "@henira/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";
+import { webUiModule } from "./module.js";
 import { ApprovalCard } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
+import { Conversation } from "./parts/conversation.js";
 import { SessionList } from "./parts/session-list.js";
-import type { HeniraClientLike, RowStoreLike, WebPartContext } from "./types.js";
+import type {
+  HeniraClientLike,
+  RowStoreLike,
+  SlotPart,
+  WebPartContext,
+  WebSlotName,
+} from "./types.js";
 
 const t = (key: string): string => {
   const value = (zh as Record<string, string>)[key];
@@ -43,6 +51,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     t,
     theme: "light",
     store,
+    slots: new Map<string, readonly SlotPart[]>(),
     host: {
       sendPrompt: async () => ({ messageId: null, sessionId: "s-1" }),
       subscribe: () => () => {},
@@ -125,5 +134,95 @@ describe("ApprovalCard", () => {
     render(<ApprovalCard row={row} ctx={ctx} />);
     fireEvent.click(screen.getByText(t("approval.allow")));
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once");
+  });
+});
+
+describe("行级挂载点（D-057）", () => {
+  const toolRow: Row = {
+    kind: "tool",
+    rowId: "t:t-1:1:c1",
+    turn: "t-1",
+    step: 1,
+    callId: "c1",
+    name: "read",
+    status: "done",
+    input: "{}",
+    output: { content: "file body", isError: false, durationMs: 3 },
+  };
+
+  function ctxWithRows(rows: Row[], slots: Map<string, readonly SlotPart[]>): WebPartContext {
+    const snapshot = { rows, state: { busy: false } }; // 引用稳定——useSyncExternalStore 语义
+    return fixtureCtx({
+      store: {
+        getSession: () => snapshot,
+        subscribe: () => () => {},
+      },
+      slots,
+    });
+  }
+
+  it("keyed 槽 tool.call.view.<工具名> 顶替官方工具卡（ToolCallView 拿得到行）", () => {
+    const slots = new Map<string, readonly SlotPart[]>([
+      [
+        "tool.call.view.read",
+        [
+          ({ row }: { ctx: WebPartContext; row: ToolRow }) =>
+            `自定义工具卡:${row.name}:${row.status}:${row.output?.content ?? ""}`,
+        ],
+      ],
+    ]);
+    render(<Conversation {...ctxWithRows([toolRow], slots)} />);
+    expect(screen.getByText("自定义工具卡:read:done:file body")).toBeDefined();
+    expect(screen.queryByText("read")).toBeNull(); // 官方工具卡被顶替
+  });
+
+  it("keyed 槽缺席 → 回落官方默认工具卡（卸载即回落同一语义）", () => {
+    render(<Conversation {...ctxWithRows([toolRow], new Map())} />);
+    expect(screen.getByText("read")).toBeDefined(); // 官方卡渲染工具名
+  });
+
+  it("turn.tail 追加位：行列表之后渲染全部件（官方无默认件）", () => {
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["turn.tail", [() => "回合尾追加块甲", () => "回合尾追加块乙"]],
+    ]);
+    const { container } = render(<Conversation {...ctxWithRows([], slots)} />);
+    // 件可返回裸字符串（纯呈现函数）——按容器文本断言
+    expect(container.textContent).toContain("回合尾追加块甲");
+    expect(container.textContent).toContain("回合尾追加块乙");
+  });
+
+  it("conversation.images 槽在场即渲染画廊位（缺席默认 = markdown 内联图，无附加块）", () => {
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["conversation.images", [() => "画廊位在场"]],
+    ]);
+    const assistantRow: Row = {
+      kind: "assistant",
+      rowId: "a:t-1:1",
+      turn: "t-1",
+      step: 1,
+      text: "看图",
+      streaming: false,
+    };
+    render(<Conversation {...ctxWithRows([assistantRow], slots)} />);
+    expect(screen.getByText("画廊位在场")).toBeDefined();
+  });
+
+  it("官方模块只注册区域槽（无 keyed 项——安全模式编译期出口无 keyed 缝 = 收起的结构保证）", () => {
+    const registered: string[] = [];
+    const host = fixtureCtx().host;
+    webUiModule({
+      registerSlot: (name) => {
+        registered.push(name);
+        return () => {};
+      },
+      replaceSlot: () => () => {},
+      host,
+    });
+    expect([...registered].sort()).toEqual(["composer", "conversation", "sidebar"]);
+    expect(
+      registered.every((n) =>
+        (["sidebar", "conversation", "composer"] as WebSlotName[]).includes(n as WebSlotName),
+      ),
+    ).toBe(true);
   });
 });

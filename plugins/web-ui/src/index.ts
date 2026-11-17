@@ -12,6 +12,8 @@ export type {
   HeniraClientLike,
   PluginUiHost,
   RowStoreLike,
+  SlotPart,
+  ToolCallView,
   UiModuleContext,
   WebPart,
   WebPartContext,

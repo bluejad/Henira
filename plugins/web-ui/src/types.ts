@@ -10,6 +10,7 @@ import type {
   ServerFrame,
   SessionState,
   SessionSummary,
+  ToolRow,
 } from "@henira/protocol";
 import type { ReactNode } from "react";
 
@@ -40,18 +41,26 @@ export interface WebPartContext {
   theme: "light" | "dark";
   store: RowStoreLike; // 流式增量从哪来
   host: PluginUiHost;
+  /** 槽位只读视图（区域槽 + 行级 keyed 槽，D-057）：官方默认件不在表内——未被顶替时生效 */
+  slots: ReadonlyMap<string, readonly SlotPart[]>;
 }
 
 export type WebPart = (ctx: WebPartContext) => ReactNode;
+
+/** keyed 工具卡视图（tool.call.view.<工具名>，D-057）：件拿得到行数据（工具名/参数/输出/状态） */
+export type ToolCallView = (args: { ctx: WebPartContext; row: ToolRow }) => ReactNode;
+
+/** 槽位件联合：区域槽/追加位 = WebPart；keyed 工具卡 = ToolCallView（消费侧按槽种收窄） */
+export type SlotPart = WebPart | ToolCallView;
 
 /** 宿主槽位词表（D-033：name 按当前宿主词表校验）；未装件的槽位收起 */
 export type WebSlotName = "sidebar" | "conversation" | "composer";
 
 export interface UiModuleContext {
-  /** 追挂（append）到该槽位 */
-  registerSlot(name: WebSlotName, part: WebPart, opts?: { order?: number }): Disposable;
-  /** 替换该槽位默认件（D-043）；同区冲突报错（D-022 同款） */
-  replaceSlot(name: WebSlotName, part: WebPart): Disposable;
+  /** 追挂（append）到该槽位；name 按宿主词表校验（D-033 区域词表 + D-057 keyed 前缀词表） */
+  registerSlot(name: string, part: SlotPart, opts?: { order?: number }): Disposable;
+  /** 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 冲突报错（D-022 同款） */
+  replaceSlot(name: string, part: SlotPart): Disposable;
   host: PluginUiHost;
 }
 

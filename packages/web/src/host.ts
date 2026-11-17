@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import {
   defaultParts,
   type PluginUiHost,
+  type SlotPart,
   type UiModuleContext,
   type WebPart,
   type WebSlotName,
@@ -59,10 +60,23 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   let keyListener: ((e: KeyboardEvent) => void) | undefined;
 
   // ── 槽位管理：激活 UI 模块（公共注册路径）或安全模式直用编译期出口 ──
-  const slots = new Map<WebSlotName, WebPart[]>();
+  // 词表（D-033 区域 + D-043 官方三槽 + D-057 keyed 前缀）；词表外静默忽略（别的宿主词表同款），
+  // 告警基建随批 C 管理面补。keyed 前缀合法、后缀自由（工具名/扩展名——含插件自家工具名）。
+  const REGION_SLOTS = new Set([
+    "sidebar",
+    "conversation",
+    "composer",
+    "turn.tail",
+    "conversation.images",
+  ]);
+  const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview."];
+  const slotAccepted = (name: string): boolean =>
+    REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
+  const slots = new Map<string, SlotPart[]>();
   function activateModule(): void {
     const ctx: UiModuleContext = {
       registerSlot: (name, part) => {
+        if (!slotAccepted(name)) return () => {};
         const list = slots.get(name) ?? [];
         list.push(part);
         slots.set(name, list);
@@ -74,6 +88,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         };
       },
       replaceSlot: (name, part) => {
+        if (!slotAccepted(name)) return () => {};
         if (slots.has(name)) {
           throw new Error(`slot conflict: ${name} already has a default part (D-022)`);
         }
