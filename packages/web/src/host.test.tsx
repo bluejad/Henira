@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 // web 宿主测试：槽位激活（公共注册路径）与安全模式（编译期出口）双通道 / 槽位收起 / 主题接线。
 
+import type { HeniraFacade } from "@henira/sdk";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWebApp } from "./host.js";
-import type { HeniraFacade } from "@henira/sdk";
 
 afterEach(cleanup);
 

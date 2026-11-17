@@ -49,7 +49,8 @@
 
 /* 基础排版（零 webfont：系统字体栈——离线工具的第一约束） */
 .henira-app {
-  font-family: -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family:
+    -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: var(--henira-bg);
   color: var(--henira-text);
   font-size: 14px;

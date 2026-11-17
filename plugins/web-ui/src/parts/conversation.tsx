@@ -1,11 +1,11 @@
 // 官方件：对话面板（槽 conversation）。哑渲染器——行来自 store（server 投影器是唯一组装处），
 // 件只做行→ReactNode 的纯呈现。流式文本透明度浮现（CSS .henira-streaming）。
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ApprovalRow, AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
-import { CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 import { ApprovalCard } from "./approval-card.js";
+import { CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 
 export const Conversation: WebPart = (ctx: WebPartContext) => {
   // useSyncExternalStore：store 引用稳定（未变化返回同一对象），快照整体替换语义

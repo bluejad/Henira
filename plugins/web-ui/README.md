@@ -16,20 +16,20 @@
 
 ## 文件 ↔ 设计
 
-| 文件                        | 职责                                                                                                     | 设计出处                     |
-| --------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| types.ts                    | 承重缝类型：WebPartContext（client + sessionId + selectSession + t + theme + store + host）/ PluginUiHost / UiModuleContext | interfaces.md web 段 / D-028 |
-| module.ts                   | UI 模块入口：官方件注册进宿主槽位（公共注册路径）；defaultParts 映射                                       | D-043 / 判据④               |
-| parts/session-list.tsx      | 会话列表件（槽 sidebar）：busy 点 / 新会话 / 切会话                                                        | 判据①③                      |
-| parts/conversation.tsx      | 对话面板件（槽 conversation）：哑渲染器——行→呈现（user / assistant 流式 / tool / approval / error 五行）   | ServerEvent 词表             |
-| parts/composer.tsx          | 输入框件（槽 composer）：Enter 发送（D-045 单口）/ busy 停止 + 插话提示                                    | D-045                        |
-| parts/approval-card.tsx     | 审批卡件（内联）：允许 / 拒绝走 settleApproval（幂等先答者赢，多客户端经行流同步 settled）                 | 判据② / packages.md 槽位归属 |
-| parts/icons.tsx             | 图标收口（Phosphor 子路径导入；换集只动此文件）                                                            | 视觉语言节                   |
-| locales/zh.ts               | zh 字典（唯一 CJK 允许地；fail-loud）                                                                      | D-050 / 判据⑥               |
-| tokens.css                  | CSS 变量 token（明暗双主题 / 零 webfont / 流式浮现动画）                                                   | 视觉语言节                   |
+| 文件                    | 职责                                                                                                                        | 设计出处                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| types.ts                | 承重缝类型：WebPartContext（client + sessionId + selectSession + t + theme + store + host）/ PluginUiHost / UiModuleContext | interfaces.md web 段 / D-028 |
+| module.ts               | UI 模块入口：官方件注册进宿主槽位（公共注册路径）；defaultParts 映射                                                        | D-043 / 判据④                |
+| parts/session-list.tsx  | 会话列表件（槽 sidebar）：busy 点 / 新会话 / 切会话                                                                         | 判据①③                       |
+| parts/conversation.tsx  | 对话面板件（槽 conversation）：哑渲染器——行→呈现（user / assistant 流式 / tool / approval / error 五行）                    | ServerEvent 词表             |
+| parts/composer.tsx      | 输入框件（槽 composer）：Enter 发送（D-045 单口）/ busy 停止 + 插话提示                                                     | D-045                        |
+| parts/approval-card.tsx | 审批卡件（内联）：允许 / 拒绝走 settleApproval（幂等先答者赢，多客户端经行流同步 settled）                                  | 判据② / packages.md 槽位归属 |
+| parts/icons.tsx         | 图标收口（Phosphor 子路径导入；换集只动此文件）                                                                             | 视觉语言节                   |
+| locales/zh.ts           | zh 字典（唯一 CJK 允许地；fail-loud）                                                                                       | D-050 / 判据⑥                |
+| tokens.css              | CSS 变量 token（明暗双主题 / 零 webfont / 流式浮现动画）                                                                    | 视觉语言节                   |
 
 ## 测试 ↔ 判据
 
-| 测试           | 锁什么                                                                                                     |
-| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| 测试           | 锁什么                                                                                                               |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- |
 | parts.test.tsx | locale 取字 / 会话列表交互（createSession / selectSession 承重缝）/ Composer Enter 发送 + busy 形态 / 审批卡收答调用 |

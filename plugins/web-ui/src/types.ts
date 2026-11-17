@@ -67,8 +67,12 @@ export interface PluginUiHost {
   openInExplorer(path: string): Promise<boolean>; // 仅桌面宿主；其他宿主恒 false
   openPlugin(id: string, view?: unknown): void;
   getInitialView(): unknown;
-  listDir(path: string): Promise<{ name: string; kind: "file" | "dir"; size?: number; mtime?: number }[]>;
-  listSessionsByCwd(cwd: string): Promise<{ id: string; cwd: string; title?: string; updatedAt: number }[]>;
+  listDir(
+    path: string,
+  ): Promise<{ name: string; kind: "file" | "dir"; size?: number; mtime?: number }[]>;
+  listSessionsByCwd(
+    cwd: string,
+  ): Promise<{ id: string; cwd: string; title?: string; updatedAt: number }[]>;
   useResource(address: string): { status: "failed"; error: string }; // ⏳ M4 占位（plugin-mcp）
   listPlugins(filter?: { category?: string }): Promise<never[]>; // ⏳ M4 占位（插件管理面随 M4）
 }

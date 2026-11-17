@@ -1,18 +1,18 @@
 // Shell（web 宿主的 React 组装层）：槽位渲染 + 选中态 + 设置浮层 + 主题。
 // 件经承重缝（WebPartContext）拿数据——Shell 只做组装，不做数据加工。
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import {
-  zh,
   type PluginUiHost,
   type RowStoreLike,
   type WebPart,
   type WebSlotName,
+  zh,
 } from "@henira/plugin-web-ui";
 import type { HeniraFacade } from "@henira/sdk";
-import type { RowStore } from "./store.js";
+import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
+import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import type { Layout } from "./host.js";
+import type { RowStore } from "./store.js";
 
 export type ShellProps = {
   store: RowStore;

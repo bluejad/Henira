@@ -45,7 +45,10 @@ describe("serve 点火车", () => {
       throw new Error(`cli bin missing: ${cliBin()}\ndist contents: ${distContents.join(", ")}`);
     }
     const url = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`serve did not print URL in 10s\nstderr: ${stderr}`)), 10_000);
+      const timer = setTimeout(
+        () => reject(new Error(`serve did not print URL in 10s\nstderr: ${stderr}`)),
+        10_000,
+      );
       child.stdout?.on("data", (chunk: Buffer) => {
         const match = /listening on (http:\/\/\S+)/.exec(chunk.toString());
         if (match !== null) {
@@ -55,7 +58,11 @@ describe("serve 点火车", () => {
       });
       child.on("exit", (code, signal) => {
         clearTimeout(timer);
-        reject(new Error(`serve exited before printing URL (code=${code} signal=${signal})\nstderr: ${stderr}`));
+        reject(
+          new Error(
+            `serve exited before printing URL (code=${code} signal=${signal})\nstderr: ${stderr}`,
+          ),
+        );
       });
     });
 

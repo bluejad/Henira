@@ -1,11 +1,17 @@
 // 官方件：审批卡（内联于对话流的 approval 行）。收答经 client.settleApproval——幂等先答者赢
 // （另一窗口已答时 applied=false，卡片显示已处理态）。多客户端语义：settled 状态经行流同步。
 
-import { useState } from "react";
 import type { ApprovalRow } from "@henira/protocol";
+import { useState } from "react";
 import type { WebPartContext } from "../types.js";
 
-export function ApprovalCard({ row, ctx }: { row: ApprovalRow; ctx: WebPartContext }): React.ReactNode {
+export function ApprovalCard({
+  row,
+  ctx,
+}: {
+  row: ApprovalRow;
+  ctx: WebPartContext;
+}): React.ReactNode {
   const [settling, setSettling] = useState(false);
   const pending = row.status === "pending" && !settling;
 
@@ -42,12 +48,18 @@ export function ApprovalCard({ row, ctx }: { row: ApprovalRow; ctx: WebPartConte
         >
           {pending ? ctx.t("approval.pending") : ctx.t("approval.settled")}
         </span>
-        <span className="henira-mono" style={{ fontSize: "12px", color: "var(--henira-text-muted)" }}>
+        <span
+          className="henira-mono"
+          style={{ fontSize: "12px", color: "var(--henira-text-muted)" }}
+        >
           {row.toolName}
         </span>
       </div>
       {row.argsSummary !== undefined ? (
-        <div className="henira-mono" style={{ fontSize: "12px", color: "var(--henira-text-muted)", marginBottom: "8px" }}>
+        <div
+          className="henira-mono"
+          style={{ fontSize: "12px", color: "var(--henira-text-muted)", marginBottom: "8px" }}
+        >
           {row.argsSummary}
         </div>
       ) : null}
@@ -59,7 +71,10 @@ export function ApprovalCard({ row, ctx }: { row: ApprovalRow; ctx: WebPartConte
           <button onClick={() => decide("rejected")}>{ctx.t("approval.deny")}</button>
         </div>
       ) : row.decision !== undefined ? (
-        <span className="henira-mono" style={{ fontSize: "12px", color: "var(--henira-text-muted)" }}>
+        <span
+          className="henira-mono"
+          style={{ fontSize: "12px", color: "var(--henira-text-muted)" }}
+        >
           {row.decision}
         </span>
       ) : null}

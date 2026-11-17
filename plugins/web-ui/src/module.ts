@@ -3,10 +3,10 @@
 // 渲染默认组合（同一零件库，两条通道）。替换语义：其他 UI 模块可 replaceSlot 顶掉官方件。
 
 import type { Disposable } from "@henira/kernel";
-import type { UiModuleContext, WebPart, WebSlotName } from "./types.js";
-import { SessionList } from "./parts/session-list.js";
-import { Conversation } from "./parts/conversation.js";
 import { Composer } from "./parts/composer.js";
+import { Conversation } from "./parts/conversation.js";
+import { SessionList } from "./parts/session-list.js";
+import type { UiModuleContext, WebPart, WebSlotName } from "./types.js";
 
 /** 槽位 → 官方件映射（默认组合只是一种排列——D-043 第 8 条） */
 export const defaultParts: Record<WebSlotName, WebPart> = {

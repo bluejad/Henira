@@ -66,7 +66,9 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
         }}
       />
       {busy ? (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+        <div
+          style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}
+        >
           <button className="henira-primary" onClick={stop} aria-label={ctx.t("composer.stop")}>
             <StopGlyph size={14} /> {ctx.t("composer.stop")}
           </button>

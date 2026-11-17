@@ -4,18 +4,18 @@ import { createRoot, type Root } from "react-dom/client";
 // （公共注册路径）或安全模式（编译期出口默认组合）/ 主题接线 / 双击 Alt 切安全模式。
 // React 渲染委托 shell.tsx 的 Shell（本文件不写 JSX——createElement 走 shell 侧类型）。
 
-import { type PluginUiHost } from "@henira/plugin-web-ui";
 import {
   defaultParts,
-  webUiModule,
+  type PluginUiHost,
   type UiModuleContext,
   type WebPart,
   type WebSlotName,
+  webUiModule,
 } from "@henira/plugin-web-ui";
 import type { ServerFrame, SessionSummary } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
-import { RowStore } from "./store.js";
 import { Shell, type ShellProps } from "./shell.js";
+import { RowStore } from "./store.js";
 
 export type Layout =
   | "full"

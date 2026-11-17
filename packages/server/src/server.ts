@@ -5,8 +5,8 @@
 import { existsSync, promises as fs } from "node:fs";
 import type http from "node:http";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ServiceDefinition } from "@henira/kernel";
 import type { LlmService } from "@henira/protocol";
 import { serve } from "@hono/node-server";

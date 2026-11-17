@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // 行 store 测试：快照整体替换 / 增量应用（append / delta / upsert / state）/ 断档不猜（跳号触发重拉）。
 
-import { describe, expect, it, vi } from "vitest";
 import type { ServerFrame } from "@henira/protocol";
+import { describe, expect, it, vi } from "vitest";
 import { RowStore } from "./store.js";
 
 function snapshotFrame(

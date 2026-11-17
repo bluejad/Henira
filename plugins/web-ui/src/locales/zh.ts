@@ -4,6 +4,7 @@
 
 export const zh = {
   "app.title": "Henira",
+  "app.safeMode": "安全模式",
   "sessions.title": "会话",
   "sessions.new": "新会话",
   "sessions.empty": "还没有会话",
@@ -28,6 +29,7 @@ export const zh = {
   "settings.theme.light": "浅色",
   "settings.theme.dark": "深色",
   "settings.locale": "界面语言",
+  "settings.locale.zh": "中文",
   "settings.credential": "密钥",
   "settings.credentialPlaceholder": "粘贴 API key（只写入本地 credentials.json）",
   "settings.credentialProvider": "服务商",

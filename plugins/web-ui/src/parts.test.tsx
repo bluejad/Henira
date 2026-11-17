@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // 官方件测试（jsdom）：locale 取字 / 交互回调 / 哑渲染。件纯呈现——数据经承重缝注入。
 
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { ApprovalRow, Row, ServerFrame, SessionSummary } from "@henira/protocol";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";
-import { SessionList } from "./parts/session-list.js";
-import { Composer } from "./parts/composer.js";
 import { ApprovalCard } from "./parts/approval-card.js";
-import type { ApprovalRow, Row, ServerFrame, SessionSummary } from "@henira/protocol";
+import { Composer } from "./parts/composer.js";
+import { SessionList } from "./parts/session-list.js";
 import type { HeniraClientLike, RowStoreLike, WebPartContext } from "./types.js";
 
 const t = (key: string): string => {

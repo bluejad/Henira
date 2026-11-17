@@ -8,3 +8,4 @@ coverage/
 vitest.*.cache/
 .npmrc
 *.tsbuildinfo
+dist-web/

@@ -1,7 +1,7 @@
 // 官方件：会话列表（槽 sidebar）。哑渲染件——数据经承重缝（client + store）来，件自身只渲染与交互。
 
-import { useCallback, useEffect, useState } from "react";
 import type { SessionSummary } from "@henira/protocol";
+import { useCallback, useEffect, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 
 export const SessionList: WebPart = (ctx: WebPartContext) => {
@@ -22,7 +22,10 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
   }, [refresh, ctx.store]);
 
   const createSession = useCallback((): void => {
-    void ctx.client.createSession().then(() => refresh()).catch(() => {});
+    void ctx.client
+      .createSession()
+      .then(() => refresh())
+      .catch(() => {});
   }, [ctx.client, refresh]);
 
   return (
@@ -88,7 +91,13 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                   <span className="henira-mono" style={{ fontSize: "12px" }}>
                     {s.cwd.split(/[\\/]/).pop() || s.cwd}
                   </span>
-                  <span style={{ color: "var(--henira-text-muted)", marginLeft: "8px", fontSize: "12px" }}>
+                  <span
+                    style={{
+                      color: "var(--henira-text-muted)",
+                      marginLeft: "8px",
+                      fontSize: "12px",
+                    }}
+                  >
                     {s.busy ? ctx.t("sessions.busy") : ""}
                   </span>
                 </button>

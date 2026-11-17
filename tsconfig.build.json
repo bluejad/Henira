@@ -23,6 +23,9 @@
       "path": "packages/cli"
     },
     {
+      "path": "packages/web"
+    },
+    {
       "path": "plugins/session"
     },
     {
