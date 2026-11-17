@@ -18,6 +18,19 @@ test.skip(process.env.HENIRA_REAL !== "1", "真 key 采样：HENIRA_REAL=1 本�
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const HOME = os.homedir();
 const HANDSHAKE = path.join(HOME, ".henira", "state", "server.json");
+// 补跑控制（本机用，不进 CI）：HENIRA_REAL_PROVIDERS="agnes" 白名单过滤（缺省全表）；
+// HENIRA_REAL_MODEL="agnes/agnes-3.0-flash" 逐家指定采样模型，优先于启发式——
+// Agnes 免费层实测：2.0-flash 服务端暂不可用（2.5/3.0 可用），启发式按快照键序选中前者时用此覆盖
+const ONLY_PROVIDERS = process.env.HENIRA_REAL_PROVIDERS?.split(",").map((s) => s.trim());
+const MODEL_OVERRIDE = new Map<string, string>(
+  (process.env.HENIRA_REAL_MODEL ?? "")
+    .split(",")
+    .filter((s) => s.includes("/"))
+    .map((s) => {
+      const i = s.indexOf("/");
+      return [s.slice(0, i).trim(), s.slice(i + 1).trim()];
+    }),
+);
 // providers 在 beforeAll 懒读（顶层 await 会让 CI 上无 ~/.henira 的机器在模块加载期就炸——skip 也救不了加载期）
 let PROVIDERS: string[] = [];
 
@@ -120,9 +133,13 @@ test("三家真 provider 经 serve 链路逐形态采样", async ({ page }) => {
     return snap.state.busy;
   };
   for (const provider of PROVIDERS) {
+    if (ONLY_PROVIDERS !== undefined && !ONLY_PROVIDERS.includes(provider)) continue;
     const models = catalog.providers[provider]?.models ?? [];
-    // 采样模型启发式：优先常见对话模型名，否则取第一个
-    const model = models.find((m) => /chat|flash|air|lite|v4|glm-4|storm/i.test(m)) ?? models[0];
+    // 采样模型：env 覆盖（HENIRA_REAL_MODEL）优先；缺省启发式=优先常见对话模型名，否则取第一个
+    const model =
+      MODEL_OVERRIDE.get(provider) ??
+      models.find((m) => /chat|flash|air|lite|v4|glm-4|storm/i.test(m)) ??
+      models[0];
     if (model === undefined) continue;
     await fetch(`${base}/api/settings`, {
       method: "PUT",
