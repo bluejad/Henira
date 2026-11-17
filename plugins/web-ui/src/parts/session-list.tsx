@@ -65,6 +65,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
               <li key={s.id} style={{ marginBottom: "2px" }}>
                 <button
                   type="button"
+                  data-active={selected ? "true" : undefined}
                   onClick={() => {
                     ctx.selectSession(s.id);
                   }}
@@ -72,10 +73,9 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                     display: "block",
                     width: "100%",
                     textAlign: "left",
-                    background: selected ? "var(--henira-bg)" : "transparent",
-                    border: "none",
+                    background: "transparent",
                     borderRadius: "var(--henira-radius)",
-                    padding: "8px",
+                    padding: "var(--henira-space-2)",
                   }}
                 >
                   <span

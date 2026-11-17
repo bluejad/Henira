@@ -26,6 +26,19 @@
   --henira-mono: ui-monospace, "JetBrains Mono", "SF Mono", Consolas, monospace;
   --henira-radius: 6px;
   --henira-sidebar-width: 260px;
+
+  /* 刻度（M4 批 A 视觉打磨）：4px 基距间距 / 四档字号 / 对话列限宽（<80ch 可读性） */
+  --henira-space-1: 4px;
+  --henira-space-2: 8px;
+  --henira-space-3: 12px;
+  --henira-space-4: 16px;
+  --henira-space-5: 24px;
+  --henira-space-6: 32px;
+  --henira-fs-sm: 12px;
+  --henira-fs-md: 13px;
+  --henira-fs-base: 14px;
+  --henira-fs-lg: 16px;
+  --henira-content-width: 760px;
 }
 
 .henira-app[data-theme="dark"] {
@@ -207,6 +220,41 @@
 .henira-app button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* 输入族焦点环（与 button 同一语言：info 色双像素外环） */
+.henira-app input:focus-visible,
+.henira-app textarea:focus-visible,
+.henira-app select:focus-visible {
+  outline: 2px solid var(--henira-info-text);
+  outline-offset: 1px;
+}
+
+/* ── 对话面板（结构样式集中处，组件零内联状态样式）────────────────── */
+/* 限宽保可读（<80ch）+ 居中；行距给呼吸 */
+.henira-conversation {
+  flex: 1;
+  overflow-y: auto;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--henira-content-width) + var(--henira-space-5) * 2);
+  margin: 0 auto;
+  padding: var(--henira-space-5) var(--henira-space-5) var(--henira-space-6);
+}
+
+/* ── 会话列表项（激活原死 class：hover / 选中态收口在此，组件零内联状态样式）── */
+.henira-sessions li button {
+  border: 1px solid transparent;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+.henira-sessions li button:hover {
+  background: var(--henira-bg);
+}
+.henira-sessions li button[data-active="true"] {
+  background: var(--henira-bg);
+  border-color: var(--henira-border-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {

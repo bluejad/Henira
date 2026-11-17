@@ -34,9 +34,9 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
       style={{
         borderTop: "1px solid var(--henira-border)",
         background: "var(--henira-surface)",
-        padding: "12px",
+        padding: "var(--henira-space-3)",
         display: "flex",
-        gap: "8px",
+        gap: "var(--henira-space-2)",
         alignItems: "flex-end",
       }}
     >
@@ -61,7 +61,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
           borderRadius: "var(--henira-radius)",
           background: "var(--henira-bg)",
           color: "var(--henira-text)",
-          padding: "8px 10px",
+          padding: "var(--henira-space-2) 10px",
           font: "inherit",
         }}
       />

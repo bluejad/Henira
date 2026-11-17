@@ -11,7 +11,7 @@ import {
 } from "@henira/plugin-web-ui";
 import type { HeniraFacade } from "@henira/sdk";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
-import { createContext, type ReactNode, useMemo, useState } from "react";
+import { createContext, useEffect, useMemo, useState } from "react";
 import type { Layout } from "./host.js";
 import type { RowStore } from "./store.js";
 
@@ -89,7 +89,15 @@ export function Shell(props: ShellProps) {
               width: "var(--henira-sidebar-width)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 8px 0" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                padding: "var(--henira-space-2) var(--henira-space-2) 0",
+                background: "var(--henira-surface)",
+                borderRight: "1px solid var(--henira-border)",
+              }}
+            >
               <button
                 type="button"
                 aria-label={t("settings.open")}
@@ -188,13 +196,12 @@ function SettingsPanel(props: {
   const [key, setKey] = useState("");
   const [saved, setSaved] = useState(false);
 
-  useState(() => {
-    // 仅首挂载拉一次（lazy initializer 恰跑一次，无依赖数组问题）
+  useEffect(() => {
+    // 挂载拉一次当前模型（浮层每次打开重挂载，恰跑一次）
     void props.client.getSettings().then((s) => {
       if (s.model !== undefined) setModel(s.model);
     });
-    return true;
-  });
+  }, [props.client]);
 
   const save = (): void => {
     const patch: { model?: string; ui?: { theme?: string } } = {};
@@ -326,5 +333,3 @@ const inputStyle: React.CSSProperties = {
   font: "inherit",
   boxSizing: "border-box",
 };
-
-void (undefined as unknown as ReactNode);

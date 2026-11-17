@@ -31,11 +31,18 @@ export function ApprovalCard({
         border: `1px solid ${pending ? "var(--henira-border-strong)" : "var(--henira-border)"}`,
         borderRadius: "var(--henira-radius)",
         background: pending ? "var(--henira-warn-bg)" : "var(--henira-surface)",
-        padding: "12px 14px",
-        margin: "12px 0",
+        padding: "var(--henira-space-3)",
+        margin: "var(--henira-space-3) 0",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--henira-space-2)",
+          marginBottom: "var(--henira-space-2)",
+        }}
+      >
         <strong>{ctx.t("approval.title")}</strong>
         <span
           style={{
