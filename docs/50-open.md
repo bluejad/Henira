@@ -16,11 +16,9 @@ _无。M1 开工前的阻塞项已全部定稿。_
 - [ ] **`plugin-compaction` 设计文档**——成熟参数已取证照抄：预算 = 模型窗口 × 0.8（dsh `thresholdRatio 0.8`）、热尾巴按量 ≈ 窗口 10%、原子单元不拆 assistant + tool 结果、摘要失败降级必须可见（P2）、替换区间不碰头部系统块（session.md §4）、摘要请求由插件经模型槽位自调；M5 落码前定稿（D-041）
 - [ ] **`plugin-subagent` 设计文档**——成熟参数已取证：暴露为一个工具、并发上限 8 / 嵌套深度 1（dsh `subagent/src/index.ts:186,194`）、报告即工具结果（限长可配）、取消经 signal 传导（`ToolContext` 已有）、后台完成注入守卫（忙则排队、回合末冲刷，D-045 同款）；审批规则见 [tools-approval.md](./20-architecture/tools-approval.md) §3.2；M5 落码前定稿（D-041）
 
-- [ ] **熔断插件批次归属（M4 前拍板）**——D-045 步上限默认不设、死循环靠熔断兜底；D-013⑤ 定熔断 = 官方插件走 `loop/turn-stopping`（bail）缝，但 21 官方件清单与三批排期均无此件（2026-11-17 架构评判抓出）——bail 生产消费者缺位 = v0.1.0 默认装配死循环保护为空。建议进 M4 首发批（件小：bail / waterfall 语义已有测试锁定）；拍板后修订 D-041 批次表 + roadmap M4 内容行 + packages.md 清单 21→22
-
 ## 🟢 低优
 
-- [ ] **serial 事件模式去留**——kernel 四模式中 serial 消费 / 注册两侧当前全库零命中（2026-11-17 查实：emit = loop 全部引擎事件；waterfall = tools 管线两缝；bail = 熔断件待补见 🟡）。保留理由存在：plugin-hooks（M6 批）"事件上顺序执行外部命令"是 serial 语义的天然消费者——M6 落码时复评，届时仍无消费者再议删（kernel 模式 4→3 是架构动作，立 ADR）
+- [ ] **serial 事件模式去留**——kernel 四模式中 serial 消费 / 注册两侧当前全库零命中（2026-11-17 查实：emit = loop 全部引擎事件；waterfall = tools 管线两缝；bail = 熔断件已定 M4 首发批，2026-11-17 拍板见 D-058）。保留理由存在：plugin-hooks（M6 批）"事件上顺序执行外部命令"是 serial 语义的天然消费者——M6 落码时复评，届时仍无消费者再议删（kernel 模式 4→3 是架构动作，立 ADR）
 - [ ] **性能基准实测（M5 compaction 落码顺带）**——四项零实测：deriveMessages 长会话全量派生 / JSONL 单文件全量读入 / fork 整目录复制成本 / 断线重连全量快照；设计均有重开条件、无实测数字。可选：M4 取证 pass 捎带跑一个大日志 deriveMessages 基准先有个底
 
 - [ ] 黑窗口聊天（cli 包）与 Repl 命令集、流式渲染——发布后启做
@@ -104,3 +102,4 @@ _已定稿归档区（勾掉的问题在这里留一行结论 + 指向）_
 - ✅ **AI 创建插件开放引擎代码（engine/ 槽位，D-048）**——版本目录新增 `engine/`（与素材槽平级；ESM 模块加载不 eval；与官方同一套 API，P8 字面同权）；同 id + `engine/` 经确认卡显式替换官方（项目 > 用户 > 官方 npm；版本升级重弹、同版本一次；失败 / 崩溃 / 关闭自动回落官方）；**16 个官方插件含内圈 5 全部可换，无特例**（"一般情况下没人去换的，但是要能替换"）；依赖放开 = `engine/` 标准 Node 包，AI 自己 `pnpm install` 走审批链、装载器零安装机器；硬规矩 = kernel / protocol 不进依赖表、宿主 import map 注入唯一实例（2026-11-15，D-048，plugins.md §1–§7.1、data-directory.md；dsh plugin-manager 四道闸实证：审批升权 tools.ts:39-43 / 构建脚本 README:64 / 兼容门 :69-71 / inspect :48 / 回滚 :104）
 - ✅ **能力服务化（D-049）**——官方插件对外能力**一律服务，只有一种写法**（单消费者亦然，不做两轨道）；跨包共享必经服务，注入声明在引擎模块导出（`export const inject`）、装配层预检（服务不在场 = 该件不装载 + 告警）；清单开放不封顶、第三方（AI 插件）同权提供与消费；**围栏跟着能力走**（修订 D-039"围栏进工具"）；替换两级粒度（工具件 / 服务件，同一套 D-048 确认卡与回落）；界面挂点 = 界面侧服务（theme / shortcuts 词表 M3 对齐）；按族拆包 fs / shell / tasks——**官方件 16 → 21**；盒（插件）/ 货（工具）/ 通道（服务）/ 清单（配置）词表入 plugins.md §1（2026-11-15，D-049，plugins.md / interfaces.md 能力服务表 / packages.md / data-directory.md / roadmap / principles P8；dsh 全库 ~60 服务取证：tool-fs inject=['tools','fs',…] tool-fs/src/index.ts:23、shell 契约+四实现+四工具包、compaction 单消费者也跨包成服务、todo=sessionProjections）
 - ✅ **mock LLM 测试设施形态**——独立测试支撑包（@henira/llm-mock，原定 `packages/llm-mock`，后随 test-support/ 根划位迁至 `test-support/llm-mock`——目录即宣言，产品包与测试假件分家）：llm 槽位的**脚本化 mock 实现**（一次性响应队列 + 兜底应答函数 + 请求捕获 + 造事件辅助 + `'hang'`/`Error` 条目；自校验 StreamEvent 不变量）。立独立包的两条理由：①mock 本质是 llm 槽位**第二种实现**——packages.md 卷首"出现第二种实现再拆包零迁移"；②插件互不 import 规则是 CI 强制，测试方 import mock 必须走非插件包（以 devDependency 消费）。取证四仓：dsh 槽位级 MockAdapter（mock-adapter.ts:72-85）+ 三层设施、opencode TestLLM（ai/src/testing.ts:36-51）发布为 /testing 出口、ZCode 每包自备、CC 用 VCR 录制重放（vcr.ts，CI 缺 fixture 硬拒）——两层互补，HTTP 线级 mock + 录制重放随适配器成熟后追加不互斥（2026-11-16，M2 计划定案；packages.md 树 + 依赖规则同步）
+- ✅ **熔断插件批次归属**——进 M4 首发批（第 11 件，`plugin-breaker`，进 defaultPreset）：D-045 步上限默认不设、死循环兜底必须默认在场——bail 缝语义 M1 起有测试锁定而生产消费者缺位 = v0.1.0 默认装配死循环保护为空；件小（bail 缝首个生产消费者：检测 + bail 否决 + 事件行），不动二批三批。官方件 21 → 22（2026-11-17 拍板，D-058；D-041 后续修订 / roadmap M4 内容行 / packages.md / principles P8 / plugins.md 计数同批修订）

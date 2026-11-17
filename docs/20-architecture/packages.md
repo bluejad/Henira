@@ -41,6 +41,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 │   ├── tools\            @henira/plugin-tools         工具注册表 + 五段执行管线
 │   ├── approval\         @henira/plugin-approval      fail-closed 审批（含凭据硬拒默认清单）
 │   ├── loop\             @henira/plugin-loop          agent 循环（turn/step + 中断纪律）
+│   ├── breaker\          @henira/plugin-breaker       熔断件（D-058）：死循环兜底，挂 loop/turn-stopping（bail）缝
 │   ├── fs\               @henira/plugin-fs            fs 服务件（D-049）：文件能力 + 路径围栏，
 │   │                                                 契约 + 本地实现同包（围栏跟着能力走）
 │   ├── fs-tools\         @henira/plugin-fs-tools      read / write / edit 工具件（注入 fs 服务）
@@ -76,7 +77,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 ## 插件两圈（内圈 / 外圈）
 
 - **内圈 = 最小可运行集**（缺一不可）：`session` / `llm` / `tools` / `approval` / `loop`——它们让 agent 能跑：记得住、说得出、干得了、管得住、转得起来。**内圈 5 本来就是服务**（D-049 的规矩对它们早已成立）。
-- **外圈 = 可逐块追加**，能力件一律"**服务件 + 工具件**"按族分包（D-049）：fs 族（fs / fs-tools / fs-search）、shell 族（shell / shell-tools）、fetch、compaction、subagent、任务族（tasks / plan / todo），读者 4（skills / mcp / hooks / commands），以及未来的沙箱 / 评测等。每加一块只做两件事：**新增插件包** + **在官方预设里多一行 `.use(...)`**；不改任何已有插件。
+- **外圈 = 可逐块追加**，能力件一律"**服务件 + 工具件**"按族分包（D-049）：fs 族（fs / fs-tools / fs-search）、shell 族（shell / shell-tools）、fetch、compaction、subagent、任务族（tasks / plan / todo）、熔断件 1（breaker，死循环兜底，D-058），读者 4（skills / mcp / hooks / commands），以及未来的沙箱 / 评测等。每加一块只做两件事：**新增插件包** + **在官方预设里多一行 `.use(...)`**；不改任何已有插件。
 - **界面套件 1**：`web-ui`——官方默认界面以**真插件**交付（D-043）：布局与会话列表 / 对话面板 / 输入框 / 审批卡各件各占槽；不属两圈（不占引擎槽位、不进 D-041 批次名额），M3 随 web 诞生。界面挂点 = 界面侧服务（D-049）。
 - **唯一会动骨架的情况**：新插件需要**新槽位**（例如沙箱需要 `SandboxService`）→ 在 protocol 加接口 → 承重槽位立 ADR；**能力服务槽位随该插件的设计文档进 protocol（D-049 授权，不逐个立 ADR）**。除此之外，插件开发是纯加法。
 
@@ -88,7 +89,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
       ▲                       ▲
       └───────────┬───────────┘
                   │ 一切插件与宿主只依赖这两层
-plugins/*（21 个官方插件：服务件 + 工具件按族分包，D-049）
+plugins/*（22 个官方插件：服务件 + 工具件按族分包，D-049 / D-058）
    · 插件彼此【禁止 import 对方实现】——运行时通过槽位（ctx.session / ctx.loop …）互相消费
    · 工具件注入服务件（ctx.get，D-049）——能力共享唯一通道；服务件被关 / 换 → 注入它的工具件不装载 + 告警
    · 需要共享的类型/纯函数 → 下沉 protocol，不允许插件间直接依赖
@@ -111,6 +112,7 @@ plugins/*（21 个官方插件：服务件 + 工具件按族分包，D-049）
 | `plugin-tools`       | 工具定义/注册/五段执行管线                                                                                                                                                                                                                                                                          | 不决定"该不该执行"（approval 的事）                                            |
 | `plugin-approval`    | 权限判定链、审计事件、凭据硬拒清单、fail-closed                                                                                                                                                                                                                                                     | 不做 UI 弹窗（经 `InteractionService`）                                        |
 | `plugin-loop`        | turn/step 状态机、inbox、中断纪律、16ms 合并、bail 缝                                                                                                                                                                                                                                               | 无产品模式、无文案、无厂商备表                                                 |
+| `plugin-breaker`     | 熔断件：死循环兜底——回合步数 / 同形工具调用重复检测，超限经 `loop/turn-stopping`（bail）否决回合结束并注入续跑提示（D-013⑤、D-058）；首发批默认装配，阈值默认必设且 settings 可配                                                                                                                   | 不做审批策略；不做用户中断                                                     |
 | `plugin-fs`          | fs 服务件：文件能力 + 路径围栏（**围栏跟着能力走**，注入者皆受，D-049 修订 D-039）                                                                                                                                                                                                                  | 不注册工具（工具件在 fs-tools / fs-search）；不做循环                          |
 | `plugin-fs-tools`    | read / write / edit 工具件（注入 fs 服务）                                                                                                                                                                                                                                                          | 不自带文件实现（服务的事）                                                     |
 | `plugin-fs-search`   | glob / grep 工具件（注入 fs 服务）                                                                                                                                                                                                                                                                  | 同上                                                                           |

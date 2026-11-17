@@ -60,7 +60,7 @@
 
 **前置**：网页界面 v1 边界定稿（界面 UI 形态与三个挂载点已定，D-021；UI 位置静态申报已定，D-031；宿主槽位词表已定，D-033；交互方向已定双向事件流，D-042；设置页范围按 M3 判据执行；命令进输入框随读者 4 批挪 M6 前置，D-041）· **发布账号前置（占坑账，D-053）**：npm 账号开启 2FA（npm 2027-01 起发布强制 ＋ `@henira` scope 资产保护）——唯一剩余待办；已落袋（2026-11-16）：npm org `henira`（`@henira` scope 已锁）＋ Docker Hub `henira` 命名空间
 
-**内容**：首发批官方插件 10 个（引擎 5：session / llm / tools / approval / loop ＋ fs 族 3（fs / fs-tools / fs-search）＋ shell 族 2（shell / shell-tools），D-041 / D-049）· fs / shell 服务契约在 [interfaces.md](./20-architecture/interfaces.md) 定稿（活文件，D-049）· 界面 UI 模块契约与 13 方法宿主门面（[plugins.md](./20-architecture/plugins.md) §4，D-021 / D-028 / D-042）· 插件管理面（列表 / 详情 / 版本 / 卸载 / 数据区，D-029）· 插件安全基线（D-030）· 浏览器 e2e 测试设施（Playwright 无头 chromium：`henira serve --mock` 起服务 → 连入 → 发回合 → 断言行流式渲染 → 审批卡收答；长效规矩「凡交付界面的里程碑必须有真浏览器 e2e + 截图留档，jsdom 组件级测试不替代」随 M4 计划立 ADR）· **界面优化一轮（发布前，2026-11-17 拍板全记 M4）**：视觉语言打磨（token 层级 / 间距 / 空态 / 深色对齐）+ markdown 渲染；插件管理面长在成型视觉系统上；UI 活照规矩过 frontend-design / no-ai-design-slop 双 skill 闸 · 《插件规范》定稿 · changesets 版本流程 · npm 首发准备 · v0.1.0 tag
+**内容**：首发批官方插件 11 个（引擎 5：session / llm / tools / approval / loop ＋ fs 族 3（fs / fs-tools / fs-search）＋ shell 族 2（shell / shell-tools）＋ 熔断 1（死循环兜底，挂 `loop/turn-stopping` bail 缝；D-013⑤ / D-058），D-041 / D-049 / D-058）· fs / shell 服务契约在 [interfaces.md](./20-architecture/interfaces.md) 定稿（活文件，D-049）· 界面 UI 模块契约与 13 方法宿主门面（[plugins.md](./20-architecture/plugins.md) §4，D-021 / D-028 / D-042）· 插件管理面（列表 / 详情 / 版本 / 卸载 / 数据区，D-029）· 插件安全基线（D-030）· 浏览器 e2e 测试设施（Playwright 无头 chromium：`henira serve --mock` 起服务 → 连入 → 发回合 → 断言行流式渲染 → 审批卡收答；长效规矩「凡交付界面的里程碑必须有真浏览器 e2e + 截图留档，jsdom 组件级测试不替代」随 M4 计划立 ADR）· **界面优化一轮（发布前，2026-11-17 拍板全记 M4）**：视觉语言打磨（token 层级 / 间距 / 空态 / 深色对齐）+ markdown 渲染；插件管理面长在成型视觉系统上；UI 活照规矩过 frontend-design / no-ai-design-slop 双 skill 闸 · 《插件规范》定稿 · changesets 版本流程 · npm 首发准备 · v0.1.0 tag
 
 **完成判据**：
 
@@ -71,7 +71,7 @@
 - [ ] UI 门面：示例插件 UI 用 `sendPrompt` / `onTurnFinished` / `useResource` 跑通；事件订阅双向流有测试（D-042：类型过滤 / 有界队列背压 / 终局必达）
 - [x] 浏览器 e2e 通过（Playwright 无头 chromium，进 CI）：serve 起服务 → 无头浏览器连入 → 发回合 → 断言行流式渲染 → 审批卡收答；截图留档（流式中 / 完成 / 审批卡 / 明暗双主题）——jsdom 组件级测试不替代本条（`test-support/browser-e2e` serve.e2e.ts 两用例；落地时真浏览器抓修三 bug——?ui=safe 入口漏接线 / 开场选会话未同步 Shell / 暗色变量组 :root 容器错位，见 4f3a86b；CI 绿 run 44019290772 + 截图 artifact 留档）
 - [ ] 界面优化一轮落地：视觉打磨 + markdown 渲染，优化前后截图对照、人眼拍板（界面 = v0.1.0 门面）
-- [ ] 三家真 provider 经 serve 链路（REST + SSE）各跑通带工具回合（真 key，env 门控不进 CI；M2 真跑是 examples/real 直连引擎，本条补宿主链路），并**逐形态验收截图点开看**：mock 驱动确定性形态（推理块 / 错误回合 / 拒绝 / 中断 / 多工具 / 插话——显示代码 M3 已交付，mock 可确定性重放）＋ 真 key 跑真实分布（markdown / 代码块 / 截断 / 用量）；本条排在界面优化（markdown 渲染）之后做——渲染没落地前真 key 只能看纯文本直通，看了白看（2026-11-17 拍板）
+- [ ] 三家真 provider 经 serve 链路（REST + SSE）各跑通带工具回合（真 key，env 门控不进 CI；M2 真跑是 examples/real 直连引擎，本条补宿主链路），并**逐形态验收截图点开看**。**真 key 采样先行（2026-11-17 改拍板）**：markdown 渲染的开发素材直接用三家真 key 跑真实样本（标题 / 代码块 / 表格 / 列表的真实分布），照样本做渲染、做完立刻真 key 复看显示效果（markdown / 代码块 / 截断 / 用量）——不拿 mock 编样本；**mock 只留稀有形态清单**（推理块 / 错误回合 / 拒绝 / 中断 / 多工具 / 插话——真 key 难以稳定触发，mock 确定性重放，兼 CI 离线回归）
 - [ ] `changeset version && publish` 干跑通过；README 英文版就位
 - [ ] 官方插件文档齐全：一包一 README、一工具一 md（文档粒度规矩见仓库根 [AGENTS.md](../AGENTS.md)）
 
@@ -99,7 +99,7 @@
 
 - [ ] 读者冒烟：mock 插件包带 skills / mcp / hooks / commands 四类槽位——新会话里技能目录注入且可激活、MCP 工具进注册表、钩子拦截与放行正确、命令进输入框且 `$ARGUMENTS` 替换正确；外部 `.agents/skills` 根只读生效（D-020）
 - [ ] AI 创建插件：按《插件规范》创建一个内容包（槽位 / 界面 / 引擎模块），新会话生效；带 `engine/` 的包走确认卡流程、同 id 替换后失败可回落官方（D-048）；坏清单插件被跳过且告警可见
-- [ ] 21 个官方插件全部发布，全部仅经公共注册路径装载（P8 终验）
+- [ ] 22 个官方插件全部发布，全部仅经公共注册路径装载（P8 终验）
 
 ---
 

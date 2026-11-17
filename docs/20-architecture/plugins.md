@@ -4,16 +4,16 @@
 > 状态：**已定稿**（2026-11-12）——同名覆盖（D-032）与宿主槽位词表（D-033）已收口；实现中发现形状问题按 [interfaces.md](./interfaces.md) 的流程改。
 > 依据：D-015（配置面）、D-016（启用与装配）、D-017（格式与来源）、D-018（排期）、D-019（生态兼容）、D-020（技能来源）、D-021（界面 UI 形态）、D-022（替换粒度）、D-024（更新语义）、D-025（命令槽位）、D-026（官方随包技能）、D-027（缝命名）、D-028（UI 宿主门面）、D-029（插件管理面）、D-030（安全基线）、D-031（UI 位置静态申报）、D-032（同名覆盖）、D-033（宿主槽位词表）、D-048（engine 槽位与同 id 替换）、D-049（能力服务化）。
 > 设计参照：公开实现的插件机制（dsh / Claude Code / ZCode）——只借鉴机制，零代码复用（D-004）。**格式采用行业标准**（MCP 协议、agentskills.io、生态常见写法），市面上现成的直接可用；**不做导入 / 同步管线**（界面无入口、后台不扫描，D-019 修订 D-017）。
-> 包结构（21 个官方插件作为 npm 包，按族分包：服务件 + 工具件，D-049）见 [packages.md](./packages.md)；数据落盘位置见 [data-directory.md](./data-directory.md) §2。
+> 包结构（22 个官方插件作为 npm 包，按族分包：服务件 + 工具件，D-049 / D-058）见 [packages.md](./packages.md)；数据落盘位置见 [data-directory.md](./data-directory.md) §2。
 
 ---
 
 ## 1. 插件的两种形态
 
-| 形态                | 分发方式                         | 谁写                                                           | 能造引擎工具 / 替换官方插件吗                                                 | 例子                                                                                                                                                                                                                                                    |
-| ------------------- | -------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **引擎 / 界面插件** | npm 包，随宿主发布               | 官方 21 个（社区可整包替换）                                   | **能**（ToolDefinition 直写；替换官方 = `henira.config.ts` 显式清单，D-016④） | session / llm / tools / approval / loop / fs 族（fs / fs-tools / fs-search）/ shell 族（shell / shell-tools）/ fetch / compaction / subagent / tasks 族（tasks / plan / todo）/ skills / mcp / hooks / commands / **web-ui**（官方默认界面套件，D-043） |
-| **内容包**          | 版本目录（`~/.henira/plugins/`） | **AI 创建**——插件的唯一用户侧来源（D-017；技能文件另见 D-020） | **带 `engine/` 槽能**（同 id 经确认卡替换官方，D-048）；纯素材包不能          | 一组技能、一个 MCP server、几条钩子、带界面或引擎代码的工具件                                                                                                                                                                                           |
+| 形态                | 分发方式                         | 谁写                                                           | 能造引擎工具 / 替换官方插件吗                                                 | 例子                                                                                                                                                                                                                                                                            |
+| ------------------- | -------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **引擎 / 界面插件** | npm 包，随宿主发布               | 官方 22 个（社区可整包替换）                                   | **能**（ToolDefinition 直写；替换官方 = `henira.config.ts` 显式清单，D-016④） | session / llm / tools / approval / loop / breaker（熔断，D-058）/ fs 族（fs / fs-tools / fs-search）/ shell 族（shell / shell-tools）/ fetch / compaction / subagent / tasks 族（tasks / plan / todo）/ skills / mcp / hooks / commands / **web-ui**（官方默认界面套件，D-043） |
+| **内容包**          | 版本目录（`~/.henira/plugins/`） | **AI 创建**——插件的唯一用户侧来源（D-017；技能文件另见 D-020） | **带 `engine/` 槽能**（同 id 经确认卡替换官方，D-048）；纯素材包不能          | 一组技能、一个 MCP server、几条钩子、带界面或引擎代码的工具件                                                                                                                                                                                                                   |
 
 **四个词（盒 / 货 / 通道 / 清单，D-049）**：
 
@@ -64,7 +64,7 @@
 
 - `name` **必填且必须与目录名一致**；`version` 写了必须与版本目录名一致、缺省取目录名（不一致 → 跳过并告警）；其余可选；
 - 解析口径：**缺省救缺失，写错丢整段**；清单缺失 / 损坏 → 跳过该插件并告警，**不挡启动**（坏插件不该让整个软件打不开；真缺关键插件跑不起来，内核报错兜底——"loop 需要槽位 'llm'，没有插件提供它"）；
-- `ui` 段（D-021 / D-031）：`entry` 可选（相对版本目录的 ESM 入口，**缺省 `ui/main.js`**）、`title` 可选（插件列表展示）、`slots` **可选**（声明计划挂载点，供插件页提前展示 / 加载前校验 / AI 自测；v1 取值 `session.top` / `composer.above` / `sidebar.right`）；**实际挂载仍以 `ctx.registerSlot` 为准**，字段名是 `ui.slots` 不是 `slot`。
+- `ui` 段（D-021 / D-031）：`entry` 可选（相对版本目录的 ESM 入口，**缺省 `ui/main.js`**）、`title` 可选（插件列表展示）、`slots` **可选**（声明计划挂载点，供插件页提前展示 / 加载前校验 / AI 自测；v1 取值见 §4 挂载点词表——区域级三个 ＋ 行级四个（D-057）；keyed 槽声明写实际要注册的全名，如 `tool.call.view.search`）；**实际挂载仍以 `ctx.registerSlot` 为准**，字段名是 `ui.slots` 不是 `slot`。
 - `engine` 段（D-048）：`entry` 可选（相对版本目录的 ESM 入口，**缺省 `engine/main.js`**）；顶层可选字符串字段 `engine`（如 `"engine": "^0.1"`）声明兼容的引擎版本，装载时校验、不符跳过 + 告警（兼容门）。注入哪些能力服务由**引擎模块导出**声明（`export const inject = [...]`，D-049），manifest 不复写——单一事实源。
 
 ## 4. 槽位文件格式
@@ -75,6 +75,8 @@
 | commands | `commands/<名>.md`                           | frontmatter（`description` / `argument-hint`）+ 正文模板，`$ARGUMENTS` 为参数占位                                                                                                                                                                                                                                                               | plugin-commands（占 `commands` 槽位，D-025）                  |
 | hooks    | `hooks/<名>.json`                            | `{ event, matcher?, type: process\|shell, command, args?, timeout?, statusMessage? }`                                                                                                                                                                                                                                                           | plugin-hooks                                                  |
 | mcp      | `mcp/<名>.json`                              | 本地：`{ command, args?, env? }`；远程：`{ url, headers?, type? }`                                                                                                                                                                                                                                                                              | plugin-mcp                                                    |
+| locales  | `locales/<lang>.json`                        | 语言字典：顶层 `string → string` 映射，键集 = 官方 zh 词表同键；**缺 key 回落官方 zh**（语言包是内容不是逻辑，不 fail-loud，D-059）                                                                                                                                                                                                             | 官方界面件（web 宿主装配时扫已装插件，D-059；落码随需）       |
+| themes   | `themes/<名>.css`                            | 主题变量组：`.henira-app[data-theme="<名>"]` 一组 CSS 变量（结构同官方 tokens.css）；官方 light / dark 两档永在不可覆盖，第三方方案追加进下拉（D-059）                                                                                                                                                                                          | 官方界面件（同上，D-059；落码随需）                           |
 | agents   | `agents/<名>.md`                             | frontmatter（`name` / `description` / `tools?` / `model?`）+ 正文 = 系统提示词；**缺 description 不产代理**（description 是委派的唯一依据）                                                                                                                                                                                                     | plugin-subagent                                               |
 | ui       | `ui/main.js`（ESM，`ui.entry` 指定）         | 导出 `apply(ctx)`；`ctx.registerSlot(name, component, { order? })` + `ctx.host`（13 方法，D-028 / D-042）；只依赖 `react` + 同目录相对路径                                                                                                                                                                                                      | 网页宿主                                                      |
 | engine   | `engine/main.js`（ESM，`engine.entry` 指定） | 导出引擎插件定义（**与官方同一套 API**：defineTool / ServiceDefinition / 挂事件 / 占槽位，D-048）；依赖四源——Node 内置、`engine/` 自带依赖（package.json + node_modules，AI 用 pnpm 装）、**能力服务（`inject` 声明注入，官方与第三方同权，D-049）**、宿主经 import map 注入的 `@henira/kernel` / `@henira/protocol` **唯一实例**（禁自带副本） | 装配层（config-loader / kernel 装配）                         |
@@ -87,6 +89,8 @@
 | commands | `<名>.md` frontmatter 有 `description`；正文非空；`$ARGUMENTS` 可选                                                                     | 跳过该命令 + 告警（`CommandInfo.description` 必填，D-025）                                                                                                          |
 | hooks    | `event` 在事件表内；`matcher` 是合法正则；`type` ∈ process / shell；`command` 非空；`timeout` 为数字                                    | 跳过该钩子 + 告警；**不执行**                                                                                                                                       |
 | mcp      | JSON 合法；`command` 或 `url` 至少一个；env / headers 只写非敏感配置（密钥引用宿主注入，D-030）                                         | 跳过该 server + 告警；**不 spawn**                                                                                                                                  |
+| locales  | JSON 合法；顶层为 string → string 映射                                                                                                  | 不采用该字典 + 告警（其他已装语言不受影响）；其他槽位照常                                                                                                           |
+| themes   | 文件存在且可读                                                                                                                          | 不采用该主题 + 告警；其他槽位照常                                                                                                                                   |
 | agents   | frontmatter `name` = 文件名、`description` 必填、`tools` ∈ 已知工具；正文非空                                                           | 缺 `description` 不产代理（description 是委派唯一依据）；其他非法 → 跳过 + 告警                                                                                     |
 | ui       | `ui.entry` 文件存在；模块可加载并导出 `apply`；`registerSlot` 的挂载点合法                                                              | 不挂该 UI + 告警；**其他槽位照常**，插件列表标黄                                                                                                                    |
 | engine   | `engine.entry` 文件存在；模块可加载并导出插件定义；清单 `engine` 版本字段匹配（兼容门）；依赖表无 `@henira/kernel` / `@henira/protocol` | 不装载该包引擎代码 + 告警；**同 id 替换场景自动回落官方实现**（D-048）；**声明的注入服务无提供者 → 该件不装载 + 告警、其余照常**（装配层预检，D-049）；其余槽位照常 |
@@ -141,8 +145,10 @@
 - **源码随包走**：需要构建的界面件，源码可住在 `ui/src/`（自由区：TS 源文件、package.json、开发用 node_modules、构建配置），AI 写完在原地构建、产物进 `ui/` 根；**宿主只加载 `ui.entry` 产物**，源码与开发依赖不加载、不解析；更新写新版本目录时源码随版本一起拷——源码与产物永远同版本（D-024），不漂移；分发 / 备份不带 node_modules（开发脚手架，到场要改时 AI `pnpm install` 重装即可）；
 - **禁止**：Node API、自带 React、改写应用根节点 / `document.body`、读别的插件的 DOM / 样式；
 - **ctx 门面**：`registerSlot(name, component, { order? }) → disposer` + **`host: PluginUiHost`**（13 方法，见下）；样式 / 监听 / 定时器在 `apply` 内注册，随页面卸载撤销；
-- **挂载点 v1 三个**：`session.top`（会话页顶部）· `composer.above`（输入框上方）· `sidebar.right`（右侧栏）；**槽位词表按宿主定义**（D-033）：前两个是 web 系共享核心，`sidebar.right` 仅桌面 Web；
+- **挂载点 v1 七个（区域级三个 ＋ 行级四个，D-057）**：区域级 = `session.top`（会话页顶部）· `composer.above`（输入框上方）· `sidebar.right`（右侧栏）；行级（对话流内部，D-057）= `tool.call.view.<工具名>`（**工具卡自定义渲染**，按工具名 keyed——插件给自家工具定制卡片、或顶替官方工具卡）· `conversation.images`（**消息图片画廊**，单槽；官方默认件渲染行内图片组）· `turn.tail`（**回合尾追加位**——回合结束后追加呈现块：交付卡 / 富结果卡；追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（**侧栏文件预览实现**，按扩展名 keyed——docx / pptx / pdf / 表格等富预览由此扩）；**槽位词表按宿主定义**（D-033）：`session.top` / `composer.above` / `turn.tail` / `conversation.images` / `tool.call.view.*` 是 web 系共享核心，两个 `sidebar.right.*` 仅桌面 Web；
+- **keyed 词表按前缀识别（D-057）**：`tool.call.view.` / `sidebar.right.preview.` 前缀合法、后缀自由（工具名 / 扩展名——含插件自家工具名）；未知前缀照 D-033 处置（别的宿主词表 → 静默忽略，完全未知 → 丢弃告警）；
 - **区域替换（D-043）**：`replaceSlot(name, component)` 替换该区域的官方默认件；同区冲突报错（D-022 同款）；没装东西的框**收起**（不渲染不占宽，不留空白）；装法可自定义（件挂哪个槽可配置）；
+- **keyed 槽占用语义（D-057）**：官方内置件默认占用（工具卡 / 预览各有官方默认实现）；插件 `replaceSlot` 顶替，卸载 / 停用自动回落官方；同 key 第二家顶替 → 报错不装载 ＋ 告警（与 D-022 唯一占用、D-048 回落官方同语义）；`conversation.images` 同理可顶替；`turn.tail` 纯追加（`registerSlot` 多件共存，`order` 排序）；**安全模式**（双击 Alt / `?ui=safe`）行级缝全部收起、回落官方默认渲染（编译期出口 defaultParts 占位）；
 - **标准件出口（D-043）**：官方界面件（会话列表 / 对话面板 / 输入框 / 审批卡…）经宿主标准件出口（import map，与 react 同口子）供插件 import——同一份同版本件，插件间禁止私拉直连；件与**会话上下文**一起给（承重缝，M3 定稿）；
 - **官方界面 = 真插件（D-043）**：`plugin-web-ui` 一个包装下布局与各件、各占各槽；与社区插件同一条注册路径；内圈 UI 槽位**不给关、不提供版本钉**（D-016 机制，装配层规则）；三级后手 = 槽位级自动回退 → 双击 Alt 安全模式 → URL `?ui=safe` 兜底；
 - **位置申报（D-031 / D-033）**：`ui.slots` 可选；声明了才校验——声明未注册 = 死声明告警，注册未声明 = 漏声明告警；未知挂载点：属于别的宿主词表 → 静默忽略，完全未知 → 丢弃该条并告警（D-033）；不是数组 / 类型错 = 忽略该字段（保留 `entry` / `title`）并告警；不写 `ui.slots` 完全合法；实际挂载仍以 `ctx.registerSlot` 为准；
@@ -211,7 +217,7 @@
 - 内圈 5 槽位（session / llm / tools / approval / loop）不提供开关——关了跑不起来；官方界面件（`plugin-web-ui`）同款：**不给关、不提供版本钉**（D-043，界面永不缺席）；
 - 开关只能**关**，不能**换**：换官方插件 = `henira.config.ts` 显式写清单。
 - **替换粒度 = 整份清单**（D-022）：想改默认清单用 TS 表达式（`defaultPreset.filter / map / [...spread]`，范例见 [interfaces.md](./interfaces.md) §config-loader）；不设按 id 的补丁语法；同一槽位两个插件 = 内核报错，不静默后者赢。
-- **用户包替换官方插件（D-048）**：包 id 与官方插件相同且带 `engine/` → 新会话装配弹**确认卡**（写明替换谁、代码路径、依赖数；**版本升级重弹**、同版本只一次）；确认才装载，拒绝则官方照常；生效后管理面显示"已被用户插件替换（来源 + 版本）"。优先级 = 项目插件 > 用户插件 > 官方 npm。装载失败 / 运行崩溃 → 标损坏 + 告警 + **自动回落官方实现**；关掉 / 删掉用户包，官方自动回来。21 个官方件（含内圈 5）同一套规则，无特例——一般情况下没人去换，但要能换。同 id 纯内容包（无 `engine/`）不构成替换（D-032 照旧）；不同 id 注册与已启用插件同名工具 → 报错不装载、提示先关官方。**替换粒度两级（D-049）**：换工具件（只换一盒工具）或换服务件（整个换能力实现、注入它的工具件全体跟着换），同一套确认卡与回落；
+- **用户包替换官方插件（D-048）**：包 id 与官方插件相同且带 `engine/` → 新会话装配弹**确认卡**（写明替换谁、代码路径、依赖数；**版本升级重弹**、同版本只一次）；确认才装载，拒绝则官方照常；生效后管理面显示"已被用户插件替换（来源 + 版本）"。优先级 = 项目插件 > 用户插件 > 官方 npm。装载失败 / 运行崩溃 → 标损坏 + 告警 + **自动回落官方实现**；关掉 / 删掉用户包，官方自动回来。22 个官方件（含内圈 5）同一套规则，无特例——一般情况下没人去换，但要能换。同 id 纯内容包（无 `engine/`）不构成替换（D-032 照旧）；不同 id 注册与已启用插件同名工具 → 报错不装载、提示先关官方。**替换粒度两级（D-049）**：换工具件（只换一盒工具）或换服务件（整个换能力实现、注入它的工具件全体跟着换），同一套确认卡与回落；
 - **服务件的开关与失效（D-049）**：关掉 / 换掉一个服务件，注入它的工具件自动不装载并告警（如关掉 fs 服务 → fs-tools / fs-search 全体缺席，模型少一组工具，系统照跑）；同 id 服务件替换走 D-048 确认卡，实现全体跟着换；
 - **引擎代码依赖（D-048）**：`engine/` = 标准 Node 包目录，零依赖单文件，或有依赖 `package.json` + `node_modules` 皆合法；安装 = AI 经 shell 工具跑 `pnpm install`（走既有审批链，用户看得见命令），装载器零安装机器；`pnpm-lock.yaml` 随 `engine/` 走。**分发 / 备份不带 node_modules**——它是可再生的运行件而非数据（package.json + lockfile 照单重建），且原生二进制跨平台拷贝会坏；到场由 AI 照 lockfile 重装一次即复原，缺依赖装载失败 = 标损坏 + 告警 + 同 id 替换场景自动回落官方（四闸既有规则），AI 即安装器。**硬规矩：`@henira/kernel` / `@henira/protocol` 不进依赖表**——一个 harness 只能有一个内核实例，自带副本必炸；宿主经 import map 注入唯一实例（与 `ui/` 的 react、D-043 官方界面件出口同一口子）。
 
@@ -278,16 +284,16 @@
 
 ### 7.2 宿主槽位词表（D-033）
 
-- **v1 桌面 Web 三个**：`session.top` / `composer.above` / `sidebar.right`；不做大矩阵承诺（D-033）；
-- **共享核心两个**：`session.top`、`composer.above` 在所有 web 系宿主（桌面 / 手机网页 / 云网页）语义一致；
-- **`sidebar.right` 仅桌面 Web**；移动端单栏没有右侧栏，不得硬造等价物；
+- **v1 七个（D-057 扩定）**：区域级三个 `session.top` / `composer.above` / `sidebar.right` ＋ 行级四个 `tool.call.view.<工具名>` / `conversation.images` / `turn.tail` / `sidebar.right.preview.<扩展名>`（语义见 §4 挂载点词表）；不做大矩阵承诺（D-033）；
+- **共享核心五个**：`session.top`、`composer.above`、`turn.tail`、`conversation.images`、`tool.call.view.*` 在所有 web 系宿主（桌面 / 手机网页 / 云网页）语义一致；
+- **两个 `sidebar.right.*` 仅桌面 Web**；移动端单栏没有右侧栏，不得硬造等价物；
 - **移动端词表等移动 UI 设计时再定**：可复用共享核心，具体名字（如 `mobile.sheet` / `mobile.drawer`）按真实布局定；
 - **桌面扩展按需加**：`sidebar.left` / `session.bottom` / `titlebar` 等只在真实插件需要时逐个加；每次都是 Web 宿主的 UI 改动，不动内核；
 - **未知槽位**：属于别的宿主词表的槽位 → 静默忽略；完全未知 → 告警并忽略；插件继续加载。
-- **官方界面件的槽名随 M3 定（D-043）**：布局与各件（会话列表 / 对话面板 / 输入框 / 审批卡）所在区域槽的名字，随 `plugin-web-ui` 在 M3 点数定稿；上面三个挂载点是 v1 插件自挂词表（D-033，不变），两套并存。
+- **官方界面件的槽名随 M3 定（D-043）**：布局与各件（会话列表 / 对话面板 / 输入框 / 审批卡）所在区域槽的名字，随 `plugin-web-ui` 在 M3 点数定稿；上面七个挂载点是 v1 插件自挂词表（D-033 定区域级三个，D-057 扩行级四个），两套并存。
 
 ## 8. 与官方插件的关系
 
-- 官方 21 个是 npm 包（按族分包：服务件 + 工具件，D-049；清单见 [packages.md](./packages.md)），不经版本目录分发，不进 `plugins/` 目录；官方包内的 `skills/` / `commands/` / `agents/` 作为**随包内容**被对应读者扫到（最低优先级，D-026 / D-032）；
+- 官方 22 个是 npm 包（按族分包：服务件 + 工具件，D-049 / D-058；清单见 [packages.md](./packages.md)），不经版本目录分发，不进 `plugins/` 目录；官方包内的 `skills/` / `commands/` / `agents/` 作为**随包内容**被对应读者扫到（最低优先级，D-026 / D-032）；
 - 读者插件（skills / mcp / hooks / commands）按本规范认领槽位目录；将来替换某个读者，也按同一规范认领——**格式稳定，读者可换**（P8）；
 - 读者互相独立：一个包可以同时带四类槽位，也可以只带一类（"有啥放啥、各放任意多个"）。

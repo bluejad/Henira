@@ -375,7 +375,7 @@ interface PluginEntry {
 // defaultPreset 共 21 条：引擎 / 能力 / 读者 20 条带 definition（服务件与工具件皆清单条目，D-049）；
 //   web-ui 为 id-only 条目（无引擎 definition，由 web 宿主装载其界面件，D-043）；
 //   已装内容包只以 id + options 出现在装配结果里，供读者按开关过滤。
-export const defaultPreset: PluginEntry[];   // 官方 21 个插件；想基于默认改 = import 后 spread,
+export const defaultPreset: PluginEntry[];   // 官方 22 个插件；想基于默认改 = import 后 spread,
                                              // 不设 add/remove 补丁语法（TS 代码即补丁机制）
 export const bundledSkillDirs: string[];     // 官方随包技能目录清单（D-026，读者按清单扫）
 
@@ -646,11 +646,13 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
+- **挂载点词表 v1 七个（D-057，2026-11-17 扩定）**：区域级三个（`session.top` / `composer.above` / `sidebar.right`，D-033）＋ 行级四个——`tool.call.view.<工具名>`（工具卡自定义渲染，keyed；官方工具卡默认占用，插件顶替、卸载回落）· `conversation.images`（图片画廊单槽；官方默认件渲染行内图片组）· `turn.tail`（回合尾追加位；registerSlot 多件共存按 order——最终回复的富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（侧栏文件预览实现，keyed；插件实现排官方默认前）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（工具卡 / 画廊 / 回合尾 / 预览）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。落码随 M4 界面优化轮（官方默认件 + 缝位），此前行级缝不生效；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT，light/regular 档细线），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
-  - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）。
+  - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）；
+  - 界面资产缝（D-059，**设计定稿落码随需**）：插件包可带 `locales/<lang>.json` 语言包（缺 key 回落官方 zh，不 fail-loud）与 `themes/<名>.css` 主题包（变量组追加进设置下拉，官方 light / dark 两档永在不可覆盖）；读者 = 官方界面件；`settings.ui.theme` / `ui.locale` 扩为任意已装 id；安全模式回落官方默认组合；**落码前这两个槽位合法但不被读取**（创建无害、无效果）。
 
 ## 插件 UI 宿主门面（web 系宿主实现，D-028）
 
@@ -658,8 +660,10 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 
 ```ts
 interface UiModuleContext {
-  registerSlot(name: string, component: unknown, opts?: { order?: number }): Disposable; // 追挂（append）；name 按当前宿主词表校验（D-033）
-  replaceSlot(name: string, component: unknown): Disposable; // 替换该区域默认件（D-043）；同区冲突报错（D-022 同款）
+  registerSlot(name: string, component: unknown, opts?: { order?: number }): Disposable; // 追挂（append）；name 按当前宿主词表校验（D-033）；
+  //   keyed 词表按前缀识别（tool.call.view. / sidebar.right.preview. 前缀合法、后缀自由，D-057）
+  replaceSlot(name: string, component: unknown): Disposable; // 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 冲突报错（D-022 同款）；
+  //   卸载 / 停用自动回落官方（D-048 同语义）；安全模式下行级缝全部收起回落默认渲染
   host: PluginUiHost;
 }
 
@@ -711,7 +715,7 @@ interface PluginInfo {
   category?: string;
   enabled: boolean;
   broken?: string; // 损坏原因；正常时缺省
-  slotKinds?: string[]; // 已识别槽位类型（skills / commands / hooks / mcp / agents / ui）
+  slotKinds?: string[]; // 已识别槽位类型（skills / commands / hooks / mcp / locales / themes / agents / ui）
 }
 
 // 插件管理面详情（D-029）：hooks 事件 / 命令、mcp 连接目标必须可见
