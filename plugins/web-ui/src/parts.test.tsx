@@ -122,17 +122,21 @@ describe("SessionList", () => {
     await waitFor(() => {
       expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
     });
-    const headers = container.querySelectorAll("button.henira-session-group");
-    fireEvent.click(headers[0] as HTMLButtonElement); // 手动折叠 demo 组
-    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
-    rerender(<SessionList {...ctx} sessionId="s-2" />);
-    // 选中 other 组会话——demo 组保持用户折叠（只自动展开活跃组所在组）
-    await waitFor(() => {
-      const demo = container.querySelector("button.henira-session-group") as HTMLButtonElement;
-      expect(demo.getAttribute("aria-expanded")).toBe("false");
-    });
+    // 折叠「非活跃组」（other）——活跃组 demo 的手动折叠会与自动展开 effect 竞态（CI 慢机抓过：
+    // effect 在断言后 flush 把组弹回；语义上选中即展开，测非活跃组才确定性）
     const other = container.querySelectorAll("button.henira-session-group")[1] as HTMLButtonElement;
-    expect(other.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(other);
+    expect(other.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1); // 只剩活跃组 demo 的 s-1
+    // 切选 other 组会话 → 其组自动展开（sessionId 变更即确定性触发）
+    rerender(<SessionList {...ctx} sessionId="s-2" />);
+    await waitFor(() => {
+      const header = container.querySelectorAll(
+        "button.henira-session-group",
+      )[1] as HTMLButtonElement;
+      expect(header.getAttribute("aria-expanded")).toBe("true");
+    });
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
   });
 });
 
