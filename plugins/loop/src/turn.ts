@@ -10,6 +10,7 @@ import type {
   LlmService,
   LoopEvent,
   SessionService,
+  TokenUsage,
   ToolsService,
   TurnEndReason,
 } from "@henira/protocol";
@@ -17,6 +18,18 @@ import { DeltaBatcher } from "./batcher.js";
 import { BASE_SYSTEM_KEY, BASE_SYSTEM_PROMPT } from "./prompts.js";
 import type { PromptQueue } from "./queue.js";
 import { runStep } from "./step.js";
+
+/** 用量逐字段累加（回合级 usage = 各步之和；未报字段落 0——turn/end.usage 是整回合合计） */
+function addUsage(a: TokenUsage, b: TokenUsage | undefined): TokenUsage {
+  if (b === undefined) return a;
+  return {
+    inputTokens: (a.inputTokens ?? 0) + (b.inputTokens ?? 0),
+    outputTokens: (a.outputTokens ?? 0) + (b.outputTokens ?? 0),
+    cacheReadTokens: (a.cacheReadTokens ?? 0) + (b.cacheReadTokens ?? 0),
+    cacheWriteTokens: (a.cacheWriteTokens ?? 0) + (b.cacheWriteTokens ?? 0),
+    reasoningTokens: (a.reasoningTokens ?? 0) + (b.reasoningTokens ?? 0),
+  };
+}
 
 export interface LoopDeps {
   ctx: HeniraContext;
@@ -77,7 +90,7 @@ export async function runTurnCore(
 
   let step = 0;
   let endReason: TurnEndReason = "completed";
-  let turnUsage = { inputTokens: 0, outputTokens: 0 };
+  let turnUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   try {
     while (true) {
       if (signal.aborted) {
@@ -102,7 +115,7 @@ export async function runTurnCore(
       }
 
       const outcome = await runStep({ turn, step, deps, batcher, signal });
-      turnUsage = outcome.usage;
+      turnUsage = addUsage(turnUsage, outcome.usage);
       const interrupted = signal.aborted;
       await session.append({
         type: "step/end",
@@ -140,6 +153,7 @@ export async function runTurnCore(
       ctx.events.emit("step/start", { turn, step });
       const more = await runStep({ turn, step, deps, batcher, signal });
       endReason = more.outcome === "tool-round" ? "completed" : more.outcome;
+      turnUsage = addUsage(turnUsage, more.usage);
       await session.append({ type: "step/end", data: { turn, step, usage: more.usage } });
     }
   }

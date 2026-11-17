@@ -155,6 +155,35 @@ describe("turn/step 状态机（loop.md §1）", () => {
     await harness.dispose();
   });
 
+  it("回合级 usage = 各步累加（两步工具回合：turn/end.usage 是合计而非末步覆盖）", async () => {
+    const { harness, loop, session } = await startedLoop([
+      [
+        mockToolCall("c1", "read", '{"path":"a.txt"}'),
+        mockUsage({ inputTokens: 10, outputTokens: 5 }),
+        mockFinish("tool-calls"),
+      ],
+      [
+        mockText("文件内容是…"),
+        mockUsage({ inputTokens: 100, outputTokens: 50 }),
+        mockFinish("stop"),
+      ],
+    ]);
+    await collect(loop.run("看看 a.txt"));
+    const end = session.events().find((e) => e.type === "turn/end");
+    const usage =
+      end === undefined
+        ? undefined
+        : (end.data as { usage?: Record<string, number | undefined> }).usage;
+    expect(usage).toEqual({
+      inputTokens: 110,
+      outputTokens: 55,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+    });
+    await harness.dispose();
+  });
+
   it("基底 system 块只注入一次（key 防重复，同名最新）", async () => {
     const { harness, loop, session } = await startedLoop([
       [mockText("a"), mockUsage(USAGE), mockFinish("stop")],
@@ -225,7 +254,9 @@ describe("turn/step 状态机（loop.md §1）", () => {
     const consuming = (async () => {
       for await (const event of loop.run("干活")) events.push(event);
     })();
-    // 工具执行中（60ms 窗口）升格插话——step 边界在工具结果落定之后
+    // 等工具真跑起来再投递——send/steer 稳定落在 80ms 工具窗内（step 边界 claim #1 已过、
+    // claim #2 未到），消除与 turn 启动的竞态（原写法负载下偶发越窗，2026-11-17 批 A 复现两次）
+    while (!_toolStarted) await new Promise((r) => setTimeout(r, 1));
     const queued = await loop.send("优先看这个");
     expect(queued.id).not.toBe("");
     await loop.steer(queued.id);

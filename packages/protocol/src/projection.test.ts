@@ -98,6 +98,52 @@ describe("账本回放 → 快照", () => {
     expect(tool).toMatchObject({ status: "error", output: { isError: true } });
   });
 
+  it("tool/result 截断标记：truncated 原样进 output（结构化，不再只靠尾注文本）", () => {
+    const p = rebuildProjection([
+      ev(1, "turn/start", { turn: "t-1" }),
+      ev(2, "step/start", { turn: "t-1", step: 1 }),
+      ev(3, "tool/call", { turn: "t-1", step: 1, callId: "c1", name: "read", arguments: "{}" }),
+      ev(4, "tool/result", {
+        turn: "t-1",
+        step: 1,
+        callId: "c1",
+        isError: false,
+        content: "head\n[truncated] output exceeds limit (3000 lines); head kept",
+        durationMs: 9,
+        truncated: { path: "D:/spill/big.txt", preview: "head" },
+      }),
+    ]);
+    expect(p.rows[0]).toMatchObject({
+      status: "done",
+      output: {
+        isError: false,
+        truncated: { path: "D:/spill/big.txt", preview: "head" },
+      },
+    });
+  });
+
+  it("step/end 用量投影：挂到该步 assistant 行（原位 upsert 不新增行）", () => {
+    const p = rebuildProjection([
+      ev(1, "turn/start", { turn: "t-1" }),
+      ev(2, "step/start", { turn: "t-1", step: 1 }),
+      ev(3, "assistant/message", {
+        turn: "t-1",
+        step: 1,
+        content: "你好",
+        model: "m",
+        finishReason: "stop",
+      }),
+      ev(4, "step/end", { turn: "t-1", step: 1, usage: { inputTokens: 7, outputTokens: 3 } }),
+      ev(5, "turn/end", { turn: "t-1", reason: "completed" }),
+    ]);
+    expect(p.rows).toHaveLength(1);
+    expect(p.rows[0]).toMatchObject({
+      rowId: "a:t-1:1",
+      text: "你好",
+      usage: { inputTokens: 7, outputTokens: 3 },
+    });
+  });
+
   it("审批对：asked → pending 行；decided → settled + decision（toolName/argsSummary 保留）", () => {
     const p = new Projection();
     const d1 = p.ingest(
@@ -126,7 +172,7 @@ describe("账本回放 → 快照", () => {
     expect(p.rows[0]).toMatchObject({ status: "settled", decision: "rejected", toolName: "shell" });
   });
 
-  it("无投影事件：system/message / request/header / step/end / approval/revoked / assistant/attempt 不产行不产增量", () => {
+  it("无投影事件：system/message / request/header / approval/revoked / assistant/attempt 不产行不产增量（step/end 无 assistant 行时不投影）", () => {
     const p = new Projection();
     const deltas = [
       ...p.ingest(
@@ -223,7 +269,7 @@ describe("流式直播（总线打字机碎片）", () => {
     expect(p.rows).toEqual([]);
   });
 
-  it("中止回合：turn/end 冻结仍流式的 assistant 行（部分文本定格），busy 落 false", () => {
+  it("中止回合：turn/end{aborted} 冻结仍流式的 assistant 行并标 interrupted（中断可见），busy 落 false", () => {
     const p = new Projection();
     p.ingest(ev(1, "turn/start", { turn: "t-1" }));
     p.ingest(ev(2, "step/start", { turn: "t-1", step: 1 }));
@@ -231,7 +277,7 @@ describe("流式直播（总线打字机碎片）", () => {
     const deltas = p.ingest(ev(3, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }));
     const upserts = deltas.filter((d) => d.op === "row.upserted");
     expect(upserts).toHaveLength(1);
-    expect(p.rows[0]).toMatchObject({ text: "写到一半", streaming: false });
+    expect(p.rows[0]).toMatchObject({ text: "写到一半", streaming: false, interrupted: true });
     expect(p.state.busy).toBe(false);
   });
 });

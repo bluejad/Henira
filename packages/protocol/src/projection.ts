@@ -6,6 +6,7 @@
 // 步边界自愈：assistant/message / tool/result / approval/decided 落账即整行替换，冲掉流式漂移。
 
 import type { SessionEvent } from "./envelope.js";
+import type { TokenUsage } from "./llm.js";
 import type {
   ApprovalRow,
   AssistantRow,
@@ -14,6 +15,7 @@ import type {
   RowId,
   SessionState,
   ToolRow,
+  ToolRowOutput,
   UserRow,
 } from "./server-events.js";
 
@@ -72,14 +74,17 @@ export class Projection {
       }
       case "turn/end": {
         const turn = data.turn as string;
+        const reason = data.reason as string | undefined;
         const deltas: Delta[] = [];
-        // 中止 / 出错的回合：仍处流式态的 assistant 行冻结（部分文本定格，无权威落定）
+        // 中止 / 出错的回合：仍处流式态的 assistant 行冻结（部分文本定格，无权威落定）；
+        // 中止回合在冻结行上标 interrupted（中断可见性——行上唯一痕迹，M4 批 A 判据③）
         const pending = this.streamingByTurn.get(turn);
         if (pending) {
           for (const id of pending) {
             const row = this.byId.get(id);
             if (row?.kind === "assistant" && row.streaming) {
               row.streaming = false;
+              if (reason === "aborted") row.interrupted = true;
               deltas.push({ op: "row.upserted", row: { ...row } });
             }
           }
@@ -126,6 +131,7 @@ export class Projection {
       case "tool/result": {
         const id = rowId.tool(data.turn as string, data.step as number, data.callId as string);
         const isError = data.isError as boolean;
+        const truncated = data.truncated as ToolRowOutput["truncated"] | undefined;
         const row: ToolRow = {
           kind: "tool",
           rowId: id,
@@ -139,6 +145,7 @@ export class Projection {
             content: data.content as string,
             isError,
             durationMs: data.durationMs as number,
+            ...(truncated !== undefined ? { truncated } : {}),
           },
         };
         const existing = this.byId.get(id);
@@ -193,8 +200,19 @@ export class Projection {
         this.push(row);
         return [{ op: "row.appended", row }];
       }
+      case "step/end": {
+        // 步级用量投影：挂到该步 assistant 行（assistant/message 已先落账，行必在）。
+        // usage 在账本必填（validators）；无行（畸形序）静默忽略。
+        const usage = data.usage as TokenUsage | undefined;
+        if (usage === undefined) return [];
+        const id = rowId.assistant(data.turn as string, data.step as number);
+        const existing = this.byId.get(id);
+        if (existing?.kind !== "assistant") return [];
+        const row: AssistantRow = { ...existing, usage };
+        return [this.upsert(row)];
+      }
       default:
-        // system/message（基底块不渲染）/ request/header / step/end / approval/revoked /
+        // system/message（基底块不渲染）/ request/header / approval/revoked /
         // assistant/attempt（M5 重试机随批投影）/ 插件 ignorable 事件——投影为空。
         // 功能面行类型随各自功能批加法生长（interfaces.md 备考）。
         return [];

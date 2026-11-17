@@ -109,6 +109,8 @@ const schemas: Record<string, z.ZodType> = {
     content: z.string(),
     error: z.string().optional(),
     durationMs: z.number().nonnegative(),
+    /** 输出超限截断（tools 管线结算原样透传；preview 头部 + path 落盘文件） */
+    truncated: z.object({ path: z.string().min(1), preview: z.string().min(1) }).optional(),
     meta: z.record(z.string(), z.unknown()).optional(),
   }),
   "approval/asked": z.object({

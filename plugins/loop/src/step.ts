@@ -150,6 +150,7 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
           isError: outcome.result.isError ?? false,
           content: outcome.result.content,
           durationMs: outcome.durationMs,
+          ...(outcome.truncated !== undefined ? { truncated: outcome.truncated } : {}),
           ...(outcome.result.__meta ? { meta: outcome.result.__meta } : {}),
         },
       });

@@ -6,6 +6,7 @@
 // 纯 DTO：运行时零依赖（packages.md 规则 1）；Decision 复用 approval 词表。
 
 import type { Decision } from "./approval.js";
+import type { TokenUsage } from "./llm.js";
 
 /** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `e:{seq}` */
 export type RowId = string;
@@ -30,12 +31,18 @@ export interface AssistantRow {
   streaming: boolean;
   model?: string;
   finishReason?: string;
+  /** 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage） */
+  usage?: TokenUsage;
+  /** true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定） */
+  interrupted?: boolean;
 }
 
 export interface ToolRowOutput {
   content: string;
   isError: boolean;
   durationMs: number;
+  /** 输出超限截断（tools 管线结算原样透传；preview 供 UI 展示头部，path 指完整输出落盘文件） */
+  truncated?: { path: string; preview: string };
 }
 
 export interface ToolRow {
