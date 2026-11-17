@@ -36,6 +36,9 @@
     },
     {
       "path": "plugins/loop"
+    },
+    {
+      "path": "plugins/web-ui"
     }
   ]
 }
