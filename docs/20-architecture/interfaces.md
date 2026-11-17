@@ -478,13 +478,65 @@ GET  /api/dirs                                          → RegisteredDir[]  // 
 POST /api/dirs                              { cwd }     → { ok: true; dir }  // 登记：绝对路径 + 存在 + 是目录（非法 400）
 DELETE /api/dirs/:id                                    → { ok: true }     // busy → 200 { ok: false; blocked: [sessionId] }（批操作语义响应，与删会话 409 双轨——D-060）；
                                                         //   删 projects/<key>/ + checkpoints/<key>/ + 登记条目，盘上工作目录不动（data-directory §7）；未知 id 幂等
-GET  /api/dirs/browse?path=                             → DirBrowse        // 全局目录浏览一层（新增目录弹窗数据源；path 缺省 homedir、__drives__ = win32 盘符；
+GET  /api/dirs/browse?path=                             → DirBrowse        // 全局目录浏览一层（新增目录弹窗数据源；path 缺省 homedir、__drives__ = win32 盘符（非 win32 = / 单项）；
                                                         //   隐藏项不返、只回目录；信任边界 = 回环三件套之上，D-060）
 GET  /api/server/info                                   → { version; startedAt; model }
 GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
 GET  /api/models                                        → 模型清单（models.dev 字典 + 手写覆盖；无密钥）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
+```
+
+```ts
+// REST 面 DTO 形状（真源 = @henira/protocol server-events.ts 与 sdk facade——R127 批收口反向核对补全）
+interface SettingsData {
+  // GET/PUT /api/settings；凭据永不出现（D-030）
+  version: 1;
+  model?: string;
+  ui?: { theme?: string; locale?: string };
+}
+interface ModelCatalog {
+  // GET /api/models（手写 models.json + models.dev 快照，按 id 查）
+  providers: Record<string, { baseUrl?: string; models?: string[] }>;
+}
+interface UiAssets {
+  locales: UiAssetLocale[];
+  themes: UiAssetTheme[];
+} // GET /api/ui-assets（D-059 语言包/主题包清单）
+interface UiAssetLocale {
+  pluginId: string;
+  version: string;
+  lang: string;
+  url: string;
+}
+interface UiAssetTheme {
+  pluginId: string;
+  version: string;
+  name: string;
+  url: string;
+}
+interface RegisteredDir {
+  // data-directory §4 projects.json 条目（权威工作区列表，可自愈复活）
+  id: string; // sha256(canonical cwd) 前 16 位（win32 大小写归一后）
+  cwd: string;
+  key: string; // §4 命名（--slug60-hash8--，只给人看，查找不靠它）
+  displayName: string;
+  createdAt: number;
+  lastOpenedAt: number;
+  openCount: number;
+  lastSessionId?: string | null;
+}
+interface DirBrowseItem {
+  name: string;
+  path: string;
+  type: "drive" | "directory";
+}
+interface DirBrowse {
+  // GET /api/dirs/browse 响应：一层目录内容（懒展开树逐层拉取）
+  path: string;
+  parent?: string; // 上一层目录（盘符根 = 自身）；盘符列表根（path=__drives__）= undefined
+  items: DirBrowseItem[];
+}
 ```
 
 ### ServerEvent 词表（server → 客户端的唯一词表；行模型核心与 ZCode 同构，类型实现时落 `@henira/protocol`——纯 DTO，运行时零依赖不变）
@@ -603,6 +655,7 @@ interface PromptReceipt {
 } // id = 排队条目 id（忙时）；null = 闲时直跑
 
 interface HeniraFacade {
+  stop(): Promise<void>; // 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
   prompt(sessionId: string, text: string): Promise<PromptReceipt>; // D-045 单口
@@ -610,6 +663,15 @@ interface HeniraFacade {
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉
+  getSettings(): Promise<SettingsData>; // 设置读（settings.json；凭据永不出现，D-030）
+  putSettings(patch: {
+    model?: string;
+    ui?: { theme?: string; locale?: string };
+  }): Promise<SettingsData>; // 设置写（程序写，data-directory §2.3）
+  listModels(): Promise<ModelCatalog>; // 模型目录（手写覆盖 + models.dev 快照；无密钥）
+  putCredential(providerId: string, key: string): Promise<void>; // 密钥写入（credentials.json 0600；无读取面——D-030 永不回读）
+  listUiAssets(): Promise<UiAssets>; // 界面资产清单（D-059 语言包/主题包）
+  listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>; // 会话工作区文件列表（只限会话 cwd；隐藏项不返）
   listDirs(): Promise<RegisteredDir[]>; // 登记工作目录（data-directory §4 projects.json；D-060）
   addDir(cwd: string): Promise<RegisteredDir>; // 登记（绝对路径 + 存在 + 是目录；非法抛错）
   deleteDir(id: string): Promise<void>; // 删登记目录（该 cwd 全部会话 + 登记条目；盘上工作目录不动；busy 抛错——D-060）

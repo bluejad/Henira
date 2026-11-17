@@ -720,4 +720,4 @@
   4. **web 侧 feature-detect**：`HeniraClientLike` 加五个可选方法（listDirs/addDir/deleteDir/browseDirs/deleteSession），宿主**五方法齐备才渲染目录区交互**，缺任一退化纯 cwd 分组（模型选择器三可选先例同款——不做半可用状态）；
   5. **确认弹窗不学 ZCode 两击原位确认**：我们是硬删（fs.rmSync 不可恢复），ZCode 软删才敢无弹窗——删除一律模态确认（BC 语义），目录删额外列明删除范围 + busy 红框禁用。
 - **理由**：文档先行——data-directory §4/§7 一年前就把形状和删除语义定稿了，本批是兑现不是新设计；下沉 plugin-session 让 runtime 形态零复制拿到同语义（facade.test 双形态一致套件锁定）；信任边界沿用回环三件套不新增防线——全局 readdir 的暴露面是目录名列表（无文件内容），在只绑回环 + token 的既有模型内可接受；若将来对公网开放（显式配置才可能），browse 端点应随部署面重审。
-- **备注**：interfaces.md server 段 REST 面（四个新端点 + DELETE 方法入面）、sdk 段门面方法表（14→19）、web 段侧栏目录区形态条；data-directory.md §4 标注已落地；测试：server.test 五用例 + facade.test 双形态两用例 + parts.test 六用例。ZCode 有而不做（范围控制，随批记）：重命名/置顶/归档/拖拽排序/搜索/视图筛选/⋯按钮/「查看文件」。
+- **备注**：interfaces.md server 段 REST 面（四个新端点 + DELETE 方法入面）、sdk 段门面方法表（14→19）、web 段侧栏目录区形态条；data-directory.md §4 标注已落地；测试：server.test 五用例 + facade.test 双形态两用例 + parts.test 五用例。ZCode 有而不做（范围控制，随批记）：重命名/置顶/归档/拖拽排序/搜索/视图筛选/⋯按钮/「查看文件」。
