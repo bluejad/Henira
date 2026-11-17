@@ -93,7 +93,7 @@ export interface PluginUiHost {
   subscribe(filter: { sessionId?: string }, cb: (e: ServerFrame) => void): Disposable;
   onTurnFinished(cb: (result: { ok: boolean; text?: string; reason?: string }) => void): Disposable;
   prefill(input: { text: string }): void;
-  renderMarkdown(text: string): ReactNode;
+  renderMarkdown(text: string, opts?: { streaming?: boolean }): ReactNode;
   getSession(): { sessionId: string; cwd: string } | null;
   openInExplorer(path: string): Promise<boolean>; // 仅桌面宿主；其他宿主恒 false
   openPlugin(id: string, view?: unknown): void;

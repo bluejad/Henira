@@ -23,6 +23,25 @@
   --henira-ok-text: #346538;
   --henira-warn-bg: #fbf3db;
   --henira-warn-text: #956400;
+  --henira-code-bg: #f2f1ed;
+  --henira-code-head-bg: #ebe9e4;
+
+  /* 语法高亮（shiki v4 CSS 变量主题，markdown.ts 消费；变量名 = createCssVariablesTheme
+     的 settings 全集：foreground/background + token-*；低饱和暖调，dark 同距反相） */
+  --henira-shiki-foreground: #2f3437;
+  --henira-shiki-background: #f2f1ed;
+  --henira-shiki-token-comment: #89867f;
+  --henira-shiki-token-string: #4e7d46;
+  --henira-shiki-token-string-expression: #4e7d46;
+  --henira-shiki-token-keyword: #a34a7d;
+  --henira-shiki-token-constant: #2f6fa3;
+  --henira-shiki-token-function: #6b5aa3;
+  --henira-shiki-token-parameter: #9a5330;
+  --henira-shiki-token-punctuation: #6e6c67;
+  --henira-shiki-token-link: #3c6d9c;
+  --henira-shiki-token-changed: #2f6fa3;
+  --henira-shiki-token-inserted: #4e7d46;
+  --henira-shiki-token-deleted: #9f2f2d;
   --henira-mono: ui-monospace, "JetBrains Mono", "SF Mono", Consolas, monospace;
   --henira-radius: 6px;
   --henira-sidebar-width: 260px;
@@ -60,6 +79,23 @@
   --henira-ok-text: #a3c8a4;
   --henira-warn-bg: #3a3222;
   --henira-warn-text: #d9bc7a;
+  --henira-code-bg: #141414;
+  --henira-code-head-bg: #1d1d1d;
+
+  --henira-shiki-foreground: #e8e6e3;
+  --henira-shiki-background: #141414;
+  --henira-shiki-token-comment: #7e7d79;
+  --henira-shiki-token-string: #94c98a;
+  --henira-shiki-token-string-expression: #94c98a;
+  --henira-shiki-token-keyword: #e39cc4;
+  --henira-shiki-token-constant: #7ab3e0;
+  --henira-shiki-token-function: #b3a6e8;
+  --henira-shiki-token-parameter: #e0a479;
+  --henira-shiki-token-punctuation: #a3a19c;
+  --henira-shiki-token-link: #85b8e8;
+  --henira-shiki-token-changed: #7ab3e0;
+  --henira-shiki-token-inserted: #94c98a;
+  --henira-shiki-token-deleted: #e8a5a3;
 }
 
 /* 基础排版（零 webfont：系统字体栈——离线工具的第一约束） */
@@ -146,18 +182,57 @@
   border-radius: 4px;
   padding: 1px 5px;
 }
-.henira-md pre {
+
+/* 围栏代码块（markdown.ts components 接管 pre——头部条 + 容器卡；shiki 高亮 span 直出） */
+.henira-code {
   margin: 0.6em 0;
+  border: 1px solid var(--henira-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--henira-code-bg);
+}
+.henira-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--henira-code-head-bg);
+  border-bottom: 1px solid var(--henira-border);
+}
+.henira-code-lang {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  text-transform: lowercase;
+}
+.henira-code-head button {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: var(--henira-text-muted);
+}
+.henira-code-head button:hover {
+  border: none;
+  color: var(--henira-text);
+}
+.henira-code pre {
+  margin: 0;
   padding: 10px 12px;
   overflow-x: auto;
-  background: var(--henira-bg);
-  border: 1px solid var(--henira-border);
-  border-radius: var(--henira-radius);
-}
-.henira-md pre code {
   background: none;
   border: none;
+  border-radius: 0;
+}
+.henira-code pre code {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-md);
+  background: none;
+  border: none;
+  border-radius: 0;
   padding: 0;
+}
+.henira-code-line {
+  display: block;
 }
 .henira-md table {
   display: block;

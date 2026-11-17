@@ -6,7 +6,7 @@ export { type Dict, zh } from "./locales/zh.js";
 export { defaultParts, webUiModule } from "./module.js";
 export { ApprovalCard } from "./parts/approval-card.js";
 export { Composer } from "./parts/composer.js";
-export { Conversation } from "./parts/conversation.js";
+export { Conversation, CopyButton } from "./parts/conversation.js";
 export { SessionList } from "./parts/session-list.js";
 export type {
   HeniraClientLike,

@@ -22,6 +22,20 @@ describe("markdownNode（host.renderMarkdown 实现体）", () => {
     expect(container.querySelector("pre code")).not.toBeNull();
   });
 
+  it("预装语言代码块 shiki 高亮（头部条 + token 着色 span 在场）", () => {
+    const { container } = render(markdownNode("```python\ndef f():\n    return 1\n```"));
+    expect(container.querySelector(".henira-code")).not.toBeNull();
+    expect(container.querySelector(".henira-code-lang")?.textContent).toBe("python");
+    expect(container.querySelector("code span[style]")).not.toBeNull();
+  });
+
+  it("流式中代码块不高亮（纯文本降级，头部条仍在）", () => {
+    const { container } = render(markdownNode("```python\nprint(1)\n```", { streaming: true }));
+    expect(container.querySelector(".henira-code-lang")?.textContent).toBe("python");
+    expect(container.querySelector("code span[style]")).toBeNull();
+    expect(container.querySelector("pre code")?.textContent).toContain("print(1)");
+  });
+
   it("流式中未闭合围栏 = 代码块渲染（settled grammar is the streaming one）", () => {
     const { container } = render(markdownNode("先说话\n\n```js\nconsole.log(1);"));
     expect(container.querySelector("pre code")).not.toBeNull();

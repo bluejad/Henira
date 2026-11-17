@@ -16,7 +16,7 @@ import {
 import type { ServerFrame, SessionSummary } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
-import { Shell, type ShellProps } from "./shell.js";
+import { makeT, Shell, type ShellProps } from "./shell.js";
 import { RowStore } from "./store.js";
 
 export type Layout =
@@ -141,9 +141,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       };
     },
     prefill(_input: { text: string }) {}, // M3：官方输入框自管草稿；prefill 随命令进输入框批接线
-    renderMarkdown(text: string) {
-      // markdown 落地（M4 批 A）：实现体在 markdown.ts（GFM；raw HTML 不渲染；无高亮 v1）
-      return markdownNode(text);
+    renderMarkdown(text: string, opts?: { streaming?: boolean }) {
+      // markdown 落地（M4 批 A）：实现体在 markdown.ts（GFM；raw HTML 不渲染）。
+      // t 由宿主注入（代码块复制钮文案跟随语言包）；streaming 透传（流式中不高亮）。
+      return markdownNode(text, { streaming: opts?.streaming, t: makeT(localeOverride) });
     },
     getSession() {
       return sessionId === null ? null : { sessionId, cwd: sessionCwd };

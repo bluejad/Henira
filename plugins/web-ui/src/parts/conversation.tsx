@@ -150,7 +150,7 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
         </details>
       ) : null}
       <div className={streaming ? "henira-streaming" : undefined}>
-        {ctx.host.renderMarkdown(row.text)}
+        {ctx.host.renderMarkdown(row.text, { streaming })}
       </div>
       {row.interrupted === true ? (
         <div style={{ marginTop: "var(--henira-space-2)" }}>
@@ -180,12 +180,22 @@ function ToolRowView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }): React
   return view !== undefined ? view({ ctx, row }) : <ToolView row={row} ctx={ctx} />;
 }
 
-/** 输出复制按钮（common.copy / common.copied——字典既有键首次消费） */
-function CopyButton({ text, ctx }: { text: string; ctx: WebPartContext }) {
+/** 复制按钮（common.copy / common.copied）。t 可选注入（markdown 代码块头部条复用——
+ * 纯渲染层不持有字典，缺省英文兜底）；无 ctx 依赖，包根出口供插件/宿主共用。 */
+export function CopyButton({
+  text,
+  t,
+  className,
+}: {
+  text: string;
+  t?: (key: string) => string;
+  className?: string;
+}) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
+      className={className}
       onClick={() => {
         void navigator.clipboard
           ?.writeText(text)
@@ -200,10 +210,9 @@ function CopyButton({ text, ctx }: { text: string; ctx: WebPartContext }) {
       style={{
         fontSize: "var(--henira-fs-sm)",
         padding: "0 6px",
-        marginLeft: "var(--henira-space-2)",
       }}
     >
-      {copied ? ctx.t("common.copied") : ctx.t("common.copy")}
+      {copied ? (t?.("common.copied") ?? "Copied") : (t?.("common.copy") ?? "Copy")}
     </button>
   );
 }
@@ -291,9 +300,14 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
             {isError ? ctx.t("error.title") : ctx.t("row.output")}
           </summary>
           <div
-            style={{ display: "flex", alignItems: "center", marginTop: "var(--henira-space-1)" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginTop: "var(--henira-space-1)",
+              marginLeft: "var(--henira-space-2)",
+            }}
           >
-            <CopyButton text={row.output.content} ctx={ctx} />
+            <CopyButton text={row.output.content} t={ctx.t} />
           </div>
           <pre
             className="henira-mono"

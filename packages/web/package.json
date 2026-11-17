@@ -21,10 +21,12 @@
     "@henira/protocol": "workspace:*",
     "@henira/sdk": "workspace:*",
     "@phosphor-icons/react": "^2.1.1",
+    "@shikijs/langs": "^4.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.6.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
