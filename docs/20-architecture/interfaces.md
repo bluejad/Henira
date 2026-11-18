@@ -515,7 +515,20 @@ interface UiAssets {
 interface GlobalUiState {
   lastSessionId: string | null; // 全局"上次选中"（state/ui.json，运行态不进 settings.json；D-063）
 }
-type SessionUiState = Record<string, unknown>; // 每会话界面绑定态文档——形状归 web 宿主（草稿 / 侧栏折叠 / 面板宽度 / 右栏 tab 引用，随宿主生长），服务端不解释内容；删会话随整树走（D-063）
+interface SessionUiState {
+  // 每会话界面绑定态文档——形状归 web 宿主，服务端不解释内容（整份收发 + 64KB 上限）；
+  // 常用字段可选 + 开放索引签名随宿主加法生长；rightPanel 留位随批 C 接线；删会话随整树走（D-063；
+  //   真源 = @henira/protocol server-events.ts，落码·界面持久化批）
+  draft?: string;
+  sidebar?: { collapsedGroups?: string[] };
+  layout?: { leftWidth?: number; rightWidth?: number };
+  rightPanel?: {
+    open?: boolean;
+    active?: string | null;
+    tabs?: Array<{ id: string; kind: string }>;
+  };
+  [key: string]: unknown;
+}
 interface UiAssetLocale {
   pluginId: string;
   version: string;
