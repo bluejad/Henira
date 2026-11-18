@@ -66,7 +66,8 @@ describe("createWebApp", () => {
     const app = createWebApp({ client });
     app.mount(el);
     try {
-      // 初始选择 s-live（第一个）；非活跃组（disk）初值收起（本地折叠语义）——先展开其组
+      // 初始选择 s-live（第一个）；非活跃组（disk）初值收起（本地折叠语义）——先展开其组。
+      // 组头按 title（= 完整 cwd）定位，不依赖 label 拼字（CI 慢机回归失败后加固）
       await vi.waitFor(
         () => {
           if (el.querySelectorAll("button.henira-session-group").length < 2) {
@@ -74,13 +75,19 @@ describe("createWebApp", () => {
           }
           return true;
         },
-        { timeout: 5000 },
+        { timeout: 4000 },
       );
       const diskGroup = [...el.querySelectorAll("button.henira-session-group")].find((b) =>
-        b.textContent?.includes("disk"),
+        b.getAttribute("title")?.includes("disk"),
       );
       if (diskGroup === undefined) throw new Error("disk group not rendered");
       fireEvent.click(diskGroup);
+      await vi.waitFor(() => {
+        if (diskGroup.getAttribute("aria-expanded") !== "true") {
+          throw new Error("disk group not expanded");
+        }
+        return true;
+      });
       // 轮询 disk 行出现（CI 纪律：异步断言禁固定 sleep——
       // 慢机 50ms 不够；失败时打印现有行文本自证）
       await vi.waitFor(
@@ -94,7 +101,7 @@ describe("createWebApp", () => {
           }
           return disk;
         },
-        { timeout: 5000 },
+        { timeout: 4000 },
       );
       snapshots.length = 0; // 本用例只看点击后的补拉
 
@@ -114,7 +121,7 @@ describe("createWebApp", () => {
       await app.dispose(); // throw 路径也收尾——残根会污染下一用例（「设置」按钮 multiple 连锁）
       el.remove();
     }
-  });
+  }, 15_000); // 首用例含 react 冷启动 + 三段等待（组头/行/补拉）——CI 慢机 5s 默认预算不够
 
   it("正常装载：UI 模块激活 → 三槽位官方件在渲染（公共注册路径，判据④正向）", async () => {
     const el = document.createElement("div");
