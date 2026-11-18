@@ -366,6 +366,7 @@
   6. **未知槽位处理**：属于别的宿主词表的槽位 → 静默忽略；完全未知的槽位 → 告警并忽略；插件继续加载，不阻断。
 - **理由**：槽位是宿主 UI 的产物，不是内核概念；宿主不同，词表就该不同。按需扩展避免为不存在的插件造 35 个位置，也避免移动端硬套桌面。
 - **备注**：plugins.md §4 挂载点 / §7.2；D-031（`ui.slots` 按宿主词表校验）；D-028（门面只 web 系宿主）。
+- **后续修订**：**D-057**（2026-11-17）行级四缝入词表（3→7）；**D-062**（2026-11-18）区域三名正名为宿主代码三名 `sidebar` / `conversation` / `composer`（原 session.top / composer.above / sidebar.right 作废——三名从未在宿主实现，按文档写插件会被静默忽略，两张皮病根除）＋ 结构性槽 `layout` 与右栏 tab 框架入词表（7→10）；第 1 条"不做大矩阵承诺"修订为"结构性槽逐个拍板入表、不预造矩阵"；第 3 条共享核心改为行级三条。
 
 ## D-034 宿主形态总口径：一引擎多宿主，三拓扑
 
@@ -737,3 +738,18 @@
   7. **React 19 onScroll 委托失效**（真浏览器实证，jsdom fireEvent 直走事件系统测不出——第三次实证「jsdom 不替代」）：滚动裁决改原生 `addEventListener("scroll", {capture, passive})` + ref 转发最新闭包。
 - **理由**：分页形状三家一致是架构必然，照抄零争议；虚拟化分歧是场景赌注（ZCode 桌面千轮+搜索+多 pane vs dsh web 短会话）——我们渲染器重（shiki）且视觉参照 ZCode，虚拟化必做；但 2268 行的复杂度大头是搜索协调等我们无的功能，全抄=死重。**工程过程教训**：web-ui 改动必须 `pnpm build`（tsc 出 dist）再 bundle 再 e2e——web 包从 web-ui 的 **dist** 消费，漏 build 则 bundle 吃旧代码（三轮诊断白跑的根因，坑册既有条目「web 包 vitest 消费 web-ui dist」的 bundle 版）。
 - **备注**：interfaces.md（REST /rows、SessionSnapshot 窗口字段、Row.rowSeq、facade sessionRows 19→20、web 段虚拟滚动形态条）；docs/20-architecture/render-performance.md 新增（渲染边界与更新隔离契约，照 ZCode 文档先例自家写法）；e2e 用例④（64 行会话：尾窗/虚拟化挂载块<10/滚轮翻页 index0 变回合 0/阅读位置稳定/回底按钮）+ 截图 09-12；测试 store 四用例 + facade 双形态 + parts 三用例。不做随批记：会话内搜索定位/四源意图+TTL/多 pane 记忆/手机布局/编辑重发交接/history-tail 分区缓存/JSONL 倒序窗口读（磁盘翻页暂全读重建）。
+
+## D-062 界面挂载点词表 v2：整页框架槽 + 右栏 tab 框架 + 词表名统一
+
+- **状态**：已定 · 2026-11-18 · 文档先行；落码随 M4 批 C（第三方 UI 装载通道同批）；批 C 前新槽合法但不被读取（D-059 先例）
+- **背景**：项目所有者对照 dsh 拍板完整愿景："整个页面是插件挂载点、可以完全重新布局；左侧目录列表 / 对话 / 输入框 / 工具卡 / 思考块全是官方写的默认插件；官方组件方法留口子供插件直接引用复用；后端引擎方法同规则可替换；AI 照创建技能写插件即完成新增替换——语义是替换不是修改"。取证核验（行为 / 结构层，零代码复用，D-004 / D-047）：dsh 客户端槽目录 78 槽，页面树全槽化——`root` 槽（shell 唯一直接渲染槽）占用者 ui-layout 的 AppFrame，在占槽的同一 register() 里声明左栏 / 对话 / 右栏 / 浮层子槽（声明 = 独占渲染权）；60+ `ui-*` 包全是普通插件（布局 / 左栏 / 右栏 / 对话 / 每页设置 / 插件管理页各自成包，同一条注册路径）；右栏 tab 注册制（glob 地址识别 + extension 优先于 builtin 优先于 fallback 三档优先级，extension 接管 builtin、卸载回落）；插件 `require('react')` 走浏览器模块表拿宿主同一份（官方件同口子）；AI 写插件载体 = 官方创建技能（触发条件含"任何视觉物 / 插件请求"，references 分篇 + 模板 + 安装工具 + "装好的插件即第一个预览"验收）。对照自检抓出三缺口：①**词表两张皮**——宿主代码区域槽名（sidebar / conversation / composer，host REGION_SLOTS + web-ui defaultParts）与文档词表名（session.top / composer.above / sidebar.right，D-033 / D-057 落档名）不一致，文档三名在宿主接受集一个都不存在，按文档写插件全部被静默忽略（D-033 未知名处置）；②**整页布局从未成为槽**（web Shell 三栏硬编码，`layout` 选项是 full / center / composer 三值枚举；D-043 只定了"官方件各占各槽"，框架本体没占槽）；③**右栏 tab 框架只有半句**（有 `sidebar.right` 槽名与 `preview.<扩展名>` keyed 缝，无 tab 注册 / 加号下拉 / 优先级语义；web 宿主连右栏区域都未渲染）。另：愿景八成本已在文档（D-043 官方界面 = 真插件 + 标准件出口 / D-048-D-049 后端同 id 替换 / D-057 行级四缝 / plugins.md §6 创建技能），本条是"穿到底"。
+- **决定**：
+  1. **词表名统一，以宿主代码三名为准**：区域槽正名 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）——文档原 session.top / composer.above / sidebar.right 三个插件自挂名作废。选代码三名弃文档三名：代码已落地有测试锚着；三名直白；原命名是"位置修饰语"式（top / above），与 keyed 缝命名风格不一致；
+  2. **v1 词表 7 → 10**（结构性一个 ＋ 区域级四个 ＋ 行级五个）：结构性 `layout`——整页框架槽，官方框架件（现 web Shell 拆出）默认占用，并在占槽的同一注册里声明子槽（**槽套槽**：声明 = 独占渲染权，dsh AppFrame 理念行为层）；`replaceSlot("layout")` = **整页重排**（风险标注同 dsh root 槽：影子化官方 UI——官方区域槽声明随框架件消失；安全模式回落官方框架）。区域级 `sidebar` / `conversation` / `composer` / `sidebar.right`（右栏区域槽，官方默认件 = tab 框架）。行级 D-057 四缝全保留 ＋ 新增 `sidebar.right.tab`（追加位，一件 = 一个 tab 面板，registerSlot 多件共存 order 排序；官方 tab 与插件 tab 并存，加号 / 下拉列已注册面板）；`sidebar.right.preview.&lt;扩展名&gt;` 仍为文件预览 tab 的 body 实现缝（extension 优先 builtin 不变）；
+  3. **共享核心重申**：行级三条（`turn.tail` / `conversation.images` / `tool.call.view.*`）所有 web 系宿主语义一致；`layout`、区域四名与三个 `sidebar.right.*` 属桌面 web 宿主词表；移动端词表仍等移动 UI 设计（不复用 sidebar.right 系，D-033 第 4 条不变）；
+  4. **"不做大矩阵承诺"修订（D-033）**：结构性槽逐个拍板、不预造矩阵——本次 `layout` 与右栏 tab 框架经用户拍板入表；titlebar / session.bottom 等仍按需逐个加（D-033 第 5 条精神不变）；
+  5. **官方件口子加一句**：整页框架件与各件同进标准件出口（import map 与 react 同口子，D-043）——插件可 import 官方框架 / 组件复用（站在官方件上写自己的，不强制从零造）；
+  6. **两条边界复核不变**：markdown 正文本体不可插（renderMarkdown 恒官方）；`chat.node` 式整行替换不进 v1（D-057 定稿）；
+  7. **落码随批 C**：第三方 UI 装载通道（server 伺服 ui entry + 宿主动态 import + import map 注入 react / `@henira/kernel` / `@henira/protocol` / 官方件唯一实例）＋ Shell 拆解为占 `layout` 槽的官方框架件 ＋ 右栏 tab 框架 ＋ 宿主词表对齐（REGION_SLOTS 扩为词表十名）＋ 插件管理面（D-029 / D-030 / D-048 确认卡）同批闭环。
+- **理由**："AI 写插件替换内置"的物理前置是装载通道——没有它 registerSlot / replaceSlot 全是纸上谈兵（机制层 API 齐、外部代码拿不到 ctx）；词表名统一是零设计量的还账，越晚还不越多的插件死在静默忽略上；layout 槽与 tab 框架是 dsh 已验证的形状（行为层参照、实现自家写法）；整页替换给风险标注 + 安全模式回落双护栏，与"可换"核心承诺（P8）一致不缩窄。
+- **备注**：plugins.md（依据行 / §3 ui.slots / §4 挂载点词表块 / §7.2 词表定稿块）、interfaces.md（web 段词表块 + WebPartContext slots 注释）、10-decisions.md（本条 + D-033 后续修订）、roadmap M4 内容行（批 C 闭环项）、INDEX plugins 行。批 C 验收判据随批出计划：第三方 UI 插件真装载 + `replaceSlot("layout")` 整页重排演示 + 右栏插件 tab 面板真渲染 + 安全模式全回落官方。

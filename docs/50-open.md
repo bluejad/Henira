@@ -76,7 +76,7 @@ _已定稿归档区（勾掉的问题在这里留一行结论 + 指向）_
 - ✅ **插件硬缺口**——槽位校验与失败语义、UI 更新生效、创建技能工作流（2026-11-12，plugins.md §4/§6）
 - ✅ **UI 位置静态申报**——可选 `ui.slots` + 运行时 `registerSlot` 权威；声明与注册不一致告警不阻断（2026-11-12，D-031，plugins.md §3/§4）
 - ✅ **同名覆盖统一口径**——项目独立定义 > 项目插件 > 用户独立定义 > 用户插件 > 官方随包；命令 / 子代理 / 同名插件一并适用；D-020 / D-026 技能顺序随之修订（2026-11-12，D-032，plugins.md §7.1）
-- ✅ **宿主槽位词表**——v1 桌面三个；`session.top` / `composer.above` 为 web 系共享核心，`sidebar.right` 仅桌面；移动端词表等移动 UI 设计时定；按需扩展，不做 7×5（2026-11-12，D-033，plugins.md §7.2）
+- ✅ **宿主槽位词表**——v1 桌面三个；`session.top` / `composer.above` 为 web 系共享核心，`sidebar.right` 仅桌面；移动端词表等移动 UI 设计时定；按需扩展，不做 7×5（2026-11-12，D-033，plugins.md §7.2；**后由 D-057 扩行级四缝 3→7、D-062 正名 `sidebar` / `conversation` / `composer` ＋扩结构性 `layout` 与右栏 tab 框架 7→10**）
 - ✅ **宿主形态总口径**——引擎是库、宿主决定住处；三拓扑 ①一对多 / ②一对一（①的退化用法）/ ③零服务；Web 与桌面住 ①、headless 与 sdk 住 ③；server 是宿主之一不是必经层（2026-11-13，D-034，hosts.md）
 - ✅ **桌面宿主＝A1**——utilityProcess 起 server 子进程＋窗口加载回环；server 升正式宿主；回环三件套（只绑 127.0.0.1 / 随机端口 / Host 校验＋token 位）（2026-11-13，D-035，hosts.md、packages.md）
 - ✅ **云端＝分层丙案**——token / user 字段进 server，容器编排 = `examples/cloud` 样例，不立 cloud 宿主包；云容器本身即沙箱（2026-11-13，D-036，hosts.md、packages.md）
