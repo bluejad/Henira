@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createConfigService, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
+import { createConfigService, Dictionary, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
@@ -39,8 +39,23 @@ import {
   type SessionUiState,
   sliceRowsPage,
 } from "@henira/protocol";
-import { frameQueue, type HeniraFacade } from "./facade.js";
-import { isPluginEnabled, readSettings, writeCredential, writeSettings } from "./settings.js";
+import {
+  type CustomProviderInput,
+  frameQueue,
+  type HeniraFacade,
+  type ProviderModelEntry,
+} from "./facade.js";
+import {
+  isPluginEnabled,
+  listCredentialProviders,
+  type ModelsFile,
+  readModelsFile,
+  readSettings,
+  removeCredential,
+  writeCredential,
+  writeModelsFile,
+  writeSettings,
+} from "./settings.js";
 
 export interface RuntimeOptions {
   /** 运行数据目录（默认 ~/.henira；测试 / 多实例隔离用 HENIRA_HOME 语义） */
@@ -82,6 +97,39 @@ export function autoRejectInteraction(): ServiceDefinition<InteractionService> {
         listPending: (): readonly InteractionRequest[] => [],
       };
     },
+  };
+}
+
+// ── 模型管理数据层（与 server app.ts 同构；规则 3 禁宿主互依——各自实现）──
+
+/** 单厂商模型条目（含开关态）：快照全表 ∪ 显式 models，hidden = 关 */
+function runtimeModelEntries(id: string, modelsFile: ModelsFile): ProviderModelEntry[] {
+  const override = modelsFile.providers?.[id];
+  const dict = SNAPSHOT[id];
+  const explicit = Object.keys(override?.models ?? {});
+  const all =
+    dict === undefined ? explicit : [...new Set([...explicit, ...Object.keys(dict.models)])];
+  const hidden = new Set(override?.hidden ?? []);
+  return all.map((model) => ({
+    id: model,
+    name: override?.models?.[model]?.label ?? dict?.models[model]?.name,
+    contextWindow: dict?.models[model]?.contextWindow,
+    enabled: !hidden.has(model),
+  }));
+}
+
+/** 厂商全集（credentials.json 在册 ∪ models.json 在册） */
+async function runtimeProviderUnion(
+  globalDir: string,
+): Promise<{ credIds: string[]; ids: string[]; modelsFile: ModelsFile }> {
+  const [credIds, modelsFile] = await Promise.all([
+    listCredentialProviders(globalDir),
+    readModelsFile(globalDir),
+  ]);
+  return {
+    credIds,
+    ids: [...new Set([...credIds, ...Object.keys(modelsFile.providers ?? {})])],
+    modelsFile,
   };
 }
 
@@ -217,25 +265,119 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     },
 
     async listModels() {
-      let overrides: { providers?: Record<string, { baseUrl?: string }> } = {};
-      try {
-        overrides = JSON.parse(
-          await fs.readFile(path.join(globalDir, "models.json"), "utf8"),
-        ) as typeof overrides;
-      } catch {
-        // 未配置
-      }
+      const { ids, modelsFile } = await runtimeProviderUnion(globalDir);
       const providers: { providers: Record<string, { baseUrl?: string; models?: string[] }> } = {
         providers: {},
       };
-      for (const [id, value] of Object.entries(overrides.providers ?? {})) {
-        providers.providers[id] = { ...value };
-      }
-      for (const id of Object.keys(providers.providers)) {
-        const dict = SNAPSHOT[id];
-        providers.providers[id].models = dict === undefined ? undefined : Object.keys(dict.models);
+      for (const id of ids) {
+        providers.providers[id] = {
+          baseUrl: modelsFile.providers?.[id]?.baseUrl,
+          models: runtimeModelEntries(id, modelsFile)
+            .filter((m) => m.enabled)
+            .map((m) => m.id),
+        };
       }
       return providers;
+    },
+
+    async listProviders() {
+      const { credIds, ids, modelsFile } = await runtimeProviderUnion(globalDir);
+      const list = ids.map((id) => {
+        const dict = SNAPSHOT[id];
+        const override = modelsFile.providers?.[id];
+        return {
+          id,
+          name: override?.label ?? dict?.name ?? id,
+          baseUrl: override?.baseUrl,
+          connected:
+            credIds.includes(id) ||
+            (dict === undefined && modelsFile.providers?.[id] !== undefined),
+          models: runtimeModelEntries(id, modelsFile),
+        };
+      });
+      list.sort(
+        (a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name),
+      );
+      return { providers: list };
+    },
+
+    async listModelPresets() {
+      const dict = new Dictionary(globalDir);
+      await dict.loadCache();
+      const presets: Record<
+        string,
+        { name?: string; models: Record<string, { name?: string; contextWindow?: number }> }
+      > = {};
+      for (const [id, p] of Object.entries(dict.entries())) {
+        presets[id] = {
+          name: p.name,
+          models: Object.fromEntries(
+            Object.entries(p.models).map(([mid, m]) => [
+              mid,
+              { name: m.name, contextWindow: m.contextWindow },
+            ]),
+          ),
+        };
+      }
+      return { presets };
+    },
+
+    async refreshModelPresets() {
+      return { ok: await new Dictionary(globalDir, fetch).refresh() };
+    },
+
+    async connectProvider(providerId, key) {
+      await writeCredential(globalDir, providerId, key);
+    },
+
+    async disconnectProvider(providerId) {
+      await removeCredential(globalDir, providerId);
+      const modelsFile = await readModelsFile(globalDir);
+      if (modelsFile.providers?.[providerId] !== undefined) {
+        const providers = { ...modelsFile.providers };
+        delete providers[providerId];
+        await writeModelsFile(globalDir, { ...modelsFile, providers });
+      }
+    },
+
+    async setModelEnabled(providerId, model, enabled) {
+      const modelsFile = await readModelsFile(globalDir);
+      const entry = modelsFile.providers?.[providerId] ?? {};
+      const hidden = new Set(entry.hidden ?? []);
+      if (enabled) hidden.delete(model);
+      else hidden.add(model);
+      await writeModelsFile(globalDir, {
+        ...modelsFile,
+        providers: {
+          ...(modelsFile.providers ?? {}),
+          [providerId]: { ...entry, hidden: [...hidden].sort() },
+        },
+      });
+    },
+
+    async putCustomProvider(input: CustomProviderInput) {
+      const slug =
+        (input.label ?? "provider")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "provider";
+      const id = `user-${slug}-${randomBytes(2).toString("hex")}`;
+      if (input.key !== undefined) await writeCredential(globalDir, id, input.key);
+      const modelsFile = await readModelsFile(globalDir);
+      await writeModelsFile(globalDir, {
+        ...modelsFile,
+        providers: {
+          ...(modelsFile.providers ?? {}),
+          [id]: {
+            ...(input.label === undefined ? {} : { label: input.label }),
+            baseUrl: input.baseUrl,
+            models: Object.fromEntries(
+              input.models.map((m) => [m.model, m.label === undefined ? {} : { label: m.label }]),
+            ),
+          },
+        },
+      });
+      return { id };
     },
 
     async putCredential(providerId, key) {

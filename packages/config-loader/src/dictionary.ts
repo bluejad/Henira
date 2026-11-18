@@ -19,11 +19,15 @@ export interface ModelsOverrideFile {
   providers?: Record<
     string,
     {
+      /** 显示名（模型管理分组头；快照厂商缺省 = 快照 name ?? id） */
+      label?: string;
       baseUrl?: string;
       models?: Record<
         string,
-        { contextWindow?: number; maxOutputTokens?: number; baseUrl?: string }
+        { contextWindow?: number; maxOutputTokens?: number; baseUrl?: string; label?: string }
       >;
+      /** 选择器隐藏清单（模型管理开关关 = 进这里；缺 = 全显） */
+      hidden?: string[];
     }
   >;
 }
@@ -100,5 +104,10 @@ export class Dictionary {
       contextWindow: entry?.contextWindow,
       maxOutputTokens: entry?.maxOutputTokens,
     };
+  }
+
+  /** 全表视图（模型管理·厂商选择页数据源；快照 + 缓存合并后的当前字典） */
+  entries(): Record<string, DictionaryProvider> {
+    return this.#providers;
   }
 }

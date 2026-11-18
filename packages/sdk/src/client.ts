@@ -13,7 +13,12 @@ import type {
   SessionSummary,
   SessionUiState,
 } from "@henira/protocol";
-import { frameQueue, type HeniraFacade } from "./facade.js";
+import {
+  frameQueue,
+  type HeniraFacade,
+  type ModelPresets,
+  type ProviderCatalogEntry,
+} from "./facade.js";
 
 export interface ClientOptions {
   baseUrl: string;
@@ -108,6 +113,46 @@ export function createClient(opts: ClientOptions): HeniraFacade {
 
     async listModels() {
       return requestJson("/api/models");
+    },
+
+    async listProviders() {
+      return requestJson<{ providers: ProviderCatalogEntry[] }>("/api/providers");
+    },
+
+    async listModelPresets() {
+      return requestJson<ModelPresets>("/api/models.presets");
+    },
+
+    async refreshModelPresets() {
+      return requestJson<{ ok: boolean }>("/api/models.presets/refresh", { method: "POST" });
+    },
+
+    async connectProvider(providerId, key) {
+      await requestJson(`/api/providers/${encodeURIComponent(providerId)}/connect`, {
+        method: "PUT",
+        body: JSON.stringify({ key }),
+      });
+    },
+
+    async disconnectProvider(providerId) {
+      await requestJson(`/api/providers/${encodeURIComponent(providerId)}`, {
+        method: "DELETE",
+      });
+    },
+
+    async setModelEnabled(providerId, model, enabled) {
+      await requestJson(
+        `/api/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(model)}/enabled`,
+        { method: "PUT", body: JSON.stringify({ enabled }) },
+      );
+    },
+
+    async putCustomProvider(input) {
+      const res = await requestJson<{ ok: boolean; id: string }>("/api/providers/custom", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+      return { id: res.id };
     },
 
     async putCredential(providerId, key) {

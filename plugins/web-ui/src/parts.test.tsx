@@ -943,6 +943,95 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
       expect(putSettings).toHaveBeenCalledWith({ model: "deepseek/deepseek-v4-flash" }),
     );
   });
+
+  it("模型管理面板（BC 四视图）：分组+开关回调 → 厂商选择页 → 连接表单 → 自定义表单", async () => {
+    const setModelEnabled = vi.fn().mockResolvedValue(undefined);
+    const connectProvider = vi.fn().mockResolvedValue(undefined);
+    const putCustomProvider = vi.fn().mockResolvedValue({ id: "user-relay-1" });
+    const ctx = fixtureCtx({
+      closeSettings: vi.fn(),
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "deepseek/deepseek-chat" }),
+        listModels: async () => ({ providers: {} }),
+        listProviders: async () => ({
+          providers: [
+            {
+              id: "deepseek",
+              name: "DeepSeek",
+              reasoning: "none",
+              connected: true,
+              models: [
+                {
+                  id: "deepseek-chat",
+                  name: "DeepSeek Chat",
+                  contextWindow: 131072,
+                  enabled: true,
+                },
+                { id: "deepseek-reasoner", enabled: false },
+              ],
+            },
+            {
+              id: "user-relay-1",
+              name: "relay station",
+              connected: true,
+              models: [{ id: "my-model", enabled: true }],
+            },
+          ],
+        }),
+        listModelPresets: async () => ({
+          presets: {
+            deepseek: { name: "DeepSeek", models: { "deepseek-chat": {} } },
+            anthropic: { name: "Anthropic", models: { "claude-x": {} } },
+          },
+        }),
+        refreshModelPresets: async () => ({ ok: false }),
+        setModelEnabled,
+        connectProvider,
+        putCustomProvider,
+        disconnectProvider: async () => {},
+      },
+    });
+    render(<SettingsModal ctx={ctx} section="models" onClose={() => {}} />);
+    await screen.findByText("DeepSeek"); // 分组头（显示名）
+    // 模型行：显示名 + 上下文窗紧凑显示 + 开关（off 行在场）
+    expect(screen.getByTitle("deepseek/deepseek-chat")).not.toBeNull();
+    expect(screen.getByText("131k")).not.toBeNull();
+    const switches = screen.getAllByRole("switch");
+    expect(switches).toHaveLength(3); // deepseek×2 + relay×1
+    const off = switches.find((s) => s.getAttribute("aria-checked") === "false");
+    expect(off).toBeDefined();
+    fireEvent.click(off as HTMLElement);
+    await waitFor(() =>
+      expect(setModelEnabled).toHaveBeenCalledWith("deepseek", "deepseek-reasoner", true),
+    );
+    // 厂商选择页：热门节 + 预设名 + 自定义入口
+    fireEvent.click(screen.getByRole("button", { name: t("settings.models.addProvider") }));
+    await screen.findByText(t("settings.models.hot"));
+    fireEvent.click(screen.getByText("Anthropic"));
+    // 连接已知厂商：password 输入 + 提交回调
+    const keyInput = await screen.findByPlaceholderText(t("settings.models.keyPlaceholder"));
+    fireEvent.change(keyInput, { target: { value: "sk-abc" } });
+    fireEvent.click(screen.getByRole("button", { name: t("settings.models.submit") }));
+    await waitFor(() => expect(connectProvider).toHaveBeenCalledWith("anthropic", "sk-abc"));
+    // 回选择页 → 自定义入口 → 表单校验 + 提交回调
+    fireEvent.click(screen.getByRole("button", { name: t("settings.models.addProvider") }));
+    fireEvent.click(screen.getByText(t("settings.models.customEntry")));
+    const urlInput = await screen.findByPlaceholderText("https://api.example.com/v1");
+    fireEvent.change(urlInput, { target: { value: "https://relay.example.com/v1" } });
+    fireEvent.click(screen.getByRole("button", { name: t("settings.models.submit") }));
+    await waitFor(() => expect(putCustomProvider).not.toHaveBeenCalled()); // 缺 model-id 拦下
+    fireEvent.change(screen.getAllByPlaceholderText(t("settings.models.formModelId"))[0], {
+      target: { value: "my-model" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("settings.models.submit") }));
+    await waitFor(() =>
+      expect(putCustomProvider).toHaveBeenCalledWith({
+        baseUrl: "https://relay.example.com/v1",
+        models: [{ model: "my-model" }],
+      }),
+    );
+  });
 });
 
 describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JSX 的载体）", () => {

@@ -14,7 +14,7 @@ import {
   reasoningCapability,
 } from "@henira/protocol";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { WebPart, WebPartContext } from "../types.js";
+import type { SettingsSection, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
 import { ModelSelect } from "./model-select.js";
@@ -91,6 +91,19 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
       alive = false;
     };
   }, [ctx.client, settingsReady]);
+  // 设置弹窗关上（非 null → null）重拉目录——模型管理里新连/开关的厂商立即可选，免整页刷新
+  const prevSettingsSection = useRef<SettingsSection | null>(null);
+  useEffect(() => {
+    const prev = prevSettingsSection.current;
+    prevSettingsSection.current = ctx.settingsSection ?? null;
+    if (!settingsReady || prev === null || ctx.settingsSection !== null) return;
+    void ctx.client
+      .listModels?.()
+      .then((modelCatalog) => {
+        setCatalog(modelCatalog.providers);
+      })
+      .catch(() => {});
+  }, [ctx.client, settingsReady, ctx.settingsSection]);
   const capability: ReasoningCapability =
     model === "" ? "none" : reasoningCapability(model.split("/")[0] ?? "");
 

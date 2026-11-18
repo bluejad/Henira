@@ -490,8 +490,16 @@ GET  /api/dirs/browse?path=                             → DirBrowse        // 
 GET  /api/server/info                                   → { version; startedAt; model }
 GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
-GET  /api/models                                        → 模型清单（models.dev 字典 + 手写覆盖；无密钥）
+GET  /api/models                                        → 模型清单（models.dev 字典 + 手写覆盖 + 凭据在册厂商；开关关的模型过滤；无密钥）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
+// ── 模型管理面（BC ModelsPanel 行为层；✓ 模型管理批 2026-11-19）──
+GET  /api/providers                                     → 管理分组（连接态/显示名/模型条目含开关+上下文窗；无密钥——D-030）
+GET  /api/models.presets                                → 厂商选择页预设全表（config-loader 字典：快照+缓存；无密钥）
+POST /api/models.presets/refresh                        → { ok }        // 在线刷新目录（models.dev；失败保留快照/缓存现状）
+PUT  /api/providers/:id/connect             { key }     → 连接已知厂商（key 必填——无 env 兜底；D-030）
+DELETE /api/providers/:id                               → 断开（credentials.json 摘键 + models.json 摘目录条目；幂等）
+PUT  /api/providers/:id/models/:model/enabled { enabled } → 开关显隐（models.json hidden 清单；开=移出，关=加入）
+POST /api/providers/custom                  { label?, baseUrl, key?, models[] } → 自定义 OpenAI 兼容厂商（显式清单；请求头不收——引擎不消费不造假配置）
 GET  /api/ui-assets                                     → UiAssets        // 界面资产清单（D-059 语言包/主题包；扫描已装插件包）
 GET  /api/ui-assets/:id/:version/:kind/:file → 资产文件伺服            // kind = locale | theme；SAFE_SEG + startsWith 双防线（D-059）
 GET  /api/ui-state                                       → GlobalUiState   // 全局"上次选中"（backing state/ui.json；启动还原：在列表则选中，否则回落最新更新 / 新建；D-063，✓ 界面持久化批）
@@ -508,11 +516,27 @@ interface SettingsData {
   ui?: { theme?: string; locale?: string };
 }
 interface ModelCatalog {
-  // GET /api/models（手写 models.json + models.dev 快照，按 id 查）
+  // GET /api/models（手写 models.json + models.dev 快照 + 凭据在册厂商，按 id 查；开关关的模型过滤）
   providers: Record<
     string,
     { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
   >; // reasoning = 思考参数族提示（合同层能力表同源；none → UI 思考档置灰「—」，骨架批）
+}
+interface ProviderCatalogEntry {
+  // GET /api/providers（管理分组——模型管理页主视图数据源）
+  id: string;
+  name?: string;
+  baseUrl?: string;
+  reasoning?: ReasoningCapability;
+  connected: boolean; // credentials.json 在册；自定义厂商无 key 也算连接（目录条目即在册）
+  models: Array<{ id: string; name?: string; contextWindow?: number; enabled: boolean }>;
+}
+interface ModelPresets {
+  // GET /api/models.presets（厂商选择页——快照+缓存字典视图）
+  presets: Record<
+    string,
+    { name?: string; models: Record<string, { name?: string; contextWindow?: number }> }
+  >;
 }
 interface UiAssets {
   locales: UiAssetLocale[];

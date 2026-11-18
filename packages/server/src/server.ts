@@ -7,11 +7,12 @@ import type http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Dictionary } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { DirRegistry } from "@henira/plugin-session";
 import type { LlmService } from "@henira/protocol";
 import { serve } from "@hono/node-server";
-import { createApp } from "./app.js";
+import { createApp, type ModelDictionary } from "./app.js";
 import { Fanout } from "./fanout.js";
 import { SessionRegistry, serverVersion } from "./session-registry.js";
 
@@ -32,6 +33,8 @@ export interface ServerOptions {
   plugins?: readonly ServiceDefinition<unknown>[];
   /** web 静态产物目录（缺省自动定位 packages/web/dist-web；找不到 = 纯 API） */
   webDist?: string;
+  /** 模型字典注入（测试桩；缺省现场构造 config-loader Dictionary） */
+  dictionary?: ModelDictionary;
 }
 
 export interface HeniraServer {
@@ -71,6 +74,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
     startedAt,
     token,
     webDist: opts.webDist ?? locateWebDist(),
+    dictionary: opts.dictionary ?? new Dictionary(globalDir, fetch),
   });
 
   const server = serve({ fetch: app.fetch, hostname: host, port });

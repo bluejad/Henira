@@ -64,6 +64,60 @@ export async function writeCredential(
   await fs.chmod(file, 0o600).catch(() => {}); // Windows 尽力而为
 }
 
+/** 已连接厂商 id 清单（模型管理页分组依据）。D-030：只出 id——key 值永不离开本进程 */
+export async function listCredentialProviders(globalDir: string): Promise<string[]> {
+  try {
+    const file = JSON.parse(
+      await fs.readFile(path.join(globalDir, "credentials.json"), "utf8"),
+    ) as { providers?: Record<string, string> };
+    return Object.keys(file.providers ?? {});
+  } catch {
+    return [];
+  }
+}
+
+/** 断开厂商：credentials.json 摘除条目（值从不回读，只摘键）；无该条目 = 幂等 */
+export async function removeCredential(globalDir: string, providerId: string): Promise<void> {
+  const file = path.join(globalDir, "credentials.json");
+  let current: { providers?: Record<string, string> } = {};
+  try {
+    current = JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    return; // 文件不存在 = 无可摘
+  }
+  if (current.providers?.[providerId] === undefined) return;
+  const providers = { ...current.providers };
+  delete providers[providerId];
+  await atomicWrite(file, `${JSON.stringify({ providers }, null, 2)}\n`);
+}
+
+/** 手写覆盖字典（models.json）宿主侧读写——模型管理面（连接/开关/自定义厂商）落盘处 */
+export interface ModelsFile {
+  providers?: Record<
+    string,
+    {
+      label?: string;
+      baseUrl?: string;
+      /** 显式模型清单（自定义厂商；快照厂商缺省 = 走快照全表） */
+      models?: Record<string, { label?: string }>;
+      /** 选择器隐藏清单（开关关 = 进这里；缺 = 全显） */
+      hidden?: string[];
+    }
+  >;
+}
+
+export async function readModelsFile(globalDir: string): Promise<ModelsFile> {
+  try {
+    return JSON.parse(await fs.readFile(path.join(globalDir, "models.json"), "utf8")) as ModelsFile;
+  } catch {
+    return {};
+  }
+}
+
+export async function writeModelsFile(globalDir: string, file: ModelsFile): Promise<void> {
+  await atomicWrite(path.join(globalDir, "models.json"), `${JSON.stringify(file, null, 2)}\n`);
+}
+
 async function atomicWrite(file: string, content: string): Promise<void> {
   const tmp = `${file}.tmp`;
   await fs.writeFile(tmp, content, "utf8");

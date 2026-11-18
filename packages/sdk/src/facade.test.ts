@@ -372,6 +372,45 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect(requests[0]?.reasoningEffort).toBeUndefined(); // 缺省不带字段
     expect(requests[1]?.reasoningEffort).toBe("high"); // 显式档位到引擎
   });
+
+  it("模型管理面：connect → 选择器并入 → 开关隐藏 → 自定义厂商 → 断开摘净（双形态同行为）", async () => {
+    const { facade } = await form.make([]);
+    // presets 全表（快照兜底）
+    const presets = await facade.listModelPresets();
+    expect(Object.keys(presets.presets).length).toBeGreaterThan(100);
+    expect(presets.presets.deepseek?.name).toBe("DeepSeek");
+    // 连接已知厂商 → 选择器并入 + 分组连接态；明文不出分组响应（D-030）
+    await facade.connectProvider("deepseek", "sk-test-secret-123");
+    const catalog = await facade.listModels();
+    expect(catalog.providers.deepseek?.models?.length).toBeGreaterThan(0);
+    const groups = await facade.listProviders();
+    const group = groups.providers.find((p) => p.id === "deepseek");
+    expect(group?.connected).toBe(true);
+    expect(JSON.stringify(groups)).not.toContain("sk-test-secret-123");
+    // 开关隐藏 → 选择器过滤；管理面 enabled:false；开回还原
+    const modelId = catalog.providers.deepseek?.models?.[0] as string;
+    await facade.setModelEnabled("deepseek", modelId, false);
+    expect((await facade.listModels()).providers.deepseek?.models ?? []).not.toContain(modelId);
+    const off = (await facade.listProviders()).providers.find((p) => p.id === "deepseek");
+    expect(off?.models.find((m) => m.id === modelId)?.enabled).toBe(false);
+    await facade.setModelEnabled("deepseek", modelId, true);
+    expect((await facade.listModels()).providers.deepseek?.models ?? []).toContain(modelId);
+    // 自定义厂商（无 key 也算连接）：显式清单 + baseUrl；断开摘净
+    const custom = await facade.putCustomProvider({
+      label: "relay",
+      baseUrl: "https://relay.example.com/v1",
+      models: [{ model: "my-model", label: "My Model" }],
+    });
+    expect(custom.id.startsWith("user-")).toBe(true);
+    const customCatalog = await facade.listModels();
+    expect(customCatalog.providers[custom.id]?.models).toContain("my-model");
+    expect(customCatalog.providers[custom.id]?.baseUrl).toBe("https://relay.example.com/v1");
+    await facade.disconnectProvider(custom.id);
+    expect((await facade.listModels()).providers[custom.id]).toBeUndefined();
+    // 断开已知厂商 → 选择器摘除
+    await facade.disconnectProvider("deepseek");
+    expect((await facade.listModels()).providers.deepseek).toBeUndefined();
+  });
 });
 
 describe("client 独有：断档不猜", () => {

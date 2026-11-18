@@ -16,7 +16,7 @@ import {
 } from "@henira/llm-mock";
 import type { LlmService, ServerFrame } from "@henira/protocol";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { createServer, type HeniraServer } from "./server.js";
+import { createServer, type HeniraServer, type ServerOptions } from "./server.js";
 
 interface Ctx {
   server: HeniraServer;
@@ -42,7 +42,7 @@ const llmStub = (service: LlmService): ServiceDefinition<LlmService> => ({
 
 async function makeServer(
   script: readonly MockEntry[],
-  opts?: { token?: string },
+  opts?: { token?: string; dictionary?: ServerOptions["dictionary"] },
 ): Promise<Ctx & { mock: { requests: readonly unknown[] }; globalDir: string; dataDir: string }> {
   const { mockLlm } = await import("@henira/llm-mock");
   const mock = mockLlm(script);
@@ -60,6 +60,7 @@ async function makeServer(
     globalDir,
     token: opts?.token,
     llm: llmStub(mock.service),
+    dictionary: opts?.dictionary,
   });
   return {
     server,
@@ -1173,6 +1174,196 @@ describe("重启续聊（懒挂载 attach）", () => {
     } finally {
       await second.stop();
       await first.stop();
+    }
+  });
+});
+
+describe("模型管理面（BC 四视图服务端半边）", () => {
+  it("presets 全表 + 连接 → 选择器并入 + 分组连接态；key 明文永不回读（D-030）", async () => {
+    const { base, cleanup, globalDir } = await makeServer([]);
+    try {
+      const presets = (await (await fetch(`${base}/api/models.presets`)).json()) as {
+        presets: Record<string, { name?: string; models: Record<string, unknown> }>;
+      };
+      expect(Object.keys(presets.presets).length).toBeGreaterThan(100); // 快照 324 家
+      expect(presets.presets.deepseek?.name).toBe("DeepSeek");
+      expect(Object.keys(presets.presets.deepseek?.models ?? {}).length).toBeGreaterThan(0);
+
+      // 连接已知厂商（只填 key）→ credentials.json 在册 + 选择器清单并入
+      const put = await fetch(`${base}/api/providers/deepseek/connect`, {
+        method: "PUT",
+        body: JSON.stringify({ key: "sk-test-secret-123" }),
+      });
+      expect(put.status).toBe(200);
+      const credFile = JSON.parse(
+        await fs.readFile(path.join(globalDir, "credentials.json"), "utf8"),
+      ) as { providers?: Record<string, string> };
+      expect(credFile.providers?.deepseek).toBe("sk-test-secret-123"); // 落盘正确
+      const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, { models?: string[] }>;
+      };
+      expect(catalog.providers.deepseek?.models?.length).toBeGreaterThan(0);
+
+      // 管理分组：连接态 + 显示名 + 模型条目全开；明文不出响应体
+      const list = (await (await fetch(`${base}/api/providers`)).json()) as {
+        providers: Array<{
+          id: string;
+          name?: string;
+          connected: boolean;
+          models: Array<{ id: string; enabled: boolean }>;
+        }>;
+      };
+      const group = list.providers.find((p) => p.id === "deepseek");
+      expect(group?.connected).toBe(true);
+      expect(group?.name).toBe("DeepSeek");
+      expect((group?.models ?? []).length).toBeGreaterThan(0);
+      expect((group?.models ?? []).every((m) => m.enabled)).toBe(true);
+      expect(JSON.stringify(list)).not.toContain("sk-test-secret-123");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("开关显隐：关 → 选择器过滤 + hidden 落盘；开 → 还原；非法 body 400", async () => {
+    const { base, cleanup, globalDir } = await makeServer([]);
+    try {
+      await fetch(`${base}/api/providers/deepseek/connect`, {
+        method: "PUT",
+        body: JSON.stringify({ key: "sk-x" }),
+      });
+      const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, { models?: string[] }>;
+      };
+      const modelId = catalog.providers.deepseek?.models?.[0] as string;
+      const off = await fetch(
+        `${base}/api/providers/deepseek/models/${encodeURIComponent(modelId)}/enabled`,
+        { method: "PUT", body: JSON.stringify({ enabled: false }) },
+      );
+      expect(off.status).toBe(200);
+      const after = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, { models?: string[] }>;
+      };
+      expect(after.providers.deepseek?.models).not.toContain(modelId);
+      const modelsFile = JSON.parse(
+        await fs.readFile(path.join(globalDir, "models.json"), "utf8"),
+      ) as { providers?: Record<string, { hidden?: string[] }> };
+      expect(modelsFile.providers?.deepseek?.hidden).toContain(modelId);
+      await fetch(`${base}/api/providers/deepseek/models/${encodeURIComponent(modelId)}/enabled`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled: true }),
+      });
+      const restored = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, { models?: string[] }>;
+      };
+      expect(restored.providers.deepseek?.models).toContain(modelId);
+      const bad = await fetch(
+        `${base}/api/providers/deepseek/models/${encodeURIComponent(modelId)}/enabled`,
+        { method: "PUT", body: JSON.stringify({ enabled: "yes" }) },
+      );
+      expect(bad.status).toBe(400);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("断开：凭据摘键 + 目录摘条目；自定义厂商（无 key 也算连接）显式清单落盘", async () => {
+    const { base, cleanup, globalDir } = await makeServer([]);
+    try {
+      await fetch(`${base}/api/providers/deepseek/connect`, {
+        method: "PUT",
+        body: JSON.stringify({ key: "sk-x" }),
+      });
+      const del = await fetch(`${base}/api/providers/deepseek`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, unknown>;
+      };
+      expect(catalog.providers.deepseek).toBeUndefined();
+      const credFile = JSON.parse(
+        await fs.readFile(path.join(globalDir, "credentials.json"), "utf8"),
+      ) as { providers?: Record<string, string> };
+      expect(credFile.providers?.deepseek).toBeUndefined();
+
+      // 自定义厂商：显式模型清单 + baseUrl；无 key = 连接态仍 true（目录条目即在册）
+      const custom = (await (
+        await fetch(`${base}/api/providers/custom`, {
+          method: "POST",
+          body: JSON.stringify({
+            label: "relay station",
+            baseUrl: "https://relay.example.com/v1",
+            models: [{ model: "my-model", label: "My Model" }],
+          }),
+        })
+      ).json()) as { ok: boolean; id: string };
+      expect(custom.ok).toBe(true);
+      expect(custom.id.startsWith("user-")).toBe(true);
+      const list = (await (await fetch(`${base}/api/providers`)).json()) as {
+        providers: Array<{
+          id: string;
+          name?: string;
+          baseUrl?: string;
+          connected: boolean;
+          models: Array<{ id: string; name?: string; enabled: boolean }>;
+        }>;
+      };
+      const group = list.providers.find((p) => p.id === custom.id);
+      expect(group?.connected).toBe(true);
+      expect(group?.name).toBe("relay station");
+      expect(group?.baseUrl).toBe("https://relay.example.com/v1");
+      expect(group?.models).toEqual([{ id: "my-model", name: "My Model", enabled: true }]);
+      const customCatalog = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, { baseUrl?: string; models?: string[] }>;
+      };
+      expect(customCatalog.providers[custom.id]?.baseUrl).toBe("https://relay.example.com/v1");
+      expect(customCatalog.providers[custom.id]?.models).toEqual(["my-model"]);
+      // 断开自定义 = 摘目录条目
+      await fetch(`${base}/api/providers/${custom.id}`, { method: "DELETE" });
+      const after = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, unknown>;
+      };
+      expect(after.providers[custom.id]).toBeUndefined();
+      // 非法自定义（缺 baseUrl）400
+      const bad = await fetch(`${base}/api/providers/custom`, {
+        method: "POST",
+        body: JSON.stringify({ models: [{ model: "m" }] }),
+      });
+      expect(bad.status).toBe(400);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("目录刷新：注入桩字典 refresh → ok:true 且 presets 反映 entries", async () => {
+    const { base, cleanup } = await makeServer([], {
+      dictionary: {
+        loadCache: async () => {},
+        refresh: async () => true,
+        entries: () => ({
+          fakeprov: {
+            id: "fakeprov",
+            name: "Fake",
+            models: { m1: { name: "M One", contextWindow: 4096 } },
+          },
+        }),
+      },
+    });
+    try {
+      const refresh = await (
+        await fetch(`${base}/api/models.presets/refresh`, {
+          method: "POST",
+        })
+      ).json();
+      expect(refresh).toEqual({ ok: true });
+      const presets = (await (await fetch(`${base}/api/models.presets`)).json()) as {
+        presets: Record<
+          string,
+          { name?: string; models: Record<string, { contextWindow?: number }> }
+        >;
+      };
+      expect(presets.presets.fakeprov?.name).toBe("Fake");
+      expect(presets.presets.fakeprov?.models.m1?.contextWindow).toBe(4096);
+    } finally {
+      await cleanup();
     }
   });
 });

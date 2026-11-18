@@ -9,6 +9,7 @@ import type {
   GlobalUiState,
   PromptOptions,
   PromptReceipt,
+  ReasoningCapability,
   RegisteredDir,
   RowsPage,
   ServerFrame,
@@ -34,6 +35,40 @@ export interface ModelCatalog {
   providers: Record<string, { baseUrl?: string; models?: string[] }>;
 }
 
+/** 管理面单模型条目（开关/显示名/上下文窗——模型管理分组消费） */
+export interface ProviderModelEntry {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  enabled: boolean;
+}
+
+/** 模型管理分组（连接态 + 显隐开关；无密钥——D-030） */
+export interface ProviderCatalogEntry {
+  id: string;
+  name?: string;
+  baseUrl?: string;
+  reasoning?: ReasoningCapability;
+  connected: boolean;
+  models: ProviderModelEntry[];
+}
+
+/** 厂商选择页预设全表（快照 + 本地缓存字典视图；无密钥） */
+export interface ModelPresets {
+  presets: Record<
+    string,
+    { name?: string; models: Record<string, { name?: string; contextWindow?: number }> }
+  >;
+}
+
+/** 自定义 OpenAI 兼容厂商入参（请求头引擎不消费——不收假配置） */
+export interface CustomProviderInput {
+  label?: string;
+  baseUrl: string;
+  key?: string;
+  models: Array<{ model: string; label?: string }>;
+}
+
 export interface HeniraFacade {
   /** 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接 */
   stop(): Promise<void>;
@@ -56,8 +91,22 @@ export interface HeniraFacade {
     model?: string;
     ui?: { theme?: string; locale?: string };
   }): Promise<SettingsData>;
-  /** 模型目录（手写覆盖 + models.dev 快照清单；无密钥） */
+  /** 模型目录（手写覆盖 + models.dev 快照清单 + 凭据在册厂商；无密钥） */
   listModels(): Promise<ModelCatalog>;
+  /** 模型管理分组（连接态 / 显隐开关 / 上下文窗——管理页主视图数据源） */
+  listProviders(): Promise<{ providers: ProviderCatalogEntry[] }>;
+  /** 厂商选择页预设全表（快照 + 本地缓存） */
+  listModelPresets(): Promise<ModelPresets>;
+  /** 在线刷新模型目录（成功 ok:true；失败保留快照/缓存现状） */
+  refreshModelPresets(): Promise<{ ok: boolean }>;
+  /** 连接已知厂商（key 必填——无 env 兜底；D-030 只进 credentials.json 0600） */
+  connectProvider(providerId: string, key: string): Promise<void>;
+  /** 断开厂商（credentials.json 摘键 + models.json 摘目录条目；幂等） */
+  disconnectProvider(providerId: string): Promise<void>;
+  /** 模型显隐开关（models.json hidden 清单——开 = 移出，关 = 加入） */
+  setModelEnabled(providerId: string, model: string, enabled: boolean): Promise<void>;
+  /** 自定义 OpenAI 兼容厂商（显式 models 清单 + baseUrl；返回生成的 provider id） */
+  putCustomProvider(input: CustomProviderInput): Promise<{ id: string }>;
   /** 密钥写入（credentials.json 0600；无对应读取面——D-030 明文永不回读） */
   putCredential(providerId: string, key: string): Promise<void>;
   /** 界面资产清单（D-059 语言包/主题包；runtime 进程内直扫 globalDir、client 走 /api/ui-assets） */

@@ -2,10 +2,10 @@
 // 只绑回环由 server.ts 负责，此处管 Host/Origin 校验与可选 token）+ REST 路由 + SSE 端点。
 // SSE 帧序 = connected → 在订会话快照帧 → 增量帧混排；15s 注释心跳；有界队列溢出断开。
 
+import { randomBytes } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
-import { scanUiAssets } from "@henira/config-loader";
+import { Dictionary, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
 import {
   browseDirectories,
   type DirRegistry,
@@ -26,7 +26,16 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { Fanout } from "./fanout.js";
 import type { SessionRegistry } from "./session-registry.js";
-import { readSettings, writeCredential, writeSettings } from "./settings-store.js";
+import {
+  listCredentialProviders,
+  type ModelsFile,
+  readModelsFile,
+  readSettings,
+  removeCredential,
+  writeCredential,
+  writeModelsFile,
+  writeSettings,
+} from "./settings-store.js";
 import {
   readGlobalUiState,
   readSessionUiState,
@@ -56,6 +65,8 @@ export interface AppDeps {
   token?: string;
   /** web 静态产物目录（packages/web/dist-web；缺席 = 纯 API 服务） */
   webDist?: string;
+  /** 模型字典（模型管理面 presets/refresh 用；缺席 = 现场构造 Dictionary） */
+  dictionary?: ModelDictionary;
 }
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -72,8 +83,8 @@ function isLoopbackHost(host: string | undefined): boolean {
   return LOOPBACK_HOSTNAMES.has(hostname.toLowerCase());
 }
 
-/** models.dev 快照（config-loader 导出子路径）：provider → 可选模型清单 */
-const requireResolve = createRequire(import.meta.url);
+/** 模型字典（config-loader Dictionary：快照 + 缓存 + 在线刷新；测试可注入桩） */
+export type ModelDictionary = Pick<Dictionary, "loadCache" | "refresh" | "entries">;
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -394,34 +405,204 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // ── 模型管理面（选择器清单 / 管理分组 / 厂商选择页共用一套数据层）──
+  // 数据源 = credentials.json 厂商 id ∪ models.json 目录条目；快照厂商模型表来自
+  // config-loader 字典（快照 + 缓存 + 在线刷新），自定义厂商 = models.json 显式 models 清单。
+  let dictionaryReady: Promise<ModelDictionary> | undefined;
+  const getDictionary = (): Promise<ModelDictionary> => {
+    dictionaryReady ??= (async () => {
+      const dict = deps.dictionary ?? new Dictionary(deps.globalDir, fetch);
+      await dict.loadCache();
+      return dict;
+    })();
+    return dictionaryReady;
+  };
+
+  /** 厂商全集（凭据在册 ∪ models.json 在册）+ 两表原文——连接态与管理分组共用 */
+  const providerUnion = async (): Promise<{
+    credIds: string[];
+    ids: string[];
+    modelsFile: ModelsFile;
+  }> => {
+    const [credIds, modelsFile] = await Promise.all([
+      listCredentialProviders(deps.globalDir),
+      readModelsFile(deps.globalDir),
+    ]);
+    return {
+      credIds,
+      ids: [...new Set([...credIds, ...Object.keys(modelsFile.providers ?? {})])],
+      modelsFile,
+    };
+  };
+
+  /** 单厂商模型条目（含开关态）：快照全表 ∪ 显式 models，hidden = 关 */
+  const modelEntries = (
+    id: string,
+    modelsFile: ModelsFile,
+  ): Array<{ id: string; name?: string; contextWindow?: number; enabled: boolean }> => {
+    const override = modelsFile.providers?.[id];
+    const dict = SNAPSHOT[id];
+    const explicit = Object.keys(override?.models ?? {});
+    const all =
+      dict === undefined ? explicit : [...new Set([...explicit, ...Object.keys(dict.models)])];
+    const hidden = new Set(override?.hidden ?? []);
+    return all.map((model) => ({
+      id: model,
+      name: override?.models?.[model]?.label ?? dict?.models[model]?.name,
+      contextWindow: dict?.models[model]?.contextWindow,
+      enabled: !hidden.has(model),
+    }));
+  };
+
   app.get("/api/models", async (c) => {
-    // 手写覆盖字典（models.json）+ 各 provider 在 models.dev 快照下的可选模型清单
-    let overrides: { providers?: Record<string, { baseUrl?: string }> } = {};
-    try {
-      overrides = JSON.parse(await fs.readFile(path.join(deps.globalDir, "models.json"), "utf8"));
-    } catch {
-      // 未配置 = 空表
-    }
+    // 选择器清单（string[]）：只出开关开着的模型——管理面的显隐开关直接生效
+    const { ids, modelsFile } = await providerUnion();
     const providers: Record<
       string,
       { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
     > = {};
-    for (const [id, value] of Object.entries(overrides.providers ?? {})) {
-      providers[id] = { ...value };
-    }
-    let dictionary: Record<string, { models: Record<string, unknown> }> = {};
-    try {
-      const snapshot = requireResolve.resolve("@henira/config-loader/models-dev-snapshot.json");
-      dictionary = JSON.parse(await fs.readFile(snapshot, "utf8"));
-    } catch {
-      // 快照缺失：仅返回手写条目
-    }
-    for (const id of Object.keys(providers)) {
-      const dict = dictionary[id];
-      providers[id].models = dict === undefined ? undefined : Object.keys(dict.models);
-      providers[id].reasoning = reasoningCapability(id); // 思考能力提示（UI 档位移除/置灰依据）
+    for (const id of ids) {
+      providers[id] = {
+        baseUrl: modelsFile.providers?.[id]?.baseUrl,
+        models: modelEntries(id, modelsFile)
+          .filter((m) => m.enabled)
+          .map((m) => m.id),
+        reasoning: reasoningCapability(id), // 思考能力提示（UI 档位移除/置灰依据）
+      };
     }
     return c.json({ providers });
+  });
+
+  // 管理分组（模型管理页主视图）：连接态 + 显示名 + 模型条目（含开关/上下文窗/显示名）
+  app.get("/api/providers", async (c) => {
+    const { credIds, ids, modelsFile } = await providerUnion();
+    const list = ids.map((id) => {
+      const dict = SNAPSHOT[id];
+      const override = modelsFile.providers?.[id];
+      return {
+        id,
+        name: override?.label ?? dict?.name ?? id,
+        baseUrl: override?.baseUrl,
+        reasoning: reasoningCapability(id),
+        connected:
+          credIds.includes(id) || (dict === undefined && modelsFile.providers?.[id] !== undefined),
+        models: modelEntries(id, modelsFile),
+      };
+    });
+    list.sort((a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name));
+    return c.json({ providers: list });
+  });
+
+  // 厂商选择页预设全表（config-loader 字典：快照 + 本地缓存合并视图；无密钥）
+  app.get("/api/models.presets", async (c) => {
+    const dict = await getDictionary();
+    const presets: Record<
+      string,
+      { name?: string; models: Record<string, { name?: string; contextWindow?: number }> }
+    > = {};
+    for (const [id, p] of Object.entries(dict.entries())) {
+      presets[id] = {
+        name: p.name,
+        models: Object.fromEntries(
+          Object.entries(p.models).map(([mid, m]) => [
+            mid,
+            { name: m.name, contextWindow: m.contextWindow },
+          ]),
+        ),
+      };
+    }
+    return c.json({ presets });
+  });
+
+  // 在线刷新模型目录（models.dev；失败 = 保留快照/缓存现状，P2 观测由调用方呈现）
+  app.post("/api/models.presets/refresh", async (c) => {
+    const dict = await getDictionary();
+    return c.json({ ok: await dict.refresh() });
+  });
+
+  // 连接已知厂商（只填 key；Henira 无 env 兜底——key 必填，D-030 只进 credentials.json）
+  app.put("/api/providers/:id/connect", async (c) => {
+    const parsed = z
+      .object({ key: z.string().min(1) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "key required" }, 400);
+    await writeCredential(deps.globalDir, c.req.param("id"), parsed.data.key);
+    return c.json({ ok: true }); // GET 无对应端点（D-030：明文永不回读）
+  });
+
+  // 开关显隐（models.json hidden 清单；开 = 移出清单，关 = 加入）
+  app.put("/api/providers/:id/models/:model/enabled", async (c) => {
+    const parsed = z
+      .object({ enabled: z.boolean() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "enabled boolean required" }, 400);
+    const id = c.req.param("id");
+    const model = c.req.param("model");
+    if (model.trim() === "") return c.json({ error: "model required" }, 400);
+    const modelsFile = await readModelsFile(deps.globalDir);
+    const entry = modelsFile.providers?.[id] ?? {};
+    const hidden = new Set(entry.hidden ?? []);
+    if (parsed.data.enabled) hidden.delete(model);
+    else hidden.add(model);
+    await writeModelsFile(deps.globalDir, {
+      ...modelsFile,
+      providers: {
+        ...(modelsFile.providers ?? {}),
+        [id]: { ...entry, hidden: [...hidden].sort() },
+      },
+    });
+    return c.json({ ok: true });
+  });
+
+  // 自定义 OpenAI 兼容厂商（models.json 显式 models 清单 + 可选 key；请求头引擎不消费不收）
+  app.post("/api/providers/custom", async (c) => {
+    const parsed = z
+      .object({
+        label: z.string().optional(),
+        baseUrl: z.string().url(),
+        key: z.string().min(1).optional(),
+        models: z
+          .array(z.object({ model: z.string().min(1), label: z.string().optional() }))
+          .min(1),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "baseUrl + at least one model required" }, 400);
+    const { label, baseUrl, key, models } = parsed.data;
+    const slug =
+      (label ?? "provider")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "provider";
+    const id = `user-${slug}-${randomBytes(2).toString("hex")}`;
+    if (key !== undefined) await writeCredential(deps.globalDir, id, key);
+    const modelsFile = await readModelsFile(deps.globalDir);
+    await writeModelsFile(deps.globalDir, {
+      ...modelsFile,
+      providers: {
+        ...(modelsFile.providers ?? {}),
+        [id]: {
+          ...(label === undefined ? {} : { label }),
+          baseUrl,
+          models: Object.fromEntries(
+            models.map((m) => [m.model, m.label === undefined ? {} : { label: m.label }]),
+          ),
+        },
+      },
+    });
+    return c.json({ ok: true, id });
+  });
+
+  // 断开厂商：credentials.json 摘键（值从不回读）+ models.json 摘目录条目（自定义厂商同删）
+  app.delete("/api/providers/:id", async (c) => {
+    const id = c.req.param("id");
+    await removeCredential(deps.globalDir, id);
+    const modelsFile = await readModelsFile(deps.globalDir);
+    if (modelsFile.providers?.[id] !== undefined) {
+      const providers = { ...modelsFile.providers };
+      delete providers[id];
+      await writeModelsFile(deps.globalDir, { ...modelsFile, providers });
+    }
+    return c.json({ ok: true });
   });
 
   app.put("/api/credentials/:provider", async (c) => {

@@ -52,6 +52,39 @@ export interface HeniraClientLike {
   }>;
   /** 服务商密钥写（可选——设置弹窗·模型管理页消费；D-030：只进 credentials.json，永不回读） */
   putCredential?(provider: string, key: string): Promise<void>;
+  /** 模型管理分组（可选——连接态/显隐开关/上下文窗；宿主缺方法 = 管理分组不渲染，留默认模型页） */
+  listProviders?(): Promise<{
+    providers: Array<{
+      id: string;
+      name?: string;
+      baseUrl?: string;
+      reasoning?: ReasoningCapability;
+      connected: boolean;
+      models: Array<{ id: string; name?: string; contextWindow?: number; enabled: boolean }>;
+    }>;
+  }>;
+  /** 厂商选择页预设全表（可选——快照+缓存字典视图；无密钥） */
+  listModelPresets?(): Promise<{
+    presets: Record<
+      string,
+      { name?: string; models: Record<string, { name?: string; contextWindow?: number }> }
+    >;
+  }>;
+  /** 在线刷新模型目录（可选——失败保留快照/缓存现状） */
+  refreshModelPresets?(): Promise<{ ok: boolean }>;
+  /** 连接已知厂商（可选——key 必填；D-030 只进 credentials.json） */
+  connectProvider?(providerId: string, key: string): Promise<void>;
+  /** 断开厂商（可选——摘凭据 + models.json 目录条目；幂等） */
+  disconnectProvider?(providerId: string): Promise<void>;
+  /** 模型显隐开关（可选——开 = 移出 hidden 清单，关 = 加入） */
+  setModelEnabled?(providerId: string, model: string, enabled: boolean): Promise<void>;
+  /** 自定义 OpenAI 兼容厂商（可选——显式 models 清单 + baseUrl；返回生成 id） */
+  putCustomProvider?(input: {
+    label?: string;
+    baseUrl: string;
+    key?: string;
+    models: Array<{ model: string; label?: string }>;
+  }): Promise<{ id: string }>;
   /** 登记工作目录列表（可选——侧栏目录区消费，data-directory §4；宿主缺方法 = 目录登记交互不渲染） */
   listDirs?(): Promise<RegisteredDir[]>;
   /** 登记工作目录（可选——校验：绝对路径+存在+是目录；非法抛错） */

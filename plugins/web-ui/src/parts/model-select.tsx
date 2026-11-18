@@ -27,7 +27,9 @@ export function ModelSelect(props: {
   const wrapRef = useRef<HTMLSpanElement>(null);
   const providers = props.providers ?? fetched;
 
+  // 每次展开自取目录（不开不拉——设置里新连的厂商下一开就在，免整页刷新）
   useEffect(() => {
+    if (!open) return;
     if (props.providers !== undefined) return; // 调用方下传——不自取
     if (ctx.client.listModels === undefined) return;
     let alive = true;
@@ -40,7 +42,7 @@ export function ModelSelect(props: {
     return () => {
       alive = false;
     };
-  }, [ctx.client, props.providers]);
+  }, [ctx.client, props.providers, open]);
 
   // 开着时点外 / Escape 收（监听只在 open 挂——关闭态零开销）
   useEffect(() => {
