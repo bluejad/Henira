@@ -8,6 +8,7 @@ import type {
   DirBrowse,
   PromptReceipt,
   RegisteredDir,
+  RowsPage,
   ServerFrame,
   SessionSnapshot,
   SessionSummary,
@@ -41,8 +42,10 @@ export interface HeniraFacade {
   interrupt(sessionId: string): Promise<void>;
   /** settle 幂等先答者赢；未知 requestId 返回 false */
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
-  /** 初始渲染 + 断档重拉共用出口（快照永远从账本重建） */
+  /** 初始渲染 + 断档重拉共用出口（快照永远从账本重建；长会话 = 尾部窗口，历史经 sessionRows 翻页） */
   snapshot(sessionId: string): Promise<SessionSnapshot>;
+  /** 行翻页（长会话历史：before = rowSeq 排他游标；页不切轮；缺省 = 尾部一页） */
+  sessionRows(sessionId: string, opts?: { before?: number; limit?: number }): Promise<RowsPage>;
   /** 设置读（settings.json；凭据永不出现，D-030） */
   getSettings(): Promise<SettingsData>;
   /** 设置写（程序写；data-directory §2.3） */

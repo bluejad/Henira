@@ -307,6 +307,13 @@ export class Projection {
   }
 }
 
+/** 行翻页单页（GET /api/sessions/:id/rows 与 sdk 门面 sessionRows 的共同载荷形状） */
+export interface RowsPage {
+  rows: Row[];
+  /** true = 本页首行之前还有历史（继续翻页直到 false） */
+  hasOlder: boolean;
+}
+
 /** 行列表翻页（rows 端点 / sdk runtime / 前端 loadOlder 合并守卫共用一份——投影域共享知识）：
  *  beforeSeq 排他（返回 rowSeq < before 的行段尾部 limit 行；缺省 = 尾部 limit 行）；
  *  页首向前补齐到轮边界（turn 相同行不切散——页不切轮，dsh turnWindow 同思想）。
@@ -315,7 +322,7 @@ export function sliceRowsPage(
   rows: readonly Row[],
   beforeSeq: number | undefined,
   limit: number,
-): { rows: Row[]; hasOlder: boolean } {
+): RowsPage {
   let end: number;
   if (beforeSeq === undefined) {
     end = rows.length;

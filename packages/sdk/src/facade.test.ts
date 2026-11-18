@@ -283,6 +283,49 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect((await facade.listSessions()).some((s) => s.id === session.id)).toBe(false);
     await expect(facade.snapshot(session.id)).rejects.toThrow();
   });
+
+  it("sessionRows 翻页 + 快照窗口形状（rowSeq 游标排他 / 轮边界补齐 / hasOlder+totalRows）", async () => {
+    const { facade } = await form.make([
+      [mockText("一"), mockFinish("stop")],
+      [mockText("二"), mockFinish("stop")],
+      [mockText("三"), mockFinish("stop")],
+    ]);
+    const session = await facade.createSession();
+    const prompts = ["问一", "问二", "问三"];
+    for (let i = 0; i < prompts.length; i++) {
+      await facade.prompt(session.id, prompts[i] ?? "");
+      // 等落账行数收敛（行数单调不减——mock 短回合 busy true 窗口不可观察，直接等行数到位）
+      await waitFor(async () => {
+        const page = await facade.sessionRows(session.id);
+        return page.rows.length >= (i + 1) * 2 ? true : undefined;
+      });
+    }
+
+    // 快照形状：6 行 < 尾窗 60 → hasOlder false；totalRows = 全序行数
+    const snap = await facade.snapshot(session.id);
+    expect(snap.rows).toHaveLength(6);
+    expect(snap.hasOlder).toBe(false);
+    expect(snap.totalRows).toBe(6);
+
+    // 缺省翻页 = 尾部一页（全量）；limit=4 → 尾部 4 行 + hasOlder
+    const full = await facade.sessionRows(session.id);
+    expect(full.rows).toHaveLength(6);
+    expect(full.hasOlder).toBe(false);
+    expect(full.rows[0]?.kind).toBe("user");
+    const page1 = await facade.sessionRows(session.id, { limit: 4 });
+    expect(page1.rows).toHaveLength(4);
+    expect(page1.hasOlder).toBe(true);
+
+    // 游标排他接续：before = page1 首行 rowSeq → 全部更早；轮边界补齐把同轮行收进
+    const boundary = page1.rows[0]?.rowSeq;
+    if (boundary === undefined) throw new Error("page1 empty");
+    const page2 = await facade.sessionRows(session.id, { before: boundary, limit: 60 });
+    expect(page2.rows.every((r) => r.rowSeq < boundary)).toBe(true);
+    expect(page2.hasOlder).toBe(false);
+    // limit=1 也回整轮（user + assistant 同 turn 不切散）
+    const one = await facade.sessionRows(session.id, { limit: 1 });
+    expect(one.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+  });
 });
 
 describe("client 独有：断档不猜", () => {

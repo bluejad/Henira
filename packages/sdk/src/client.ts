@@ -6,6 +6,7 @@ import type {
   DirBrowse,
   PromptReceipt,
   RegisteredDir,
+  RowsPage,
   ServerFrame,
   SessionSnapshot,
   SessionSummary,
@@ -149,6 +150,14 @@ export function createClient(opts: ClientOptions): HeniraFacade {
 
     async snapshot(sessionId) {
       return requestJson<SessionSnapshot>(`/api/sessions/${sessionId}/snapshot`);
+    },
+
+    async sessionRows(sessionId, opts) {
+      const params = new URLSearchParams();
+      if (opts?.before !== undefined) params.set("before", String(opts.before));
+      if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+      const query = params.size > 0 ? `?${params.toString()}` : "";
+      return requestJson<RowsPage>(`/api/sessions/${sessionId}/rows${query}`);
     },
 
     async *events() {

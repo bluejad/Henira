@@ -34,6 +34,7 @@ import {
   type ServerFrame,
   type SessionEvent,
   type SessionSummary,
+  sliceRowsPage,
 } from "@henira/protocol";
 import { frameQueue, type HeniraFacade } from "./facade.js";
 import { isPluginEnabled, readSettings, writeCredential, writeSettings } from "./settings.js";
@@ -255,7 +256,13 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async snapshot(sessionId) {
       const session = requireSession(sessions, sessionId);
-      return session.projection.snapshot(sessionId, currentSeq(sessionId));
+      // 尾窗 60（与 server 快照端点同档——双形态一致：长会话只回尾部窗口，历史经 sessionRows 翻页）
+      return session.projection.snapshot(sessionId, currentSeq(sessionId), { tailRows: 60 });
+    },
+
+    async sessionRows(sessionId, opts) {
+      const session = requireSession(sessions, sessionId);
+      return sliceRowsPage(session.projection.rows, opts?.before, opts?.limit ?? 60);
     },
 
     async listDirs() {
