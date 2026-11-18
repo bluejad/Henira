@@ -800,6 +800,16 @@ button:focus-visible > .henira-row-caret {
   cursor: not-allowed;
 }
 
+.henira-back-bottom:hover {
+  background: var(--henira-surface-hover, var(--henira-border));
+  border-color: var(--henira-text-muted);
+}
+.henira-back-bottom {
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .henira-app * {
     transition: none !important;

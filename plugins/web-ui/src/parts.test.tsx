@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // 官方件测试（jsdom）：locale 取字 / 交互回调 / 哑渲染。件纯呈现——数据经承重缝注入。
 
-import type { ApprovalRow, Row, ServerFrame, ToolRow } from "@henira/protocol";
+import type { ApprovalRow, AssistantRow, Row, ServerFrame, ToolRow } from "@henira/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";
@@ -584,5 +584,135 @@ describe("行级挂载点（D-057）", () => {
         (["sidebar", "conversation", "composer"] as WebSlotName[]).includes(n as WebSlotName),
       ),
     ).toBe(true);
+  });
+});
+
+describe("Conversation 长会话渲染（批 A'——虚拟化降级路径 / bottom-follow / 翻页）", () => {
+  const userRow: Row = {
+    kind: "user",
+    rowId: "u:1",
+    rowSeq: 1,
+    turn: "t-1",
+    text: "问",
+    source: "send",
+  };
+  const assistantRow: AssistantRow = {
+    kind: "assistant",
+    rowId: "a:t-1:1",
+    rowSeq: 2,
+    turn: "t-1",
+    step: 1,
+    text: "答",
+    streaming: false,
+  };
+
+  function ctxWithView(
+    view: {
+      rows: readonly Row[];
+      state: { busy: boolean };
+      hasOlder?: boolean;
+      totalRows?: number;
+    },
+    overrides?: Partial<WebPartContext>,
+  ) {
+    return fixtureCtx({
+      store: {
+        getSession: () => view,
+        subscribe: () => () => {},
+        mergeOlderRows: () => true,
+      },
+      ...overrides,
+    });
+  }
+
+  it("RowView memo：行引用不变的重渲染跳过（store 未变行同引用契约——renderMarkdown 调用次数不增）", () => {
+    const view = {
+      rows: [userRow, assistantRow],
+      state: { busy: false },
+      hasOlder: false,
+      totalRows: 2,
+    };
+    const renderMarkdown = vi.fn((text: string) => text);
+    const ctx = ctxWithView(view, {
+      host: {
+        ...fixtureCtx().host,
+        renderMarkdown,
+      },
+    });
+    const { rerender } = render(<Conversation {...ctx} />);
+    const afterFirst = renderMarkdown.mock.calls.length;
+    expect(afterFirst).toBeGreaterThan(0); // assistant 行渲染过
+    rerender(<Conversation {...ctx} />); // 同 view 同 ctx 重渲 → memo 命中（行引用与 ctx 引用皆不变）
+    expect(renderMarkdown.mock.calls.length).toBe(afterFirst);
+  });
+
+  it("回底按钮：上滚手势（wheel deltaY<0）出现、点击回底消失", () => {
+    const view = {
+      rows: [userRow, assistantRow],
+      state: { busy: false },
+      hasOlder: false,
+      totalRows: 2,
+    };
+    const ctx = ctxWithView(view);
+    render(<Conversation {...ctx} />);
+    const back = t("conversation.backToBottom");
+    expect(screen.queryByRole("button", { name: back })).toBeNull(); // 初始跟随无按钮
+    const conv = document.querySelector(".henira-conversation");
+    if (conv === null) throw new Error("conversation container missing");
+    fireEvent.wheel(conv, { deltaY: -100 }); // 用户上滚 → 解除跟随
+    expect(screen.getByRole("button", { name: back })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: back }));
+    expect(screen.queryByRole("button", { name: back })).toBeNull(); // 回底恢复
+  });
+
+  it("滚顶翻页：hasOlder 且滚到顶 → sessionRows 拉页 → mergeOlderRows 前插（宿主缺方法不触发）", async () => {
+    const olderRow: Row = {
+      kind: "user",
+      rowId: "u:0",
+      rowSeq: 0,
+      turn: "t-0",
+      text: "更早",
+      source: "send",
+    };
+    const mergeOlderRows = vi.fn(() => true);
+    const sessionRows = vi.fn(async () => ({ rows: [olderRow], hasOlder: false }));
+    const view = {
+      rows: [userRow],
+      state: { busy: false },
+      hasOlder: true,
+      totalRows: 61,
+    };
+    const withRows = fixtureCtx({
+      store: {
+        getSession: () => view,
+        subscribe: () => () => {},
+        mergeOlderRows,
+      },
+      client: { sessionRows } as unknown as HeniraClientLike,
+    });
+    render(<Conversation {...withRows} />);
+    const conv = document.querySelector(".henira-conversation");
+    if (conv === null) throw new Error("conversation container missing");
+    Object.defineProperty(conv, "scrollTop", { value: 10, configurable: true });
+    fireEvent.scroll(conv);
+    await waitFor(() => expect(mergeOlderRows).toHaveBeenCalledWith("s-1", [olderRow]));
+    expect(sessionRows).toHaveBeenCalledWith("s-1", { before: 1, limit: 60 }); // 游标 = 窗口首行 rowSeq
+
+    // 宿主缺 sessionRows → 不拉页（静态窗口）
+    const noRows = fixtureCtx({
+      store: {
+        getSession: () => view,
+        subscribe: () => () => {},
+        mergeOlderRows,
+      },
+    });
+    cleanup();
+    render(<Conversation {...noRows} />);
+    const conv2 = document.querySelector(".henira-conversation");
+    if (conv2 === null) throw new Error("conversation container missing");
+    const calls = sessionRows.mock.calls.length;
+    Object.defineProperty(conv2, "scrollTop", { value: 5, configurable: true });
+    fireEvent.scroll(conv2);
+    expect(sessionRows.mock.calls.length).toBe(calls); // 未增加
   });
 });

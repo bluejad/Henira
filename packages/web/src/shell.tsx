@@ -63,7 +63,8 @@ export const makeT =
 export function Shell(props: ShellProps) {
   const { store, client, layout, safeMode } = props;
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const t = makeT(props.localeOverride);
+  // t 引用稳定（ctxValue useMemo 依赖 t——不缓存则每渲染新函数 → ctx 每帧重建 → 行 memo 全失效）
+  const t = useMemo(() => makeT(props.localeOverride), [props.localeOverride]);
 
   const ctxValue = useMemo<WebPartContextValue>(
     () => ({

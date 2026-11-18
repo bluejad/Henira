@@ -33,6 +33,8 @@ export const zh = {
   "common.cancel": "取消",
   "conversation.empty": "发一条消息开始对话",
   "conversation.thinking": "思考中…",
+  "conversation.loadingOlder": "加载更早的历史…",
+  "conversation.backToBottom": "回到底部",
   "row.reasoning": "推理过程",
   "row.interrupted": "已中断",
   "row.truncated": "输出已截断",

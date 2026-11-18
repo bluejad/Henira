@@ -4,13 +4,57 @@
 // （assistant 行尾画廊位，缺席默认 = markdown 内联图）/ turn.tail（回合尾追加位，官方无默认件）。
 // 行内状态渲染（M4 批 A）：usage 徽章（步级用量）/ interrupted 徽章（中断可见）/
 // 截断徽章 + 落盘路径 / reasoning 折叠 / 输出复制按钮。容器样式在 tokens.css（.henira-conversation）。
+// 长会话渲染（批 A'，2026-11-18 三家取证）：虚拟滚动（tanstack react-virtual，虚拟单位 = 轮——
+// turn 相同行不拆散）+ bottom-follow（手势解除 / 贴底恢复 / 回底按钮）+ 滚顶翻页（sessionRows
+// 前插，store.mergeOlderRows 合并 + 补滚动位防跳顶）；无 ResizeObserver 的环境（jsdom 测试）
+// 降级全量渲染。行引用契约（store 未变行同引用）让 RowView memo 跳过未变行渲染。
 
 import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  Fragment,
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
 import { ApprovalSettledRow } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 import { DetailPane, DisclosureRow } from "./row-chrome.js";
+
+/** 虚拟单位 = 轮（turn 相同行不拆散——工具输出与回答同轮同块；key = turnId，无 turn 的
+ *  error 行独立成块）。ZCode ConversationTurnRenderUnit 思想的行模型简版。 */
+interface TurnUnit {
+  key: string;
+  turn?: string;
+  rows: Row[];
+}
+
+function buildTurnUnits(rows: readonly Row[]): TurnUnit[] {
+  const units: TurnUnit[] = [];
+  for (const row of rows) {
+    const last = units[units.length - 1];
+    if (last !== undefined && row.turn !== undefined && last.turn === row.turn) {
+      last.rows.push(row);
+    } else {
+      units.push({ key: row.turn ?? `e:${row.rowId}`, turn: row.turn, rows: [row] });
+    }
+  }
+  return units;
+}
+
+/** 离底容差（落点距底 <48px 视为贴底——ZCode BOTTOM_ANCHOR_EPSILON_PX 同档） */
+const BOTTOM_EPSILON_PX = 48;
+/** 滚顶翻页触发距离（ZCode LOAD_OLDER_TRIGGER_PX 同档） */
+const LOAD_OLDER_TRIGGER_PX = 64;
+/** 翻页单页行数（ZCode snapshotTailWindowRows 同档；服务端钳 200） */
+const PAGE_SIZE = 60;
+/** jsdom 等无 ResizeObserver 环境降级全量渲染（组件测试不依赖布局） */
+const VIRTUAL = typeof ResizeObserver !== "undefined";
 
 export const Conversation: WebPart = (ctx: WebPartContext) => {
   // useSyncExternalStore：store 引用稳定（未变化返回同一对象），快照整体替换语义
@@ -19,55 +63,265 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     () => ctx.store.getSession(ctx.sessionId),
     () => ctx.store.getSession(ctx.sessionId),
   );
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const rows = snapshot.rows;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: rows.length 是渲染层的变化信号而非 effect 输入（有意豁免）
-  useEffect(() => {
-    // 新行到达滚到底（流式时由最后行长度变化触发——测高稳定因为 DOM 文本完整）；
-    // scrollIntoView 可选调用守卫（jsdom 等无滚动实现的环境直接跳过）。
-    bottomRef.current?.scrollIntoView?.({ block: "end" });
-  }, [rows.length]);
+  const units = useMemo(() => buildTurnUnits(snapshot.rows), [snapshot.rows]);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const followingRef = useRef(true);
+  const [following, setFollowing] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const sessionRows = ctx.client.sessionRows; // feature-detect：宿主缺方法 = 不翻页
   const tailParts = ctx.slots.get("turn.tail") ?? [];
 
+  const commitFollowing = (on: boolean): void => {
+    followingRef.current = on;
+    setFollowing(on);
+  };
+
+  // 流式贴底：跟随中内容变高 → 写 scrollTop（内容未变高时 no-op；初始挂载定位最新）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: followingRef 是意图裁决引用（有意不进 deps——进则每帧重挂监听）；snapshot.rows 即渲染变化信号
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el === null || !followingRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [snapshot.rows]);
+
+  // 用户意图先行（capture 阶段，先于 scroll）：明确上滚手势解除跟随；程序化写入永不误解除
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅挂载期装监听——commitFollowing 为稳定 setState 包装、scrollRef 容器不变
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    const away = (): void => {
+      if (followingRef.current) commitFollowing(false);
+    };
+    const onWheel = (e: WheelEvent): void => {
+      if (e.deltaY < 0) away();
+    };
+    let touchY: number | undefined;
+    const onTouchStart = (e: TouchEvent): void => {
+      touchY = e.touches[0]?.clientY;
+    };
+    const onTouchMove = (e: TouchEvent): void => {
+      const y = e.touches[0]?.clientY;
+      if (touchY !== undefined && y !== undefined && y > touchY) away(); // 手指下移 = 视图上滚
+      touchY = y;
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "ArrowUp" || e.key === "PageUp" || e.key === "Home") away();
+    };
+    el.addEventListener("wheel", onWheel, { capture: true, passive: true });
+    el.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    el.addEventListener("touchmove", onTouchMove, { capture: true, passive: true });
+    el.addEventListener("keydown", onKey, { capture: true });
+    return () => {
+      el.removeEventListener("wheel", onWheel, { capture: true });
+      el.removeEventListener("touchstart", onTouchStart, { capture: true });
+      el.removeEventListener("touchmove", onTouchMove, { capture: true });
+      el.removeEventListener("keydown", onKey, { capture: true });
+    };
+  }, []);
+
+  // 滚动裁决：落点贴底（<48px）恢复跟随；滚顶触发翻页
+  const handleScroll = (): void => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distance < BOTTOM_EPSILON_PX && !followingRef.current) commitFollowing(true);
+    if (el.scrollTop < LOAD_OLDER_TRIGGER_PX && snapshot.hasOlder && !loadingOlder) loadOlder();
+  };
+
+  const loadOlder = (): void => {
+    const first = snapshot.rows[0];
+    const id = ctx.sessionId;
+    if (first === undefined || id === null || sessionRows === undefined) return;
+    setLoadingOlder(true);
+    void sessionRows
+      .call(ctx.client, id, { before: first.rowSeq, limit: PAGE_SIZE })
+      .then((page) => {
+        ctx.store.mergeOlderRows?.(id, page.rows);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setLoadingOlder(false);
+      });
+  };
+
+  // 前插补位（ZCode prependScrollAdjustment 兜底法）：首块 key 变化（前插发生）且离底状态
+  // → scrollTop += 新增高度，正在看的内容不跳
+  const prevLayoutRef = useRef({ height: 0, firstKey: "" });
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    const prev = prevLayoutRef.current;
+    const firstKey = units[0]?.key ?? "";
+    if (prev.height > 0 && firstKey !== prev.firstKey && !followingRef.current) {
+      el.scrollTop += el.scrollHeight - prev.height;
+    }
+    prevLayoutRef.current = { height: el.scrollHeight, firstKey };
+  });
+
+  const backVisible = !following && snapshot.rows.length > 0;
+  const backToBottom = (): void => {
+    commitFollowing(true);
+    const el = scrollRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  };
+
   return (
-    <div className="henira-conversation">
-      {rows.length === 0 ? (
-        <p style={{ color: "var(--henira-text-muted)" }}>{ctx.t("conversation.empty")}</p>
-      ) : (
-        rows.map((row) => <RowView key={row.rowId} row={row} ctx={ctx} />)
-      )}
-      {snapshot.state.busy ? (
-        <p
-          className="henira-sweep"
-          style={{ margin: "var(--henira-space-3) 0", fontSize: "var(--henira-fs-base)" }}
+    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex" }}>
+      <div className="henira-conversation" ref={scrollRef} onScroll={handleScroll}>
+        {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
+        <ConversationTimeline
+          key={ctx.sessionId ?? "none"}
+          units={units}
+          ctx={ctx}
+          scrollRef={scrollRef}
+        />
+        {snapshot.state.busy ? (
+          <p
+            className="henira-sweep"
+            style={{ margin: "var(--henira-space-3) 0", fontSize: "var(--henira-fs-base)" }}
+          >
+            {ctx.t("conversation.thinking")}
+          </p>
+        ) : null}
+        {tailParts.map((part, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 追加位件为无状态纯呈现函数（注册序即渲染序、卸载即整表移除）——索引键无重排歧义
+          <Fragment key={i}>{(part as WebPart)(ctx)}</Fragment>
+        ))}
+      </div>
+      {loadingOlder ? (
+        <div
+          className="henira-loading-older"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            textAlign: "center",
+            padding: "var(--henira-space-2) 0",
+            color: "var(--henira-text-muted)",
+            fontSize: "var(--henira-fs-sm)",
+            pointerEvents: "none",
+          }}
         >
-          {ctx.t("conversation.thinking")}
-        </p>
+          {ctx.t("conversation.loadingOlder")}
+        </div>
       ) : null}
-      {tailParts.map((part, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 追加位件为无状态纯呈现函数（注册序即渲染序、卸载即整表移除）——索引键无重排歧义
-        <Fragment key={i}>{(part as WebPart)(ctx)}</Fragment>
-      ))}
-      <div ref={bottomRef} />
+      {backVisible ? (
+        <button
+          type="button"
+          className="henira-back-bottom"
+          aria-label={ctx.t("conversation.backToBottom")}
+          title={ctx.t("conversation.backToBottom")}
+          onClick={backToBottom}
+          style={{
+            position: "absolute",
+            right: "var(--henira-space-4)",
+            bottom: "var(--henira-space-4)",
+            borderRadius: "9999px",
+            border: "1px solid var(--henira-border-strong)",
+            background: "var(--henira-panel)",
+            color: "var(--henira-text)",
+            padding: "6px 12px",
+            fontSize: "var(--henira-fs-sm)",
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+          }}
+        >
+          ↓ {ctx.t("conversation.backToBottom")}
+        </button>
+      ) : null}
     </div>
   );
 };
 
-function RowView({ row, ctx }: { row: Row; ctx: WebPartContext }): React.ReactNode {
-  switch (row.kind) {
-    case "user":
-      return <UserView row={row} ctx={ctx} />;
-    case "assistant":
-      return <AssistantView row={row} ctx={ctx} />;
-    case "tool":
-      return <ToolRowView row={row} ctx={ctx} />;
-    case "approval":
-      // pending 审批在输入区上方 dock 渲染（composer.tsx 接管）；对话流内只留 settled 痕迹行
-      return row.status === "pending" ? null : <ApprovalSettledRow row={row} ctx={ctx} />;
-    case "error":
-      return <ErrorView row={row} ctx={ctx} />;
+/** 时间线主体（sessionId 作 React key——会话切换重挂换测高缓存）：虚拟化窗口挂载，
+ *  无 ResizeObserver 环境（jsdom）降级全量。 */
+function ConversationTimeline(props: {
+  units: readonly TurnUnit[];
+  ctx: WebPartContext;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const { units, ctx, scrollRef } = props;
+  const virtualizer = useVirtualizer({
+    count: VIRTUAL ? units.length : 0,
+    getScrollElement: () => scrollRef.current,
+    // 未知块估高 = 一屏（ZCode 同思想：固定小值会让首屏挂十几块正文）；实高经 measureElement 回写
+    estimateSize: () => scrollRef.current?.clientHeight || 240,
+    overscan: 2,
+    getItemKey: (i) => units[i]?.key ?? i,
+  });
+
+  if (!VIRTUAL) {
+    return (
+      <>
+        {units.map((unit) => (
+          <TurnBlock key={unit.key} unit={unit} ctx={ctx} />
+        ))}
+      </>
+    );
   }
+  return (
+    <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+      {virtualizer.getVirtualItems().map((item) => {
+        const unit = units[item.index];
+        if (unit === undefined) return null;
+        return (
+          <div
+            key={item.key}
+            data-index={item.index}
+            ref={virtualizer.measureElement}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              transform: `translateY(${item.start}px)`,
+            }}
+          >
+            <TurnBlock unit={unit} ctx={ctx} />
+          </div>
+        );
+      })}
+    </div>
+  );
 }
+
+/** 轮块：行列表（RowView memo——store 未变行同引用，跳过重渲；每帧 O(n) 分组循环在
+ *  buildTurnUnits，微秒级，ZCode history/tail 分区缓存挂账实测需要时再做） */
+function TurnBlock({ unit, ctx }: { unit: TurnUnit; ctx: WebPartContext }) {
+  return (
+    <>
+      {unit.rows.map((row) => (
+        <RowView key={row.rowId} row={row} ctx={ctx} />
+      ))}
+    </>
+  );
+}
+
+const RowView = memo(
+  function RowView({ row, ctx }: { row: Row; ctx: WebPartContext }): React.ReactNode {
+    switch (row.kind) {
+      case "user":
+        return <UserView row={row} ctx={ctx} />;
+      case "assistant":
+        return <AssistantView row={row} ctx={ctx} />;
+      case "tool":
+        return <ToolRowView row={row} ctx={ctx} />;
+      case "approval":
+        // pending 审批在输入区上方 dock 渲染（composer.tsx 接管）；对话流内只留 settled 痕迹行
+        return row.status === "pending" ? null : <ApprovalSettledRow row={row} ctx={ctx} />;
+      case "error":
+        return <ErrorView row={row} ctx={ctx} />;
+    }
+  },
+  // ctx 本体每渲染都是新对象（宿主 <Part {...ctxValue} /> spread）——比较稳定子集：
+  // row 同引用（store 契约）+ t/host/slots 同引用（shell useMemo；字典/插件变更时正确重渲刷新）
+  (a, b) =>
+    a.row === b.row &&
+    a.ctx.t === b.ctx.t &&
+    a.ctx.host === b.ctx.host &&
+    a.ctx.slots === b.ctx.slots,
+);
 
 /** 行级印章胶囊（状态语义色——语义粉彩只做印章不做装饰） */
 function Pill({

@@ -34,15 +34,13 @@ function fakeClient(overrides?: Partial<HeniraFacade>): HeniraFacade {
 describe("createWebApp", () => {
   it("选中 store 无数据的会话（磁盘历史，不在 SSE 扇出）→ 补拉快照渲染行", async () => {
     const snapshots: string[] = [];
-    let call = 0;
     const client = fakeClient({
       listSessions: async () => [
-        { id: "s-live", cwd: "C:\live", updatedAt: 2, busy: false },
-        { id: "s-disk", cwd: "C:\disk", updatedAt: 1, busy: false },
+        { id: "s-live", cwd: "C:/live", updatedAt: 2, busy: false },
+        { id: "s-disk", cwd: "C:/disk", updatedAt: 1, busy: false },
       ],
       snapshot: async (id) => {
         snapshots.push(id);
-        call += 1;
         return {
           sessionId: id,
           seq: 1,
@@ -68,8 +66,7 @@ describe("createWebApp", () => {
     const app = createWebApp({ client });
     app.mount(el);
     await new Promise((r) => setTimeout(r, 50)); // 初始选择 s-live（第一个）
-    call = 0; // 清掉初始选择的影响计数——本用例只看点击后的补拉
-    snapshots.length = 0;
+    snapshots.length = 0; // 本用例只看点击后的补拉
 
     const diskRow = [...el.querySelectorAll(".henira-sessions li button")].find((b) =>
       b.textContent?.includes("disk"),

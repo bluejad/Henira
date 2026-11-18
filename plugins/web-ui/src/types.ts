@@ -9,6 +9,7 @@ import type {
   PromptReceipt,
   RegisteredDir,
   Row,
+  RowsPage,
   ServerFrame,
   SessionState,
   SessionSummary,
@@ -46,13 +47,23 @@ export interface HeniraClientLike {
   browseDirs?(path?: string): Promise<DirBrowse>;
   /** 删单个会话（可选——账本目录整棵；busy 抛错） */
   deleteSession?(id: string): Promise<void>;
+  /** 行翻页（可选——长会话历史前插；宿主缺方法 = 不渲染「加载更早」，静态窗口） */
+  sessionRows?(sessionId: string, opts?: { before?: number; limit?: number }): Promise<RowsPage>;
 }
 
 /** 行 store 最小结构面（哑渲染器的数据源：快照整体替换 + 增量；断档不猜纪律在 client） */
 export interface RowStoreLike {
-  /** 当前会话的行与状态；引用稳定（未变化时返回同一对象——useSyncExternalStore 语义） */
-  getSession(sessionId: string | null): { rows: readonly Row[]; state: SessionState };
+  /** 当前会话的行与状态；引用稳定（未变化时返回同一对象——useSyncExternalStore 语义）；
+   *  hasOlder/totalRows = 快照窗口字段（长会话翻页依据，老宿主缺省 false） */
+  getSession(sessionId: string | null): {
+    rows: readonly Row[];
+    state: SessionState;
+    hasOlder?: boolean;
+    totalRows?: number;
+  };
   subscribe(cb: () => void): Disposable;
+  /** 历史前插（loadOlder）：页行按 rowSeq 过滤+去重后前插；无新行返回 false（可选——宿主缺 = 不翻页） */
+  mergeOlderRows?(sessionId: string, page: readonly Row[]): boolean;
 }
 
 /** 界面资产（D-059 语言包/主题包清单）——与 sdk/config-loader 的 UiAssets 结构同形（结构化声明，

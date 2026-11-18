@@ -8,7 +8,7 @@
 
 import type { RegisteredDir, SessionSummary } from "@henira/protocol";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { DirectoryDialog } from "./directory-dialog.js";
 import { CaretGlyph, SpinnerGlyph } from "./icons.js";
@@ -274,89 +274,19 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                       padding: "0 0 0 var(--henira-space-4)",
                     }}
                   >
-                    {group.sessions.map((s) => {
-                      const selected = ctx.sessionId === s.id;
-                      return (
-                        <li
-                          key={s.id}
-                          style={{ marginBottom: "2px" }}
-                          onContextMenu={(e) => {
-                            if (!canDeleteSession) return; // 宿主无删除面 → 无会话菜单
-                            e.preventDefault();
-                            setMenu({ kind: "session", x: e.clientX, y: e.clientY, session: s });
-                          }}
-                        >
-                          <button
-                            type="button"
-                            data-active={selected ? "true" : undefined}
-                            onClick={() => {
-                              ctx.selectSession(s.id);
-                            }}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "var(--henira-space-2)",
-                              width: "100%",
-                              textAlign: "left",
-                              background: "transparent",
-                              borderRadius: "var(--henira-radius)",
-                              padding: "6px 10px",
-                              minHeight: "32px",
-                              boxSizing: "border-box",
-                            }}
-                          >
-                            <span
-                              role="img"
-                              aria-label={s.busy ? ctx.t("sessions.busy") : ctx.t("sessions.idle")}
-                              style={{
-                                display: "inline-flex",
-                                width: 16,
-                                justifyContent: "center",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {s.busy ? (
-                                <SpinnerGlyph size={14} color="var(--henira-info-text)" />
-                              ) : (
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    width: "7px",
-                                    height: "7px",
-                                    borderRadius: "50%",
-                                    background: "var(--henira-border-strong)",
-                                  }}
-                                />
-                              )}
-                            </span>
-                            <span
-                              style={{
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                color: selected
-                                  ? "var(--henira-text-strong)"
-                                  : "var(--henira-text)",
-                              }}
-                            >
-                              {dirBasename(s.cwd) || s.cwd}
-                            </span>
-                            {s.busy ? (
-                              <span
-                                style={{
-                                  marginLeft: "auto",
-                                  color: "var(--henira-text-muted)",
-                                  fontSize: "var(--henira-fs-sm)",
-                                  flexShrink: 0,
-                                }}
-                              >
-                                {ctx.t("sessions.busy")}
-                              </span>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
+                    {group.sessions.map((s) => (
+                      <SessionRow
+                        key={s.id}
+                        session={s}
+                        selected={ctx.sessionId === s.id}
+                        ctx={ctx}
+                        canDelete={canDeleteSession}
+                        onSelect={ctx.selectSession}
+                        onContextMenu={(session, x, y) => {
+                          setMenu({ kind: "session", x, y, session });
+                        }}
+                      />
+                    ))}
                   </ul>
                 ) : null}
               </section>
@@ -412,6 +342,103 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     </nav>
   );
 };
+
+/** 会话行（memo——侧栏每帧刷新只重渲 busy/选中变化的行；折叠组天然不渲染子行，
+ *  ZCode 侧栏阈值虚拟化（>80 行）挂账 D-061——触发信号 = 实测卡顿或几百会话场景） */
+const SessionRow = memo(
+  function SessionRow(props: {
+    session: SessionSummary;
+    selected: boolean;
+    ctx: WebPartContext;
+    canDelete: boolean;
+    onSelect(sessionId: string): void;
+    onContextMenu(session: SessionSummary, x: number, y: number): void;
+  }) {
+    const { session: s, selected, ctx, canDelete } = props;
+    return (
+      <li
+        style={{ marginBottom: "2px" }}
+        onContextMenu={(e) => {
+          if (!canDelete) return; // 宿主无删除面 → 无会话菜单
+          e.preventDefault();
+          props.onContextMenu(s, e.clientX, e.clientY);
+        }}
+      >
+        <button
+          type="button"
+          data-active={selected ? "true" : undefined}
+          onClick={() => {
+            props.onSelect(s.id);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--henira-space-2)",
+            width: "100%",
+            textAlign: "left",
+            background: "transparent",
+            borderRadius: "var(--henira-radius)",
+            padding: "6px 10px",
+            minHeight: "32px",
+            boxSizing: "border-box",
+          }}
+        >
+          <span
+            role="img"
+            aria-label={s.busy ? ctx.t("sessions.busy") : ctx.t("sessions.idle")}
+            style={{
+              display: "inline-flex",
+              width: 16,
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {s.busy ? (
+              <SpinnerGlyph size={14} color="var(--henira-info-text)" />
+            ) : (
+              <span
+                style={{
+                  display: "inline-block",
+                  width: "7px",
+                  height: "7px",
+                  borderRadius: "50%",
+                  background: "var(--henira-border-strong)",
+                }}
+              />
+            )}
+          </span>
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: selected ? "var(--henira-text-strong)" : "var(--henira-text)",
+            }}
+          >
+            {dirBasename(s.cwd) || s.cwd}
+          </span>
+          {s.busy ? (
+            <span
+              style={{
+                marginLeft: "auto",
+                color: "var(--henira-text-muted)",
+                fontSize: "var(--henira-fs-sm)",
+                flexShrink: 0,
+              }}
+            >
+              {ctx.t("sessions.busy")}
+            </span>
+          ) : null}
+        </button>
+      </li>
+    );
+  },
+  (a, b) =>
+    a.session === b.session && // 列表刷新未变会话同对象——跳过重渲
+    a.selected === b.selected &&
+    a.canDelete === b.canDelete &&
+    a.ctx.t === b.ctx.t,
+);
 
 /** 右键菜单（非模态，点外/Escape 关）：目录=新建会话/复制路径/删除目录；会话=删除 */
 function ContextMenu(props: {
