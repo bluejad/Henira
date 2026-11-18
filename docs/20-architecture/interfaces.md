@@ -470,11 +470,14 @@ GET  /api/sessions                                      → SessionSummary[]
 DELETE /api/sessions/:id                                → { ok: true }     // busy → 409 { code: "session_busy" }；删账本目录整棵（data-directory §7）
 GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口；长会话 = 尾窗 60——ZCode snapshotTailWindowRows 同档）
 GET  /api/sessions/:id/rows?before=&limit=              → RowsPage        // 行翻页（长会话历史：before = rowSeq 排他游标、页首补齐到轮边界、limit 钳 200——D-061）
-POST /api/sessions/:id/prompt               { text }    → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）
+POST /api/sessions/:id/prompt               { text, modelId?, reasoningEffort? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；模型/思考按次覆盖（BC 每次提问绑定，骨架批）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
+//  写路径懒挂载（重启续聊，✓ 2026-11-18）：prompt / steer / interrupt / approvals / files 对磁盘历史会话
+//  （本进程未装配）首次调用按需重建运行体（定位目录 + 账本头核验 + 装配 + 投影从账本补账）——重启后不再
+//  只读（读路径磁盘兜底照旧）；未知 id 仍 404；另一活进程持 session.lock → 409 { code: "session_busy" }
 GET  /api/sessions/:id/ui-state                         → SessionUiState  // 界面绑定态文档（草稿 / 面板宽度 / 右栏 tab 引用；web 宿主所有形状，服务端不解释内容；折叠组不入档——本地态；D-063，✓ 界面持久化批）
 PUT  /api/sessions/:id/ui-state             { doc }     → { ok: true }    // 整份原子重写（tmp+rename），后写者赢；64KB 上限（D-063）
 GET  /api/dirs                                          → RegisteredDir[]  // 登记工作目录（data-directory §4 projects.json，可自愈；D-060）

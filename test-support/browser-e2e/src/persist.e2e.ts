@@ -16,6 +16,8 @@ const DRAFT = "persistent draft text";
 // 正文造一行（刷新/重启后必须在场——selftest8：boot 还原曾只摆选中不补拉快照，正文空白）
 const HISTORY_TEXT = "persist history row";
 const HISTORY_SCRIPT: MockEntry[] = [[mockText(HISTORY_TEXT), mockFinish("stop")]];
+// 重启续聊回复（懒挂载 attach 验收：重启后发消息不再 404——mock 游标每实例归零，重启须换新脚本）
+const RESTART_TEXT = "persist reply after restart";
 
 async function shot(page: Page, name: string): Promise<void> {
   await fs.mkdir(ARTIFACTS, { recursive: true });
@@ -29,7 +31,7 @@ async function startPersistServer(script: MockEntry[] = []): Promise<{
   dirA: string;
   dirB: string;
   stop: (wipe: boolean) => Promise<void>;
-  restart: () => Promise<HeniraServer>;
+  restart: (nextScript?: MockEntry[]) => Promise<HeniraServer>;
 }> {
   const dataDir = await fs.mkdtemp(path.join(tmpdir(), "henira-persist-"));
   const globalDir = await fs.mkdtemp(path.join(tmpdir(), "henira-persist-cfg-"));
@@ -48,12 +50,12 @@ async function startPersistServer(script: MockEntry[] = []): Promise<{
   const dirB = await fs.mkdtemp(path.join(tmpdir(), "henira-persist-b-"));
   await server.registry.create({ cwd: dirA });
   await server.registry.create({ cwd: dirB });
-  const restart = async (): Promise<HeniraServer> => {
+  const restart = async (nextScript?: MockEntry[]): Promise<HeniraServer> => {
     await server.stop();
     server = await createServer({
       dataDir,
       globalDir,
-      llm: { name: "llm", start: () => mockLlm(script).service },
+      llm: { name: "llm", start: () => mockLlm(nextScript ?? script).service },
       port: 0,
     });
     return server;
@@ -212,7 +214,7 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await ctx.stop(false);
 
     // ── 重启：新实例同 dataDir（新端口）──
-    const server2 = await ctx.restart();
+    const server2 = await ctx.restart([[mockText(RESTART_TEXT), mockFinish("stop")]]);
     await page.goto(server2.url);
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
       timeout: 15_000,
@@ -225,6 +227,11 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue("");
     await rowA.click();
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue(DRAFT); // 草稿跨重启
+    // 重启续聊（懒挂载 attach）：历史会话发消息不再 404——回复行落定
+    const area2 = page.getByPlaceholder(zh["composer.placeholder"]);
+    await area2.fill("continue after restart");
+    await area2.press("Enter");
+    await expect(page.getByText(RESTART_TEXT)).toBeVisible({ timeout: 15_000 });
     await shot(page, "18-persist-restart.png");
   } finally {
     await ctx.stop(true);
