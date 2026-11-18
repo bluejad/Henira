@@ -67,18 +67,33 @@ export async function browseDirectories(rawPath?: string): Promise<DirBrowse> {
 
 export class DirRegistry {
   readonly #dataDir: string;
+  /** 写互斥（upsert/remove/list 三写者串行——projects.json 的 tmp+rename 撞车防线） */
+  #chain: Promise<unknown> = Promise.resolve();
 
   constructor(opts: { dataDir: string }) {
     this.#dataDir = opts.dataDir;
   }
 
-  /** 列表（含自愈）：文件条目 + 扫账本复活缺失条目（有变化才回写） */
+  #serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.#chain.then(fn, fn);
+    this.#chain = next.catch(() => {});
+    return next;
+  }
+
+  /** 列表（含自愈）：文件条目 + 扫账本复活缺失条目（扫盘慢 IO 在锁外；合并回写在锁内） */
   async list(): Promise<RegisteredDir[]> {
-    const file = await this.#read();
-    const known = new Set(file.projects.map((p) => p.id));
-    const revived = await this.#reconcile(file, known);
-    if (revived) await this.#write(file);
-    return [...file.projects].sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+    const known = new Set((await this.#read()).projects.map((p) => p.id));
+    const revived = await this.#reconcile(known); // 只读扫描，无副作用
+    return this.#serialize(async () => {
+      const file = await this.#read(); // 锁内重读：并发 upsert/remove 已落盘的不丢
+      const fresh = revived.filter((p) => !file.projects.some((q) => q.id === p.id));
+      if (fresh.length > 0) {
+        file.projects = [...fresh, ...file.projects];
+        file.lastUpdatedAt = Date.now();
+        await this.#write(file);
+      }
+      return [...file.projects].sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+    });
   }
 
   async get(id: string): Promise<RegisteredDir | undefined> {
@@ -86,8 +101,13 @@ export class DirRegistry {
     return file.projects.find((p) => p.id === id);
   }
 
-  /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key 校正；新条目置顶（BC 行为层） */
-  async upsert(cwd: string, sessionId?: string): Promise<RegisteredDir> {
+  /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key 校正；新条目置顶（BC 行为层）。
+   *  读改写全程在写互斥内（与 remove/list 并发时丢更新防护） */
+  upsert(cwd: string, sessionId?: string): Promise<RegisteredDir> {
+    return this.#serialize(() => this.#upsertLocked(cwd, sessionId));
+  }
+
+  async #upsertLocked(cwd: string, sessionId?: string): Promise<RegisteredDir> {
     const resolved = path.resolve(cwd);
     const id = dirId(resolved);
     const file = await this.#read();
@@ -116,25 +136,27 @@ export class DirRegistry {
     return existing ?? (file.projects[0] as RegisteredDir);
   }
 
-  async remove(id: string): Promise<void> {
-    const file = await this.#read();
-    const next = file.projects.filter((p) => p.id !== id);
-    if (next.length === file.projects.length) return; // 未知 id 幂等
-    file.projects = next;
-    file.lastUpdatedAt = Date.now();
-    await this.#write(file);
+  remove(id: string): Promise<void> {
+    return this.#serialize(async () => {
+      const file = await this.#read();
+      const next = file.projects.filter((p) => p.id !== id);
+      if (next.length === file.projects.length) return; // 未知 id 幂等
+      file.projects = next;
+      file.lastUpdatedAt = Date.now();
+      await this.#write(file);
+    });
   }
 
-  /** 自愈：扫 projects/<key>/sessions/ 各会话头，cwd 缺失条目复活（data-directory §4） */
-  async #reconcile(file: ProjectsFile, known: Set<string>): Promise<boolean> {
+  /** 自愈：扫 projects/<key>/sessions/ 各会话头，cwd 缺失条目候选复活（data-directory §4）。
+   *  返回复活候选（与文件现状的合并去重在 list 的写互斥内做） */
+  async #reconcile(known: Set<string>): Promise<RegisteredDir[]> {
     const projectsDir = path.join(this.#dataDir, "projects");
     let keys: string[] = [];
     try {
       keys = await fs.readdir(projectsDir);
     } catch {
-      return false; // 无账本目录 = 无可复活
+      return []; // 无账本目录 = 无可复活
     }
-    let changed = false;
     // cwd → 最新会话（mtime 取 max，lastOpenedAt 由此派生）
     const latest = new Map<
       string,
@@ -171,9 +193,10 @@ export class DirRegistry {
         } catch {}
       }
     }
+    const revived: RegisteredDir[] = [];
     for (const [id, hit] of latest) {
       if (known.has(id)) continue;
-      file.projects.unshift({
+      revived.push({
         id,
         cwd: hit.cwd,
         key: projectKey(hit.cwd),
@@ -183,9 +206,8 @@ export class DirRegistry {
         openCount: 0,
         lastSessionId: hit.sessionId,
       });
-      changed = true;
     }
-    return changed;
+    return revived;
   }
 
   async #read(): Promise<ProjectsFile> {
@@ -203,9 +225,22 @@ export class DirRegistry {
   async #write(file: ProjectsFile): Promise<void> {
     const target = path.join(this.#dataDir, "projects.json");
     await fs.mkdir(this.#dataDir, { recursive: true });
-    const tmp = `${target}.tmp`;
+    // 唯一 tmp 名（固定 .tmp 会与并发写者/他进程撞名——ENOENT/互相覆盖）+ rename EPERM 小退避
+    // （Windows 上目标文件正被读句柄占着时 rename 报 EPERM——读是短窗口，退避即过）
+    const tmp = `${target}.${process.pid}-${Date.now()}.tmp`;
     await fs.writeFile(tmp, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-    await fs.rename(tmp, target);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fs.rename(tmp, target);
+        break;
+      } catch (err) {
+        if (attempt >= 3 || (err as NodeJS.ErrnoException).code !== "EPERM") {
+          await fs.rm(tmp, { force: true }).catch(() => {}); // 残 tmp 不留
+          throw err;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
   }
 }
 

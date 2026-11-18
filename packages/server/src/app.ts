@@ -232,7 +232,17 @@ export function createApp(deps: AppDeps): Hono {
         409,
       );
     }
-    const deleted = await deps.registry.deleteSession(id);
+    let deleted: boolean;
+    try {
+      deleted = await deps.registry.deleteSession(id);
+    } catch (err) {
+      // 同删目录：失败必须有形状（Windows EBUSY/EPERM 偶发——detail 进 UI 与 serve 终端）
+      console.error(`[server] DELETE /api/sessions/${id} failed`, err);
+      return c.json(
+        { error: "delete failed", detail: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
     if (!deleted) return c.json({ error: "session not found" }, 404);
     return c.json({ ok: true });
   });
@@ -267,8 +277,17 @@ export function createApp(deps: AppDeps): Hono {
       .map((e) => e.id);
     if (blocked.length > 0) return c.json({ ok: false, blocked });
     // key 只从登记条目取（registry 侧形态闸兜底）——账本树+检查点树+登记条目三处同删（§7）
-    await deps.registry.removeProject(dir.key);
-    await deps.dirs.remove(id);
+    try {
+      await deps.registry.removeProject(dir.key);
+      await deps.dirs.remove(id);
+    } catch (err) {
+      // 删除失败必须有形状（Windows EBUSY/EPERM 偶发——裸 500 无从排查；detail 进 UI 与 serve 终端）
+      console.error(`[server] DELETE /api/dirs/${id} failed`, err);
+      return c.json(
+        { error: "delete failed", detail: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
     return c.json({ ok: true });
   });
 

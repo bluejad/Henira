@@ -39,12 +39,16 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       headers: { "content-type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
     });
     if (!res.ok) {
-      // 错误体结构化提取（session_busy 等 code 码透传——调用方可判别）
+      // 错误体结构化提取（session_busy 等 code 码透传可判别；删除失败等 error/detail
+      // 一并带上——UI 直接显示真实原因，不再只有裸状态码）
       const body = (await res.json().catch(() => undefined)) as
-        | { code?: string; message?: string }
+        | { code?: string; message?: string; error?: string; detail?: string }
         | undefined;
-      const detail = body?.code !== undefined ? ` ${body.code}` : "";
-      throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}${detail}`);
+      const detail = [body?.code, body?.error, body?.detail ?? body?.message]
+        .filter((part) => typeof part === "string" && part !== "")
+        .join(" ");
+      const suffix = detail === "" ? "" : ` ${detail}`;
+      throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}${suffix}`);
     }
     return (await res.json()) as T;
   }

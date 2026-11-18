@@ -1,6 +1,7 @@
 // server e2e（真 HTTP + 真 SSE + mock LLM 全引擎装配）：判据①多客户端 / ②断线重连审批重放 /
 // ⑤回环三件套，另锁 REST 面 / 设置与凭据 / 文件围栏 / 握手文件生命周期 / 中断冻结。
 
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -676,6 +677,91 @@ describe("目录登记与删除", () => {
       const again = await fetch(`${base}/api/dirs/nonexistent0`, { method: "DELETE" });
       expect(again.status).toBe(200);
       expect(((await again.json()) as { ok: boolean }).ok).toBe(true);
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "DELETE /api/dirs/:id 目录被进程占用 → 500 形状化错误体（error+detail）；释放后重删成功",
+    async () => {
+      const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-dirlock-"));
+      const { base, dataDir, cleanup } = await makeServer([]);
+      const child = spawn(
+        process.execPath,
+        [
+          "-e",
+          "let d='';process.stdin.on('data',(c)=>d+=c);process.stdin.on('end',()=>{process.chdir(d.trim());process.stdout.write('ready');setInterval(()=>{},1000)})",
+        ],
+        { stdio: ["pipe", "pipe", "ignore"] },
+      );
+      try {
+        await createSession(base, cwd);
+        const dirs = (await (await fetch(`${base}/api/dirs`)).json()) as {
+          id: string;
+          key: string;
+        }[];
+        const entry = dirs[0] as { id: string; key: string };
+        const sessionsDir = path.join(dataDir, "projects", entry.key, "sessions");
+        // 子进程 CWD 钉进账本树内（Windows：目录为进程工作目录时 rm EBUSY——确定性占用）；
+        // stdout 哨兵「ready」= chdir 完成，不赌启动时序
+        child.stdin.write(sessionsDir);
+        child.stdin.end();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("lock child never became ready")), 5000);
+          child.stdout?.on("data", (chunk: Buffer) => {
+            if (chunk.toString().includes("ready")) {
+              clearTimeout(timer);
+              resolve();
+            }
+          });
+        });
+        const res = await fetch(`${base}/api/dirs/${entry.id}`, { method: "DELETE" });
+        expect(res.status).toBe(500); // rm 重试耗尽后仍失败 → 形状化错误体（不再裸 500 无形状）
+        const body = (await res.json()) as { error?: string; detail?: string };
+        expect(body.error).toBe("delete failed");
+        expect((body.detail ?? "").length).toBeGreaterThan(0);
+        child.kill();
+        await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+        const retry = await fetch(`${base}/api/dirs/${entry.id}`, { method: "DELETE" });
+        expect(retry.status).toBe(200); // 占用释放后重删走通（失败后登记条目仍在——可重试语义）
+        expect(((await retry.json()) as { ok: boolean }).ok).toBe(true);
+        expect(await (await fetch(`${base}/api/dirs`)).json()).toEqual([]);
+      } finally {
+        child.kill();
+        await cleanup();
+        await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+      }
+    },
+    20000, // rm 重试退避 + 子进程哨兵 + 两轮 DELETE，Windows 本机实测远超默认 5s
+  );
+
+  it("projects.json 并发写不炸：并发 upsert/list/remove 全 200、终态单条不重复", async () => {
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-dirrace-"));
+    const { base, dataDir, cleanup } = await makeServer([]);
+    try {
+      const jobs: Promise<Response>[] = [];
+      for (let i = 0; i < 4; i++) {
+        // 同一 cwd 的并发 upsert（同 id 幂等）混着并发 list（reconcile 扫盘）与幂等 remove——
+        // 修复前固定 .tmp 撞名可炸 ENOENT/EPERM；写互斥 + 唯一 tmp + rename 退避后全 200
+        jobs.push(
+          fetch(`${base}/api/dirs`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ cwd }),
+          }),
+        );
+        jobs.push(fetch(`${base}/api/dirs`));
+        jobs.push(fetch(`${base}/api/dirs/nope0`, { method: "DELETE" }));
+      }
+      const responses = await Promise.all(jobs);
+      for (const r of responses) expect(r.status).toBe(200);
+      const list = (await (await fetch(`${base}/api/dirs`)).json()) as { cwd: string }[];
+      expect(list.filter((d) => d.cwd.toLowerCase() === cwd.toLowerCase())).toHaveLength(1);
+      // 残 tmp 不留（唯一 tmp 命名 + 失败清理）
+      const leftovers = (await fs.readdir(dataDir)).filter((n) => n.startsWith("projects.json."));
+      expect(leftovers).toEqual([]);
     } finally {
       await cleanup();
       await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});

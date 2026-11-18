@@ -478,7 +478,8 @@ GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI �
 GET  /api/dirs                                          → RegisteredDir[]  // 登记工作目录（data-directory §4 projects.json，可自愈；D-060）
 POST /api/dirs                              { cwd }     → { ok: true; dir }  // 登记：绝对路径 + 存在 + 是目录（非法 400）
 DELETE /api/dirs/:id                                    → { ok: true }     // busy → 200 { ok: false; blocked: [sessionId] }（批操作语义响应，与删会话 409 双轨——D-060）；
-                                                        //   删 projects/<key>/ + checkpoints/<key>/ + 登记条目，盘上工作目录不动（data-directory §7）；未知 id 幂等
+                                                        //   删 projects/<key>/ + checkpoints/<key>/ + 登记条目，盘上工作目录不动（data-directory §7）；未知 id 幂等；
+                                                        //   fs 失败（Windows 目录被进程占用等）→ 500 { error: "delete failed"; detail }（rm 内置重试后仍败才返；登记条目未删可重试——D-060 后续）
 GET  /api/dirs/browse?path=                             → DirBrowse        // 全局目录浏览一层（新增目录弹窗数据源；path 缺省 homedir、__drives__ = win32 盘符（非 win32 = / 单项）；
                                                         //   隐藏项不返、只回目录；信任边界 = 回环三件套之上，D-060）
 GET  /api/server/info                                   → { version; startedAt; model }

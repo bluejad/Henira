@@ -128,7 +128,9 @@ export class SessionRegistry {
 
   /** 装配三步 ①③ + start；返回入口供 REST 路由投递 */
   async create(opts?: { cwd?: string }): Promise<SessionEntry> {
-    const cwd = opts?.cwd ?? process.cwd();
+    // resolve：会话树 key 与登记条目 key 必须同源推导（未归一拼写会让两把 key 分叉——
+    // 删目录时 in-订 会话漏 dispose（句柄未闭 → EBUSY）或账本树漏删（reconcile 复活条目）
+    const cwd = opts?.cwd === undefined ? process.cwd() : path.resolve(opts.cwd);
     const settings = await readSettings(this.#opts.globalDir);
     // ③：显式 enabled: false 不装载（缺 key = 启用）；内圈引擎件被关 → 照装并告警（hosts.md §3 语义）
     const skip = (id: string): boolean => !isPluginEnabled(settings, id);
@@ -251,7 +253,7 @@ export class SessionRegistry {
     const entry = this.#entries.get(id);
     const dir = entry?.directory ?? (await this.#findSessionDir(id));
     if (dir === undefined) return false;
-    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     if (entry !== undefined) {
       entry.interaction.dispose();
       await entry.harness.dispose().catch(() => {});
@@ -272,10 +274,17 @@ export class SessionRegistry {
       await entry.harness.dispose().catch(() => {});
       this.#entries.delete(entry.id);
     }
-    await fs.rm(path.join(this.#opts.dataDir, "projects", key), { recursive: true, force: true });
+    await fs.rm(path.join(this.#opts.dataDir, "projects", key), {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
     await fs.rm(path.join(this.#opts.dataDir, "checkpoints", key), {
       recursive: true,
       force: true,
+      maxRetries: 5,
+      retryDelay: 100,
     });
   }
 

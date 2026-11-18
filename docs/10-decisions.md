@@ -721,6 +721,7 @@
   5. **确认弹窗不学 ZCode 两击原位确认**：我们是硬删（fs.rmSync 不可恢复），ZCode 软删才敢无弹窗——删除一律模态确认（BC 语义），目录删额外列明删除范围 + busy 红框禁用。
 - **理由**：文档先行——data-directory §4/§7 一年前就把形状和删除语义定稿了，本批是兑现不是新设计；下沉 plugin-session 让 runtime 形态零复制拿到同语义（facade.test 双形态一致套件锁定）；信任边界沿用回环三件套不新增防线——全局 readdir 的暴露面是目录名列表（无文件内容），在只绑回环 + token 的既有模型内可接受；若将来对公网开放（显式配置才可能），browse 端点应随部署面重审。
 - **备注**：interfaces.md server 段 REST 面（四个新端点 + DELETE 方法入面）、sdk 段门面方法表（14→19）、web 段侧栏目录区形态条；data-directory.md §4 标注已落地；测试：server.test 五用例 + facade.test 双形态两用例 + parts.test 五用例。ZCode 有而不做（范围控制，随批记）：重命名/置顶/归档/拖拽排序/搜索/视图筛选/⋯按钮/「查看文件」。
+- **后续（2026-11-18 删除 500 修复）**：用户实测删目录偶发 `DELETE /api/dirs/:id — 500`。取证三真因齐修：①`DirRegistry` 读写零互斥 + 固定 `.tmp` 名——并发写者（双击重删 / 删除撞侧栏 list 自愈回写 / 撞建会话自动登记）第二个 rename 撞 ENOENT → **写互斥 promise chain + 唯一 tmp（pid+时间戳）+ rename EPERM 退避**；reconcile 扫盘（全树逐会话头读）挪到锁外，锁内重读合并防丢更新；②`fs.rm` 无重试——Windows 目录被进程占用（另一 serve/CLI 钉着该树）EBUSY 偶发 → **rm `maxRetries:5, retryDelay:100`**（Node 内置对该错误类线性退避；测试用子进程 CWD 钉树确定性复现——Node 自身句柄带 FILE_SHARE_DELETE 拦不住删除，OpenHandle 模拟不成立）；③路由无 try/catch → 裸 500 无形状 → **删除两端点失败返 500 `{error:"delete failed", detail}` + serve 终端打印堆栈**，sdk client 抛错消息带 detail（UI「删除失败：」直接显示真实原因）；附带 `registry.create` cwd resolve（未归一拼写使会话树 key 与登记 key 分叉——漏 dispose 或树漏删被 reconcile 复活的隐雷）。教训：Node 对 Node 的文件句柄全带 share-delete，「句柄占用」类排除先验证句柄来源，别拿自家进程模拟他者占用。
 
 ## D-061 长会话渲染：行翻页 + 虚拟滚动（三家取证与取舍）
 
