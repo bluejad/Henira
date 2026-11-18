@@ -265,7 +265,9 @@ export class SessionRegistry {
   /** 删整个项目数据树（data-directory §7 删除项目）：projects/<key>/ + checkpoints/<key>/ +
    *  在订该 cwd 会话收尾。key 只来自登记表条目（非用户输入路径），形态闸兜底防拼接滥用 */
   async removeProject(key: string): Promise<void> {
-    if (!/^--[A-Za-z0-9._-]{1,60}-[0-9a-f]{8}--$/.test(key)) {
+    // 形态闸 = 路径安全闸（key 将进 path.join）：拦路径分隔符/NUL 即可，slug 段本就容 CJK
+    // 目录名——原 ASCII 正则把中文目录全判非法 = 删中文目录必 500（R130 用户实测抓出的真根因）
+    if (!/^--[^\0/\\]{1,120}-[0-9a-f]{8}--$/.test(key)) {
       throw new Error(`invalid project key: ${key}`);
     }
     for (const entry of [...this.#entries.values()]) {

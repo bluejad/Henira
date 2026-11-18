@@ -737,6 +737,26 @@ describe("目录登记与删除", () => {
     20000, // rm 重试退避 + 子进程哨兵 + 两轮 DELETE，Windows 本机实测远超默认 5s
   );
 
+  it("中文目录名删除全链路（用户实测场景）：登记+建会话+DELETE 200+账本树消失——形态闸不拦 CJK slug", async () => {
+    // 真根因回归：原 ASCII 正则把中文目录 key 全判非法 → 删中文目录必 500（R130）
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-中文目录-"));
+    const { base, dataDir, cleanup } = await makeServer([]);
+    try {
+      await createSession(base, cwd); // 会话树落在 projects/<CJK slug key>/ 下
+      const dirs = (await (await fetch(`${base}/api/dirs`)).json()) as { id: string }[];
+      expect(dirs).toHaveLength(1);
+      const del = await fetch(`${base}/api/dirs/${dirs[0]?.id}`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      expect(((await del.json()) as { ok: boolean }).ok).toBe(true);
+      const keys = await fs.readdir(path.join(dataDir, "projects"));
+      expect(keys).toEqual([]); // CJK key 账本树已删
+      expect(await (await fetch(`${base}/api/dirs`)).json()).toEqual([]);
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
   it("projects.json 并发写不炸：并发 upsert/list/remove 全 200、终态单条不重复", async () => {
     const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-dirrace-"));
     const { base, dataDir, cleanup } = await makeServer([]);
