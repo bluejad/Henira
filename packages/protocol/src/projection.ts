@@ -44,6 +44,8 @@ export class Projection {
   readonly rows: Row[] = [];
   readonly state: SessionState = { busy: false };
   private readonly byId = new Map<RowId, Row>();
+  /** 已见最大账本事件 seq（流式行 rowSeq 基座——排序上位于全部已落账行之后） */
+  #lastSeq = 0;
   /** 当前步游标（账本 step/start 维护；流式碎片以此挂行） */
   private cursor: { turn?: string; step?: number } = {};
   /** 仍处于流式态的 assistant 行（按 turn 分组；turn/end 冻结用） */
@@ -51,12 +53,14 @@ export class Projection {
 
   /** 账本事件逐条喂入；返回可见变化（空数组 = 投影不变） */
   ingest(event: SessionEvent): Delta[] {
+    this.#lastSeq = Math.max(this.#lastSeq, event.seq);
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
       case "user/message": {
         const row: UserRow = {
           kind: "user",
           rowId: rowId.user(event.seq),
+          rowSeq: event.seq,
           turn: data.turn as string,
           text: data.content as string,
           source: data.source as string,
@@ -105,6 +109,7 @@ export class Projection {
         const row: AssistantRow = {
           kind: "assistant",
           rowId: rowId.assistant(data.turn as string, data.step as number),
+          rowSeq: event.seq,
           turn: data.turn as string,
           step: data.step as number,
           text: data.content as string,
@@ -119,6 +124,7 @@ export class Projection {
         const row: ToolRow = {
           kind: "tool",
           rowId: rowId.tool(data.turn as string, data.step as number, data.callId as string),
+          rowSeq: event.seq,
           turn: data.turn as string,
           step: data.step as number,
           callId: data.callId as string,
@@ -135,6 +141,7 @@ export class Projection {
         const row: ToolRow = {
           kind: "tool",
           rowId: id,
+          rowSeq: event.seq,
           turn: data.turn as string,
           step: data.step as number,
           callId: data.callId as string,
@@ -159,6 +166,7 @@ export class Projection {
         const row: ApprovalRow = {
           kind: "approval",
           rowId: rowId.approval(data.requestId as string),
+          rowSeq: event.seq,
           turn: data.turn as string,
           step: data.step as number,
           requestId: data.requestId as string,
@@ -175,6 +183,7 @@ export class Projection {
         const row: ApprovalRow = {
           kind: "approval",
           rowId: rowId.approval(requestId),
+          rowSeq: event.seq,
           turn: data.turn as string,
           step: data.step as number,
           requestId,
@@ -193,6 +202,7 @@ export class Projection {
         const row: Row = {
           kind: "error",
           rowId: rowId.error(event.seq),
+          rowSeq: event.seq,
           turn: data.turn as string | undefined,
           code: data.code as string | undefined,
           message: data.message as string,
@@ -235,6 +245,7 @@ export class Projection {
     const row: AssistantRow = {
       kind: "assistant",
       rowId: id,
+      rowSeq: this.#lastSeq, // 流式行未落账：取已见最大 seq（排序上仍在全部已落账行之后）
       turn,
       step,
       text: delta.field === "text" ? delta.text : "",
@@ -246,13 +257,21 @@ export class Projection {
     return [{ op: "row.appended", row }];
   }
 
-  /** 快照（初始渲染 + 断档重拉共用一出口）：rows 深拷贝 + 会话级状态；seq 由扇出层给当前水位 */
-  snapshot(sessionId: string, seq: number) {
+  /** 快照（初始渲染 + 断档重拉共用一出口）：rows 深拷贝 + 会话级状态；seq 由扇出层给当前水位。
+   *  tailRows 传了即窗口化（长会话只回尾部窗口，历史经 rows 翻页拉取）；不传 = 全量（向后兼容） */
+  snapshot(sessionId: string, seq: number, opts?: { tailRows?: number }) {
+    const all = this.rows;
+    const tail = opts?.tailRows;
+    const sliced = tail !== undefined && all.length > tail;
     return {
       sessionId,
       seq,
-      rows: structuredClone(this.rows),
+      rows: sliced
+        ? structuredClone(all.slice(all.length - (tail as number)))
+        : structuredClone(all),
       state: { ...this.state },
+      hasOlder: sliced,
+      totalRows: all.length,
     };
   }
 
@@ -286,6 +305,42 @@ export class Projection {
     }
     set.add(id);
   }
+}
+
+/** 行列表翻页（rows 端点 / sdk runtime / 前端 loadOlder 合并守卫共用一份——投影域共享知识）：
+ *  beforeSeq 排他（返回 rowSeq < before 的行段尾部 limit 行；缺省 = 尾部 limit 行）；
+ *  页首向前补齐到轮边界（turn 相同行不切散——页不切轮，dsh turnWindow 同思想）。
+ *  行列表 append-only（投影不删行不重排），rowSeq 沿追加序单调不减——切片确定性成立。 */
+export function sliceRowsPage(
+  rows: readonly Row[],
+  beforeSeq: number | undefined,
+  limit: number,
+): { rows: Row[]; hasOlder: boolean } {
+  let end: number;
+  if (beforeSeq === undefined) {
+    end = rows.length;
+  } else {
+    // 找第一个 rowSeq >= beforeSeq 的下标（排他上界）——行按 rowSeq 单调不减可线性扫
+    end = rows.length;
+    for (let i = 0; i < rows.length; i++) {
+      const r: Row | undefined = rows[i];
+      if (r !== undefined && r.rowSeq >= beforeSeq) {
+        end = i;
+        break;
+      }
+    }
+  }
+  const start0 = Math.max(0, end - limit);
+  // 轮边界补齐：页首行若属某轮，把同轮更早行全部收进本页
+  let start = start0;
+  const headTurn = rows[start]?.turn;
+  if (headTurn !== undefined) {
+    while (start > 0 && rows[start - 1]?.turn === headTurn) start--;
+  }
+  return {
+    rows: rows.slice(start, end),
+    hasOlder: start > 0,
+  };
 }
 
 /** 全账本重建（surfaceOp replace / 断线兜底）：从空投影顺序折叠——快照永远从真相重建 */

@@ -14,6 +14,8 @@ export type RowId = string;
 export interface UserRow {
   kind: "user";
   rowId: RowId;
+  /** 产生该行的账本事件 seq（翻页游标基座——会话内单调，同事件多行同 seq） */
+  rowSeq: number;
   turn: string;
   text: string;
   /** 账本 user/message.source 原样（send / steer / veto / …开放词表） */
@@ -23,6 +25,7 @@ export interface UserRow {
 export interface AssistantRow {
   kind: "assistant";
   rowId: RowId;
+  rowSeq: number;
   turn: string;
   step: number;
   text: string;
@@ -48,6 +51,7 @@ export interface ToolRowOutput {
 export interface ToolRow {
   kind: "tool";
   rowId: RowId;
+  rowSeq: number;
   turn: string;
   step: number;
   callId: string;
@@ -61,6 +65,7 @@ export interface ToolRow {
 export interface ApprovalRow {
   kind: "approval";
   rowId: RowId;
+  rowSeq: number;
   turn: string;
   step: number;
   requestId: string;
@@ -74,6 +79,7 @@ export interface ApprovalRow {
 export interface ErrorRow {
   kind: "error";
   rowId: RowId;
+  rowSeq: number;
   turn?: string;
   code?: string;
   message: string;
@@ -90,10 +96,15 @@ export interface SessionState {
 
 export interface SessionSnapshot {
   sessionId: string;
-  /** 该会话当前水位（此后增量帧 seq 单调 +1） */
+  /** 该会话当前水位（此后增量帧 seq 单调 +1）——增量帧只动尾部窗口内的行 */
   seq: number;
+  /** 尾部窗口（长会话分页：全量行超出 tailRows 时只含最近段——历史经 rows 翻页拉取） */
   rows: Row[];
   state: SessionState;
+  /** true = 窗口首行之前还有历史（配 GET /api/sessions/:id/rows 翻页） */
+  hasOlder: boolean;
+  /** 全序行数（滚动条长度估计用；不随窗口化变化） */
+  totalRows: number;
 }
 
 /** 封闭增量语法（4 操作）——结构变化换整行、文本增长用增量；表达不了的结构变化 → 整体快照 */

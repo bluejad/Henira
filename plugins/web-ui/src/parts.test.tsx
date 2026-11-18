@@ -476,6 +476,7 @@ describe("行级挂载点（D-057）", () => {
   const toolRow: Row = {
     kind: "tool",
     rowId: "t:t-1:1:c1",
+    rowSeq: 2,
     turn: "t-1",
     step: 1,
     callId: "c1",
@@ -533,6 +534,7 @@ describe("行级挂载点（D-057）", () => {
     const assistantRow: Row = {
       kind: "assistant",
       rowId: "a:t-1:1",
+      rowSeq: 3,
       turn: "t-1",
       step: 1,
       text: "看图",
@@ -546,6 +548,7 @@ describe("行级挂载点（D-057）", () => {
     const base = {
       kind: "assistant",
       rowId: "a:t-1:1",
+      rowSeq: 3,
       turn: "t-1",
       step: 1,
       text: "答",

@@ -5,7 +5,14 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ServiceDefinition } from "@henira/kernel";
-import { type MockEntry, mockFinish, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
+import {
+  type MockEntry,
+  mockFinish,
+  mockLlm,
+  mockText,
+  mockToolCall,
+  mockUsage,
+} from "@henira/llm-mock";
 import type { LlmService, ServerFrame } from "@henira/protocol";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type HeniraServer } from "./server.js";
@@ -672,6 +679,124 @@ describe("目录登记与删除", () => {
     } finally {
       await cleanup();
       await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  // ── 行翻页与快照窗口化（长会话分页：rowSeq 游标 / 轮边界补齐 / 尾窗）──
+
+  /** 跑一个文本回合并等落定（prompt 单口 D-045；busy 落 false = 权威落账完成） */
+  async function runTurn(base: string, id: string, text: string): Promise<void> {
+    await fetch(`${base}/api/sessions/${id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    await waitFor(async () => {
+      const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
+        id: string;
+        busy: boolean;
+      }[];
+      return list.find((s) => s.id === id)?.busy === false ? true : undefined;
+    });
+  }
+
+  it("快照窗口化 + rowSeq 盖章 + /rows 翻页（游标排他 + 轮边界补齐 + 校验）", async () => {
+    // 32 回合 × 2 行（user + assistant）= 64 行 > 尾窗 60 → hasOlder 触发
+    const turns = 32;
+    const script: MockEntry[] = Array.from({ length: turns }, (_, i) => [
+      mockText(`回合 ${i}`),
+      mockFinish("stop"),
+    ]);
+    const { base, cleanup } = await makeServer(script);
+    try {
+      const id = await createSession(base);
+      for (let i = 0; i < turns; i++) await runTurn(base, id, `问 ${i}`);
+
+      // 快照 = 尾窗 60 + hasOlder + totalRows；行 rowSeq 单调不减
+      const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: { rowSeq: number; rowId: string; kind: string }[];
+        hasOlder: boolean;
+        totalRows: number;
+      };
+      expect(snap.totalRows).toBe(turns * 2);
+      expect(snap.hasOlder).toBe(true);
+      expect(snap.rows).toHaveLength(60);
+      const seqs = snap.rows.map((r) => r.rowSeq);
+      expect([...seqs].sort((a, b) => a - b)).toEqual(seqs); // rowSeq 单调不减
+      expect(snap.rows.at(-1)?.rowId).toMatch(/^a:/); // 尾行 = 最后 assistant
+
+      // 翻页游标接续：第一页尾窗行段；第二页全是更早的行
+      const page1 = (await (await fetch(`${base}/api/sessions/${id}/rows?limit=10`)).json()) as {
+        rows: { rowSeq: number }[];
+        hasOlder: boolean;
+      };
+      expect(page1.rows).toHaveLength(10);
+      expect(page1.hasOlder).toBe(true);
+      const boundary = page1.rows[0]?.rowSeq;
+      if (boundary === undefined) throw new Error("page1 empty");
+      const page2 = (await (
+        await fetch(`${base}/api/sessions/${id}/rows?before=${boundary}&limit=10`)
+      ).json()) as { rows: { rowSeq: number }[]; hasOlder: boolean };
+      for (const row of page2.rows) {
+        expect(row.rowSeq).toBeLessThan(boundary);
+      }
+      // 全量拉取（limit 100 ≥ totalRows）→ hasOlder false；首行 = 最早的 user/message
+      const all = (await (await fetch(`${base}/api/sessions/${id}/rows?limit=100`)).json()) as {
+        rows: { rowSeq: number; kind: string; turn: string }[];
+        hasOlder: boolean;
+      };
+      expect(all.rows).toHaveLength(turns * 2);
+      expect(all.hasOlder).toBe(false);
+      expect(all.rows[0]?.kind).toBe("user");
+      expect(all.rows[0]?.rowSeq).toBeGreaterThan(0); // seq=1 是账本基底事件，首行 user/message 在其后
+
+      // 轮边界补齐：limit=1 也回整轮（user + assistant 同 turn 不切散）
+      const one = (await (await fetch(`${base}/api/sessions/${id}/rows?limit=1`)).json()) as {
+        rows: { kind: string; turn: string }[];
+      };
+      expect(one.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+      expect(one.rows[0]?.turn).toBe(one.rows[1]?.turn);
+
+      // 校验：before 非数字 400；未知会话 404
+      expect((await fetch(`${base}/api/sessions/${id}/rows?before=abc`)).status).toBe(400);
+      expect((await fetch(`${base}/api/sessions/nope/rows`)).status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("磁盘历史会话 /rows：进程重启后从账本重建切片（真相兜底）", async () => {
+    const dataDir = path.join(root, `rows-disk-${Math.random().toString(36).slice(2, 8)}`);
+    const globalDir = path.join(dataDir, "config");
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.writeFile(
+      path.join(globalDir, "settings.json"),
+      JSON.stringify({ version: 1, model: "mock/mock-1" }),
+      "utf8",
+    );
+    const mock = mockLlm([[mockText("存量"), mockFinish("stop")]]);
+    const first = await createServer({
+      dataDir,
+      globalDir,
+      llm: llmStub(mock.service),
+    });
+    const id = await createSession(first.url);
+    await runTurn(first.url, id, "老问");
+    await first.stop();
+
+    const second = await createServer({
+      dataDir,
+      globalDir: path.join(dataDir, "config"),
+      llm: llmStub({ stream: async function* () {} } as unknown as LlmService),
+    });
+    try {
+      const res = await fetch(`${second.url}/api/sessions/${id}/rows`);
+      expect(res.status).toBe(200);
+      const page = (await res.json()) as { rows: { kind: string }[]; hasOlder: boolean };
+      expect(page.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+      expect(page.hasOlder).toBe(false);
+    } finally {
+      await second.stop();
     }
   });
 });

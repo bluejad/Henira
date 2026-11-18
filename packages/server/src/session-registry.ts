@@ -28,8 +28,11 @@ import {
   asHeniraContext,
   type LoopEvent,
   Projection,
+  type Row,
+  rebuildProjection,
   type SessionEvent,
   type SessionSummary,
+  sliceRowsPage,
 } from "@henira/protocol";
 import type { Fanout } from "./fanout.js";
 import { ServerInteraction } from "./interaction-service.js";
@@ -214,6 +217,23 @@ export class SessionRegistry {
       } catch {}
     }
     return undefined;
+  }
+
+  /** 行翻页（rows 端点数据源）：在订会话从投影行切片；磁盘历史会话从账本重建后切片。
+   *  beforeSeq 排他（sliceRowsPage 语义——protocol 共享实现，runtime 形态同函数同语义）；
+   *  磁盘路径每页全读重建（挂账：JSONL 倒序窗口读随性能批） */
+  async sessionRows(
+    id: string,
+    beforeSeq: number | undefined,
+    limit: number,
+  ): Promise<{ rows: Row[]; hasOlder: boolean } | undefined> {
+    const entry = this.#entries.get(id);
+    if (entry !== undefined) {
+      return sliceRowsPage(entry.projection.rows, beforeSeq, limit);
+    }
+    const events = await this.ledgerEvents(id);
+    if (events === undefined) return undefined;
+    return sliceRowsPage(rebuildProjection(events).rows, beforeSeq, limit);
   }
 
   /** 全部会话收尾（server stop）：harness dispose（各插件 stop：锁/句柄）+ 挂起审批 cancelled 收口 */

@@ -31,7 +31,7 @@ const dirBasename = (cwd: string): string => cwd.split(/[\\/]/).filter(Boolean).
  *  无 process**——按路径形状判平台（盘符形/反斜杠 = Windows → 大小写归一），不能用 process.platform
  *  （R127 教训：jsdom 有 process 而 bundle 没有，22 组件绿拦不住真浏览器挂载即崩） */
 function sameCwd(a: string, b: string): boolean {
-  const isWinPath = /^[A-Za-z]:[\/]/.test(a) || a.includes("\\");
+  const isWinPath = /^[A-Za-z]:[/]/.test(a) || a.includes("\\");
   return isWinPath ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 

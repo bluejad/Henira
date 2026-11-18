@@ -13,7 +13,14 @@ function snapshotFrame(
   return {
     kind: "snapshot",
     sessionId,
-    snapshot: { sessionId, seq, rows, state: { busy: false } },
+    snapshot: {
+      sessionId,
+      seq,
+      rows,
+      state: { busy: false },
+      hasOlder: false,
+      totalRows: rows.length,
+    },
   };
 }
 
@@ -42,7 +49,7 @@ describe("RowStore", () => {
       seq: 1,
       delta: {
         op: "row.appended",
-        row: { kind: "user", rowId: "u:1", turn: "t-1", text: "问", source: "send" },
+        row: { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "问", source: "send" },
       },
     });
     store.applyFrame({
@@ -54,6 +61,7 @@ describe("RowStore", () => {
         row: {
           kind: "assistant",
           rowId: "a:t-1:1",
+          rowSeq: 2,
           turn: "t-1",
           step: 1,
           text: "答",
@@ -92,6 +100,7 @@ describe("RowStore", () => {
         row: {
           kind: "tool",
           rowId: "t:t-1:1:c1",
+          rowSeq: 1,
           turn: "t-1",
           step: 1,
           callId: "c1",
@@ -110,6 +119,7 @@ describe("RowStore", () => {
         row: {
           kind: "tool",
           rowId: "t:t-1:1:c1",
+          rowSeq: 2,
           turn: "t-1",
           step: 1,
           callId: "c1",
@@ -126,7 +136,7 @@ describe("RowStore", () => {
       seq: 3,
       delta: {
         op: "row.upserted",
-        row: { kind: "user", rowId: "u:9", turn: "t-1", text: "插话", source: "steer" },
+        row: { kind: "user", rowId: "u:9", rowSeq: 3, turn: "t-1", text: "插话", source: "steer" },
       },
     });
     const view = store.getSession("s-1");

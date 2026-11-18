@@ -18,6 +18,10 @@ import { readSettings, writeCredential, writeSettings } from "./settings-store.j
 /** 每订阅者有界队列容量；溢出 = 断开（volatile：客户端重连重拉快照） */
 const QUEUE_CAP = 256;
 const HEARTBEAT_MS = 15_000;
+/** 快照尾部窗口行数（长会话分页——历史经 /rows 翻页拉取；ZCode snapshotTailWindowRows 同档） */
+const SNAPSHOT_TAIL_ROWS = 60;
+/** rows 翻页单页上限（服务端钳制；ZCode rowsRangeMaxLimit 同档） */
+const ROWS_PAGE_MAX = 200;
 
 export interface AppDeps {
   registry: SessionRegistry;
@@ -107,12 +111,37 @@ export function createApp(deps: AppDeps): Hono {
     const id = c.req.param("id");
     const entry = deps.registry.get(id);
     if (entry !== undefined) {
-      return c.json(entry.projection.snapshot(id, deps.fanout.currentSeq(id)));
+      return c.json(
+        entry.projection.snapshot(id, deps.fanout.currentSeq(id), { tailRows: SNAPSHOT_TAIL_ROWS }),
+      );
     }
     // 磁盘历史会话（本进程未装配）：从账本重建快照（真相兜底）
     const events = await deps.registry.ledgerEvents(id);
     if (events === undefined) return c.json({ error: "session not found" }, 404);
-    return c.json(rebuildProjection(events).snapshot(id, deps.fanout.currentSeq(id)));
+    return c.json(
+      rebuildProjection(events).snapshot(id, deps.fanout.currentSeq(id), {
+        tailRows: SNAPSHOT_TAIL_ROWS,
+      }),
+    );
+  });
+
+  // ── 行翻页（长会话历史：before = rowSeq 排他游标；轮边界补齐在 sliceRowsPage 共享实现）──
+  app.get("/api/sessions/:id/rows", async (c) => {
+    const id = c.req.param("id");
+    const beforeRaw = c.req.query("before");
+    const before = beforeRaw === undefined || beforeRaw === "" ? undefined : Number(beforeRaw);
+    if (before !== undefined && (!Number.isFinite(before) || before < 0)) {
+      return c.json({ error: "before must be a non-negative number" }, 400);
+    }
+    const limitRaw = c.req.query("limit");
+    const limitParsed = limitRaw === undefined ? SNAPSHOT_TAIL_ROWS : Number(limitRaw);
+    const limit = Math.min(
+      Math.max(Number.isFinite(limitParsed) ? Math.floor(limitParsed) : SNAPSHOT_TAIL_ROWS, 1),
+      ROWS_PAGE_MAX,
+    );
+    const page = await deps.registry.sessionRows(id, before, limit);
+    if (page === undefined) return c.json({ error: "session not found" }, 404);
+    return c.json(page);
   });
 
   // ── 输入投递（D-045 单口：闲直跑 / 忙入队）──
