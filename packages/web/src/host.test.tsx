@@ -77,24 +77,19 @@ describe("createWebApp", () => {
         },
         { timeout: 4000 },
       );
-      const diskGroup = [...el.querySelectorAll("button.henira-session-group")].find((b) =>
-        b.getAttribute("title")?.includes("disk"),
-      );
-      if (diskGroup === undefined) throw new Error("disk group not rendered");
-      fireEvent.click(diskGroup);
+      // 展开组 → 行在场合并为一段轮询；每轮重查节点（boot 异步重渲染会让捕获引用脱管——
+      // aria-expanded 永不变即假失败，CI 两连挂真凶），收起就重点（boot 回放晚到收回免疫）。
+      // （831f1a3 同款竞态第三演：1s→4s 预算治标不治本，重查+重点才治本）
       await vi.waitFor(
         () => {
-          if (diskGroup.getAttribute("aria-expanded") !== "true") {
-            throw new Error("disk group not expanded");
+          const group = [...el.querySelectorAll("button.henira-session-group")].find((b) =>
+            b.getAttribute("title")?.includes("disk"),
+          );
+          if (group === undefined) throw new Error("disk group not rendered");
+          if (group.getAttribute("aria-expanded") !== "true") {
+            fireEvent.click(group);
+            throw new Error("disk group not expanded yet");
           }
-          return true;
-        },
-        { timeout: 4000 }, // 全仓并跑负载下 1s 默认预算不够（831f1a3 同款竞态）
-      );
-      // 轮询 disk 行出现（CI 纪律：异步断言禁固定 sleep——
-      // 慢机 50ms 不够；失败时打印现有行文本自证）
-      await vi.waitFor(
-        () => {
           const rows = [...el.querySelectorAll(".henira-sessions li button")];
           const disk = rows.find((b) => b.textContent?.includes("disk"));
           if (disk === undefined) {
