@@ -5,7 +5,7 @@
 import { zh } from "@henira/plugin-web-ui";
 import type { HeniraFacade } from "@henira/sdk";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWebApp } from "./host.js";
 
 afterEach(cleanup);

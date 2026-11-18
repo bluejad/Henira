@@ -684,19 +684,25 @@ describe("目录登记与删除", () => {
 
   // ── 行翻页与快照窗口化（长会话分页：rowSeq 游标 / 轮边界补齐 / 尾窗）──
 
-  /** 跑一个文本回合并等落定（prompt 单口 D-045；busy 落 false = 权威落账完成） */
-  async function runTurn(base: string, id: string, text: string): Promise<void> {
+  /** 跑一个文本回合并等落定（prompt 单口 D-045）：等 /rows 落账行数收敛（确定性事实——
+   *  busy false 有「回合未启动」间隙假过（CI 慢机 POST 返回时回合尚未处理，R127 同款），
+   *  期望行数由调用方给（回合前基数 + 2） */
+  async function runTurn(
+    base: string,
+    id: string,
+    text: string,
+    expectRows: number,
+  ): Promise<void> {
     await fetch(`${base}/api/sessions/${id}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text }),
     });
     await waitFor(async () => {
-      const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
-        id: string;
-        busy: boolean;
-      }[];
-      return list.find((s) => s.id === id)?.busy === false ? true : undefined;
+      const page = (await (await fetch(`${base}/api/sessions/${id}/rows?limit=200`)).json()) as {
+        rows: unknown[];
+      };
+      return page.rows.length >= expectRows ? true : undefined;
     });
   }
 
@@ -710,7 +716,7 @@ describe("目录登记与删除", () => {
     const { base, cleanup } = await makeServer(script);
     try {
       const id = await createSession(base);
-      for (let i = 0; i < turns; i++) await runTurn(base, id, `问 ${i}`);
+      for (let i = 0; i < turns; i++) await runTurn(base, id, `问 ${i}`, (i + 1) * 2);
 
       // 快照 = 尾窗 60 + hasOlder + totalRows；行 rowSeq 单调不减
       const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
@@ -781,8 +787,7 @@ describe("目录登记与删除", () => {
       llm: llmStub(mock.service),
     });
     const id = await createSession(first.url);
-    await runTurn(first.url, id, "老问");
-    await first.stop();
+    await runTurn(first.url, id, "老问", 2); // 等 user+assistant 都落账（磁盘重启读取的前置）
 
     const second = await createServer({
       dataDir,
