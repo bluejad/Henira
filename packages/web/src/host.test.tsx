@@ -237,4 +237,59 @@ describe("createWebApp", () => {
       el.remove();
     }
   });
+
+  it("界面绑定状态（D-063）：boot 还原选中同样补拉快照——刷新后正文行在场（selftest8 回归）", async () => {
+    const snapshots: string[] = [];
+    const client = fakeClient({
+      listSessions: async () => [
+        { id: "s-a", cwd: "C:/alpha", updatedAt: 2, busy: false },
+        { id: "s-b", cwd: "C:/beta", updatedAt: 1, busy: false },
+      ],
+      getUiState: async () => ({ lastSessionId: "s-b" }), // 上次选中 = 磁盘历史会话（store 恒空）
+      putUiState: async () => {},
+      getSessionUiState: async () => ({}),
+      putSessionUiState: async () => {},
+      snapshot: async (id) => {
+        snapshots.push(id);
+        return {
+          sessionId: id,
+          seq: 1,
+          rows: [
+            {
+              kind: "user",
+              rowId: "u:1",
+              rowSeq: 1,
+              turn: "t-1",
+              text: "刷新前的正文",
+              source: "send",
+            },
+          ],
+          state: { busy: false },
+          hasOlder: false,
+          totalRows: 1,
+        } as Awaited<ReturnType<HeniraFacade["snapshot"]>>;
+      },
+      events: async function* () {},
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      // 刷新/重启后 store 恒空——还原选中必须与点选走同一补拉路径，否则正文空白
+      await vi.waitFor(
+        () => {
+          if (!el.textContent?.includes("刷新前的正文")) {
+            throw new Error(`boot snapshot not rendered; snapshots=${JSON.stringify(snapshots)}`);
+          }
+          return true;
+        },
+        { timeout: 5000 },
+      );
+      expect(snapshots).toEqual(["s-b"]); // 只补拉还原的会话
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
 });

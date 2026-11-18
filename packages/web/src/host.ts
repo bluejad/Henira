@@ -274,6 +274,50 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     localeOverride = undefined;
   }
 
+  /**
+   * 激活会话——boot 还原与列表点选的唯一路径。曾分叉：boot 只摆"选中"不补拉快照，
+   * 刷新/重启后 store 恒空、正文整片空白（活体 selftest8 抓到），而点击路径会补拉。
+   * 两条路径合一即封闭这类"状态还原了、内容没了"的分叉回归。
+   */
+  function activateSession(id: string, cwd?: string): void {
+    if (id === sessionId) return; // 重复点当前会话：无变更（boot 首帧 sessionId=null 不受影响）
+    void flushUiState(); // 冲刷旧会话 pending（flush 捕获的是切换前的 id+doc，不会串写）
+    sessionId = id;
+    uiState = undefined; // 新会话文档未加载——件保持现状，到位后回填
+    if (cwd !== undefined) {
+      sessionCwd = cwd;
+    } else {
+      // cwd 就近回查（SessionList 只传 id；facade 的 getSession 带 cwd 供 listDir 等用）
+      void opts.client
+        .listSessions()
+        .then((all) => {
+          if (sessionId !== id) return; // 期间又切走
+          sessionCwd = all.find((s) => s.id === id)?.cwd ?? "";
+          render();
+        })
+        .catch(() => {});
+    }
+    // 全局"上次选中"（D-063）：重启/刷新还原的依据；boot 选定（含回落最新更新/新建）同样
+    // 固化——不写则指针恒 null、回落随"最新更新"漂移（活体 selftest7 抓到）；旧服务器静默跳过
+    if (opts.client.putUiState !== undefined) {
+      void opts.client.putUiState({ lastSessionId: id }).catch(() => {});
+    }
+    // 磁盘历史会话（不在扇出范围）补拉快照——否则选中即空对话（SSE 快照帧只发在订会话）。
+    // 刷新/重启后 store 恒空，boot 路径正踩这一支（selftest8：正文空白）
+    if (!store.has(id)) {
+      void opts.client
+        .snapshot(id)
+        .then((snapshot) => {
+          if (sessionId !== id) return; // 期间又切走——丢弃过期快照
+          store.applySnapshot({ kind: "snapshot", sessionId: id, snapshot });
+          render();
+        })
+        .catch(() => {});
+    }
+    render();
+    loadUiState(id);
+  }
+
   function render(): void {
     if (root === undefined || container === undefined) return;
     applyTheme();
@@ -290,32 +334,15 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       uiState,
       updateUiState,
       onSelectSession: (id) => {
-        void flushUiState(); // 冲刷旧会话 pending（flush 捕获的是切换前的 id+doc，不会串写）
-        sessionId = id;
-        uiState = undefined; // 新会话文档未加载——件保持现状，到位后回填
-        // cwd 就近回查（SessionList 只传 id；facade 的 getSession 带 cwd 供 listDir 等用）
-        void opts.client
-          .listSessions()
-          .then((all) => {
-            sessionCwd = all.find((s) => s.id === id)?.cwd ?? "";
-          })
-          .catch(() => {});
-        // 全局"上次选中"（D-063）：重启/刷新还原的依据；旧服务器无端点则静默跳过
-        if (id !== null && opts.client.putUiState !== undefined) {
-          void opts.client.putUiState({ lastSessionId: id }).catch(() => {});
+        if (id === null) {
+          // 列表受控选中恒有会话——null 属签名兜底：清选中不补拉
+          void flushUiState();
+          sessionId = null;
+          uiState = undefined;
+          render();
+          return;
         }
-        // 磁盘历史会话（不在扇出范围）补拉快照——否则选中即空对话（SSE 快照帧只发在订会话）
-        if (id !== null && !store.has(id)) {
-          void opts.client
-            .snapshot(id)
-            .then((snapshot) => {
-              store.applySnapshot({ kind: "snapshot", sessionId: id, snapshot });
-              render();
-            })
-            .catch(() => {});
-        }
-        render();
-        if (id !== null) loadUiState(id);
+        activateSession(id); // 与 boot 还原同一路径（补拉快照/写指针/载文档都在里面）
       },
       onToggleSafe: (on) => {
         safeMode = on;
@@ -358,15 +385,9 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         const restored =
           ui.lastSessionId !== null ? all.find((s) => s.id === ui.lastSessionId) : undefined;
         const picked = restored ?? (all.length === 0 ? await opts.client.createSession() : all[0]);
-        sessionId = picked.id;
-        sessionCwd = picked.cwd;
-        // 回写全局指针：boot 选定（含回落最新更新 / 新建）即固化为"上次选中"——不写则
-        // 指针恒 null，下次启动的回落会随"最新更新"漂移（活体自测 selftest7 抓到）
-        if (opts.client.putUiState !== undefined) {
-          void opts.client.putUiState({ lastSessionId: picked.id }).catch(() => {});
-        }
-        render();
-        loadUiState(picked.id);
+        // 与点击切换同一路径（activateSession）：补拉快照 + 写全局指针 + 载会话文档。
+        // 曾在此直接赋 sessionId 分叉——刷新/重启后正文空白（活体 selftest8）
+        activateSession(picked.id, picked.cwd);
       })().catch(() => {});
       // 关页前尽力冲刷草稿（D-063 写时机：防抖之外补冲刷；同源无 token 场景可靠，
       // 带 token 时 best-effort——防抖主通道通常已落盘）

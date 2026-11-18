@@ -6,13 +6,16 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mockLlm } from "@henira/llm-mock";
+import { type MockEntry, mockFinish, mockLlm, mockText } from "@henira/llm-mock";
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
 const DRAFT = "persistent draft text";
+// 正文造一行（刷新/重启后必须在场——selftest8：boot 还原曾只摆选中不补拉快照，正文空白）
+const HISTORY_TEXT = "persist history row";
+const HISTORY_SCRIPT: MockEntry[] = [[mockText(HISTORY_TEXT), mockFinish("stop")]];
 
 async function shot(page: Page, name: string): Promise<void> {
   await fs.mkdir(ARTIFACTS, { recursive: true });
@@ -20,7 +23,7 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 /** 两个不同 cwd 的会话（组可折叠）——registry 建会话自动登记目录（D-060） */
-async function startPersistServer(): Promise<{
+async function startPersistServer(script: MockEntry[] = []): Promise<{
   server: HeniraServer;
   dataDir: string;
   dirA: string;
@@ -38,7 +41,7 @@ async function startPersistServer(): Promise<{
   let server = await createServer({
     dataDir,
     globalDir,
-    llm: { name: "llm", start: () => mockLlm([]).service },
+    llm: { name: "llm", start: () => mockLlm(script).service },
     port: 0,
   });
   const dirA = await fs.mkdtemp(path.join(tmpdir(), "henira-persist-a-"));
@@ -50,7 +53,7 @@ async function startPersistServer(): Promise<{
     server = await createServer({
       dataDir,
       globalDir,
-      llm: { name: "llm", start: () => mockLlm([]).service },
+      llm: { name: "llm", start: () => mockLlm(script).service },
       port: 0,
     });
     return server;
@@ -104,8 +107,8 @@ async function waitUiStateOnDisk(
 
 const activeRow = (page: Page) => page.locator('.henira-sessions li button[data-active="true"]');
 
-test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + 折叠组", async ({ page }) => {
-  const ctx = await startPersistServer();
+test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + 折叠组 + 正文", async ({ page }) => {
+  const ctx = await startPersistServer(HISTORY_SCRIPT);
   try {
     await page.goto(ctx.server.url);
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
@@ -115,8 +118,12 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     const rowA = page.locator(".henira-sessions li button", { hasText: "persist-a" });
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
-    // 草稿（A 的文档）→ 防抖落盘轮询
+    // 先造正文一行（刷新后必须在场的回归锚——selftest8：boot 还原曾只摆选中不补拉快照）
     const area = page.getByPlaceholder(zh["composer.placeholder"]);
+    await area.fill("persist seed");
+    await area.press("Enter");
+    await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
+    // 草稿（A 的文档）→ 防抖落盘轮询
     await area.fill(DRAFT);
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT);
     // 侧栏拖宽（A 的文档）：把手右拖 120px → 松手落盘轮询
@@ -152,6 +159,7 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
       timeout: 15_000,
     });
     await expect(activeRow(page)).toContainText("persist-a"); // 上次选中
+    await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 }); // 正文随快照回
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT); // 文档已进宿主（稳定锚）
     await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 折叠还原（B 行仍隐藏）
     const navAfter = await page.locator("nav.henira-sessions").boundingBox();
@@ -172,8 +180,8 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
   }
 });
 
-test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全还原", async ({ page }) => {
-  const ctx = await startPersistServer();
+test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全还原 + 正文", async ({ page }) => {
+  const ctx = await startPersistServer(HISTORY_SCRIPT);
   try {
     await page.goto(ctx.server.url);
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
@@ -182,7 +190,11 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全
     const rowA = page.locator(".henira-sessions li button", { hasText: "persist-a" });
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
+    // 先造正文一行（重启后必须在场的回归锚）
     const area = page.getByPlaceholder(zh["composer.placeholder"]);
+    await area.fill("persist seed");
+    await area.press("Enter");
+    await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
     await area.fill(DRAFT);
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT);
     // 折叠非活跃组（dirB）后停服——不 wipe 盘
@@ -202,6 +214,7 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全
       timeout: 15_000,
     });
     await expect(activeRow(page)).toContainText("persist-a"); // 上次选中跨重启
+    await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 }); // 正文跨重启
     await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 折叠还原
     await page.locator("button.henira-session-group").first().click(); // 展开 → 切 B → 草稿随 B 文档为空
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
