@@ -65,6 +65,8 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   );
   const units = useMemo(() => buildTurnUnits(snapshot.rows), [snapshot.rows]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null); // 手势/滚动监听挂这里——回底按钮是容器的兄弟，
+  // 按钮位置的滚轮事件不进容器 capture（活体自测 selftest6 抓到：按钮在场时滚轮失效）
   const followingRef = useRef(true);
   const [following, setFollowing] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -87,7 +89,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   // 用户意图先行（capture 阶段，先于 scroll）：明确上滚手势解除跟随；程序化写入永不误解除
   // biome-ignore lint/correctness/useExhaustiveDependencies: 仅挂载期装监听——commitFollowing 为稳定 setState 包装、scrollRef 容器不变
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = wrapRef.current;
     if (el === null) return;
     const away = (): void => {
       if (followingRef.current) commitFollowing(false);
@@ -131,7 +133,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     if (el.scrollTop < LOAD_OLDER_TRIGGER_PX && snapshot.hasOlder && !loadingOlder) loadOlder();
   };
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = wrapRef.current;
     if (el === null) return;
     const fn = (): void => onScrollRef.current();
     el.addEventListener("scroll", fn, { capture: true, passive: true });
@@ -178,7 +180,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   };
 
   return (
-    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex" }}>
+    <div ref={wrapRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex" }}>
       <div className="henira-conversation" ref={scrollRef}>
         {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
         <ConversationTimeline
