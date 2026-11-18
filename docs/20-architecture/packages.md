@@ -63,10 +63,13 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 │                                                    输入框 / 审批卡各件各占槽；真插件，M3 随 web 诞生
 ├── test-support\                   ← 测试支撑件（假模型 / 假 server / 测试夹具）——目录即宣言：
 │   │                                  产品包与测试假件一眼分家，整根不进发布集、不做官方件
-│   └── llm-mock\         @henira/llm-mock       llm 槽位的脚本化 mock 实现（50-open 归档 2026-11-16）：
-│                                              响应队列 + 兜底应答 + 请求捕获 + hang/throw 条目，
-│                                              自校验 StreamEvent 不变量；仅供各包测试与
-│                                              examples 消费（devDependency），不进官方清单
+│   ├── llm-mock\         @henira/llm-mock       llm 槽位的脚本化 mock 实现（50-open 归档 2026-11-16）：
+│   │                                          响应队列 + 兜底应答 + 请求捕获 + hang/throw 条目，
+│   │                                          自校验 StreamEvent 不变量；仅供各包测试与
+│   │                                          examples 消费（devDependency），不进官方清单
+│   └── browser-e2e\      @henira/e2e-browser    真浏览器 e2e（Playwright chromium；CI 步：mock serve 起服务 →
+│                                              真页面交互断言 + 截图留档——凡交付界面的里程碑必有真浏览器
+│                                              e2e，jsdom 组件级测试不替代）；chromium 不进发布集
 ├── examples\                       ← 最小示例与部署样例
 │   ├── mock\                         离线可跑（mock LLM，无需 API key，兼作 e2e 测试载体）
 │   ├── real\                         真实模型 demo（用户自备 key）

@@ -451,7 +451,7 @@ applyConfig(harness: Harness, cfg: HeniraConfig): void;   // 翻译成 .use() �
 interface SessionSummary {
   id: string;
   cwd: string;
-  title?: string; // meta.json 标题；缺省截取首条用户消息
+  title?: string; // ⏳ 未实装（M3 list 两条路径均不产出——首条用户消息派生随侧栏批；现侧栏显目录名 + 会话 id）
   updatedAt: number;
   busy: boolean; // 回合进行中（投影 state 提供）
 }
@@ -487,6 +487,9 @@ GET  /api/settings                                      → settings.json 内容
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
 GET  /api/models                                        → 模型清单（models.dev 字典 + 手写覆盖；无密钥）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
+GET  /api/ui-assets                                     → UiAssets        // 界面资产清单（D-059 语言包/主题包；扫描已装插件包）
+GET  /api/ui-assets/:id/:version/:kind/:file → 资产文件伺服            // kind = locale | theme；SAFE_SEG + startsWith 双防线（D-059）
+GET  /api/events                                        → SSE 帧流        // 唯一订阅端点（帧序/心跳/有界队列见下「SSE 传输形状」）
 ```
 
 ```ts
@@ -545,10 +548,12 @@ interface DirBrowse {
 
 ```ts
 type RowId = string; // 会话内单调唯一；账本事实的确定性函数（回放重建 rowId 不变）
+//   rowId 形态：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `e:{seq}`
 
 interface UserRow {
   kind: "user";
   rowId: RowId;
+  rowSeq: number; // 产生该行的账本事件 seq（翻页游标基座——会话内单调，同事件多行同 seq）
   turn: string;
   text: string;
   source: string; // 账本 user/message.source 原样（send / steer / veto / …开放词表，投影器不筛选）
@@ -556,39 +561,51 @@ interface UserRow {
 interface AssistantRow {
   kind: "assistant";
   rowId: RowId;
+  rowSeq: number;
   turn: string;
   step: number;
   text: string;
   reasoning?: string;
-  streaming: boolean;
+  streaming: boolean; // true = 流式中（后续还有 row.delta / row.upserted）；false = 账本权威已落定
   model?: string;
   finishReason?: string;
+  usage?: TokenUsage; // 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage）
+  interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）
+}
+interface ToolRowOutput {
+  content: string;
+  isError: boolean;
+  durationMs: number;
+  truncated?: { path: string; preview: string }; // 输出超限截断（preview 供 UI 展示头部，path 指完整输出落盘文件）
 }
 interface ToolRow {
   kind: "tool";
   rowId: RowId;
+  rowSeq: number;
   turn: string;
   step: number;
   callId: string;
   name: string;
   status: "running" | "done" | "error";
   input: string; // 模型原始 argsText（P3-1）
-  output?: { content: string; isError: boolean; durationMs: number };
+  output?: ToolRowOutput;
 }
 interface ApprovalRow {
   kind: "approval";
   rowId: RowId;
+  rowSeq: number;
   turn: string;
   step: number;
   requestId: string;
   toolName: string;
-  argsSummary?: string;
+  argsSummary?: string; // argsDigest（账本原样——摘要不原文，凭据纪律 D-030）
   status: "pending" | "settled";
   decision?: Decision;
 }
 interface ErrorRow {
   kind: "error";
   rowId: RowId;
+  rowSeq: number;
   turn?: string;
   code?: string;
   message: string;
@@ -601,7 +618,7 @@ interface SessionState {
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
-  seq: number;
+  seq: number; // 该会话当前水位（此后增量帧 seq 单调 +1）——增量帧只动尾部窗口内的行
   rows: Row[]; // 尾部窗口（长会话只含最近段——历史经 /rows 翻页拉取，D-061）
   state: SessionState;
   hasOlder: boolean; // 窗口首行之前还有历史（客户端此后派生 totalRows > rows.length——快照帧只发一次，派生化防过期）
@@ -763,10 +780,12 @@ interface PluginUiHost {
   // 对话：发起仍单口 sendPrompt；接收 = 双向事件流（D-042：订阅 opt-in、增量可并、终局必达）
   sendPrompt(text: string): Promise<TurnReceipt>; // ✓ M3
   subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable; // ✓ M3
-  //   EventFilter = { sessionId?: string; types?: string[] } —— 行词表帧流（ServerFrame），
-  //   types 过滤 Row["kind"] / 帧类；有界队列背压；与 web 宿主同一词表（断档不猜纪律随帧）
-  onTurnFinished(receipt: TurnReceipt, cb: (result: TurnResult) => void): Disposable; // ✓ M3 恰一次（自己发起回合的便捷终局）
-  prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送
+  //   EventFilter = { sessionId?: string; types?: string[] } —— 行词表帧流（ServerFrame）；
+  //   M3 实装 = sessionId 过滤（帧级客户端过滤，无背压队列）；types 过滤随插件批补
+  onTurnFinished(receipt: TurnReceipt, cb: (result: TurnResult) => void): Disposable; // ✓ M3（终局便捷回调）
+  //   M3 实装 = 简版：会话 busy 沿（true→false）即通知、恒 {ok:true}、无 own-receipt 过滤——
+  //   receipt 形（恰一次/终局映射 interrupted|error|submit_failed）随插件批升级（现无消费者）
+  prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送（web 宿主现空实现——官方输入框自管草稿，接线随命令进输入框批）
   renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——opts.streaming 透传，delta 高频重渲下高亮留到回合完成）
 
   // 数据
