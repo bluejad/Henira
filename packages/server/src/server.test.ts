@@ -403,6 +403,32 @@ describe("REST 面与设置", () => {
     }
   });
 
+  it("模型目录：手写 models.json + 快照清单 + reasoning 能力提示（思考档置灰依据）", async () => {
+    const { base, cleanup, globalDir } = await makeServer([]);
+    try {
+      await fs.writeFile(
+        path.join(globalDir, "models.json"),
+        JSON.stringify({
+          providers: {
+            deepseek: { baseUrl: "https://api.deepseek.com" },
+            "zhipuai-coding-plan": { baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+          },
+        }),
+        "utf8",
+      );
+      const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, { baseUrl?: string; models?: string[]; reasoning?: string }>;
+      };
+      // 手写条目在场 + 快照按 id 补模型清单 + 能力表提示（合同层同源，骨架批）
+      expect(catalog.providers.deepseek?.baseUrl).toBe("https://api.deepseek.com");
+      expect(catalog.providers.deepseek?.models?.length).toBeGreaterThan(0);
+      expect(catalog.providers.deepseek?.reasoning).toBe("none"); // 原生思考不可控 → 置灰
+      expect(catalog.providers["zhipuai-coding-plan"]?.reasoning).toBe("thinking"); // glm 系 → thinking 参数族
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("界面绑定状态（D-063）：全局缺省/写读 roundtrip/非法 400；每会话缺省/写读/落盘会话目录/未知 404/超限 400；重启同盘读回", async () => {
     const { server, base, cleanup, dataDir } = await makeServer([]);
     try {

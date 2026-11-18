@@ -3,11 +3,14 @@
 // streamText 以 stopWhen: [once] 单步运行——循环权在 loop 插件，适配器只管一次请求周期；
 // 工具不交给 SDK 执行（执行是引擎侧 tools 管线的事，含审批）。
 
+import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import type { ServiceDefinition } from "@henira/kernel";
 import {
   asHeniraContext,
   type LlmRequest,
   type LlmService,
+  reasoningCapability,
+  reasoningParams,
   type StreamEvent,
 } from "@henira/protocol";
 import { jsonSchema, streamText } from "ai";
@@ -28,6 +31,14 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
           const model = resolveLanguageModel(req.model, { apiKey });
           const mapper = new StreamEventMapper();
           const instructions = toAiInstructions(req.messages);
+          // 思考档 → OpenAI 兼容请求体附加参数（能力表按厂商映射，合同层同源；
+          // none 厂商 = undefined 不透传——deepseek 原生思考不可控等）。AI SDK
+          // openai-compatible 把 providerOptions[providerName] 并入请求体（已知 chat
+          // 选项键除外）——真实到达性经真端点活体验证（骨架批验收判据④）。
+          const extraBody =
+            req.reasoningEffort !== undefined
+              ? reasoningParams(reasoningCapability(req.model.provider), req.reasoningEffort)
+              : undefined;
           const result = streamText({
             model,
             ...(instructions ? { instructions } : {}), // system 块唯一通道（AI SDK 不收 system 消息）
@@ -43,6 +54,13 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
             abortSignal: signal,
             maxOutputTokens: req.maxTokens,
             temperature: req.temperature,
+            ...(extraBody !== undefined
+              ? {
+                  providerOptions: {
+                    [req.model.provider]: extraBody,
+                  } as SharedV4ProviderOptions,
+                }
+              : {}),
             maxRetries: 0, // 重试政策机归引擎侧（M2 = 错误落盘收尾，M2 计划边界）
             stopWhen: () => true, // 单步：一次请求周期，不进 SDK 侧循环
           });

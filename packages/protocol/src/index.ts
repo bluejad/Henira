@@ -6,6 +6,7 @@ export * from "./interaction.js";
 export * from "./llm.js";
 export * from "./loop.js";
 export * from "./projection.js";
+export * from "./reasoning.js";
 export * from "./registry.js";
 export * from "./server-events.js";
 export * from "./services.js";

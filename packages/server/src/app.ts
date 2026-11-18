@@ -9,6 +9,8 @@ import { scanUiAssets } from "@henira/config-loader";
 import { browseDirectories, type DirRegistry, sameCwd } from "@henira/plugin-session";
 import {
   DECISIONS,
+  type ReasoningCapability,
+  reasoningCapability,
   rebuildProjection,
   type ServerFrame,
   type SessionUiState,
@@ -376,7 +378,10 @@ export function createApp(deps: AppDeps): Hono {
     } catch {
       // 未配置 = 空表
     }
-    const providers: Record<string, { baseUrl?: string; models?: string[] }> = {};
+    const providers: Record<
+      string,
+      { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
+    > = {};
     for (const [id, value] of Object.entries(overrides.providers ?? {})) {
       providers[id] = { ...value };
     }
@@ -390,6 +395,7 @@ export function createApp(deps: AppDeps): Hono {
     for (const id of Object.keys(providers)) {
       const dict = dictionary[id];
       providers[id].models = dict === undefined ? undefined : Object.keys(dict.models);
+      providers[id].reasoning = reasoningCapability(id); // 思考能力提示（UI 档位移除/置灰依据）
     }
     return c.json({ providers });
   });
