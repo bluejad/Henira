@@ -13,26 +13,44 @@ type PanelTab = { id: string; kind: string };
 
 export const RightPanel: WebPart = (ctx: WebPartContext): ReactNode => {
   const rp = ctx.uiState?.rightPanel;
-  if (rp?.open !== true) return null; // 关闭态不渲染不占宽（槽位收起语义）
-  const tabs: PanelTab[] = rp.tabs ?? [];
+  const open = rp?.open === true;
+  const tabs: PanelTab[] = rp?.tabs ?? [];
   const pluginParts = (ctx.slots.get("sidebar.right.tab") ?? []) as WebPart[];
 
   const persist = (patch: { active?: string | null; tabs?: PanelTab[]; open?: boolean }): void => {
     ctx.updateUiState?.({
       rightPanel: {
         open: patch.open ?? true,
-        active: patch.active !== undefined ? patch.active : (rp.active ?? null),
+        active: patch.active !== undefined ? patch.active : (rp?.active ?? null),
         tabs: patch.tabs ?? tabs,
       },
     });
   };
 
-  const active = rp.active ?? tabs[0]?.id ?? null;
-  const select = (id: string): void => persist({ active: id });
   const newTab = (): void => {
     const id = `blank-${Date.now().toString(36)}`;
     persist({ active: id, tabs: [...tabs, { id, kind: "blank" }] });
   };
+
+  // 收起态 = 细轨（ZCode 边缘轨行为层）：只有 ＋——面板关着也要有入口（＋住在面板内则永远打不开）
+  if (!open) {
+    return (
+      <div className="henira-right-rail">
+        <button
+          type="button"
+          className="henira-right-barbtn"
+          aria-label={ctx.t("rightPanel.new")}
+          title={ctx.t("rightPanel.new")}
+          onClick={newTab}
+        >
+          <PlusGlyph size={13} />
+        </button>
+      </div>
+    );
+  }
+
+  const active = rp?.active ?? tabs[0]?.id ?? null;
+  const select = (id: string): void => persist({ active: id });
   const closeTab = (id: string): void => {
     const next = tabs.filter((t) => t.id !== id);
     persist({

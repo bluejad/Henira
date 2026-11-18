@@ -1019,6 +1019,16 @@ button:focus-visible > .henira-row-caret {
   z-index: 40;
   background: var(--henira-bg);
 }
+/* 收起态窄轨（ZCode 边缘轨行为层）：只放 ＋——面板关着也要有入口 */
+.henira-right-rail {
+  width: 36px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--henira-space-2);
+  box-sizing: border-box;
+}
 .henira-right-tabs {
   height: 40px;
   flex-shrink: 0;

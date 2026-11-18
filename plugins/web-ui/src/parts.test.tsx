@@ -827,12 +827,26 @@ describe("右栏 tab 框架（D-062 sidebar.right 官方默认件）", () => {
     });
   }
 
-  it("关闭态（rightPanel.open 缺省/false）不渲染不占宽", () => {
-    const { container } = render(<RightPanel {...rightCtx({ rightPanel: { open: false } })} />);
+  it("收起态 = 窄轨（＋ 常在入口——面板内 ＋ 会永远打不开的死锁防）；开态全栏无轨", () => {
+    const updateUiState = vi.fn();
+    const { container } = render(
+      <RightPanel {...rightCtx({ rightPanel: { open: false }, updateUiState })} />,
+    );
+    // 窄轨：只有 ＋，无 tab 条 / 面板体
+    expect(container.querySelector(".henira-right-rail")).not.toBeNull();
     expect(container.querySelector(".henira-right-panel")).toBeNull();
-    const closed = render(<RightPanel {...rightCtx()} />);
-    expect(closed.container.querySelector(".henira-right-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.new") }));
+    expect(updateUiState).toHaveBeenCalledTimes(1);
+    const patch = updateUiState.mock.calls[0][0] as {
+      rightPanel: { open: boolean; tabs: unknown[] };
+    };
+    expect(patch.rightPanel.open).toBe(true);
+    expect(patch.rightPanel.tabs).toHaveLength(1);
     cleanup();
+    // 开态：全栏在、窄轨不在
+    const open = render(<RightPanel {...rightCtx({ rightPanel: { open: true } })} />);
+    expect(open.container.querySelector(".henira-right-rail")).toBeNull();
+    expect(open.container.querySelector(".henira-right-panel")).not.toBeNull();
   });
 
   it("＋ 新建空白面板展位 tab：rightPanel 总账经 updateUiState 持久化（open:true + active 指向新 tab）", () => {
@@ -941,6 +955,7 @@ describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JS
         ["sidebar", [stub]],
         ["conversation", [stub]],
         ["composer", [stub]],
+        ["sidebar.right", [RightPanel]], // 真件——收起轨形态可断言（stub 是哑 div 没有轨）
       ]),
       ...overrides,
     });
@@ -954,9 +969,8 @@ describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JS
     expect((container.querySelector(".henira-header-title") as HTMLElement).textContent).toBe(
       t("app.untitled"),
     );
-    expect(container.querySelectorAll("[data-stub='part']")).toHaveLength(3);
-    // 右栏关闭态不占宽
-    expect(container.querySelector(".henira-right-col")).toBeNull();
+    expect(container.querySelectorAll("[data-stub='part']")).toHaveLength(3); // 三区
+    expect(container.querySelector(".henira-right-rail")).not.toBeNull(); // 右栏收起轨（＋ 常在入口）
     fireEvent.click(screen.getByRole("button", { name: t("settings.open") }));
     expect(openSettings).toHaveBeenCalled(); // 缺省分区由宿主定（默认主题页）
   });

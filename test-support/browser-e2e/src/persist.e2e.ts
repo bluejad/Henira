@@ -232,3 +232,46 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await fs.rm(ctx.dirB, { recursive: true, force: true }).catch(() => {});
   }
 });
+
+test("右栏 tab 框架持久化（骨架批）：＋开空白面板 → rightPanel 进 ui-state → 刷新还原", async ({
+  page,
+}) => {
+  const ctx = await startPersistServer();
+  try {
+    await page.goto(ctx.server.url);
+    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+      timeout: 15_000,
+    });
+    // 初态右栏收起 = 窄轨（只有 ＋——面板关着也要有入口）
+    await expect(page.locator(".henira-right-rail")).toHaveCount(1);
+    await expect(page.locator(".henira-right-tab")).toHaveCount(0);
+    // ＋ 新建空白面板展位 tab → 开态全栏 + tab 在场；rightPanel 总账落盘轮询
+    await page.getByRole("button", { name: zh["rightPanel.new"] }).click();
+    await expect(page.locator(".henira-right-tab")).toHaveCount(1);
+    await expect(page.locator(".henira-right-rail")).toHaveCount(0);
+    await expect(page.locator(".henira-right-empty")).toContainText(zh["rightPanel.placeholder"]);
+    await waitUiStateOnDisk(ctx.dataDir, (doc) => {
+      const rp = doc.rightPanel as { open?: unknown } | undefined;
+      return rp?.open === true;
+    });
+    await shot(page, "19-right-panel-blank.png");
+    // ── 刷新：右栏开合与 tab 总账还原 ──
+    await page.reload();
+    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator(".henira-right-tab")).toHaveCount(1);
+    await expect(page.locator(".henira-right-rail")).toHaveCount(0);
+    // ✕ 关闭末个 tab → 回到窄轨（open:false 回写）
+    await page.locator(".henira-right-tab-close").click();
+    await expect(page.locator(".henira-right-rail")).toHaveCount(1);
+    await waitUiStateOnDisk(ctx.dataDir, (doc) => {
+      const rp = doc.rightPanel as { open?: unknown } | undefined;
+      return rp?.open === false;
+    });
+  } finally {
+    await ctx.stop(true);
+    await fs.rm(ctx.dirA, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(ctx.dirB, { recursive: true, force: true }).catch(() => {});
+  }
+});

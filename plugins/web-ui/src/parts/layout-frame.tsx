@@ -30,9 +30,9 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
       ? custom.composer !== undefined
       : layout === "full" || layout === "composer" || layout === "center";
   const showRight =
-    custom !== undefined
-      ? custom["sidebar.right"] !== undefined
-      : (ctx.uiState?.rightPanel?.open ?? false) === true;
+    custom !== undefined ? custom["sidebar.right"] !== undefined : layout === "full";
+  // 右栏开合（件自管收起态窄轨 / 开态全栏；拖宽把手只在开态在场）
+  const rightOpen = (ctx.uiState?.rightPanel?.open ?? false) === true;
 
   // 区域件取用：挑件表（object form）优先，否则槽位表（官方默认件经公共注册路径在表内）
   const partsOf = (slot: WebSlotName): WebPart[] => {
@@ -214,17 +214,23 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
       </div>
       {showRight ? (
         <>
-          <button
-            type="button"
-            className="henira-drag-handle"
-            title={t("app.dragHint")}
-            onMouseDown={startRightDrag}
-            onDoubleClick={() => {
-              setRightWidth(RIGHT_DEFAULT);
-              ctx.updateUiState?.({ layout: { rightWidth: RIGHT_DEFAULT } });
-            }}
-          />
-          <div className="henira-right-col" style={{ width: rightWidthStyle }}>
+          {rightOpen ? (
+            <button
+              type="button"
+              className="henira-drag-handle"
+              title={t("app.dragHint")}
+              onMouseDown={startRightDrag}
+              onDoubleClick={() => {
+                setRightWidth(RIGHT_DEFAULT);
+                ctx.updateUiState?.({ layout: { rightWidth: RIGHT_DEFAULT } });
+              }}
+            />
+          ) : null}
+          {/* 收起态列宽塌到窄轨自宽（件内 36px 竖条）；开态全宽 + 把手 */}
+          <div
+            className="henira-right-col"
+            style={rightOpen ? { width: rightWidthStyle } : undefined}
+          >
             {renderParts("sidebar.right")}
           </div>
         </>

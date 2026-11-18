@@ -506,7 +506,10 @@ interface SettingsData {
 }
 interface ModelCatalog {
   // GET /api/models（手写 models.json + models.dev 快照，按 id 查）
-  providers: Record<string, { baseUrl?: string; models?: string[] }>;
+  providers: Record<
+    string,
+    { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
+  >; // reasoning = 思考参数族提示（合同层能力表同源；none → UI 思考档置灰「—」，骨架批）
 }
 interface UiAssets {
   locales: UiAssetLocale[];
@@ -517,8 +520,9 @@ interface GlobalUiState {
 }
 interface SessionUiState {
   // 每会话界面绑定态文档——形状归 web 宿主，服务端不解释内容（整份收发 + 64KB 上限）；
-  // 常用字段可选 + 开放索引签名随宿主加法生长；rightPanel 留位随批 C 接线；删会话随整树走（D-063；
-  //   真源 = @henira/protocol server-events.ts，落码·界面持久化批）
+  // 常用字段可选 + 开放索引签名随宿主加法生长；删会话随整树走（D-063；
+  //   真源 = @henira/protocol server-events.ts，落码·界面持久化批；rightPanel/rightWidth
+  //   已随三栏骨架批接线）
   // 折叠组不入档（用户裁决 2026-11-18）：刷新/重启只展开选中会话所在组、其余收起，平时折叠纯本地
   draft?: string;
   layout?: { leftWidth?: number; rightWidth?: number };
@@ -527,6 +531,8 @@ interface SessionUiState {
     active?: string | null;
     tabs?: Array<{ id: string; kind: string }>;
   };
+  model?: string; // 会话级模型记忆（composer 回填；权威在每次请求携带，引擎无会话态——骨架批）
+  reasoningEffort?: ReasoningEffort; // 会话级思考档记忆（同上）
   [key: string]: unknown;
 }
 interface UiAssetLocale {
@@ -592,6 +598,7 @@ interface AssistantRow {
   finishReason?: string;
   usage?: TokenUsage; // 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage）
   interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）
+  reasoningEffort?: ReasoningEffort; // 本步实际生效思考档（request/header.params 投影——BC 行上档位可见性，骨架批）
 }
 interface ToolRowOutput {
   content: string;
@@ -705,7 +712,7 @@ interface HeniraFacade {
   stop(): Promise<void>; // 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  prompt(sessionId: string, text: string): Promise<PromptReceipt>; // D-045 单口
+  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（BC 每次提问绑定，骨架批）
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
@@ -761,7 +768,8 @@ interface WebApp {
   dispose(): Promise<void>;
 }
 
-// ── 官方件承重缝（件 + 会话上下文一起给；M4 批 A 扩定——D-057 slots / D-059 主题字符串 id）──
+// ── 官方件承重缝（件 + 会话上下文一起给；M4 批 A 扩定——D-057 slots / D-059 主题字符串 id；
+//    三栏骨架批扩宿主级关注面——全部可选，宿主缺省 = 对应 UI 不渲染，feature-detect 先例）──
 interface WebPartContext {
   client: HeniraFacade;
   sessionId: string | null; // 当前会话（null = 未选中）
@@ -771,6 +779,16 @@ interface WebPartContext {
   store: RowStoreLike; // 流式增量从哪来
   host: PluginUiHost; // 宿主门面（13 方法）
   slots: ReadonlyMap<string, readonly SlotPart[]>; // 槽位只读视图（结构性 / 区域 + 行级，D-057 / D-062）
+  uiState?: SessionUiState; // 每会话界面绑定态（D-063，宿主加载好的文档）
+  updateUiState?(patch: SessionUiState): void; // 部件只交 patch，宿主合并防抖落盘
+  layout?: "full" | "center" | "composer" | { parts: Partial<Record<WebSlotName, WebPart>> }; // D-043 挑件（缺席按 full）
+  safeMode?: boolean; // 安全模式徽标（双击 Alt 由宿主管）
+  sessionCwd?: string | null; // 中列 header 目录名
+  onTheme?(next: string, cssUrl?: string): void; // 设置弹窗主题页（D-059 <link> 注入在宿主）
+  onLocale?(dict: Record<string, string> | undefined, localeId: string): void; // 设置弹窗语言页
+  openSettings?(section?: "theme" | "locale" | "models"): void; // 设置弹窗开（宿主持有开合状态）
+  closeSettings?(): void;
+  settingsSection?: "theme" | "locale" | "models" | null; // 当前开着的分区（null = 关闭）
 }
 type WebPart = (ctx: WebPartContext) => ReactNode;
 ```
@@ -778,7 +796,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
-- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode / BC 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；
+- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode / BC 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；
