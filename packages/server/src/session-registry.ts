@@ -65,6 +65,8 @@ export interface RegistryOptions {
 
 export class SessionRegistry {
   readonly #entries = new Map<string, SessionEntry>();
+  /** attach 并发去重：同 id 的并行写请求共享同一次挂载（挂完即清） */
+  readonly #attaching = new Map<string, Promise<SessionEntry | undefined>>();
   readonly #opts: RegistryOptions;
 
   constructor(opts: RegistryOptions) {
@@ -152,7 +154,58 @@ export class SessionRegistry {
     const id = `s-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
     const directory = path.join(this.#opts.dataDir, "projects", projectKey(cwd), "sessions", id);
     await fs.mkdir(directory, { recursive: true });
+    const entry = await this.#mount({ id, cwd, directory });
+    this.#entries.set(id, entry);
+    this.#announce(entry);
+    return entry;
+  }
 
+  /** 懒挂载（重启续聊）：磁盘历史会话首次写操作（prompt/steer/interrupt/settle/files）按需重建
+   *  运行体。幂等（在订即返回）+ 并发去重；读路径（snapshot/rows/ui-state）不走这里——各有磁盘
+   *  兜底，浏览不付装配成本。SessionStore 本就「存在即装载」（含崩溃补写 turn/end{interrupted}），
+   *  引擎零改动；锁被另一活进程持有时 SessionLockedError 冒泡（路由层 409）。 */
+  async attach(id: string): Promise<SessionEntry | undefined> {
+    const existing = this.#entries.get(id);
+    if (existing !== undefined) return existing;
+    const inflight = this.#attaching.get(id);
+    if (inflight !== undefined) return inflight;
+    const task = this.#attach(id).finally(() => {
+      this.#attaching.delete(id);
+    });
+    this.#attaching.set(id, task);
+    return task;
+  }
+
+  async #attach(id: string): Promise<SessionEntry | undefined> {
+    const directory = await this.#findSessionDir(id);
+    if (directory === undefined) return undefined;
+    // 账本头核验（fail-closed）：目录名与 header.id 一致且 cwd 在场才挂——损坏目录不挂垃圾
+    let header: { id?: string; cwd?: string };
+    try {
+      const first = (await fs.readFile(path.join(directory, SESSION_LOG_FILE), "utf8")).split(
+        "\n",
+      )[0];
+      header = JSON.parse(first) as { id?: string; cwd?: string };
+    } catch {
+      return undefined;
+    }
+    if (header.id !== id || header.cwd === undefined) return undefined;
+
+    const entry = await this.#mount({ id, cwd: header.cwd, directory });
+    // 投影补账：openExisting 的装载与崩溃补写发生在宿主包装层建立之前、不走 onAppend——
+    // 挂载后从账本重放（补读在 harness.start 之后，崩溃补写行已含在内）
+    const events = await this.ledgerEvents(id);
+    if (events !== undefined) {
+      for (const event of events) entry.projection.ingest(event);
+    }
+    this.#entries.set(id, entry);
+    this.#announce(entry);
+    return entry;
+  }
+
+  /** 共享装配（create 新建 / attach 懒挂载同一条路）：interaction + 投影 + harness 七件 + delta 订阅 */
+  async #mount(input: { id: string; cwd: string; directory: string }): Promise<SessionEntry> {
+    const { id, cwd, directory } = input;
     const interaction = new ServerInteraction();
     const projection = new Projection();
     const entry: SessionEntry = {
@@ -197,8 +250,6 @@ export class SessionRegistry {
       this.#opts.fanout.publish(id, deltas);
     });
 
-    this.#entries.set(id, entry);
-    this.#announce(entry);
     return entry;
   }
 

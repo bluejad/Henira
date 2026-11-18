@@ -6,7 +6,12 @@ import { existsSync, promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { scanUiAssets } from "@henira/config-loader";
-import { browseDirectories, type DirRegistry, sameCwd } from "@henira/plugin-session";
+import {
+  browseDirectories,
+  type DirRegistry,
+  SessionLockedError,
+  sameCwd,
+} from "@henira/plugin-session";
 import {
   DECISIONS,
   REASONING_EFFORTS,
@@ -72,6 +77,17 @@ const requireResolve = createRequire(import.meta.url);
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // 懒挂载锁冲突（重启续聊：另一活进程持锁）→ 409，形状与 DELETE busy 拒绝一致
+  app.onError((err, c) => {
+    if (err instanceof SessionLockedError) {
+      return c.json(
+        { code: "session_busy", message: "session is locked by another live process" },
+        409,
+      );
+    }
+    throw err;
+  });
 
   // ── 三件套之 ③：Host / Origin 校验（防恶意网页把域名解析到回环冒充访问本机服务）──
   app.use("/api/*", async (c, next) => {
@@ -163,7 +179,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // ── 输入投递（D-045 单口：闲直跑 / 忙入队；模型/思考按次覆盖可选——BC 每次提问绑定）──
   app.post("/api/sessions/:id/prompt", async (c) => {
-    const entry = requireEntry(c, deps);
+    const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
       .object({
@@ -181,7 +197,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/api/sessions/:id/steer", async (c) => {
-    const entry = requireEntry(c, deps);
+    const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
       .object({ entryId: z.string().min(1) })
@@ -191,7 +207,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/api/sessions/:id/interrupt", async (c) => {
-    const entry = requireEntry(c, deps);
+    const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     await entry.ctx.get("loop").interrupt();
     return c.json({ ok: true });
@@ -199,7 +215,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动）──
   app.post("/api/sessions/:id/approvals/:requestId", async (c) => {
-    const entry = requireEntry(c, deps);
+    const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
       .object({ decision: z.enum(DECISIONS) })
@@ -218,7 +234,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // ── 会话工作区文件（UI 门面 listDir；只限会话工作区，隐藏项不返）──
   app.get("/api/sessions/:id/files", async (c) => {
-    const entry = requireEntry(c, deps);
+    const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const relative = c.req.query("path") ?? "";
     const root = path.resolve(entry.cwd);
@@ -538,9 +554,11 @@ export function createApp(deps: AppDeps): Hono {
   return app;
 }
 
-function requireEntry(c: Context, deps: AppDeps) {
+/** 写路径会话入口：在订直取；磁盘历史会话懒挂载（重启续聊）——锁冲突 SessionLockedError 冒泡 */
+async function requireEntry(c: Context, deps: AppDeps) {
   const id = c.req.param("id");
-  return id === undefined ? undefined : deps.registry.get(id);
+  if (id === undefined) return undefined;
+  return deps.registry.get(id) ?? (await deps.registry.attach(id));
 }
 
 /** 绝对路径判据（win32 盘符形或 posix 根形——BC project.add 校验行为层） */

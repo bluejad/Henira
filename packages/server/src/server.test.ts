@@ -1041,3 +1041,138 @@ describe("目录登记与删除", () => {
     }
   });
 });
+
+// ── 重启续聊（懒挂载 attach）：磁盘历史会话首次写操作按需重建运行体——重启后不再只读 ──
+
+describe("重启续聊（懒挂载 attach）", () => {
+  /** 独立 dataDir + settings；start() 每次造新 server（mock 游标每实例归零——重启即换新脚本） */
+  async function restartable(script: readonly MockEntry[]): Promise<{
+    start: () => Promise<HeniraServer>;
+  }> {
+    const dataDir = path.join(root, `attach-${Math.random().toString(36).slice(2, 8)}`);
+    const globalDir = path.join(dataDir, "config");
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.writeFile(
+      path.join(globalDir, "settings.json"),
+      JSON.stringify({ version: 1, model: "mock/mock-1" }),
+      "utf8",
+    );
+    return {
+      start: (): Promise<HeniraServer> =>
+        createServer({ dataDir, globalDir, llm: llmStub(mockLlm(script).service) }),
+    };
+  }
+
+  /** 跑一个文本回合并等落定（prompt 单口 D-045 同 runTurn 先例：busy false 有回合未启动间隙假过） */
+  async function runTurn(
+    base: string,
+    id: string,
+    text: string,
+    expectRows: number,
+  ): Promise<void> {
+    await fetch(`${base}/api/sessions/${id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    await waitRows(base, id, expectRows);
+  }
+
+  /** 等 /rows 行数收敛（确定性事实——不投递的纯等待） */
+  async function waitRows(base: string, id: string, expectRows: number): Promise<void> {
+    await waitFor(async () => {
+      const page = (await (await fetch(`${base}/api/sessions/${id}/rows?limit=200`)).json()) as {
+        rows: unknown[];
+      };
+      return page.rows.length >= expectRows ? true : undefined;
+    });
+  }
+
+  it("重启后历史会话 prompt 续聊成功：懒挂载重建运行体 + 投影补账（改前 404）", async () => {
+    const ctx = await restartable([[mockText("存量"), mockFinish("stop")]]);
+    const first = await ctx.start();
+    const id = await createSession(first.url);
+    await runTurn(first.url, id, "老问", 2); // 重启前存量 2 行（磁盘读取的前置）
+    await first.stop();
+
+    const second = await ctx.start();
+    try {
+      // 改前：requireEntry 纯内存查 → 404；改后：懒挂载续聊
+      const res = await fetch(`${second.url}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "重启后问" }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { queued: boolean };
+      expect(body.queued).toBe(false); // 闲直跑（挂载后 loop 在场）
+      await waitRows(second.url, id, 4); // 存量 2 行 + 新回合 2 行落账
+      // 快照从在订投影出（懒挂载已从账本补账——含重启前历史），busy 状态真实化
+      const snap = (await (await fetch(`${second.url}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: { kind: string }[];
+        totalRows: number;
+      };
+      expect(snap.totalRows).toBe(4);
+      const list = (await (await fetch(`${second.url}/api/sessions`)).json()) as {
+        id: string;
+        busy: boolean;
+      }[];
+      expect(list.find((s) => s.id === id)?.busy).toBe(false);
+    } finally {
+      await second.stop();
+    }
+  });
+
+  it("重启后未知 id prompt 仍 404（磁盘无目录不挂垃圾）", async () => {
+    const ctx = await restartable([]);
+    const server = await ctx.start();
+    try {
+      const res = await fetch(`${server.url}/api/sessions/s-nothing-000000/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "问" }),
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("attach 幂等 + 并发去重：并行两次与串行三次同一引用", async () => {
+    const ctx = await restartable([]);
+    const first = await ctx.start();
+    const id = await createSession(first.url);
+    await first.stop();
+    const second = await ctx.start();
+    try {
+      const [a, b] = await Promise.all([second.registry.attach(id), second.registry.attach(id)]);
+      expect(a).toBeDefined();
+      expect(a).toBe(b); // 并发共享同一次挂载
+      expect(await second.registry.attach(id)).toBe(a); // 在订即返回
+    } finally {
+      await second.stop();
+    }
+  });
+
+  it("另一活进程持锁：prompt 409 session_busy（不误挂）", async () => {
+    const ctx = await restartable([[mockText("存量"), mockFinish("stop")]]);
+    const first = await ctx.start();
+    const id = await createSession(first.url);
+    await runTurn(first.url, id, "老问", 2);
+    // first 仍活着（在订持 session.lock）；第二个 server 同盘懒挂载 → SessionLockedError → 409
+    const second = await ctx.start();
+    try {
+      const res = await fetch(`${second.url}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "问" }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { code: string };
+      expect(body.code).toBe("session_busy");
+    } finally {
+      await second.stop();
+      await first.stop();
+    }
+  });
+});
