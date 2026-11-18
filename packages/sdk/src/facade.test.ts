@@ -282,6 +282,31 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     await facade.deleteSession(session.id);
     expect((await facade.listSessions()).some((s) => s.id === session.id)).toBe(false);
     await expect(facade.snapshot(session.id)).rejects.toThrow();
+    await expect(facade.getSessionUiState(session.id)).rejects.toThrow(); // 删后目录随树走
+  });
+
+  it("界面绑定状态（D-063）：全局缺省 + 写读 roundtrip；每会话缺省 + 写读 roundtrip；未知会话拒绝", async () => {
+    const { facade } = await form.make([]);
+    // 全局：缺省 → 写读
+    expect(await facade.getUiState()).toEqual({ lastSessionId: null });
+    await facade.putUiState({ lastSessionId: null });
+    const session = await facade.createSession();
+    await facade.putUiState({ lastSessionId: session.id });
+    expect(await facade.getUiState()).toEqual({ lastSessionId: session.id });
+    // 每会话：缺省 → 写读（整份换——第二笔不保留第一笔没有的字段语义）
+    expect(await facade.getSessionUiState(session.id)).toEqual({});
+    await facade.putSessionUiState(session.id, {
+      draft: "接着来",
+      sidebar: { collapsedGroups: ["--demo--"] },
+    });
+    expect(await facade.getSessionUiState(session.id)).toEqual({
+      draft: "接着来",
+      sidebar: { collapsedGroups: ["--demo--"] },
+    });
+    await facade.putSessionUiState(session.id, { draft: "" });
+    expect((await facade.getSessionUiState(session.id)).sidebar).toBeUndefined();
+    // 未知会话拒绝
+    await expect(facade.getSessionUiState("s-zz-000000")).rejects.toThrow();
   });
 
   it("sessionRows 翻页 + 快照窗口形状（rowSeq 游标排他 / 轮边界补齐 / hasOlder+totalRows）", async () => {

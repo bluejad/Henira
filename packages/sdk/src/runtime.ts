@@ -14,6 +14,7 @@ import { approvalPlugin } from "@henira/plugin-approval";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
 import {
+  atomicWriteFile,
   browseDirectories,
   DirRegistry,
   projectKey,
@@ -25,6 +26,7 @@ import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
   type Delta,
+  type GlobalUiState,
   type InteractionAnswer,
   type InteractionRequest,
   type InteractionService,
@@ -34,6 +36,7 @@ import {
   type ServerFrame,
   type SessionEvent,
   type SessionSummary,
+  type SessionUiState,
   sliceRowsPage,
 } from "@henira/protocol";
 import { frameQueue, type HeniraFacade } from "./facade.js";
@@ -107,6 +110,15 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       seq.set(sessionId, next);
       deliver({ kind: "delta", sessionId, seq: next, delta });
     }
+  };
+
+  /** 会话目录定位（ui-state 等会话文件读写用）：在册取推导路径，历史会话扫盘（删除同款语义） */
+  const resolveSessionDir = async (id: string): Promise<string | undefined> => {
+    const session = sessions.get(id);
+    if (session !== undefined) {
+      return path.join(dataDir, "projects", projectKey(session.cwd), "sessions", id);
+    }
+    return findSessionDir(dataDir, id);
   };
 
   const facade: HeniraFacade = {
@@ -320,6 +332,26 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       }
     },
 
+    async getUiState() {
+      return readGlobalUiState(dataDir);
+    },
+
+    async putUiState(doc) {
+      await writeGlobalUiState(dataDir, doc);
+    },
+
+    async getSessionUiState(sessionId) {
+      const dir = await resolveSessionDir(sessionId);
+      if (dir === undefined) throw new Error(`session not found: ${sessionId}`);
+      return readSessionUiState(dir);
+    },
+
+    async putSessionUiState(sessionId, doc) {
+      const dir = await resolveSessionDir(sessionId);
+      if (dir === undefined) throw new Error(`session not found: ${sessionId}`);
+      await writeSessionUiState(dir, doc);
+    },
+
     async *events() {
       const queue = frameQueue();
       const key = {};
@@ -374,6 +406,49 @@ async function findSessionDir(dataDir: string, id: string): Promise<string | und
     if (existsSync(dir)) return dir;
   }
   return undefined;
+}
+
+/** ui-state 文档读写（D-063）：与 packages/server ui-state-store 同语义的进程内形态
+ * （findSessionDir 双形态同款先例——第二实现出现即提取）。读缺失/损坏回落缺省；写整份
+ * tmp+rename 原子重写（atomicWriteFile 复用 plugin-session 出口）；形状归 web 宿主，
+ * runtime 只管落盘不解释。 */
+async function readGlobalUiState(dataDir: string): Promise<GlobalUiState> {
+  try {
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(dataDir, "state", "ui.json"), "utf8"),
+    ) as GlobalUiState;
+    return {
+      lastSessionId: typeof parsed.lastSessionId === "string" ? parsed.lastSessionId : null,
+    };
+  } catch {
+    return { lastSessionId: null };
+  }
+}
+
+async function writeGlobalUiState(dataDir: string, doc: GlobalUiState): Promise<void> {
+  const file = path.join(dataDir, "state", "ui.json");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await atomicWriteFile(file, `${JSON.stringify(doc, null, 2)}\n`);
+}
+
+async function readSessionUiState(sessionDir: string): Promise<SessionUiState> {
+  try {
+    const parsed: unknown = JSON.parse(
+      await fs.readFile(path.join(sessionDir, "ui-state.json"), "utf8"),
+    );
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as SessionUiState;
+  } catch {
+    return {};
+  }
+}
+
+async function writeSessionUiState(sessionDir: string, doc: SessionUiState): Promise<void> {
+  await fs.mkdir(sessionDir, { recursive: true });
+  await atomicWriteFile(
+    path.join(sessionDir, "ui-state.json"),
+    `${JSON.stringify(doc, null, 2)}\n`,
+  );
 }
 
 /** 宿主装饰组合：append 旁路喂投影器（与 server 同一语义——引擎零改动） */

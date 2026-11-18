@@ -20,6 +20,16 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
   const [sendFailed, setSendFailed] = useState(false);
   const [model, setModel] = useState("");
   const [models, setModels] = useState<readonly string[]>(EMPTY_MODELS);
+  // 草稿随会话走（D-063）：宿主加载好的 uiState 到位后按会话回填一次；此后本地态直跑
+  // （逐键渲染全树不可取），输入经 updateUiState 交宿主合并防抖落盘。同一会话内缓存已
+  // 与本地同步（updateUiState 同步合并），不再回灌。
+  const draftSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (ctx.uiState === undefined) return; // 未加载 / 宿主未实装——保持现状
+    if (ctx.sessionId === draftSyncedFor.current) return;
+    draftSyncedFor.current = ctx.sessionId;
+    setDraft(ctx.uiState.draft ?? "");
+  }, [ctx.sessionId, ctx.uiState]);
   // 两个稳定维度分开订阅（busy 布尔 / rows 数组引用）——不取整个快照对象
   // （store 契约只保证行数组引用稳定；getSnapshot 每次新对象会让 useSyncExternalStore 死循环）
   const busy = useSyncExternalStore(
@@ -75,10 +85,12 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     if (text === "" || ctx.sessionId === null) return;
     if (pendingApprovals.length > 0) return; // 审批接管中：Enter 已被审批卡消费
     setDraft("");
+    ctx.updateUiState?.({ draft: "" }); // 持久层同步清空（否则重启还原出旧草稿）
     setSendFailed(false);
     void ctx.client.prompt(ctx.sessionId, text).catch(() => {
       // 发送失败回填草稿（用户不丢输入）+ 行内可见提示（不静默，R125）
       setDraft(text);
+      ctx.updateUiState?.({ draft: text });
       setSendFailed(true);
     });
   };
@@ -121,6 +133,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
           placeholder={ctx.t("composer.placeholder")}
           onChange={(e) => {
             setDraft(e.target.value);
+            ctx.updateUiState?.({ draft: e.target.value }); // 宿主合并防抖落盘（D-063）
             autoGrow(e.target);
           }}
           onKeyDown={(e) => {

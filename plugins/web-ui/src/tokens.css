@@ -10,7 +10,9 @@
   --henira-bg: #f7f6f3;
   --henira-surface: color-mix(in srgb, #2f3437 5%, transparent);
   --henira-surface-hover: color-mix(in srgb, #2f3437 8%, transparent);
-  --henira-selected: color-mix(in srgb, #2f3437 10%, transparent);
+  /* 选中档须明显强于 hover（原 10% 与 hover 8% 几乎不可分辨——「点了不出选中状态」真因，
+     界面持久化批 2026-11-18 提档；ZCode 选中行同为实感填充） */
+  --henira-selected: color-mix(in srgb, #2f3437 16%, transparent);
   --henira-border: color-mix(in srgb, #2f3437 10%, transparent);
   --henira-border-strong: color-mix(in srgb, #2f3437 16%, transparent);
   --henira-text: #2f3437;
@@ -108,7 +110,7 @@
   --henira-bg: #191919;
   --henira-surface: color-mix(in srgb, #e8e6e3 6%, transparent);
   --henira-surface-hover: color-mix(in srgb, #e8e6e3 9%, transparent);
-  --henira-selected: color-mix(in srgb, #e8e6e3 12%, transparent);
+  --henira-selected: color-mix(in srgb, #e8e6e3 18%, transparent);
   --henira-border: color-mix(in srgb, #e8e6e3 12%, transparent);
   --henira-border-strong: color-mix(in srgb, #e8e6e3 20%, transparent);
   --henira-text: #e8e6e3;
@@ -525,6 +527,7 @@ button:focus-visible > .henira-row-caret {
 
 /* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
 .henira-sessions li button {
+  background: transparent; /* 未选中透明（原内联 transparent 压死选中底色——真因已抓修） */
   border: 1px solid transparent;
   transition: background 0.12s ease;
 }
@@ -533,6 +536,23 @@ button:focus-visible > .henira-row-caret {
 }
 .henira-sessions li button[data-active="true"] {
   background: var(--henira-selected);
+}
+
+/* 侧栏拖宽把手（D-063）：贴侧栏右缘 5px 竖条（button 过 a11y 闸），hover/拖动中显线 */
+.henira-app button.henira-drag-handle {
+  width: 5px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  cursor: col-resize;
+  background: transparent;
+}
+.henira-app button.henira-drag-handle:hover,
+.henira-app button.henira-drag-handle:active {
+  background: var(--henira-border-strong);
+}
+.henira-app button.henira-drag-handle:focus-visible {
+  outline: none;
 }
 
 /* 目录分组头（BC「目录」/ZCode projects view 行为层：chevron+名称+计数，安静可折叠） */

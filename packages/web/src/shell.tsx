@@ -11,11 +11,17 @@ import {
   type WebSlotName,
   zh,
 } from "@henira/plugin-web-ui";
+import type { SessionUiState } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
-import { createContext, useEffect, useMemo, useState } from "react";
+import { createContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Layout } from "./host.js";
 import type { RowStore } from "./store.js";
+
+/** 侧栏拖宽钳位（D-063；tokens.css --henira-sidebar-width 260 为未拖过时的 var 缺省） */
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 260;
 
 export type ShellProps = {
   store: RowStore;
@@ -30,6 +36,10 @@ export type ShellProps = {
   safeMode: boolean;
   /** 受控选中态：宿主单一真源（开场自动选 + 列表点选都走 onSelectSession，e2e 锁住开场选中） */
   sessionId: string | null;
+  /** 当前会话界面绑定态（D-063）：宿主加载好的文档；undefined = 未加载 */
+  uiState?: SessionUiState;
+  /** 界面态写：宿主顶层合并 + 统一防抖落盘（宿主是唯一协调者，部件/布局只交 patch） */
+  updateUiState(patch: SessionUiState): void;
   onSelectSession(sessionId: string | null): void;
   onToggleSafe(on: boolean): void;
   onTheme(next: string, cssUrl?: string): void;
@@ -46,6 +56,8 @@ type WebPartContextValue = {
   store: RowStoreLike;
   host: PluginUiHost;
   slots: ReadonlyMap<string, readonly SlotPart[]>;
+  uiState?: SessionUiState;
+  updateUiState(patch: SessionUiState): void;
 };
 
 const PartContext = createContext<WebPartContextValue>(undefined as never);
@@ -63,6 +75,39 @@ export const makeT =
 export function Shell(props: ShellProps) {
   const { store, client, layout, safeMode } = props;
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 侧栏拖宽（D-063）：本地态管拖动中的实时视觉；落到 ui-state 只在松手时（拖中不写盘）。
+  // 每会话各记各的宽——uiState 到位后按会话回填一次（此后不回灌，保拖动中的本地态）
+  const [leftWidth, setLeftWidth] = useState<number | undefined>(undefined);
+  const widthSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (props.uiState === undefined) return; // 未加载——保 var 缺省
+    if (props.sessionId === widthSyncedFor.current) return;
+    widthSyncedFor.current = props.sessionId;
+    const w = props.uiState.layout?.leftWidth;
+    setLeftWidth(typeof w === "number" ? w : undefined);
+  }, [props.sessionId, props.uiState]);
+
+  const startDrag = (e: React.MouseEvent): void => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = leftWidth ?? SIDEBAR_DEFAULT;
+    const clamp = (v: number): number => Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, v));
+    const move = (ev: MouseEvent): void => {
+      setLeftWidth(clamp(startW + (ev.clientX - startX)));
+    };
+    const up = (ev: MouseEvent): void => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      props.updateUiState({ layout: { leftWidth: clamp(startW + (ev.clientX - startX)) } });
+    };
+    document.body.style.userSelect = "none"; // 拖动中禁选中文本
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
   // t 引用稳定（ctxValue useMemo 依赖 t——不缓存则每渲染新函数 → ctx 每帧重建 → 行 memo 全失效）
   const t = useMemo(() => makeT(props.localeOverride), [props.localeOverride]);
 
@@ -78,6 +123,8 @@ export function Shell(props: ShellProps) {
       store,
       host: props.host,
       slots: props.slots,
+      uiState: props.uiState,
+      updateUiState: props.updateUiState,
     }),
     [
       client,
@@ -87,6 +134,8 @@ export function Shell(props: ShellProps) {
       props.theme,
       props.host,
       props.slots,
+      props.uiState,
+      props.updateUiState,
       t,
     ],
   );
@@ -98,6 +147,7 @@ export function Shell(props: ShellProps) {
   const partsOf = (slot: WebSlotName): WebPart[] => (props.slots.get(slot) ?? []) as WebPart[];
   // 槽位收起：未装件的槽不渲染不占宽（未装件槽位收起语义）
   const sidebarHas = partsOf("sidebar").length > 0;
+  const sidebarWidth = leftWidth === undefined ? "var(--henira-sidebar-width)" : `${leftWidth}px`;
 
   return (
     <PartContext.Provider value={ctxValue}>
@@ -107,7 +157,8 @@ export function Shell(props: ShellProps) {
             style={{
               display: "flex",
               flexDirection: "column",
-              width: "var(--henira-sidebar-width)",
+              width: sidebarWidth,
+              flexShrink: 0,
             }}
           >
             <div style={{ flex: 1, minHeight: 0 }}>
@@ -125,7 +176,7 @@ export function Shell(props: ShellProps) {
                 background: "var(--henira-surface)",
                 borderRight: "1px solid var(--henira-border)",
                 boxSizing: "border-box",
-                width: "var(--henira-sidebar-width)",
+                width: sidebarWidth,
               }}
             >
               <button
@@ -153,6 +204,18 @@ export function Shell(props: ShellProps) {
             </button>
           </div>
         )}
+        {showSidebar && sidebarHas ? (
+          <button
+            type="button"
+            className="henira-drag-handle"
+            title={t("app.dragHint")}
+            onMouseDown={startDrag}
+            onDoubleClick={() => {
+              setLeftWidth(SIDEBAR_DEFAULT); // 双击回落默认宽
+              props.updateUiState({ layout: { leftWidth: SIDEBAR_DEFAULT } });
+            }}
+          />
+        ) : null}
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
           {showConversation ? (
             <div

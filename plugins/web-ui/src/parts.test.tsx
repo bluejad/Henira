@@ -716,3 +716,40 @@ describe("Conversation 长会话渲染（批 A'——虚拟化降级路径 / bot
     expect(sessionRows.mock.calls.length).toBe(calls); // 未增加
   });
 });
+
+describe("界面绑定状态（D-063）", () => {
+  it("Composer：uiState 回填草稿 + 输入上报 updateUiState + 发送成功清持久层", async () => {
+    const updateUiState = vi.fn();
+    const prompt = vi.fn(async () => ({ queued: false, id: null }));
+    const ctx = fixtureCtx({ uiState: { draft: "上次的草稿" }, updateUiState });
+    ctx.client.prompt = prompt;
+    render(<Composer {...ctx} />);
+    const area = screen.getByPlaceholderText(t("composer.placeholder")) as HTMLTextAreaElement;
+    await waitFor(() => expect(area.value).toBe("上次的草稿")); // 回填
+    fireEvent.change(area, { target: { value: "新输入" } });
+    expect(updateUiState).toHaveBeenCalledWith({ draft: "新输入" });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() => expect(prompt).toHaveBeenCalledWith("s-1", "新输入"));
+    expect(updateUiState).toHaveBeenCalledWith({ draft: "" }); // 持久层同步清空
+  });
+
+  it("SessionList：非活跃组按 uiState 折叠 + toggle 上报 updateUiState（活跃组自动展开不持久化）", async () => {
+    const updateUiState = vi.fn();
+    const ctx = fixtureCtx({
+      uiState: { sidebar: { collapsedGroups: ["C:\\other"] } },
+      updateUiState,
+    });
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
+    });
+    // other 组（非活跃）折叠 → 只剩 demo 组的 1 条会话行（活跃组 demo 自动展开是本地临时态）
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    const headers = container.querySelectorAll("button.henira-session-group");
+    fireEvent.click(headers[1] as HTMLButtonElement); // 展开 other 组
+    expect(updateUiState).toHaveBeenCalledWith({ sidebar: { collapsedGroups: [] } });
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
+    });
+  });
+});

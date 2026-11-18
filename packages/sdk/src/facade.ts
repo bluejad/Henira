@@ -6,12 +6,14 @@ import type { UiAssets } from "@henira/config-loader";
 import type {
   Decision,
   DirBrowse,
+  GlobalUiState,
   PromptReceipt,
   RegisteredDir,
   RowsPage,
   ServerFrame,
   SessionSnapshot,
   SessionSummary,
+  SessionUiState,
 } from "@henira/protocol";
 
 export interface SettingsData {
@@ -72,6 +74,14 @@ export interface HeniraFacade {
   browseDirs(path?: string): Promise<DirBrowse>;
   /** 删单个会话（账本目录整棵；busy → 抛错——先中断再删） */
   deleteSession(id: string): Promise<void>;
+  /** 全局"上次选中"（state/ui.json——运行态不进 settings.json，D-063；启动还原读之） */
+  getUiState(): Promise<GlobalUiState>;
+  /** 全局界面态写（选中变化时调用；整份换，D-063） */
+  putUiState(doc: GlobalUiState): Promise<void>;
+  /** 每会话界面绑定态读（<sessionDir>/ui-state.json：草稿/折叠组/面板宽度；选中时拉取回填） */
+  getSessionUiState(sessionId: string): Promise<SessionUiState>;
+  /** 每会话界面绑定态写（整份原子重写，后写者赢；服务端只验证不解释 + 64KB 上限，D-063） */
+  putSessionUiState(sessionId: string, doc: SessionUiState): Promise<void>;
   /** 全局帧流（connected → 逐会话快照 → 增量）；远端形态内置重连 + 断档不猜（跳号即重拉快照换发） */
   events(): AsyncIterable<ServerFrame>;
 }

@@ -65,6 +65,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
     registry,
     dirs,
     fanout,
+    dataDir,
     globalDir,
     version,
     startedAt,

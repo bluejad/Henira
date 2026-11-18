@@ -92,6 +92,16 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
   const [menu, setMenu] = useState<MenuState>(null);
   const [pending, setPending] = useState<PendingDelete | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // 折叠组随会话走（D-063）：宿主加载好的 uiState 到位后按会话回填一次（此后本地直跑，
+  // toggle 经 updateUiState 交宿主防抖落盘）；活跃组自动展开是本地临时态——重启还原时
+  // 按同一逻辑再展开，无需持久化
+  const collapsedSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (ctx.uiState === undefined) return; // 未加载 / 宿主未实装——保持现状
+    if (ctx.sessionId === collapsedSyncedFor.current) return;
+    collapsedSyncedFor.current = ctx.sessionId;
+    setCollapsed(new Set(ctx.uiState.sidebar?.collapsedGroups ?? []));
+  }, [ctx.sessionId, ctx.uiState]);
   // 目录区交互 feature-detect：宿主五方法齐备才渲染（模型选择器三可选先例同款——
   // 不做半可用状态：缺任一方法 = 目录登记交互整体收起，退化为纯 cwd 分组）
   const hasDirSupport =
@@ -153,14 +163,18 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     [ctx.client, refresh],
   );
 
-  const toggle = useCallback((cwd: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(cwd)) next.delete(cwd);
-      else next.add(cwd);
-      return next;
-    });
-  }, []);
+  const toggle = useCallback(
+    (cwd: string): void => {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(cwd)) next.delete(cwd);
+        else next.add(cwd);
+        ctx.updateUiState?.({ sidebar: { collapsedGroups: [...next] } }); // D-063 防抖落盘
+        return next;
+      });
+    },
+    [ctx.updateUiState],
+  );
 
   const copyPath = useCallback((cwd: string): void => {
     void navigator.clipboard?.writeText(cwd).catch(() => {});
@@ -180,7 +194,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         background: "var(--henira-surface)",
         padding: "var(--henira-space-3)",
         boxSizing: "border-box",
-        width: "var(--henira-sidebar-width)",
+        width: "100%", // 随宿主列宽走（D-063 拖宽落宿主列内联宽，var 缺省时同值）
       }}
     >
       <div
@@ -376,7 +390,8 @@ const SessionRow = memo(
             gap: "var(--henira-space-2)",
             width: "100%",
             textAlign: "left",
-            background: "transparent",
+            // background 不写内联（transparent 会压死 data-active 的选中底色——「点了不出
+            // 选中状态」真因，界面持久化批抓修）；未选中透明收进 tokens 基础规则
             borderRadius: "var(--henira-radius)",
             padding: "6px 10px",
             minHeight: "32px",

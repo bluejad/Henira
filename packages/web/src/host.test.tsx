@@ -171,4 +171,70 @@ describe("createWebApp", () => {
     await app.dispose();
     el.remove();
   });
+
+  it("界面绑定状态（D-063）：启动还原上次选中（非列表第一个）+ 点选写全局指针 + 会话文档回填", async () => {
+    const docs = new Map<string, unknown>([
+      ["s-a", { draft: "甲的草稿" }],
+      ["s-b", {}],
+    ]);
+    const puts: unknown[] = [];
+    const client = fakeClient({
+      listSessions: async () => [
+        { id: "s-a", cwd: "C:/alpha", updatedAt: 2, busy: false },
+        { id: "s-b", cwd: "C:/beta", updatedAt: 1, busy: false },
+      ],
+      getUiState: async () => ({ lastSessionId: "s-b" }), // 上次选中 s-b（列表第二个）
+      putUiState: async (doc) => {
+        puts.push(doc);
+      },
+      getSessionUiState: async (id) => (docs.get(id) ?? {}) as never,
+      putSessionUiState: async (id, doc) => {
+        docs.set(id, doc);
+      },
+      events: async function* () {},
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      // 还原 = s-b（不是最新更新的 s-a）
+      await vi.waitFor(
+        () => {
+          const active = el.querySelector('.henira-sessions li button[data-active="true"]');
+          if (active === null || !active.textContent?.includes("beta")) {
+            throw new Error(
+              `active not s-b; rows=${JSON.stringify(
+                [...el.querySelectorAll(".henira-sessions li button")].map((b) => b.textContent),
+              )}`,
+            );
+          }
+          return active;
+        },
+        { timeout: 5000 },
+      );
+      // boot 选定即固化指针（还原的 s-b 也回写——不写则下次启动回落会随"最新更新"漂移）
+      await vi.waitFor(() => {
+        if (!puts.some((p) => (p as { lastSessionId?: string }).lastSessionId === "s-b")) {
+          throw new Error(`boot pointer not persisted; puts=${JSON.stringify(puts)}`);
+        }
+        return true;
+      });
+      // 切到 s-a → 全局指针写 s-a
+      const rowA = [...el.querySelectorAll(".henira-sessions li button")].find((b) =>
+        b.textContent?.includes("alpha"),
+      );
+      if (rowA === undefined) throw new Error("s-a row not rendered");
+      fireEvent.click(rowA);
+      await vi.waitFor(() => {
+        if (!puts.some((p) => (p as { lastSessionId?: string }).lastSessionId === "s-a")) {
+          throw new Error(`global pointer not written; puts=${JSON.stringify(puts)}`);
+        }
+        return true;
+      });
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
 });

@@ -306,6 +306,11 @@ export class SessionRegistry {
     return undefined;
   }
 
+  /** 会话目录定位（ui-state 等宿主侧会话文件读写用）：在册取 entry.directory，历史会话扫盘 */
+  async resolveSessionDir(id: string): Promise<string | undefined> {
+    return this.get(id)?.directory ?? (await this.#findSessionDir(id));
+  }
+
   /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号） */
   #announce(entry: SessionEntry): void {
     this.#opts.fanout.deliverSnapshot(

@@ -5,6 +5,7 @@
 export const zh = {
   "app.title": "Henira",
   "app.safeMode": "安全模式",
+  "app.dragHint": "拖动调宽 · 双击复位",
   "dirs.title": "目录",
   "dirs.add": "新增目录",
   "dirs.path": "路径",

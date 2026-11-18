@@ -7,13 +7,25 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { scanUiAssets } from "@henira/config-loader";
 import { browseDirectories, type DirRegistry, sameCwd } from "@henira/plugin-session";
-import { DECISIONS, rebuildProjection, type ServerFrame } from "@henira/protocol";
+import {
+  DECISIONS,
+  rebuildProjection,
+  type ServerFrame,
+  type SessionUiState,
+} from "@henira/protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { Fanout } from "./fanout.js";
 import type { SessionRegistry } from "./session-registry.js";
 import { readSettings, writeCredential, writeSettings } from "./settings-store.js";
+import {
+  readGlobalUiState,
+  readSessionUiState,
+  validateSessionUiState,
+  writeGlobalUiState,
+  writeSessionUiState,
+} from "./ui-state-store.js";
 
 /** 每订阅者有界队列容量；溢出 = 断开（volatile：客户端重连重拉快照） */
 const QUEUE_CAP = 256;
@@ -28,6 +40,8 @@ export interface AppDeps {
   /** 登记工作目录注册表（data-directory §4 projects.json） */
   dirs: DirRegistry;
   fanout: Fanout;
+  /** 全局数据根（HENIRA_HOME；state/ui.json 与 projects/ 都在它下面） */
+  dataDir: string;
   globalDir: string;
   version: string;
   startedAt: number;
@@ -315,6 +329,43 @@ export function createApp(deps: AppDeps): Hono {
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid settings patch" }, 400);
     return c.json(await writeSettings(deps.globalDir, parsed.data));
+  });
+
+  // ── 会话绑定界面状态（D-063：全局 state/ui.json + 每会话 <sessionDir>/ui-state.json；
+  //    状态不进事件账本（P9-1 同 queue 先例）；服务端只验证不解释——整份收发 + 64KB 上限，
+  //    形状归 web 宿主；删会话随整树走）──
+  app.get("/api/ui-state", async (c) => {
+    return c.json(await readGlobalUiState(deps.dataDir));
+  });
+
+  app.put("/api/ui-state", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { lastSessionId?: unknown } | null;
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      !("lastSessionId" in body) ||
+      !(typeof body.lastSessionId === "string" || body.lastSessionId === null)
+    ) {
+      return c.json({ error: "invalid ui state" }, 400);
+    }
+    await writeGlobalUiState(deps.dataDir, { lastSessionId: body.lastSessionId });
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/sessions/:id/ui-state", async (c) => {
+    const dir = await deps.registry.resolveSessionDir(c.req.param("id"));
+    if (dir === undefined) return c.json({ error: "session not found" }, 404);
+    return c.json(await readSessionUiState(dir));
+  });
+
+  app.put("/api/sessions/:id/ui-state", async (c) => {
+    const dir = await deps.registry.resolveSessionDir(c.req.param("id"));
+    if (dir === undefined) return c.json({ error: "session not found" }, 404);
+    const body: unknown = await c.req.json().catch(() => null);
+    const check = validateSessionUiState(body);
+    if (!check.ok) return c.json({ error: check.reason }, 400);
+    await writeSessionUiState(dir, body as SessionUiState);
+    return c.json({ ok: true });
   });
 
   app.get("/api/models", async (c) => {

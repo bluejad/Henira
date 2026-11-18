@@ -13,7 +13,7 @@ import {
   type WebSlotName,
   webUiModule,
 } from "@henira/plugin-web-ui";
-import type { ServerFrame, SessionSummary } from "@henira/protocol";
+import type { GlobalUiState, ServerFrame, SessionSummary, SessionUiState } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
 import { makeT, Shell, type ShellProps } from "./shell.js";
@@ -64,6 +64,54 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   let frameAbort: AbortController | undefined;
   let moduleDispose: (() => void) | undefined;
   let keyListener: ((e: KeyboardEvent) => void) | undefined;
+  let pageHideListener: (() => void) | undefined;
+  // ── 会话绑定界面状态协调器（D-063）：宿主是唯一写者——部件/布局交 patch，此处顶层合并
+  //    + 统一 500ms 防抖整份 PUT；切会话前冲刷、pagehide 冲刷。undefined = 新会话文档未加载。
+  let uiState: SessionUiState | undefined;
+  let uiStateTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function flushUiState(): Promise<void> {
+    if (uiStateTimer !== undefined) {
+      clearTimeout(uiStateTimer);
+      uiStateTimer = undefined;
+    }
+    const id = sessionId;
+    const doc = uiState;
+    if (id === null || doc === undefined) return Promise.resolve();
+    if (opts.client.putSessionUiState === undefined) return Promise.resolve(); // 旧宿主端点缺席
+    return opts.client.putSessionUiState(id, doc).catch(() => {});
+  }
+
+  function updateUiState(patch: SessionUiState): void {
+    if (sessionId === null) return;
+    uiState = { ...(uiState ?? {}), ...patch };
+    if (uiStateTimer !== undefined) clearTimeout(uiStateTimer);
+    uiStateTimer = setTimeout(() => {
+      uiStateTimer = undefined;
+      void flushUiState();
+    }, 500);
+    render(); // 缓存已同步——消费 uiState 的件（折叠组等）要看到新值
+  }
+
+  /** 加载指定会话的界面绑定态（旧服务器无端点 / 加载失败 = 空文档，不阻塞选中） */
+  function loadUiState(id: string): void {
+    const job =
+      opts.client.getSessionUiState !== undefined
+        ? opts.client.getSessionUiState(id)
+        : Promise.resolve({} as SessionUiState);
+    void job
+      .then((doc) => {
+        if (sessionId !== id) return; // 期间用户已切走——丢弃过期文档
+        uiState = doc;
+        render();
+      })
+      .catch(() => {
+        if (sessionId === id) {
+          uiState = {};
+          render();
+        }
+      });
+  }
 
   // ── 槽位管理：激活 UI 模块（公共注册路径）或安全模式直用编译期出口 ──
   // 词表（D-033 区域 + D-043 官方三槽 + D-057 keyed 前缀）；词表外静默忽略（别的宿主词表同款），
@@ -239,8 +287,12 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       localeOverride,
       safeMode,
       sessionId,
+      uiState,
+      updateUiState,
       onSelectSession: (id) => {
+        void flushUiState(); // 冲刷旧会话 pending（flush 捕获的是切换前的 id+doc，不会串写）
         sessionId = id;
+        uiState = undefined; // 新会话文档未加载——件保持现状，到位后回填
         // cwd 就近回查（SessionList 只传 id；facade 的 getSession 带 cwd 供 listDir 等用）
         void opts.client
           .listSessions()
@@ -248,6 +300,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
             sessionCwd = all.find((s) => s.id === id)?.cwd ?? "";
           })
           .catch(() => {});
+        // 全局"上次选中"（D-063）：重启/刷新还原的依据；旧服务器无端点则静默跳过
+        if (id !== null && opts.client.putUiState !== undefined) {
+          void opts.client.putUiState({ lastSessionId: id }).catch(() => {});
+        }
         // 磁盘历史会话（不在扇出范围）补拉快照——否则选中即空对话（SSE 快照帧只发在订会话）
         if (id !== null && !store.has(id)) {
           void opts.client
@@ -259,6 +315,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
             .catch(() => {});
         }
         render();
+        if (id !== null) loadUiState(id);
       },
       onToggleSafe: (on) => {
         safeMode = on;
@@ -290,16 +347,33 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       root = createRoot(el);
       render();
       void consumeFrames().catch(() => {});
-      // 初始选择：已有会话选第一个；无则建一个（demo 友好）
-      void opts.client
-        .listSessions()
-        .then(async (all) => {
-          const picked = all.length === 0 ? await opts.client.createSession() : all[0];
-          sessionId = picked.id;
-          sessionCwd = picked.cwd;
-          render();
-        })
-        .catch(() => {});
+      // 初始选择（D-063 还原语义）：全局"上次选中"在列表则选它；否则最新更新（列表首）/建新。
+      // 旧服务器无 getUiState 端点 → 回落原行为，不阻塞启动
+      void (async () => {
+        const bootUi: Promise<GlobalUiState> =
+          opts.client.getUiState !== undefined
+            ? opts.client.getUiState().catch(() => ({ lastSessionId: null }))
+            : Promise.resolve({ lastSessionId: null });
+        const [all, ui] = await Promise.all([opts.client.listSessions(), bootUi]);
+        const restored =
+          ui.lastSessionId !== null ? all.find((s) => s.id === ui.lastSessionId) : undefined;
+        const picked = restored ?? (all.length === 0 ? await opts.client.createSession() : all[0]);
+        sessionId = picked.id;
+        sessionCwd = picked.cwd;
+        // 回写全局指针：boot 选定（含回落最新更新 / 新建）即固化为"上次选中"——不写则
+        // 指针恒 null，下次启动的回落会随"最新更新"漂移（活体自测 selftest7 抓到）
+        if (opts.client.putUiState !== undefined) {
+          void opts.client.putUiState({ lastSessionId: picked.id }).catch(() => {});
+        }
+        render();
+        loadUiState(picked.id);
+      })().catch(() => {});
+      // 关页前尽力冲刷草稿（D-063 写时机：防抖之外补冲刷；同源无 token 场景可靠，
+      // 带 token 时 best-effort——防抖主通道通常已落盘）
+      pageHideListener = (): void => {
+        void flushUiState();
+      };
+      window.addEventListener("pagehide", pageHideListener);
       // 双击 Alt 切安全模式（判据④运行时入口；?ui=safe 由入口解析 opts.safeMode）
       let lastAlt = 0;
       keyListener = (e: KeyboardEvent): void => {
@@ -323,6 +397,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     async dispose() {
       frameAbort?.abort();
       if (keyListener !== undefined) window.removeEventListener("keydown", keyListener);
+      if (pageHideListener !== undefined) window.removeEventListener("pagehide", pageHideListener);
       moduleDispose?.();
       root?.unmount();
       await opts.client.stop();

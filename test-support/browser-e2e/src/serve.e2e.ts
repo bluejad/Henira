@@ -235,7 +235,19 @@ test("directory area: add dir dialog, per-dir session, right-click delete", asyn
 test("long conversation: snapshot tail window, virtualization, loadOlder, back-to-bottom", async ({
   page,
 }) => {
-  await page.goto(server.url);
+  // 专属会话：D-063 后 boot 还原"上次选中"（上一用例点回的原会话），本用例必须显式切进
+  // 自己的空会话——回合计数与「回合 0 在顶」断言都以独占会话为前提
+  const longDir = await fs.mkdtemp(path.join(tmpdir(), "henira-e2e-long-"));
+  try {
+    await server.registry.create({ cwd: longDir });
+    await page.goto(server.url);
+    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.locator(".henira-sessions li button", { hasText: "henira-e2e-long" }).click();
+  } finally {
+    await fs.rm(longDir, { recursive: true, force: true }).catch(() => {});
+  }
 
   // 跑 32 个文本回合 → 64 行（> 尾窗 60；脚本按调用序消费 longTurnScript 段）
   const textarea = page.getByPlaceholder(zh["composer.placeholder"]);

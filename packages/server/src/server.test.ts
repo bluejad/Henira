@@ -403,6 +403,110 @@ describe("REST 面与设置", () => {
     }
   });
 
+  it("界面绑定状态（D-063）：全局缺省/写读 roundtrip/非法 400；每会话缺省/写读/落盘会话目录/未知 404/超限 400；重启同盘读回", async () => {
+    const { server, base, cleanup, dataDir } = await makeServer([]);
+    try {
+      // 全局：缺省
+      let res = await fetch(`${base}/api/ui-state`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ lastSessionId: null });
+      // 写读 roundtrip + 真落 state/ui.json
+      res = await fetch(`${base}/api/ui-state`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lastSessionId: "s-x-abcdef" }),
+      });
+      expect(res.status).toBe(200);
+      const globalRead = (await (await fetch(`${base}/api/ui-state`)).json()) as {
+        lastSessionId: string | null;
+      };
+      expect(globalRead.lastSessionId).toBe("s-x-abcdef");
+      const globalFile = JSON.parse(
+        await fs.readFile(path.join(dataDir, "state", "ui.json"), "utf8"),
+      ) as { lastSessionId: string | null };
+      expect(globalFile.lastSessionId).toBe("s-x-abcdef");
+      // 非法形状 400
+      res = await fetch(`${base}/api/ui-state`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lastSessionId: 42 }),
+      });
+      expect(res.status).toBe(400);
+
+      // 每会话：缺省 → 写读 → 文件落在会话目录
+      const id = await createSession(base);
+      res = await fetch(`${base}/api/sessions/${id}/ui-state`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+      res = await fetch(`${base}/api/sessions/${id}/ui-state`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          draft: "继续写",
+          sidebar: { collapsedGroups: ["--demo-key--"] },
+        }),
+      });
+      expect(res.status).toBe(200);
+      res = await fetch(`${base}/api/sessions/${id}/ui-state`);
+      expect(await res.json()).toEqual({
+        draft: "继续写",
+        sidebar: { collapsedGroups: ["--demo-key--"] },
+      });
+      const keys = await fs.readdir(path.join(dataDir, "projects"));
+      expect(keys.length).toBe(1);
+      const projectKey = keys[0] as string;
+      const sessionFile = path.join(
+        dataDir,
+        "projects",
+        projectKey,
+        "sessions",
+        id,
+        "ui-state.json",
+      );
+      expect(JSON.parse(await fs.readFile(sessionFile, "utf8"))).toMatchObject({ draft: "继续写" });
+      // 未知会话 404；非对象 400；超 64KB 400
+      expect((await fetch(`${base}/api/sessions/s-no-nothing/ui-state`)).status).toBe(404);
+      res = await fetch(`${base}/api/sessions/${id}/ui-state`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify([1, 2]),
+      });
+      expect(res.status).toBe(400);
+      res = await fetch(`${base}/api/sessions/${id}/ui-state`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ draft: "x".repeat(65 * 1024) }),
+      });
+      expect(res.status).toBe(400);
+    } finally {
+      await server.stop(); // 停服不删盘——重启还原段复用同一 dataDir
+    }
+
+    // 重启还原（D-063 判据）：同 dataDir 新 server 实例读回两份文档；每会话走扫盘兜底路径
+    const server2 = await createServer({
+      dataDir,
+      globalDir: path.join(dataDir, "config"),
+      llm: llmStub({ stream: async function* () {} } as unknown as LlmService),
+    });
+    try {
+      const base2 = server2.url;
+      const globalRead2 = (await (await fetch(`${base2}/api/ui-state`)).json()) as {
+        lastSessionId: string | null;
+      };
+      expect(globalRead2.lastSessionId).toBe("s-x-abcdef");
+      const keys2 = await fs.readdir(path.join(dataDir, "projects"));
+      const sessions2 = await fs.readdir(
+        path.join(dataDir, "projects", keys2[0] as string, "sessions"),
+      );
+      const res = await fetch(`${base2}/api/sessions/${sessions2[0]}/ui-state`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ draft: "继续写" });
+    } finally {
+      await server2.stop();
+      await cleanup();
+    }
+  });
+
   it("server.json 握手文件生命周期：跑时在、停后删", async () => {
     const dataDir = path.join(root, `handshake-${Math.random().toString(36).slice(2, 8)}`);
     const server = await createServer({

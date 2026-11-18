@@ -162,3 +162,34 @@ export interface DirBrowse {
   parent?: string;
   items: DirBrowseItem[];
 }
+
+/** GET/PUT /api/ui-state（全局界面态：backing state/ui.json——运行态不进 settings.json，D-063） */
+export interface GlobalUiState {
+  /** 全局"上次选中"：启动还原读之，在会话列表则选中，否则回落最新更新 / 新建 */
+  lastSessionId: string | null;
+}
+
+/** GET/PUT /api/sessions/:id/ui-state（每会话界面绑定态：<sessionDir>/ui-state.json，D-063）。
+ * 形状归 web 宿主所有，服务端不解释内容（整份收发 + 64KB 上限）；常用字段可选 + 开放索引
+ * 签名随宿主加法生长；rightPanel 留位随批 C（D-062 右栏 tab 框架）接线。删会话随整树走。 */
+export interface SessionUiState {
+  /** 输入框草稿文本 */
+  draft?: string;
+  sidebar?: {
+    /** 侧栏折叠的目录组（按项目 key） */
+    collapsedGroups?: string[];
+  };
+  layout?: {
+    /** 左侧栏拖动宽度 px（钳位由宿主管） */
+    leftWidth?: number;
+    /** 右栏宽度 px（右栏随批 C 落地后启用） */
+    rightWidth?: number;
+  };
+  /** 右栏开着的 tab（批 C 接线；只存引用，面板内部状态归插件 plugins-data/<id>/） */
+  rightPanel?: {
+    open?: boolean;
+    active?: string | null;
+    tabs?: Array<{ id: string; kind: string } & Record<string, unknown>>;
+  };
+  [key: string]: unknown;
+}

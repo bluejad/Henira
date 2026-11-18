@@ -4,12 +4,14 @@
 
 import type {
   DirBrowse,
+  GlobalUiState,
   PromptReceipt,
   RegisteredDir,
   RowsPage,
   ServerFrame,
   SessionSnapshot,
   SessionSummary,
+  SessionUiState,
 } from "@henira/protocol";
 import { frameQueue, type HeniraFacade } from "./facade.js";
 
@@ -150,6 +152,28 @@ export function createClient(opts: ClientOptions): HeniraFacade {
 
     async deleteSession(id) {
       await requestJson(`/api/sessions/${id}`, { method: "DELETE" });
+    },
+
+    async getUiState() {
+      return requestJson<GlobalUiState>("/api/ui-state");
+    },
+
+    async putUiState(doc) {
+      await requestJson("/api/ui-state", {
+        method: "PUT",
+        body: JSON.stringify(doc),
+      });
+    },
+
+    async getSessionUiState(sessionId) {
+      return requestJson<SessionUiState>(`/api/sessions/${sessionId}/ui-state`);
+    },
+
+    async putSessionUiState(sessionId, doc) {
+      await requestJson(`/api/sessions/${sessionId}/ui-state`, {
+        method: "PUT",
+        body: JSON.stringify(doc),
+      });
     },
 
     async snapshot(sessionId) {

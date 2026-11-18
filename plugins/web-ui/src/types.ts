@@ -13,6 +13,7 @@ import type {
   ServerFrame,
   SessionState,
   SessionSummary,
+  SessionUiState,
   ToolRow,
 } from "@henira/protocol";
 import type { ReactNode } from "react";
@@ -97,6 +98,11 @@ export interface WebPartContext {
   host: PluginUiHost;
   /** 槽位只读视图（区域槽 + 行级 keyed 槽，D-057）：官方默认件不在表内——未被顶替时生效 */
   slots: ReadonlyMap<string, readonly SlotPart[]>;
+  /** 每会话界面绑定态（D-063）：宿主加载好的当前会话文档；undefined = 未加载 / 宿主未实装 */
+  uiState?: SessionUiState;
+  /** 界面态写（D-063）：部件只交 patch，宿主顶层合并 + 统一防抖落盘（部件不自己 PUT）；
+   * 缺席 = 宿主未实装（件退化为纯内存态） */
+  updateUiState?(patch: SessionUiState): void;
 }
 
 export type WebPart = (ctx: WebPartContext) => ReactNode;
