@@ -721,3 +721,18 @@
   5. **确认弹窗不学 ZCode 两击原位确认**：我们是硬删（fs.rmSync 不可恢复），ZCode 软删才敢无弹窗——删除一律模态确认（BC 语义），目录删额外列明删除范围 + busy 红框禁用。
 - **理由**：文档先行——data-directory §4/§7 一年前就把形状和删除语义定稿了，本批是兑现不是新设计；下沉 plugin-session 让 runtime 形态零复制拿到同语义（facade.test 双形态一致套件锁定）；信任边界沿用回环三件套不新增防线——全局 readdir 的暴露面是目录名列表（无文件内容），在只绑回环 + token 的既有模型内可接受；若将来对公网开放（显式配置才可能），browse 端点应随部署面重审。
 - **备注**：interfaces.md server 段 REST 面（四个新端点 + DELETE 方法入面）、sdk 段门面方法表（14→19）、web 段侧栏目录区形态条；data-directory.md §4 标注已落地；测试：server.test 五用例 + facade.test 双形态两用例 + parts.test 五用例。ZCode 有而不做（范围控制，随批记）：重命名/置顶/归档/拖拽排序/搜索/视图筛选/⋯按钮/「查看文件」。
+
+## D-061 长会话渲染：行翻页 + 虚拟滚动（三家取证与取舍）
+
+- **状态**：已定 · 2026-11-18 · 批 A'（界面批收尾补课）；50-open 性能实测条保持挂账
+- **背景**：用户问「中间对话是否像 ZCode 分页拉取」→ 取证发现我们快照全量 + DOM 全量直通（几百轮会话首屏大、DOM 节点多、每帧全表重渲）。用户拍板「不要 demo 玩具思路——参照物做了什么就做什么」。取证底账：**ZCode**（docs/ui/chat-virtual-scroll.md 两份设计文档 + 实测数字：30 轮 20 次更新 row 执行 440→20、千轮搜索长任务 775→78ms；ConversationTimeline.tsx 2268 行——虚拟单位=轮、行高缓存 LRU 4000、bottom-lock 状态机、四源滚动意图、搜索定位协调）；**dsh**（SessionPageRequest `beforeSeq`+`maxMessages:50`+`turnWindow`，session-controller/src/history.ts:1「Cold Session history pagination」；主对话不虚拟化——每页 50 条够轻的场景赌注；TurnNavigator 固定行高虚拟化）；**两家同构处**：数据分页完全一个形状（游标=账本事件 seq、页 50-60 行、按轮边界切页、前插防跳顶）——账本事件溯源架构的自然推论。
+- **决定**：
+  1. **数据分页全抄（三家同构形状）**：行盖 `rowSeq` = 产生它的账本事件 seq（ingest 单点盖章；流式行取已见最大 seq）；快照窗口化尾窗 60（`hasOlder`/`totalRows` 随快照下发）；`GET /api/sessions/:id/rows?before=&limit=`（before=rowSeq 排他、服务端钳 200、页首向前补齐到轮边界——页不切轮）；`totalRows` 客户端自持（delta 追加自增、前插不变）、`hasOlder` 派生 `totalRows > rows.length`——快照帧只在连接时发，跨过窗口边界无帧通知，派生化让 hasOlder 永不过期（真浏览器抓的时序缺口）；
+  2. **对话虚拟滚动做轻量版**：tanstack react-virtual（ZCode 同款 ^3.13）+ 虚拟单位=轮（turn 相同行不拆散）+ measureElement 动态测高（estimateSize 一屏兜底）+ overscan 2 + sessionId 作内层 React key（会话切换重挂换测高缓存）；**砍掉 ZCode 复杂度大头**——搜索定位协调（v1 无搜索）、四源滚动意图+TTL（wheel/touch/方向键 capture 解除 + 贴底 48px 恢复 + 回底按钮够用）、多 pane 滚动记忆键、手机布局、编辑重发交接、history/tail 分区缓存（挂账实测）；
+  3. **bottom-follow 简版**：解除只由明确上滚手势触发（capture 阶段先于 scroll——程序化写入永不误解除），恢复只看落点距底 48px；dsh 显式「加载更早」按钮不取（滚动自动触发）；
+  4. **行引用不可变契约**（store）：未变行同一引用、变化行新对象（row.delta 不再原地 mutate）——RowView/SessionRow memo 的前提；**memo 比较函数必须拆稳定子集**（row + t + host + slots）——ctx 本体每渲染都是新对象（`<Part {...ctxValue}/>` spread），比 ctx 本体 = 永不命中 = memo 纯摆设（测试抓到的真 bug）；
+  5. **侧栏不虚拟化**（范围控制非缩水）：折叠组天然不渲染子行（ZCode 折叠组同行为），会话行 memo 化；ZCode 侧栏阈值虚拟化（>80 行）挂账——触发信号 = 实测卡顿或几百会话场景；
+  6. **jsdom 降级**：无 ResizeObserver → 全量渲染路径——组件测试不依赖布局（22 用例零改动）；真浏览器行为由 e2e 用例④锁定；
+  7. **React 19 onScroll 委托失效**（真浏览器实证，jsdom fireEvent 直走事件系统测不出——第三次实证「jsdom 不替代」）：滚动裁决改原生 `addEventListener("scroll", {capture, passive})` + ref 转发最新闭包。
+- **理由**：分页形状三家一致是架构必然，照抄零争议；虚拟化分歧是场景赌注（ZCode 桌面千轮+搜索+多 pane vs dsh web 短会话）——我们渲染器重（shiki）且视觉参照 ZCode，虚拟化必做；但 2268 行的复杂度大头是搜索协调等我们无的功能，全抄=死重。**工程过程教训**：web-ui 改动必须 `pnpm build`（tsc 出 dist）再 bundle 再 e2e——web 包从 web-ui 的 **dist** 消费，漏 build 则 bundle 吃旧代码（三轮诊断白跑的根因，坑册既有条目「web 包 vitest 消费 web-ui dist」的 bundle 版）。
+- **备注**：interfaces.md（REST /rows、SessionSnapshot 窗口字段、Row.rowSeq、facade sessionRows 19→20、web 段虚拟滚动形态条）；docs/20-architecture/render-performance.md 新增（渲染边界与更新隔离契约，照 ZCode 文档先例自家写法）；e2e 用例④（64 行会话：尾窗/虚拟化挂载块<10/滚轮翻页 index0 变回合 0/阅读位置稳定/回底按钮）+ 截图 09-12；测试 store 四用例 + facade 双形态 + parts 三用例。不做随批记：会话内搜索定位/四源意图+TTL/多 pane 记忆/手机布局/编辑重发交接/history-tail 分区缓存/JSONL 倒序窗口读（磁盘翻页暂全读重建）。

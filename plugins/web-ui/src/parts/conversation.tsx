@@ -119,14 +119,26 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     };
   }, []);
 
-  // 滚动裁决：落点贴底（<48px）恢复跟随；滚顶触发翻页
-  const handleScroll = (): void => {
+  // 滚动裁决：落点贴底（<48px）恢复跟随；滚顶触发翻页。
+  // React 19 的 onScroll 合成事件对非冒泡 scroll 委托失效（真浏览器实证——jsdom fireEvent
+  // 直走 React 事件系统测不出）→ 原生 listener + ref 转发最新闭包（与 wheel/touch 同法）
+  const onScrollRef = useRef<() => void>(() => {});
+  onScrollRef.current = (): void => {
     const el = scrollRef.current;
     if (el === null) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distance < BOTTOM_EPSILON_PX && !followingRef.current) commitFollowing(true);
     if (el.scrollTop < LOAD_OLDER_TRIGGER_PX && snapshot.hasOlder && !loadingOlder) loadOlder();
   };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    const fn = (): void => onScrollRef.current();
+    el.addEventListener("scroll", fn, { capture: true, passive: true });
+    return () => {
+      el.removeEventListener("scroll", fn, { capture: true });
+    };
+  }, []);
 
   const loadOlder = (): void => {
     const first = snapshot.rows[0];
@@ -167,7 +179,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
 
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex" }}>
-      <div className="henira-conversation" ref={scrollRef} onScroll={handleScroll}>
+      <div className="henira-conversation" ref={scrollRef}>
         {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
         <ConversationTimeline
           key={ctx.sessionId ?? "none"}

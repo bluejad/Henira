@@ -468,7 +468,8 @@ interface SessionSummary {
 POST /api/sessions                          { cwd? }    → SessionSummary   // cwd 传必须绝对路径（400）；建成功自动登记 projects.json（D-060）
 GET  /api/sessions                                      → SessionSummary[]
 DELETE /api/sessions/:id                                → { ok: true }     // busy → 409 { code: "session_busy" }；删账本目录整棵（data-directory §7）
-GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口）
+GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口；长会话 = 尾窗 60——ZCode snapshotTailWindowRows 同档）
+GET  /api/sessions/:id/rows?before=&limit=              → RowsPage        // 行翻页（长会话历史：before = rowSeq 排他游标、页首补齐到轮边界、limit 钳 200——D-061）
 POST /api/sessions/:id/prompt               { text }    → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 POST /api/sessions/:id/interrupt                        → { ok: true }
@@ -600,8 +601,10 @@ interface SessionState {
 interface SessionSnapshot {
   sessionId: string;
   seq: number;
-  rows: Row[];
+  rows: Row[]; // 尾部窗口（长会话只含最近段——历史经 /rows 翻页拉取，D-061）
   state: SessionState;
+  hasOlder: boolean; // 窗口首行之前还有历史（客户端此后派生 totalRows > rows.length——快照帧只发一次，派生化防过期）
+  totalRows: number; // 全序行数（客户端自持：delta 追加自增、前插不变）
 }
 
 // 封闭增量语法（4 操作）——结构变化换整行、文本增长用增量；表达不了的结构变化 → 整体快照
@@ -654,6 +657,11 @@ interface PromptReceipt {
   id: string | null;
 } // id = 排队条目 id（忙时）；null = 闲时直跑
 
+interface RowsPage {
+  rows: Row[];
+  hasOlder: boolean;
+} // GET /rows 与 facade.sessionRows 共同载荷（hasOlder=false = 已到顶）
+
 interface HeniraFacade {
   stop(): Promise<void>; // 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
@@ -662,7 +670,7 @@ interface HeniraFacade {
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
-  snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉
+  snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉（长会话 = 尾窗 60）
   getSettings(): Promise<SettingsData>; // 设置读（settings.json；凭据永不出现，D-030）
   putSettings(patch: {
     model?: string;
@@ -731,6 +739,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；
   - 布局与部件基线（批 A3，2026-11-17 用户拍板照 ZCode/BC 形态）：**会话列表按工作目录分组**（折叠组头 = caret + 目录名 + 会话数徽标，活跃会话所在组自动展开——BC「目录」/ZCode projects view 行为层）；**设置齿轮住侧栏左下**固定行（ZCode WorkspaceSidebarFooter 行为层）；**输入卡两层**（输入行上 / 工具排下；卡 focus-within 边框变 accent + 底色提亮、内部无独立焦点环），工具排左 = 模型选择器（宿主设置/目录面齐备时渲染，值变更走 putSettings）、右 = 圆形发送钮；**发送/停止语义 = ZCode**（忙+有草稿 = 发送排队、忙+空草稿 = 停止——有字时圆钮恒为发送）；prompt 失败回填草稿 + 行内错误提示（不静默）；**对话列宽三档**（列含内衬默认 808px → 视口 ≥1124px 896 → ≥1540px 1152，对话列与输入 dock 同档——ZCode conversationLayout 672/896/1152 行为层）；**滚动条细圆条**（14px 槽 / thumb 3px 透明边 padding-box 胶囊 / track 透明 / 色=border 派生档，对话列 `scrollbar-gutter: stable`——ZCode styles.css 数值档行为层，实现自家写法）；usage 徽章全 0 不渲染；
+  - **长会话渲染（批 A'，2026-11-18——D-061）**：对话时间线虚拟滚动（tanstack react-virtual——ZCode 同款；虚拟单位 = 轮，turn 相同行不拆散；measureElement 动态测高、estimateSize 一屏兜底、overscan 2；会话切换以 sessionId 为内层 React key 重挂换测高缓存）；**bottom-follow**（上滚手势 wheel/touchmove/方向键 capture 解除 + 落点贴底 48px 恢复 + 回底按钮——dsh 显式按钮不取）；**滚顶翻页**（scrollTop < 64 且 hasOlder → `sessionRows(before=窗口首行 rowSeq)` → store 前插合并（只收窗口首行之前 + rowId 去重）+ scrollTop 补位防跳顶；宿主缺 sessionRows = 静态窗口）；**行引用契约**（store：未变行同引用、变化行新对象）+ RowView/SessionRow memo（比较函数拆稳定子集 row+t+host+slots——ctx 本体每渲染新对象不可比）；jsdom 无 ResizeObserver 降级全量渲染；
   - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径——BC OpenDirectoryDialog 行为层自家写法）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——BC 确认弹窗 + busy 前置守卫语义）；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT，light/regular 档细线），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
   - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）；

@@ -8,7 +8,14 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mockFinish, mockLlm, mockToolCall, mockUsage } from "@henira/llm-mock";
+import {
+  type MockEntry,
+  mockFinish,
+  mockLlm,
+  mockText,
+  mockToolCall,
+  mockUsage,
+} from "@henira/llm-mock";
 import { zh } from "@henira/plugin-web-ui";
 import type { StreamEvent, ToolDefinition } from "@henira/protocol";
 import { createServer, type HeniraServer } from "@henira/server";
@@ -40,9 +47,16 @@ async function* finalStream(): AsyncGenerator<StreamEvent> {
   yield { type: "finish", reason: "stop" };
 }
 
+// 用例④（长会话翻页/虚拟化）消费脚本段：32 个纯文本回合（64 行 > 快照尾窗 60）
+const LONG_TURNS = 32;
+const longTurnScript: MockEntry[] = Array.from({ length: LONG_TURNS }, (_, i) => [
+  mockText(`回合 ${i} 正文`),
+  mockFinish("stop"),
+]);
 const mock = mockLlm([
   [mockToolCall("c1", "probe", '{"question":"ping"}'), mockUsage(USAGE), mockFinish("tool-calls")],
   finalStream(),
+  ...longTurnScript,
 ]);
 
 /** llm 槽位包装（examples/mock 同款）：mockLlm 给的是 LlmService，槽位要 ServiceDefinition */
@@ -214,4 +228,73 @@ test("directory area: add dir dialog, per-dir session, right-click delete", asyn
   } finally {
     await fs.rm(pickDir, { recursive: true, force: true }).catch(() => {});
   }
+});
+
+// ── 用例 ④：长会话（批 A'）——快照尾窗 / 虚拟化窗口挂载 / 滚顶翻页不跳顶 / 回底按钮 ──
+
+test("long conversation: snapshot tail window, virtualization, loadOlder, back-to-bottom", async ({
+  page,
+}) => {
+  await page.goto(server.url);
+
+  // 跑 32 个文本回合 → 64 行（> 尾窗 60；脚本按调用序消费 longTurnScript 段）
+  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  for (let i = 0; i < LONG_TURNS; i++) {
+    await textarea.fill(`长会话问 ${i}`);
+    await textarea.press("Enter");
+    // 等该回合落定：assistant 文本出现（行数单调——确定性事实，不用 busy 位）
+    await expect(page.getByText(`回合 ${i} 正文`).first()).toBeVisible({ timeout: 15_000 });
+  }
+  await page.waitForTimeout(300); // 末回合投影收尾
+
+  // 重新连接：新连接快照走尾窗 60（64 行 > 60 → hasOlder true）——这是翻页数据的前置
+  await page.reload();
+  await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(300); // 快照帧应用 + 首帧渲染
+
+  // 虚拟化生效：挂载的轮块（[data-index]）远小于总轮数（32 轮——可视窗 + overscan 2）
+  const mounted = await page.locator(".henira-conversation [data-index]").count();
+  expect(mounted).toBeLessThan(10);
+  await page.screenshot({ path: `${ARTIFACTS}/09-long-tail-window.png` });
+
+  // 真实滚轮连滚到顶（上滚手势解除跟随——与真实用户路径一致；程序化 scrollTop 不解除，
+  // 跟随中的贴底语义会把视口拽回底部，那不是翻页路径）
+  const conv = page.locator(".henira-conversation");
+  await conv.hover();
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.wheel(0, -600);
+    const top = await conv.evaluate((el) => (el as HTMLElement).scrollTop);
+    if (top < 4) break;
+  }
+  // 滚顶触发 loadOlder：前插后首个虚拟块（data-index=0）从「回合 2」变「回合 0」
+  // （scrollHeight 随挂载窗口浮动不可靠——虚拟化下用块内容断言）
+  await expect
+    .poll(
+      async () =>
+        await conv.evaluate(() => {
+          const first = document.querySelector(".henira-conversation [data-index='0']");
+          return first?.textContent?.includes("回合 0") ? true : undefined;
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  // 阅读位置稳定（前插不跳顶的用户可感知结果）：翻页前视口顶部内容（回合 2）仍可见
+  await expect(page.getByText("问 2")).toBeVisible();
+  await page.screenshot({ path: `${ARTIFACTS}/10-load-older-prepended.png` });
+
+  // 回底按钮：离底即出现（滚轮上滚已解除跟随）→ 点击回底 → 按钮消失
+  const back = page.getByRole("button", { name: zh["conversation.backToBottom"] });
+  await expect(back).toBeVisible();
+  await page.screenshot({ path: `${ARTIFACTS}/11-back-to-bottom-visible.png` });
+  await back.click();
+  await expect(back).toBeHidden();
+  const atBottom = await conv.evaluate(
+    (el) =>
+      (el as HTMLElement).scrollHeight -
+        (el as HTMLElement).scrollTop -
+        (el as HTMLElement).clientHeight <
+      64,
+  );
+  expect(atBottom).toBe(true);
+  await page.screenshot({ path: `${ARTIFACTS}/12-back-at-bottom.png` });
 });

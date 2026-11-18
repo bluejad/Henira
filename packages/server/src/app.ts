@@ -393,7 +393,11 @@ export function createApp(deps: AppDeps): Hono {
             data: JSON.stringify({
               kind: "snapshot",
               sessionId: entry.id,
-              snapshot: entry.projection.snapshot(entry.id, deps.fanout.currentSeq(entry.id)),
+              // 连接快照帧与 GET /snapshot 同窗口化（60）——不一致则 store 里 hasOlder 派生
+              // 恒 false（64 行全量 → totalRows==rows.length），翻页永不触发（真浏览器实证）
+              snapshot: entry.projection.snapshot(entry.id, deps.fanout.currentSeq(entry.id), {
+                tailRows: SNAPSHOT_TAIL_ROWS,
+              }),
             } satisfies ServerFrame),
           });
         }

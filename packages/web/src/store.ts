@@ -23,7 +23,6 @@ export class RowStore {
       byId: Map<string, Row>;
       state: SessionState;
       lastSeq: number;
-      hasOlder: boolean;
       totalRows: number;
       version: number;
     }
@@ -81,7 +80,7 @@ export class RowStore {
       view: {
         rows: [...session.rows],
         state: { ...session.state },
-        hasOlder: session.hasOlder,
+        hasOlder: session.totalRows > session.rows.length,
         totalRows: session.totalRows,
       },
       version: this.#version,
@@ -96,8 +95,9 @@ export class RowStore {
     session.byId = new Map(snapshot.rows.map((row) => [row.rowId, row]));
     session.state = { ...snapshot.state };
     session.lastSeq = snapshot.seq;
-    session.hasOlder = snapshot.hasOlder ?? false; // 兜底：老 client / 测试桩无窗口字段
-    session.totalRows = snapshot.totalRows ?? snapshot.rows.length;
+    // totalRows = 全序行数，此后客户端自持（delta 追加自增、前插不变）——快照帧只在连接时发，
+    // 跨过窗口边界时 hasOlder 无帧通知 → hasOlder 改派生（totalRows > rows.length），永不过期
+    session.totalRows = snapshot.totalRows ?? snapshot.rows.length; // 兜底：老 client / 测试桩无窗口字段
     this.#touch(frame.sessionId);
   }
 
@@ -122,6 +122,7 @@ export class RowStore {
         const row = delta.row;
         session.rows.push(row);
         session.byId.set(row.rowId, row);
+        session.totalRows += 1; // 全序行数客户端自持（新行 = 新账本事实）
         break;
       }
       case "row.delta": {
@@ -166,7 +167,6 @@ export class RowStore {
     byId: Map<string, Row>;
     state: SessionState;
     lastSeq: number;
-    hasOlder: boolean;
     totalRows: number;
     version: number;
   } {
@@ -177,7 +177,6 @@ export class RowStore {
         byId: new Map(),
         state: { busy: false },
         lastSeq: 0,
-        hasOlder: false,
         totalRows: 0,
         version: 0,
       };
