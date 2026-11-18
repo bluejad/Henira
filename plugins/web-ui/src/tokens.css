@@ -736,6 +736,32 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text-muted);
 }
 
+/* 「目录」区标题行本体 = 折叠开关（用户反馈②：点标题收起/展开整个目录列表，纯本地不持久化） */
+.henira-app button.henira-dirs-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-1);
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  padding: 2px 4px;
+}
+.henira-app button.henira-dirs-toggle:hover {
+  border: none;
+  background: var(--henira-surface-hover);
+}
+
+/* 左下角设置按钮 = 通栏（用户反馈⑤：宽度等于左栏宽，齿轮住左；横向内边距按钮自带——
+   footer 不再顶它） */
+.henira-app button.henira-footer-settings {
+  width: 100%;
+  text-align: left;
+  padding: 6px var(--henira-space-4);
+}
+
 /* ── 侧栏目录区交互（R127）：hover 显隐 + 右键菜单 + 删除确认/新增目录弹窗 ── */
 /* hover 显隐（ZCode WorkspacePurposeSection / ProjectNodeContent 行为层：hover 才出现，
    focus-within 键盘可达；data-open 常显出口留给菜单开着等状态） */
@@ -975,9 +1001,11 @@ button:focus-visible > .henira-row-caret {
 
 /* ── 三栏骨架（D-062 UI 侧子项）：中列 header / 右栏 tab 框架 / 设置弹窗左菜单 / 新会话行 ── */
 
-/* 中列 header：目录名 · 会话标题占位（ZCode WorkspaceHeader h-12 行为层） */
+/* 中列 header：目录名 · 会话标题占位（ZCode WorkspaceHeader h-12 行为层）；box-sizing 进框——
+   48px 含底边线，与左品牌行/右 tab 条同一条线（用户反馈④，活体测量 48/49 不齐修） */
 .henira-header {
   height: var(--henira-header-height);
+  box-sizing: border-box;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1019,18 +1047,21 @@ button:focus-visible > .henira-row-caret {
   z-index: 40;
   background: var(--henira-bg);
 }
-/* 收起态窄轨（ZCode 边缘轨行为层）：只放 ＋——面板关着也要有入口 */
+/* 收起态窄轨（ZCode 边缘轨行为层）：只放 ＋——面板关着也要有入口（＋ 格顶格 48px 见
+   .henira-right-barbtn 之后的 rail 作用域规则——顶线收起态也不断，用户反馈④） */
 .henira-right-rail {
   width: 36px;
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: var(--henira-space-2);
   box-sizing: border-box;
 }
 .henira-right-tabs {
-  height: 40px;
+  /* 三栏顶等高（用户反馈④，照 ZCode h-12=48px 一条线）：左品牌行/中 header/右 tab 条同 var；
+     box-sizing 进框——48px 含底边线 */
+  height: var(--henira-header-height);
+  box-sizing: border-box;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1129,6 +1160,13 @@ button:focus-visible > .henira-row-caret {
 .henira-right-barbtn:hover {
   background: var(--henira-surface-hover);
   color: var(--henira-text);
+}
+/* 窄轨里的 ＋ 格顶格 48px（顶线收起态也不断——与三栏顶等高同批，用户反馈④） */
+.henira-right-rail .henira-right-barbtn {
+  height: var(--henira-header-height);
+  width: 100%;
+  border-bottom: 1px solid var(--henira-border);
+  border-radius: 0;
 }
 .henira-right-body {
   flex: 1;

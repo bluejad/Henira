@@ -85,6 +85,9 @@ function ThemePage(props: { ctx: WebPartContext; themes: UiAssetTheme[] }): Reac
         onChange={(e) => {
           const id = e.target.value;
           ctx.onTheme?.(id, props.themes.find((t) => t.name === id)?.url);
+          // 持久化（用户反馈：选深色刷新回落亮色——改前只切内存不落盘）：settings.json
+          // ui.theme；旧服务器无 putSettings 静默跳过
+          void ctx.client.putSettings?.({ ui: { theme: id } }).catch(() => {});
         }}
       >
         <option value="light">{ctx.t("settings.theme.light")}</option>
@@ -120,6 +123,8 @@ function LocalePage(props: { ctx: WebPartContext; locales: UiAssetLocale[] }): R
 
   const changeLocale = (lang: string): void => {
     setLocaleId(lang);
+    // 持久化（与主题同款两处断头的另一半）：settings.json ui.locale
+    void ctx.client.putSettings?.({ ui: { locale: lang } }).catch(() => {});
     if (lang === "zh") {
       ctx.onLocale?.(undefined, "zh"); // 官方 zh = 无覆盖字典
       return;

@@ -163,10 +163,76 @@ describe("createWebApp", () => {
     el.remove();
   });
 
-  it("设置浮层列已装主题包：选择即注入 <link> + 切 data-theme；安全模式回落官方默认（D-059）", async () => {
+  it("设置浮层列已装主题包：选择即注入 <link> + 切 data-theme + 写盘 ui.theme；安全模式回落官方默认（D-059）", async () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const puts: unknown[] = [];
+    const client = fakeClient({
+      listUiAssets: async () => ({
+        locales: [],
+        themes: [
+          {
+            pluginId: "sea-pack",
+            version: "1.0.0",
+            name: "sea",
+            url: "/api/ui-assets/sea-pack/1.0.0/themes/sea.css",
+          },
+        ],
+      }),
+      putSettings: async (doc) => {
+        puts.push(doc);
+        return { version: 1 };
+      },
+    });
+    const app = createWebApp({ client });
+    app.mount(el);
+    await new Promise((r) => setTimeout(r, 50));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    const dialog = await screen.findByRole("dialog", { name: "设置" });
+    const themeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
+    fireEvent.change(themeSelect, { target: { value: "sea" } });
+    expect(el.dataset.theme).toBe("sea"); // 容器切主题 id
+    const link = document.head.querySelector("link[data-henira-theme]");
+    expect(link?.getAttribute("href")).toBe("/api/ui-assets/sea-pack/1.0.0/themes/sea.css");
+    expect(themeSelect.value).toBe("sea"); // 显示值跟随主题（onTheme 漏 render 回归锚，R125）
+    // 持久化（补全①写侧）：选择即落盘 settings.json ui.theme——刷新才有得还原
+    expect(puts).toEqual([{ ui: { theme: "sea" } }]);
+    // 安全模式回落官方默认：第三方主题/语言收起（D-059 决定 4）
+    app.setSafeMode(true);
+    expect(el.dataset.theme).toBe("light");
+    expect(document.head.querySelector("link[data-henira-theme]")).toBeNull();
+    await app.dispose();
+    el.remove();
+  });
+
+  it("主题持久化还原（补全①读侧）：settings.ui.theme=dark → boot 即深色，刷新不再回落亮色", async () => {
     const el = document.createElement("div");
     document.body.append(el);
     const client = fakeClient({
+      getSettings: async () => ({ version: 1, ui: { theme: "dark" } }),
+    });
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (el.dataset.theme !== "dark") {
+            throw new Error(`theme not restored; got ${String(el.dataset.theme)}`);
+          }
+        },
+        { timeout: 4000 },
+      );
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
+  it("主题包持久化还原：ui.theme=sea（已装包）→ boot 按资产清单回查地址注入 <link>", async () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const client = fakeClient({
+      getSettings: async () => ({ version: 1, ui: { theme: "sea" } }),
       listUiAssets: async () => ({
         locales: [],
         themes: [
@@ -181,21 +247,21 @@ describe("createWebApp", () => {
     });
     const app = createWebApp({ client });
     app.mount(el);
-    await new Promise((r) => setTimeout(r, 50));
-    fireEvent.click(screen.getByRole("button", { name: "设置" }));
-    const dialog = await screen.findByRole("dialog", { name: "设置" });
-    const themeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
-    fireEvent.change(themeSelect, { target: { value: "sea" } });
-    expect(el.dataset.theme).toBe("sea"); // 容器切主题 id
-    const link = document.head.querySelector("link[data-henira-theme]");
-    expect(link?.getAttribute("href")).toBe("/api/ui-assets/sea-pack/1.0.0/themes/sea.css");
-    expect(themeSelect.value).toBe("sea"); // 显示值跟随主题（onTheme 漏 render 回归锚，R125）
-    // 安全模式回落官方默认：第三方主题/语言收起（D-059 决定 4）
-    app.setSafeMode(true);
-    expect(el.dataset.theme).toBe("light");
-    expect(document.head.querySelector("link[data-henira-theme]")).toBeNull();
-    await app.dispose();
-    el.remove();
+    try {
+      await vi.waitFor(
+        () => {
+          if (el.dataset.theme !== "sea") {
+            throw new Error(`pack theme not restored; got ${String(el.dataset.theme)}`);
+          }
+        },
+        { timeout: 4000 },
+      );
+      const link = document.head.querySelector("link[data-henira-theme]");
+      expect(link?.getAttribute("href")).toBe("/api/ui-assets/sea-pack/1.0.0/themes/sea.css");
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
   });
 
   it("界面绑定状态（D-063）：启动还原上次选中（非列表第一个）+ 点选写全局指针 + 会话文档回填", async () => {

@@ -11,6 +11,7 @@ import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
 import { CircleNotchIcon } from "@phosphor-icons/react/dist/csr/CircleNotch";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
+import { HorseIcon } from "@phosphor-icons/react/dist/csr/Horse";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
@@ -33,6 +34,11 @@ export function CaretDownGlyph(props: Props) {
 
 export function GearGlyph(props: Props) {
   return <GearSixIcon size={props.size ?? 16} color={props.color} />;
+}
+
+/** 品牌图标（Henira 词源 ἡνία「缰绳」——马具点题） */
+export function HorseGlyph(props: Props) {
+  return <HorseIcon size={props.size ?? 16} color={props.color} weight="fill" />;
 }
 
 export function MagnifierGlyph(props: Props) {

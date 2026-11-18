@@ -6,7 +6,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutOption, WebPart, WebPartContext, WebSlotName } from "../types.js";
-import { GearGlyph } from "./icons.js";
+import { GearGlyph, HorseGlyph } from "./icons.js";
 import { SettingsModal } from "./settings-modal.js";
 
 /** 侧栏拖宽钳位（D-063；tokens.css --henira-sidebar-width 260 为未拖过时的 var 缺省） */
@@ -134,14 +134,42 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
             flexShrink: 0,
           }}
         >
+          {/* 品牌行（ZCode 左栏顶部行行为层：logo 住栏顶，48px 与中右两栏顶连成一条线） */}
+          <div
+            className="henira-brand"
+            style={{
+              height: "var(--henira-header-height)",
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--henira-space-2)",
+              padding: "0 var(--henira-space-4)",
+              borderBottom: "1px solid var(--henira-border)",
+              borderRight: "1px solid var(--henira-border)",
+              background: "var(--henira-surface)",
+              boxSizing: "border-box",
+            }}
+          >
+            <HorseGlyph size={16} color="var(--henira-text-strong)" />
+            <span
+              style={{
+                fontWeight: 600,
+                color: "var(--henira-text-strong)",
+                fontSize: "var(--henira-fs-base)",
+              }}
+            >
+              {t("app.title")}
+            </span>
+          </div>
           <div style={{ flex: 1, minHeight: 0 }}>{renderParts("sidebar")}</div>
-          {/* 底部固定行（ZCode WorkspaceSidebarFooter 行为层：footer shrink-0 收尾）——齿轮住左下 */}
+          {/* 底部固定行（ZCode WorkspaceSidebarFooter 行为层：footer shrink-0 收尾）——齿轮住左下；
+              横向零内边距（按钮自身带）——按钮宽=左栏宽（用户反馈⑤） */}
           <footer
             style={{
               flexShrink: 0,
               display: "flex",
               alignItems: "center",
-              padding: "var(--henira-space-2) var(--henira-space-4) var(--henira-space-4)",
+              padding: "var(--henira-space-2) 0 var(--henira-space-4)",
               background: "var(--henira-surface)",
               borderRight: "1px solid var(--henira-border)",
               boxSizing: "border-box",
@@ -150,6 +178,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
           >
             <button
               type="button"
+              className="henira-footer-settings"
               aria-label={t("settings.open")}
               title={t("settings.title")}
               onClick={() => {

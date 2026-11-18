@@ -125,6 +125,20 @@ describe("SessionList", () => {
     expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1); // demo 行回来（other 仍收起）
   });
 
+  it("目录区标题行本体 = 折叠开关：点标题收起/展开整个目录列表（纯本地，不持久化——用户反馈②）", async () => {
+    const { container } = render(<SessionList {...fixtureCtx()} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
+    });
+    const toggle = container.querySelector("button.henira-dirs-toggle") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelectorAll("button.henira-session-group")).toHaveLength(0); // 整个列表收起
+    fireEvent.click(toggle);
+    expect(container.querySelectorAll("button.henira-session-group")).toHaveLength(2); // 原样回来
+  });
+
   it("活跃会话所在组自动展开（选中即见其组）", async () => {
     const ctx = fixtureCtx();
     const { container, rerender } = render(<SessionList {...ctx} />);

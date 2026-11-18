@@ -88,6 +88,8 @@ type MenuState =
 export const SessionList: WebPart = (ctx: WebPartContext) => {
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
   const [dirs, setDirs] = useState<readonly RegisteredDir[] | null>(null);
+  // 「目录」区标题行折叠/展开（纯本地态，用户确认 2026-11-19：不持久化——跟下面分组同玩法）
+  const [dirsCollapsed, setDirsCollapsed] = useState(false);
   // 折叠组是纯本地态（用户裁决 2026-11-18：折叠不持久化——刷新/重启只展开选中会话所在组、
   // 其余组收起；平时的折叠/展开是临时操作，不落盘、不跨刷新还原）
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -220,7 +222,23 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
           marginBottom: "var(--henira-space-3)",
         }}
       >
-        <strong style={{ color: "var(--henira-text-strong)" }}>{ctx.t("dirs.title")}</strong>
+        {/* 标题行本体 = 折叠开关（点它收起/展开整个目录列表；纯本地不持久化） */}
+        <button
+          type="button"
+          className="henira-dirs-toggle"
+          aria-expanded={!dirsCollapsed}
+          onClick={() => {
+            setDirsCollapsed((v) => !v);
+          }}
+        >
+          <span
+            className="henira-group-caret"
+            style={{ transform: dirsCollapsed ? "none" : "rotate(90deg)" }}
+          >
+            <CaretGlyph size={12} />
+          </span>
+          <strong style={{ color: "var(--henira-text-strong)" }}>{ctx.t("dirs.title")}</strong>
+        </button>
         {hasDirSupport ? (
           <button
             type="button"
@@ -235,87 +253,92 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
           </button>
         ) : null}
       </div>
-      {sessions.length === 0 && groups.length === 0 ? (
-        <span style={{ color: "var(--henira-text-muted)" }}>{ctx.t("sessions.empty")}</span>
-      ) : (
-        <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
-          {groups.map((group) => {
-            const open = !collapsed.has(group.cwd);
-            return (
-              <section
-                key={group.cwd || "__ungrouped__"}
-                style={{ marginBottom: "var(--henira-space-2)" }}
-              >
-                <div className="henira-group-row">
-                  <button
-                    type="button"
-                    className="henira-session-group"
-                    aria-expanded={open}
-                    title={group.cwd}
-                    onContextMenu={(e) => {
-                      if (group.dir === undefined || ctx.client.deleteDir === undefined) return; // 未登记组 / 宿主无删除面 → 无目录级操作
-                      e.preventDefault();
-                      setMenu({ kind: "dir", x: e.clientX, y: e.clientY, dir: group.dir });
-                    }}
-                    onClick={() => {
-                      toggle(group.cwd);
-                    }}
-                  >
-                    <span
-                      className="henira-group-caret"
-                      style={{ transform: open ? "rotate(90deg)" : "none" }}
-                    >
-                      <CaretGlyph size={12} />
-                    </span>
-                    <span
-                      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    >
-                      {group.label}
-                    </span>
-                    <span className="henira-session-count">{group.sessions.length}</span>
-                  </button>
-                  {hasDirSupport && group.cwd !== "" ? (
+      {!dirsCollapsed &&
+        (sessions.length === 0 && groups.length === 0 ? (
+          <span style={{ color: "var(--henira-text-muted)" }}>{ctx.t("sessions.empty")}</span>
+        ) : (
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+            {groups.map((group) => {
+              const open = !collapsed.has(group.cwd);
+              return (
+                <section
+                  key={group.cwd || "__ungrouped__"}
+                  style={{ marginBottom: "var(--henira-space-2)" }}
+                >
+                  <div className="henira-group-row">
                     <button
                       type="button"
-                      className="henira-hover-reveal henira-group-add"
-                      aria-label={ctx.t("menu.newSession")}
-                      title={ctx.t("menu.newSession")}
+                      className="henira-session-group"
+                      aria-expanded={open}
+                      title={group.cwd}
+                      onContextMenu={(e) => {
+                        if (group.dir === undefined || ctx.client.deleteDir === undefined) return; // 未登记组 / 宿主无删除面 → 无目录级操作
+                        e.preventDefault();
+                        setMenu({ kind: "dir", x: e.clientX, y: e.clientY, dir: group.dir });
+                      }}
                       onClick={() => {
-                        createIn(group.cwd);
+                        toggle(group.cwd);
                       }}
                     >
-                      +
-                    </button>
-                  ) : null}
-                </div>
-                {open ? (
-                  <ul
-                    style={{
-                      listStyle: "none",
-                      margin: 0,
-                      padding: "0 0 0 var(--henira-space-4)",
-                    }}
-                  >
-                    {group.sessions.map((s) => (
-                      <SessionRow
-                        key={s.id}
-                        session={s}
-                        selected={ctx.sessionId === s.id}
-                        ctx={ctx}
-                        canDelete={canDeleteSession}
-                        onSelect={ctx.selectSession}
-                        onContextMenu={(session, x, y) => {
-                          setMenu({ kind: "session", x, y, session });
+                      <span
+                        className="henira-group-caret"
+                        style={{ transform: open ? "rotate(90deg)" : "none" }}
+                      >
+                        <CaretGlyph size={12} />
+                      </span>
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
                         }}
-                      />
-                    ))}
-                  </ul>
-                ) : null}
-              </section>
-            );
-          })}
-        </div>
-      )}
+                      >
+                        {group.label}
+                      </span>
+                      <span className="henira-session-count">{group.sessions.length}</span>
+                    </button>
+                    {hasDirSupport && group.cwd !== "" ? (
+                      <button
+                        type="button"
+                        className="henira-hover-reveal henira-group-add"
+                        aria-label={ctx.t("menu.newSession")}
+                        title={ctx.t("menu.newSession")}
+                        onClick={() => {
+                          createIn(group.cwd);
+                        }}
+                      >
+                        +
+                      </button>
+                    ) : null}
+                  </div>
+                  {open ? (
+                    <ul
+                      style={{
+                        listStyle: "none",
+                        margin: 0,
+                        padding: "0 0 0 var(--henira-space-4)",
+                      }}
+                    >
+                      {group.sessions.map((s) => (
+                        <SessionRow
+                          key={s.id}
+                          session={s}
+                          selected={ctx.sessionId === s.id}
+                          ctx={ctx}
+                          canDelete={canDeleteSession}
+                          onSelect={ctx.selectSession}
+                          onContextMenu={(session, x, y) => {
+                            setMenu({ kind: "session", x, y, session });
+                          }}
+                        />
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+              );
+            })}
+          </div>
+        ))}
       {menu !== null ? (
         <ContextMenu
           menu={menu}

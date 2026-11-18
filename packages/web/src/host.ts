@@ -404,6 +404,50 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         // 曾在此直接赋 sessionId 分叉——刷新/重启后正文空白（活体 selftest8）
         activateSession(picked.id, picked.cwd);
       })().catch(() => {});
+      // 启动还原外观（补全①：设置弹窗已写 ui.theme/ui.locale 落盘，改前启动不读——
+      // 选深色刷新回落亮色）。官方主题直接落；主题包/语言包按资产清单回查资产地址；
+      // 磁盘 id 已不在场（包卸载）回落官方默认；旧服务器无 getSettings 静默跳过；
+      // 安全模式入口不还原（D-059 回落官方 light/zh）。
+      void (async () => {
+        if (safeMode || opts.client.getSettings === undefined) return;
+        const s = await opts.client.getSettings();
+        const assets =
+          opts.client.listUiAssets !== undefined
+            ? await opts.client.listUiAssets().catch(() => ({ locales: [], themes: [] }))
+            : { locales: [], themes: [] };
+        const wantedTheme = s.ui?.theme;
+        if (wantedTheme !== undefined && wantedTheme !== theme) {
+          const pack = assets.themes.find((x) => x.name === wantedTheme);
+          if (pack !== undefined) {
+            theme = wantedTheme;
+            themeUrls.set(wantedTheme, pack.url);
+          } else if (wantedTheme === "light" || wantedTheme === "dark") {
+            theme = wantedTheme;
+            themeLink?.remove(); // 官方主题无 link
+            themeLink = undefined;
+          } else {
+            theme = "light"; // 磁盘 id 已不在场（主题包卸载）——回落官方默认
+            themeLink?.remove();
+            themeLink = undefined;
+          }
+          applyTheme();
+          render();
+        }
+        const wantedLocale = s.ui?.locale;
+        if (wantedLocale !== undefined && wantedLocale !== "zh" && localeOverride === undefined) {
+          const pack = assets.locales.find((x) => x.lang === wantedLocale);
+          if (pack !== undefined) {
+            const dict = await fetch(pack.url)
+              .then((r) => r.json() as Promise<Record<string, string>>)
+              .catch(() => null);
+            if (dict !== null && Object.keys(dict).length > 0) {
+              localeOverride = dict;
+              t = makeT(localeOverride); // 引用稳定纪律：语言包变化才换新
+              render();
+            }
+          }
+        }
+      })().catch(() => {});
       // 关页前尽力冲刷草稿（D-063 写时机：防抖之外补冲刷；同源无 token 场景可靠，
       // 带 token 时 best-effort——防抖主通道通常已落盘）
       pageHideListener = (): void => {
