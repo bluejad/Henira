@@ -9,6 +9,7 @@ import type {
   HeniraContext,
   LlmService,
   LoopEvent,
+  PromptOptions,
   SessionService,
   TokenUsage,
   ToolsService,
@@ -53,12 +54,15 @@ export interface TurnCallbacks {
   onTurnStart?: (handle: TurnHandle) => void;
 }
 
-/** 单回合（含步循环与全部落账）；返回终局原因。队列冲刷由外层驱动 */
+/** 单回合（含步循环与全部落账）；返回终局原因。队列冲刷由外层驱动。
+ * opts = 模型/思考按次覆盖（BC 语义：每次提问绑定；插话条目进场不换档——回合档位在
+ * 回合开始即定，steer 只进文本）。 */
 export async function runTurnCore(
   prompt: string,
   deps: LoopDeps,
   callbacks: TurnCallbacks,
   signal: AbortSignal,
+  opts?: PromptOptions,
 ): Promise<TurnEndReason> {
   const { session, ctx } = deps; // llm / tools / approval / config 由 runStep 经 deps 取用
   const turn = `t-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
@@ -114,7 +118,7 @@ export async function runTurnCore(
         });
       }
 
-      const outcome = await runStep({ turn, step, deps, batcher, signal });
+      const outcome = await runStep({ turn, step, deps, batcher, signal, opts });
       turnUsage = addUsage(turnUsage, outcome.usage);
       const interrupted = signal.aborted;
       await session.append({
@@ -151,7 +155,7 @@ export async function runTurnCore(
       step += 1;
       await session.append({ type: "step/start", data: { turn, step } });
       ctx.events.emit("step/start", { turn, step });
-      const more = await runStep({ turn, step, deps, batcher, signal });
+      const more = await runStep({ turn, step, deps, batcher, signal, opts });
       endReason = more.outcome === "tool-round" ? "completed" : more.outcome;
       turnUsage = addUsage(turnUsage, more.usage);
       await session.append({ type: "step/end", data: { turn, step, usage: more.usage } });

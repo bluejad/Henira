@@ -60,12 +60,19 @@ export type StreamEvent =
   | { type: "usage"; usage: TokenUsage }
   | { type: "finish"; reason: FinishReason };
 
+/** 思考档封闭词表（BC ReasoningSelect 语义：关/低/中/高）。随每次提问携带（PromptOptions）；
+ * 厂商无对应参数时适配器不透传（reasoningCapability=none），档位不影响请求 */
+export const REASONING_EFFORTS = ["off", "low", "medium", "high"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
 export interface LlmRequest {
   model: ModelConfig;
   messages: ModelMessage[];
   tools: WireToolSchema[];
   temperature?: number;
   maxTokens?: number;
+  /** 思考档（按次覆盖；适配器按厂商能力映射到请求参数，none 厂商忽略） */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /** tools.project() 的产物 = 模型可见清单形状 */

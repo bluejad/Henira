@@ -6,7 +6,7 @@
 // 纯 DTO：运行时零依赖（packages.md 规则 1）；Decision 复用 approval 词表。
 
 import type { Decision } from "./approval.js";
-import type { TokenUsage } from "./llm.js";
+import type { ReasoningEffort, TokenUsage } from "./llm.js";
 
 /** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `e:{seq}` */
 export type RowId = string;
@@ -171,9 +171,8 @@ export interface GlobalUiState {
 
 /** GET/PUT /api/sessions/:id/ui-state（每会话界面绑定态：<sessionDir>/ui-state.json，D-063）。
  * 形状归 web 宿主所有，服务端不解释内容（整份收发 + 64KB 上限）；常用字段可选 + 开放索引
- * 签名随宿主加法生长；rightPanel 留位随批 C（D-062 右栏 tab 框架）接线。删会话随整树走。
- * 折叠组不在此列（用户裁决 2026-11-18）：刷新/重启只展开选中会话所在组、其余组收起，
- * 平时折叠/展开是纯本地临时态。 */
+ * 签名随宿主加法生长。删会话随整树走。折叠组不在此列（用户裁决 2026-11-18）：刷新/重启
+ * 只展开选中会话所在组、其余组收起，平时折叠/展开是纯本地临时态。 */
 export interface SessionUiState {
   /** 输入框草稿文本 */
   draft?: string;
@@ -183,11 +182,16 @@ export interface SessionUiState {
     /** 右栏宽度 px（右栏随批 C 落地后启用） */
     rightWidth?: number;
   };
-  /** 右栏开着的 tab（批 C 接线；只存引用，面板内部状态归插件 plugins-data/<id>/） */
+  /** 右栏开着的 tab（D-062 右栏 tab 框架随骨架批接线；只存引用，面板内部状态归插件
+   * plugins-data/<id>/） */
   rightPanel?: {
     open?: boolean;
     active?: string | null;
     tabs?: Array<{ id: string; kind: string } & Record<string, unknown>>;
   };
+  /** 会话级模型记忆（provider/model；composer 回填用——权威在每次请求携带，引擎无会话态） */
+  model?: string;
+  /** 会话级思考档记忆（同上；BC 存服务端 SessionInfo，我们靠每次请求携带更薄） */
+  reasoningEffort?: ReasoningEffort;
   [key: string]: unknown;
 }

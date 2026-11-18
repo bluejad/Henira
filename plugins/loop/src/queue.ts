@@ -3,7 +3,7 @@
 // 队列状态不进事件账本（P9-1：队列不是对话事实）；重启恢复 = start 时装载。
 
 import { promises as fs } from "node:fs";
-import type { QueuedPrompt } from "@henira/protocol";
+import type { PromptOptions, QueuedPrompt } from "@henira/protocol";
 
 export interface QueueEntry extends QueuedPrompt {
   queuedAt: number;
@@ -51,11 +51,13 @@ export class PromptQueue {
     return this.#entries;
   }
 
-  async enqueue(text: string, steer: boolean): Promise<QueueEntry> {
+  async enqueue(text: string, steer: boolean, opts?: PromptOptions): Promise<QueueEntry> {
     const entry: QueueEntry = {
       id: `q${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       text,
       steer,
+      modelId: opts?.modelId,
+      reasoningEffort: opts?.reasoningEffort,
       queuedAt: Date.now(),
     };
     this.#entries.push(entry);

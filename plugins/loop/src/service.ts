@@ -5,7 +5,12 @@
 // 会话目录（queue.json 住处）从 session 槽取（SessionService.directory，protocol 定稿字段）。
 
 import type { ServiceDefinition } from "@henira/kernel";
-import { asHeniraContext, type LoopEvent, type LoopService } from "@henira/protocol";
+import {
+  asHeniraContext,
+  type LoopEvent,
+  type LoopService,
+  type PromptOptions,
+} from "@henira/protocol";
 import { PromptQueue } from "./queue.js";
 import { systemPromptHash } from "./step.js";
 import { type LoopDeps, runTurnCore, type TurnHandle } from "./turn.js";
@@ -83,6 +88,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       async function* executeAndDrain(
         prompt: string,
         signal: AbortSignal,
+        opts?: PromptOptions,
       ): AsyncGenerator<LoopEvent> {
         const channel = new EventChannel();
         const core = runTurnCore(
@@ -98,6 +104,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
             },
           },
           signal,
+          opts,
         );
         const settled = core.then(
           () => channel.close(),
@@ -105,10 +112,13 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         );
         yield* channel.stream();
         await settled;
-        // 回合末冲刷：队列头部依次自动开新回合（D-045）
+        // 回合末冲刷：队列头部依次自动开新回合（D-045；条目自带的模型/思考覆盖随行）
         let next = await queue.drainNext();
         while (next !== undefined) {
-          yield* executeAndDrain(next.text, signal);
+          yield* executeAndDrain(next.text, signal, {
+            modelId: next.modelId,
+            reasoningEffort: next.reasoningEffort,
+          });
           next = await queue.drainNext();
         }
       }
@@ -123,13 +133,13 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       }
 
       const service: LoopService = {
-        async *run(prompt, signal) {
+        async *run(prompt, signal, opts) {
           if (current !== undefined && !current.signal.aborted) throw new LoopBusyError();
           const controller = new AbortController();
           currentController = controller;
           signal?.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
           try {
-            yield* executeAndDrain(prompt, controller.signal);
+            yield* executeAndDrain(prompt, controller.signal, opts);
           } finally {
             current = undefined;
             currentController = undefined;
@@ -138,12 +148,19 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
 
         async send(prompt, opts) {
           if (current !== undefined && !current.signal.aborted) {
-            return queue.enqueue(prompt, opts?.steer === true); // 忙时入队（queue.json 持久化）
+            // 忙时入队（queue.json 持久化；模型/思考覆盖随条目持久化）
+            return queue.enqueue(prompt, opts?.steer === true, {
+              modelId: opts?.modelId,
+              reasoningEffort: opts?.reasoningEffort,
+            });
           }
           // 闲时直开回合：后台跑，事件经总线 loop/event 观察（D-045：无第二种投递语义）
           const controller = new AbortController();
           currentController = controller;
-          const gen = executeAndDrain(prompt, controller.signal);
+          const gen = executeAndDrain(prompt, controller.signal, {
+            modelId: opts?.modelId,
+            reasoningEffort: opts?.reasoningEffort,
+          });
           void drainQuietly(gen)
             .finally(() => {
               current = undefined;

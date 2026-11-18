@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { ModelMessage, ToolContext, TurnEndReason } from "@henira/protocol";
+import type { ModelMessage, PromptOptions, ToolContext, TurnEndReason } from "@henira/protocol";
 import type { DeltaBatcher } from "./batcher.js";
 import type { LoopDeps } from "./turn.js"; // 仅类型引用（type import 擦除，无运行时环）
 
@@ -25,6 +25,8 @@ interface StepArgs {
   deps: LoopDeps;
   batcher: DeltaBatcher;
   signal: AbortSignal;
+  /** 模型/思考按次覆盖（回合开始即定，全步一致——BC 每次提问绑定语义） */
+  opts?: PromptOptions;
 }
 
 interface StepResult {
@@ -33,20 +35,28 @@ interface StepResult {
 }
 
 export async function runStep(args: StepArgs): Promise<StepResult> {
-  const { turn, step, deps, batcher, signal } = args;
+  const { turn, step, deps, batcher, signal, opts } = args;
   const { session, llm, tools, approval, config } = deps; // ctx.events 只在 runTurnCore 用
   const messages = session.deriveMessages();
   const wireTools = tools.project();
-  const modelConfig = await config.model();
+  // 显式覆盖缝（config.model(id) 既有参数，首次生产消费）：按次 modelId 优先，缺省回落
+  // settings.model 全局默认。解析失败（未知 id / 无默认）照常抛错——回合落 error 事件收尾。
+  const modelConfig = await config.model(opts?.modelId);
   const model = `${modelConfig.provider}/${modelConfig.model}`;
-  const request = { model: modelConfig, messages, tools: wireTools };
+  const request = {
+    model: modelConfig,
+    messages,
+    tools: wireTools,
+    ...(opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
+  };
   await session.append({
     type: "request/header",
     data: {
       turn,
       step,
       model,
-      params: {},
+      // 实际生效思考档进账本（审计：回放可见每回合用什么档跑；未指定 = 空对象）
+      params: opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {},
       toolNames: wireTools.map((t) => t.name),
       systemPromptHash: systemPromptHash(messages),
     },
