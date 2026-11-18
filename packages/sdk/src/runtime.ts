@@ -184,8 +184,10 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       return [...sessions.values()].map((s) => ({ ...s.summary, busy: s.projection.state.busy }));
     },
 
-    async prompt(sessionId, text) {
-      const receipt = await requireSession(sessions, sessionId).ctx.get("loop").send(text);
+    async prompt(sessionId, text, opts) {
+      const receipt = await requireSession(sessions, sessionId)
+        .ctx.get("loop")
+        .send(text, { modelId: opts?.modelId, reasoningEffort: opts?.reasoningEffort });
       return { queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id };
     },
 

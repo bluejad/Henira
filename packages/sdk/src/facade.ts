@@ -7,6 +7,7 @@ import type {
   Decision,
   DirBrowse,
   GlobalUiState,
+  PromptOptions,
   PromptReceipt,
   RegisteredDir,
   RowsPage,
@@ -38,8 +39,8 @@ export interface HeniraFacade {
   stop(): Promise<void>;
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  /** D-045 单口：闲直跑 / 忙入队（id = 排队条目） */
-  prompt(sessionId: string, text: string): Promise<PromptReceipt>;
+  /** D-045 单口：闲直跑 / 忙入队（id = 排队条目）；opts = 模型/思考按次覆盖（BC 每次提问绑定） */
+  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   /** settle 幂等先答者赢；未知 requestId 返回 false */

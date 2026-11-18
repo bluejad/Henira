@@ -69,6 +69,8 @@ interface FormHandle {
   facade: import("./facade.js").HeniraFacade;
   /** 宿主组合面：注册工具（审批测试需要非并发安全工具） */
   registerTool(sessionId: string): Promise<void>;
+  /** mock Llm 收到的请求（prompt opts 到引擎侧的双形态观测口） */
+  mockRequests(): readonly unknown[];
 }
 
 const DEMO_WRITE = {
@@ -87,10 +89,11 @@ const forms: {
     async make(script) {
       const { mockLlm } = await import("@henira/llm-mock");
       const { dataDir, globalDir } = await tempDirs();
+      const mock = mockLlm(script);
       const facade = await createRuntime({
         dataDir,
         globalDir,
-        llm: llmStub(mockLlm(script).service),
+        llm: llmStub(mock.service),
         interaction: controlledInteraction(),
         tools: [DEMO_WRITE],
       });
@@ -98,7 +101,8 @@ const forms: {
         await facade.stop();
         await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
       });
-      return { facade, registerTool: async () => {} }; // 工具已经 opts.tools 进每个新会话
+      // 工具已经 opts.tools 进每个新会话
+      return { facade, registerTool: async () => {}, mockRequests: () => mock.requests };
     },
   },
   {
@@ -123,6 +127,7 @@ const forms: {
             ?.ctx.get("tools")
             .register({ ...DEMO_WRITE });
         },
+        mockRequests: () => mock.requests,
       };
     },
   },
@@ -350,6 +355,22 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     // limit=1 也回整轮（user + assistant 同 turn 不切散）
     const one = await facade.sessionRows(session.id, { limit: 1 });
     expect(one.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+  });
+
+  it("prompt opts（BC 每次提问绑定）：modelId/reasoningEffort 随请求到达引擎侧 LlmRequest", async () => {
+    const reply = [
+      mockText("回"),
+      mockUsage({ inputTokens: 1, outputTokens: 1 }),
+      mockFinish("stop"),
+    ];
+    const { facade, mockRequests } = await form.make([reply, [...reply]]);
+    const session = await facade.createSession();
+    await facade.prompt(session.id, "缺省");
+    await facade.prompt(session.id, "覆盖", { modelId: "mock/mock-1", reasoningEffort: "high" });
+    await waitFor(() => (mockRequests().length >= 2 ? mockRequests() : undefined));
+    const requests = mockRequests() as { reasoningEffort?: string }[];
+    expect(requests[0]?.reasoningEffort).toBeUndefined(); // 缺省不带字段
+    expect(requests[1]?.reasoningEffort).toBe("high"); // 显式档位到引擎
   });
 });
 

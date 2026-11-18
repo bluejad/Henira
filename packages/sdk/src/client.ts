@@ -67,10 +67,14 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       return requestJson<SessionSummary[]>("/api/sessions");
     },
 
-    async prompt(sessionId, text) {
+    async prompt(sessionId, text, opts) {
       return requestJson<PromptReceipt>(`/api/sessions/${sessionId}/prompt`, {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          modelId: opts?.modelId,
+          reasoningEffort: opts?.reasoningEffort,
+        }),
       });
     },
 

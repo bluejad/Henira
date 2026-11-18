@@ -9,6 +9,7 @@ import { scanUiAssets } from "@henira/config-loader";
 import { browseDirectories, type DirRegistry, sameCwd } from "@henira/plugin-session";
 import {
   DECISIONS,
+  REASONING_EFFORTS,
   type ReasoningCapability,
   reasoningCapability,
   rebuildProjection,
@@ -160,15 +161,22 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(page);
   });
 
-  // ── 输入投递（D-045 单口：闲直跑 / 忙入队）──
+  // ── 输入投递（D-045 单口：闲直跑 / 忙入队；模型/思考按次覆盖可选——BC 每次提问绑定）──
   app.post("/api/sessions/:id/prompt", async (c) => {
     const entry = requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
-      .object({ text: z.string().min(1) })
+      .object({
+        text: z.string().min(1),
+        modelId: z.string().min(1).optional(),
+        reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
+      })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "text required" }, 400);
-    const receipt = await entry.ctx.get("loop").send(parsed.data.text);
+    const receipt = await entry.ctx.get("loop").send(parsed.data.text, {
+      modelId: parsed.data.modelId,
+      reasoningEffort: parsed.data.reasoningEffort,
+    });
     return c.json({ queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id });
   });
 
