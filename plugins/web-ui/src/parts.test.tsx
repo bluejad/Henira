@@ -373,7 +373,10 @@ describe("Composer", () => {
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "你好" } });
     fireEvent.keyDown(area, { key: "Enter" });
-    expect(prompt).toHaveBeenCalledWith("s-1", "你好");
+    expect(prompt).toHaveBeenCalledWith("s-1", "你好", {
+      modelId: undefined,
+      reasoningEffort: undefined,
+    });
     // busy 形态（store 契约=rows 引用稳定：快照提出闭包，getSnapshot 每次新对象会让 useSyncExternalStore 死循环）
     const busyRows: Row[] = [];
     const busyCtx = fixtureCtx({
@@ -407,7 +410,12 @@ describe("Composer", () => {
     const send = screen.getByRole("button", { name: t("composer.send") });
     expect((send as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(send);
-    await waitFor(() => expect(promptSpy).toHaveBeenCalledWith("s-1", "排队的话"));
+    await waitFor(() =>
+      expect(promptSpy).toHaveBeenCalledWith("s-1", "排队的话", {
+        modelId: undefined,
+        reasoningEffort: undefined,
+      }),
+    );
   });
 
   it("prompt 失败不静默：草稿回填 + 行内错误提示", async () => {
@@ -422,10 +430,12 @@ describe("Composer", () => {
     expect((container.querySelector("textarea") as HTMLTextAreaElement).value).toBe("会失败的话");
   });
 
-  it("模型选择器（弹层）：按厂商分组清单，选择走 putSettings；「管理模型…」开设置弹窗", async () => {
+  it("模型选择器（弹层）：按厂商分组清单；选择=会话级绑定记忆（不写全局 settings）；「管理模型…」开设置弹窗", async () => {
     const putSettings = vi.fn().mockResolvedValue({ version: 1 });
+    const updateUiState = vi.fn();
     const openSettings = vi.fn();
     const ctx = fixtureCtx({
+      updateUiState,
       client: {
         ...fixtureCtx().client,
         getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
@@ -448,7 +458,9 @@ describe("Composer", () => {
     const listbox = await screen.findByRole("listbox", { name: t("composer.model") });
     expect(listbox.textContent).toContain("zhipuai"); // 按厂商分组
     fireEvent.click(screen.getByRole("option", { name: "deepseek/deepseek-flash" }));
-    expect(putSettings).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
+    // 笔 6 语义：composer 选择 = 会话绑定（ui-state 记忆），全局默认归设置弹窗·模型管理页
+    expect(updateUiState).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
+    expect(putSettings).not.toHaveBeenCalled();
     // 底部「管理模型…」→ openSettings("models")
     fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole("button", { name: t("composer.manageModels") }));
@@ -769,7 +781,12 @@ describe("界面绑定状态（D-063）", () => {
     fireEvent.change(area, { target: { value: "新输入" } });
     expect(updateUiState).toHaveBeenCalledWith({ draft: "新输入" });
     fireEvent.keyDown(area, { key: "Enter" });
-    await waitFor(() => expect(prompt).toHaveBeenCalledWith("s-1", "新输入"));
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith("s-1", "新输入", {
+        modelId: undefined,
+        reasoningEffort: undefined,
+      }),
+    );
     expect(updateUiState).toHaveBeenCalledWith({ draft: "" }); // 持久层同步清空
   });
 
@@ -957,5 +974,109 @@ describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JS
     );
     expect(container.textContent).toContain(t("app.safeMode"));
     expect(screen.getByRole("dialog", { name: t("settings.title") })).not.toBeNull();
+  });
+});
+
+describe("思考档按次绑定（BC 语义——骨架批）", () => {
+  function ctxWithRows(rows: Row[]): WebPartContext {
+    const snapshot = { rows, state: { busy: false } }; // 引用稳定——useSyncExternalStore 语义
+    return fixtureCtx({
+      store: {
+        getSession: () => snapshot,
+        subscribe: () => () => {},
+      },
+    });
+  }
+
+  it("capability=none（deepseek）→ 思考档置灰「—」不可调；capability=thinking（zhipu）→ 四档可选", async () => {
+    const noneCtx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
+        listModels: async () => ({ providers: { deepseek: { models: ["deepseek-v4-flash"] } } }),
+      },
+    });
+    const { container } = render(<Composer {...noneCtx} />);
+    await waitFor(() => {
+      if (container.querySelector(".henira-thinking-select[data-disabled='true']") === null) {
+        throw new Error("thinking control not grayed");
+      }
+    });
+    expect(container.querySelector(".henira-thinking-select select")).toBeNull();
+    expect(container.textContent).toContain("—");
+    cleanup();
+
+    const glmCtx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "zhipuai-coding-plan/glm-5.3-flash" }),
+        listModels: async () => ({
+          providers: { "zhipuai-coding-plan": { models: ["glm-5.3-flash"] } },
+        }),
+      },
+    });
+    const glm = render(<Composer {...glmCtx} />);
+    const select = (await screen.findByRole("combobox", {
+      name: t("composer.thinking"),
+    })) as HTMLSelectElement;
+    expect(select.options).toHaveLength(4); // 关/低/中/高
+    void glm;
+  });
+
+  it("选档写会话记忆（updateUiState）；发送携带 {modelId, reasoningEffort}", async () => {
+    const updateUiState = vi.fn();
+    const promptSpy = vi.fn(async () => ({ queued: false, id: null }));
+    const ctx = fixtureCtx({
+      updateUiState,
+      uiState: { model: "zhipuai-coding-plan/glm-5.3-flash" }, // 会话级记忆回填
+      client: {
+        ...fixtureCtx().client,
+        prompt: promptSpy,
+        getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
+        listModels: async () => ({
+          providers: { "zhipuai-coding-plan": { models: ["glm-5.3-flash"] } },
+        }),
+      },
+    });
+    const { container } = render(<Composer {...ctx} />);
+    // 会话绑定优先于全局默认（触发钮显示 glm）
+    const trigger = await screen.findByRole("button", { name: t("composer.model") });
+    await waitFor(() => expect(trigger.textContent).toContain("zhipuai-coding-plan/glm-5.3-flash"));
+    const select = (await screen.findByRole("combobox", {
+      name: t("composer.thinking"),
+    })) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "medium" } });
+    expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "medium" });
+    const area = screen.getByPlaceholderText(t("composer.placeholder")) as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "问一句" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() =>
+      expect(promptSpy).toHaveBeenCalledWith("s-1", "问一句", {
+        modelId: "zhipuai-coding-plan/glm-5.3-flash",
+        reasoningEffort: "medium",
+      }),
+    );
+    void container;
+  });
+
+  it("思考档行上徽章（AssistantRow.reasoningEffort 投影；off 不渲染）", () => {
+    const base = {
+      kind: "assistant",
+      rowId: "a:t-1:1",
+      rowSeq: 1,
+      turn: "t-1",
+      step: 1,
+      text: "答",
+      streaming: false,
+    } as const;
+    const high: Row = { ...base, reasoningEffort: "high" };
+    render(<Conversation {...ctxWithRows([high])} />);
+    expect(screen.getByTitle(t("composer.thinking")).textContent).toContain(
+      t("composer.thinking.high"),
+    );
+    cleanup();
+    const off: Row = { ...base, reasoningEffort: "off" };
+    render(<Conversation {...ctxWithRows([off])} />);
+    expect(screen.queryByTitle(t("composer.thinking"))).toBeNull(); // off = 缺省语义不渲染
   });
 });

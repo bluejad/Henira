@@ -7,6 +7,8 @@ import type {
   Decision,
   DirBrowse,
   PromptReceipt,
+  ReasoningCapability,
+  ReasoningEffort,
   RegisteredDir,
   Row,
   RowsPage,
@@ -22,7 +24,12 @@ import type { ReactNode } from "react";
 export interface HeniraClientLike {
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  prompt(sessionId: string, text: string): Promise<PromptReceipt>;
+  /** opts = 模型/思考按次覆盖（BC 每次提问绑定；缺省回落全局默认） */
+  prompt(
+    sessionId: string,
+    text: string,
+    opts?: { modelId?: string; reasoningEffort?: ReasoningEffort },
+  ): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
@@ -36,8 +43,13 @@ export interface HeniraClientLike {
     model?: string;
     ui?: { theme?: string; locale?: string };
   }): Promise<{ version: 1 }>;
-  /** 模型目录（可选——手写覆盖 + models.dev 快照清单；无密钥） */
-  listModels?(): Promise<{ providers: Record<string, { baseUrl?: string; models?: string[] }> }>;
+  /** 模型目录（可选——手写覆盖 + models.dev 快照清单；无密钥；reasoning=思考能力提示） */
+  listModels?(): Promise<{
+    providers: Record<
+      string,
+      { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
+    >;
+  }>;
   /** 服务商密钥写（可选——设置弹窗·模型管理页消费；D-030：只进 credentials.json，永不回读） */
   putCredential?(provider: string, key: string): Promise<void>;
   /** 登记工作目录列表（可选——侧栏目录区消费，data-directory §4；宿主缺方法 = 目录登记交互不渲染） */

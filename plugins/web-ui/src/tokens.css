@@ -620,6 +620,44 @@ button:focus-visible > .henira-row-caret {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 思考档（BC ReasoningSelect 行为层：Brain 图标 + 关/低/中/高 ghost select；none=置灰「—」） */
+.henira-thinking-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-thinking-select[data-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.henira-thinking-select select {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 3px 18px 3px 2px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+}
+.henira-thinking-select select:hover {
+  color: var(--henira-text);
+  border-color: var(--henira-border);
+}
+.henira-thinking-select select:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+}
+.henira-model-caret {
+  position: absolute;
+  right: 5px;
+  display: inline-flex;
+  color: var(--henira-text-muted);
+  pointer-events: none;
+}
 /* 发送失败行内提示（prompt 失败不静默，R125） */
 .henira-send-error {
   margin: 0 0 var(--henira-space-2);

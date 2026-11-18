@@ -429,23 +429,54 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
         </div>
       ) : null}
       {!streaming &&
-      row.usage !== undefined &&
-      (row.usage.inputTokens ?? 0) + (row.usage.outputTokens ?? 0) > 0 ? (
-        <div style={{ marginTop: "var(--henira-space-1)" }}>
-          <span
-            className="henira-mono"
-            title={ctx.t("row.output")}
-            style={{
-              border: "1px solid var(--henira-border)",
-              borderRadius: "9999px",
-              padding: "1px 8px",
-              fontSize: "var(--henira-fs-sm)",
-              color: "var(--henira-text-muted)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {row.usage.inputTokens ?? 0}↑ {row.usage.outputTokens ?? 0}↓
-          </span>
+      ((row.reasoningEffort !== undefined && row.reasoningEffort !== "off") ||
+        (row.usage !== undefined &&
+          (row.usage.inputTokens ?? 0) + (row.usage.outputTokens ?? 0) > 0)) ? (
+        <div
+          style={{
+            marginTop: "var(--henira-space-1)",
+            display: "flex",
+            gap: "var(--henira-space-2)",
+            alignItems: "center",
+          }}
+        >
+          {/* 思考档徽章（request/header.params 投影；off = 缺省语义不渲染——BC 行上档位可见性） */}
+          {row.reasoningEffort !== undefined && row.reasoningEffort !== "off" ? (
+            <span
+              className="henira-mono"
+              title={ctx.t("composer.thinking")}
+              style={{
+                border: "1px solid var(--henira-border)",
+                borderRadius: "9999px",
+                padding: "1px 8px",
+                fontSize: "var(--henira-fs-sm)",
+                color: "var(--henira-text-muted)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <BrainGlyph size={11} />
+              {ctx.t(`composer.thinking.${row.reasoningEffort}`)}
+            </span>
+          ) : null}
+          {row.usage !== undefined &&
+          (row.usage.inputTokens ?? 0) + (row.usage.outputTokens ?? 0) > 0 ? (
+            <span
+              className="henira-mono"
+              title={ctx.t("row.output")}
+              style={{
+                border: "1px solid var(--henira-border)",
+                borderRadius: "9999px",
+                padding: "1px 8px",
+                fontSize: "var(--henira-fs-sm)",
+                color: "var(--henira-text-muted)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {row.usage.inputTokens ?? 0}↑ {row.usage.outputTokens ?? 0}↓
+            </span>
+          ) : null}
         </div>
       ) : null}
       {gallery !== undefined ? gallery(ctx) : null}

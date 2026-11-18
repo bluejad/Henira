@@ -358,3 +358,90 @@ describe("surfaceOp replace 与重建", () => {
     expect(p.rows[0]).toMatchObject({ text: "改写后" });
   });
 });
+
+describe("思考档投影（request/header.params → assistant 行）", () => {
+  it("params.reasoningEffort 记账 → 同步 assistant 行带档位；无 params 行不带字段", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "问", source: "send" }),
+      ev(2, "turn/start", { turn: "t-1" }),
+      ev(3, "step/start", { turn: "t-1", step: 1 }),
+      ev(4, "request/header", {
+        turn: "t-1",
+        step: 1,
+        model: "zhipu/glm-5",
+        params: { reasoningEffort: "high" },
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev(5, "assistant/message", {
+        turn: "t-1",
+        step: 1,
+        content: "答",
+        model: "zhipu/glm-5",
+        finishReason: "stop",
+      }),
+      ev(6, "turn/end", { turn: "t-1", reason: "completed" }),
+    ]);
+    expect(p.rows[1]).toMatchObject({ rowId: "a:t-1:1", reasoningEffort: "high" });
+
+    const q = rebuildProjection([
+      ev(1, "user/message", { turn: "t-2", step: 0, content: "问", source: "send" }),
+      ev(2, "turn/start", { turn: "t-2" }),
+      ev(3, "step/start", { turn: "t-2", step: 1 }),
+      ev(4, "request/header", {
+        turn: "t-2",
+        step: 1,
+        model: "m",
+        params: {},
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev(5, "assistant/message", {
+        turn: "t-2",
+        step: 1,
+        content: "答",
+        model: "m",
+        finishReason: "stop",
+      }),
+    ]);
+    expect(q.rows[1]).not.toHaveProperty("reasoningEffort"); // 未指定 = 无字段（缺省语义）
+  });
+
+  it("step/end 用量 upsert 不冲掉档位（{...existing} 保字段）；不同步各自归位", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "问", source: "send" }),
+      ev(2, "turn/start", { turn: "t-1" }),
+      ev(3, "step/start", { turn: "t-1", step: 1 }),
+      ev(4, "request/header", {
+        turn: "t-1",
+        step: 1,
+        model: "m",
+        params: { reasoningEffort: "low" },
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev(5, "assistant/message", {
+        turn: "t-1",
+        step: 1,
+        content: "答",
+        model: "m",
+        finishReason: "stop",
+      }),
+      ev(6, "step/end", { turn: "t-1", step: 1, usage: { inputTokens: 2, outputTokens: 1 } }),
+    ]);
+    expect(p.rows[1]).toMatchObject({ usage: { inputTokens: 2 }, reasoningEffort: "low" });
+    // 消费后不积账：同 turn:step 再落 assistant 行（畸形序）也不带旧档
+    const again = p.ingest(
+      ev(7, "assistant/message", {
+        turn: "t-1",
+        step: 1,
+        content: "再答",
+        model: "m",
+        finishReason: "stop",
+      }),
+    );
+    expect(
+      (again[0] as { row?: { reasoningEffort?: string } }).row?.reasoningEffort,
+    ).toBeUndefined();
+  });
+});

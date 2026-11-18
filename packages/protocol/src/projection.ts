@@ -6,7 +6,7 @@
 // 步边界自愈：assistant/message / tool/result / approval/decided 落账即整行替换，冲掉流式漂移。
 
 import type { SessionEvent } from "./envelope.js";
-import type { TokenUsage } from "./llm.js";
+import type { ReasoningEffort, TokenUsage } from "./llm.js";
 import type {
   ApprovalRow,
   AssistantRow,
@@ -50,6 +50,8 @@ export class Projection {
   private cursor: { turn?: string; step?: number } = {};
   /** 仍处于流式态的 assistant 行（按 turn 分组；turn/end 冻结用） */
   private readonly streamingByTurn = new Map<string, Set<RowId>>();
+  /** 各步实际生效思考档（request/header.params 记账 → 同步 assistant 行投影） */
+  private readonly effortByStep = new Map<string, ReasoningEffort>();
 
   /** 账本事件逐条喂入；返回可见变化（空数组 = 投影不变） */
   ingest(event: SessionEvent): Delta[] {
@@ -105,18 +107,32 @@ export class Projection {
         this.cursor = { turn: data.turn as string, step: data.step as number };
         return [];
       }
+      case "request/header": {
+        // 实际生效思考档记账（loop 落账 → assistant 行投影；无档不记）
+        const effort = (data.params as { reasoningEffort?: ReasoningEffort } | undefined)
+          ?.reasoningEffort;
+        if (effort !== undefined) {
+          this.effortByStep.set(`${data.turn as string}:${data.step as number}`, effort);
+        }
+        return [];
+      }
       case "assistant/message": {
+        const turn = data.turn as string;
+        const step = data.step as number;
+        const effort = this.effortByStep.get(`${turn}:${step}`);
+        this.effortByStep.delete(`${turn}:${step}`); // 读后即弃（长会话不积账）
         const row: AssistantRow = {
           kind: "assistant",
-          rowId: rowId.assistant(data.turn as string, data.step as number),
+          rowId: rowId.assistant(turn, step),
           rowSeq: event.seq,
-          turn: data.turn as string,
-          step: data.step as number,
+          turn,
+          step,
           text: data.content as string,
           reasoning: data.reasoning as string | undefined,
           streaming: false,
           model: data.model as string | undefined,
           finishReason: data.finishReason as string | undefined,
+          ...(effort !== undefined ? { reasoningEffort: effort } : {}),
         };
         return [this.upsert(row)];
       }

@@ -16,27 +16,31 @@ export function ModelSelect(props: {
   ariaLabel: string;
   /** 弹层展开方向：composer 在屏幕底部 → 向上；设置弹窗内 → 向下（缺省） */
   direction?: "up" | "down";
+  /** 厂商目录（可选——调用方已拉取时下传，免二次请求；缺省自取 client.listModels） */
+  providers?: Record<string, { models?: string[] }>;
 }): ReactNode {
   const { ctx, value, onChange, ariaLabel } = props;
   const direction = props.direction ?? "down";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [providers, setProviders] = useState(EMPTY_PROVIDERS);
+  const [fetched, setFetched] = useState(EMPTY_PROVIDERS);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const providers = props.providers ?? fetched;
 
   useEffect(() => {
+    if (props.providers !== undefined) return; // 调用方下传——不自取
     if (ctx.client.listModels === undefined) return;
     let alive = true;
     void ctx.client
       .listModels()
       .then((catalog) => {
-        if (alive) setProviders(catalog.providers);
+        if (alive) setFetched(catalog.providers);
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [ctx.client]);
+  }, [ctx.client, props.providers]);
 
   // 开着时点外 / Escape 收（监听只在 open 挂——关闭态零开销）
   useEffect(() => {
