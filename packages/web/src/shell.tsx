@@ -2,6 +2,7 @@
 // 件经承重缝（WebPartContext）拿数据——Shell 只做组装，不做数据加工。
 
 import {
+  makeT,
   type PluginUiHost,
   type RowStoreLike,
   type SlotPart,
@@ -9,7 +10,6 @@ import {
   type UiAssetTheme,
   type WebPart,
   type WebSlotName,
-  zh,
 } from "@henira/plugin-web-ui";
 import type { SessionUiState } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
@@ -17,6 +17,8 @@ import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { createContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Layout } from "./host.js";
 import type { RowStore } from "./store.js";
+
+export { makeT }; // 宿主侧（host.ts renderMarkdown）同源取字工厂
 
 /** 侧栏拖宽钳位（D-063；tokens.css --henira-sidebar-width 260 为未拖过时的 var 缺省） */
 const SIDEBAR_MIN = 200;
@@ -61,16 +63,6 @@ type WebPartContextValue = {
 };
 
 const PartContext = createContext<WebPartContextValue>(undefined as never);
-
-/** D-050 取字工厂（D-059 语言包）：覆盖字典缺 key 回落官方 zh，zh 也缺才 fail-loud。
- * 宿主侧也用（renderMarkdown 注入代码块复制钮文案——markdown 纯渲染层不持有字典）。 */
-export const makeT =
-  (override?: Record<string, string>): ((key: string) => string) =>
-  (key: string): string => {
-    const value = override?.[key] ?? (zh as Record<string, string>)[key];
-    if (value === undefined) throw new Error(`missing locale key: ${key}`);
-    return value;
-  };
 
 export function Shell(props: ShellProps) {
   const { store, client, layout, safeMode } = props;

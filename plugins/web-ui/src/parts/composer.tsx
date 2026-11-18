@@ -9,17 +9,16 @@ import type { ApprovalRow, Row } from "@henira/protocol";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
-import { CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
+import { SendGlyph, StopGlyph } from "./icons.js";
+import { ModelSelect } from "./model-select.js";
 
 const TEXTAREA_MAX_HEIGHT = 200;
 const EMPTY_ROWS: readonly Row[] = [];
-const EMPTY_MODELS: readonly string[] = [];
 
 export const Composer: WebPart = (ctx: WebPartContext) => {
   const [draft, setDraft] = useState("");
   const [sendFailed, setSendFailed] = useState(false);
   const [model, setModel] = useState("");
-  const [models, setModels] = useState<readonly string[]>(EMPTY_MODELS);
   // 草稿随会话走（D-063）：宿主加载好的 uiState 到位后按会话回填一次；此后本地态直跑
   // （逐键渲染全树不可取），输入经 updateUiState 交宿主合并防抖落盘。同一会话内缓存已
   // 与本地同步（updateUiState 同步合并），不再回灌。
@@ -49,7 +48,8 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     (row: Row): row is ApprovalRow => row.kind === "approval" && row.status === "pending",
   );
 
-  // 模型选择器数据（宿主三方法齐备才接；缺任一则整个选择器不渲染）
+  // 模型选择器（宿主三方法齐备才接；缺任一则整个选择器不渲染）。
+  // 当前值从 getSettings 回填；清单/搜索/分组在 ModelSelect 共享件内部自取 listModels。
   const settingsReady =
     ctx.client.getSettings !== undefined &&
     ctx.client.listModels !== undefined &&
@@ -60,16 +60,6 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
       .getSettings?.()
       .then((s) => {
         if (s.model !== undefined) setModel(s.model);
-      })
-      .catch(() => {});
-    void ctx.client
-      .listModels?.()
-      .then((catalog) => {
-        const names: string[] = [];
-        for (const [provider, entry] of Object.entries(catalog.providers)) {
-          for (const m of entry.models ?? []) names.push(`${provider}/${m}`);
-        }
-        setModels(names);
       })
       .catch(() => {});
   }, [ctx.client, settingsReady]);
@@ -144,28 +134,14 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
           }}
         />
         <div className="henira-composer-bar">
-          {settingsReady && models.length > 0 ? (
-            <span className="henira-model-select">
-              <select
-                aria-label={ctx.t("composer.model")}
-                value={model}
-                onChange={(e) => {
-                  changeModel(e.target.value);
-                }}
-              >
-                {model !== "" && !models.includes(model) ? (
-                  <option value={model}>{model}</option>
-                ) : null}
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-              <span className="henira-model-caret">
-                <CaretGlyph size={10} />
-              </span>
-            </span>
+          {settingsReady ? (
+            <ModelSelect
+              ctx={ctx}
+              value={model}
+              onChange={changeModel}
+              ariaLabel={ctx.t("composer.model")}
+              direction="up"
+            />
           ) : null}
           {busy ? (
             <span className="henira-composer-hint">{ctx.t("composer.steerHint")}</span>

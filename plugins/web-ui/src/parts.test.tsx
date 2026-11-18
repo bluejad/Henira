@@ -9,11 +9,15 @@ import { webUiModule } from "./module.js";
 import { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
+import { LayoutFrame } from "./parts/layout-frame.js";
+import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
+import { SettingsModal } from "./parts/settings-modal.js";
 import type {
   HeniraClientLike,
   RowStoreLike,
   SlotPart,
+  WebPart,
   WebPartContext,
   WebSlotName,
 } from "./types.js";
@@ -106,8 +110,11 @@ describe("SessionList", () => {
     const headers = container.querySelectorAll("button.henira-session-group");
     expect(headers).toHaveLength(2); // demo / other 两组
     expect(container.querySelectorAll(".henira-session-count")).toHaveLength(2);
-    // 初值：活跃组（demo）展开、非活跃组（other）收起 → 只有 s-1 行（本地折叠语义）
-    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    // 初值：活跃组（demo）展开、非活跃组（other）收起 → 只有 s-1 行（本地折叠语义；
+    // 种子 effect 与列表到达同批提交——等一拍再断言，R136 教训）
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    });
     // 折叠 demo 组 → 其子行消失（两组都收起）
     const demoHeader = headers[0] as HTMLButtonElement;
     expect(demoHeader.getAttribute("aria-expanded")).toBe("true");
@@ -415,8 +422,9 @@ describe("Composer", () => {
     expect((container.querySelector("textarea") as HTMLTextAreaElement).value).toBe("会失败的话");
   });
 
-  it("模型选择器：宿主三方法齐备时渲染清单，变更走 putSettings", async () => {
+  it("模型选择器（弹层）：按厂商分组清单，选择走 putSettings；「管理模型…」开设置弹窗", async () => {
     const putSettings = vi.fn().mockResolvedValue({ version: 1 });
+    const openSettings = vi.fn();
     const ctx = fixtureCtx({
       client: {
         ...fixtureCtx().client,
@@ -424,18 +432,27 @@ describe("Composer", () => {
         listModels: async () => ({
           providers: {
             deepseek: { baseUrl: "x", models: ["deepseek-v4-flash", "deepseek-flash"] },
+            zhipuai: { models: ["glm-5.3-flash"] },
           },
         }),
         putSettings,
       },
+      openSettings,
     });
     const { container } = render(<Composer {...ctx} />);
-    const select = (await screen.findByRole("combobox", {
+    const trigger = (await screen.findByRole("button", {
       name: t("composer.model"),
-    })) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe("deepseek/deepseek-v4-flash"));
-    fireEvent.change(select, { target: { value: "deepseek/deepseek-flash" } });
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(trigger.textContent).toContain("deepseek/deepseek-v4-flash"));
+    fireEvent.click(trigger);
+    const listbox = await screen.findByRole("listbox", { name: t("composer.model") });
+    expect(listbox.textContent).toContain("zhipuai"); // 按厂商分组
+    fireEvent.click(screen.getByRole("option", { name: "deepseek/deepseek-flash" }));
     expect(putSettings).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
+    // 底部「管理模型…」→ openSettings("models")
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: t("composer.manageModels") }));
+    expect(openSettings).toHaveBeenCalledWith("models");
     void container;
   });
 });
@@ -592,10 +609,19 @@ describe("行级挂载点（D-057）", () => {
       replaceSlot: () => () => {},
       host,
     });
-    expect([...registered].sort()).toEqual(["composer", "conversation", "sidebar"]);
+    // D-062 UI 侧子项：layout 框架件 + sidebar.right 右栏件随骨架批入列（区域级五名）
+    expect([...registered].sort()).toEqual([
+      "composer",
+      "conversation",
+      "layout",
+      "sidebar",
+      "sidebar.right",
+    ]);
     expect(
       registered.every((n) =>
-        (["sidebar", "conversation", "composer"] as WebSlotName[]).includes(n as WebSlotName),
+        (
+          ["layout", "sidebar", "conversation", "composer", "sidebar.right"] as WebSlotName[]
+        ).includes(n as WebSlotName),
       ),
     ).toBe(true);
   });
@@ -765,5 +791,171 @@ describe("界面绑定状态（D-063）", () => {
       expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
     });
     expect(updateUiState).not.toHaveBeenCalled(); // 折叠状态不进持久层
+  });
+});
+
+describe("右栏 tab 框架（D-062 sidebar.right 官方默认件）", () => {
+  function rightCtx(overrides?: {
+    rightPanel?: {
+      open?: boolean;
+      active?: string | null;
+      tabs?: Array<{ id: string; kind: string }>;
+    };
+    updateUiState?: (patch: unknown) => void;
+  }): WebPartContext {
+    const updateUiState = overrides?.updateUiState ?? vi.fn();
+    return fixtureCtx({
+      updateUiState: updateUiState as never,
+      uiState: { rightPanel: overrides?.rightPanel },
+    });
+  }
+
+  it("关闭态（rightPanel.open 缺省/false）不渲染不占宽", () => {
+    const { container } = render(<RightPanel {...rightCtx({ rightPanel: { open: false } })} />);
+    expect(container.querySelector(".henira-right-panel")).toBeNull();
+    const closed = render(<RightPanel {...rightCtx()} />);
+    expect(closed.container.querySelector(".henira-right-panel")).toBeNull();
+    cleanup();
+  });
+
+  it("＋ 新建空白面板展位 tab：rightPanel 总账经 updateUiState 持久化（open:true + active 指向新 tab）", () => {
+    const updateUiState = vi.fn();
+    const { container } = render(
+      <RightPanel {...rightCtx({ rightPanel: { open: true }, updateUiState })} />,
+    );
+    expect(container.querySelector(".henira-right-panel")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.new") }));
+    expect(updateUiState).toHaveBeenCalledTimes(1);
+    const patch = updateUiState.mock.calls[0][0] as {
+      rightPanel: { open: boolean; active: string; tabs: Array<{ id: string; kind: string }> };
+    };
+    expect(patch.rightPanel.open).toBe(true);
+    expect(patch.rightPanel.tabs).toHaveLength(1);
+    expect(patch.rightPanel.tabs[0]?.kind).toBe("blank");
+    expect(patch.rightPanel.active).toBe(patch.rightPanel.tabs[0]?.id);
+  });
+
+  it("tab 条渲染已开面板 + ✕ 关闭末个 tab → open:false（整栏收起）", () => {
+    const updateUiState = vi.fn();
+    const { container } = render(
+      <RightPanel
+        {...rightCtx({
+          rightPanel: { open: true, active: "b1", tabs: [{ id: "b1", kind: "blank" }] },
+          updateUiState,
+        })}
+      />,
+    );
+    expect(
+      (container.querySelector(".henira-right-tab") as HTMLElement).getAttribute("data-active"),
+    ).toBe("true");
+    fireEvent.click(
+      screen.getByRole("button", { name: `${t("rightPanel.close")} ${t("rightPanel.blank")}` }),
+    );
+    const patch = updateUiState.mock.calls[0][0] as {
+      rightPanel: { open: boolean; tabs: unknown[] };
+    };
+    expect(patch.rightPanel.open).toBe(false);
+    expect(patch.rightPanel.tabs).toHaveLength(0);
+  });
+
+  it("⌄ 清单列已开面板；⤢ 最大化是瞬态视图（面板体出现空占位）", () => {
+    const { container } = render(
+      <RightPanel
+        {...rightCtx({
+          rightPanel: { open: true, active: "b1", tabs: [{ id: "b1", kind: "blank" }] },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.list") }));
+    expect(screen.getByRole("menu")).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect((container.querySelector(".henira-right-empty") as HTMLElement).textContent).toBe(
+      t("rightPanel.placeholder"),
+    );
+    // ⤢ 最大化（瞬态，不落盘）
+    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.maximize") }));
+    expect(container.querySelector(".henira-right-panel--max")).not.toBeNull();
+    expect(screen.getByRole("button", { name: t("rightPanel.restore") })).not.toBeNull();
+  });
+});
+
+describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
+  it("默认分区渲染主题页（select 列官方双主题）；点菜单切模型管理页（当前模型下拉 + 密钥 + 保存）", async () => {
+    const putSettings = vi.fn().mockResolvedValue({ version: 1 });
+    const onTheme = vi.fn();
+    const ctx = fixtureCtx({
+      theme: "dark",
+      onTheme,
+      closeSettings: vi.fn(),
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
+        listModels: async () => ({ providers: { deepseek: { models: ["deepseek-v4-flash"] } } }),
+        putSettings,
+        putCredential: async () => {},
+      },
+    });
+    render(<SettingsModal ctx={ctx} section="theme" onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: t("settings.title") });
+    expect(dialog).not.toBeNull();
+    // 主题页：select 显示当前主题 dark；切 light 走 onTheme
+    const themeSelect = dialog.querySelector("select") as HTMLSelectElement;
+    expect(themeSelect.value).toBe("dark");
+    fireEvent.change(themeSelect, { target: { value: "light" } });
+    expect(onTheme).toHaveBeenCalledWith("light", undefined);
+    // 切模型管理页
+    fireEvent.click(screen.getByRole("button", { name: t("settings.section.models") }));
+    await screen.findByText(t("settings.models.current"));
+    fireEvent.click(screen.getByRole("button", { name: t("settings.save") }));
+    await waitFor(() =>
+      expect(putSettings).toHaveBeenCalledWith({ model: "deepseek/deepseek-v4-flash" }),
+    );
+  });
+});
+
+describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JSX 的载体）", () => {
+  function frameCtx(overrides?: Partial<WebPartContext>): WebPartContext {
+    const stub: WebPart = () => <div data-stub="part" />;
+    return fixtureCtx({
+      layout: "full",
+      sessionCwd: "C:\\demo",
+      slots: new Map<string, readonly SlotPart[]>([
+        ["sidebar", [stub]],
+        ["conversation", [stub]],
+        ["composer", [stub]],
+      ]),
+      ...overrides,
+    });
+  }
+
+  it("full：三栏骨架在场 + header 目录名 · 标题占位 + 齿轮开设置", () => {
+    const openSettings = vi.fn();
+    const { container } = render(<LayoutFrame {...frameCtx({ openSettings })} />);
+    expect(container.querySelector(".henira-header")).not.toBeNull();
+    expect((container.querySelector(".henira-header-dir") as HTMLElement).textContent).toBe("demo");
+    expect((container.querySelector(".henira-header-title") as HTMLElement).textContent).toBe(
+      t("app.untitled"),
+    );
+    expect(container.querySelectorAll("[data-stub='part']")).toHaveLength(3);
+    // 右栏关闭态不占宽
+    expect(container.querySelector(".henira-right-col")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("settings.open") }));
+    expect(openSettings).toHaveBeenCalled(); // 缺省分区由宿主定（默认主题页）
+  });
+
+  it("layout=composer：只渲染输入区（D-043 挑件语义——无 header/侧栏）", () => {
+    const { container } = render(<LayoutFrame {...frameCtx({ layout: "composer" })} />);
+    expect(container.querySelector(".henira-header")).toBeNull();
+    expect(container.querySelectorAll("[data-stub='part']")).toHaveLength(1);
+  });
+
+  it("safeMode 徽标 + settingsSection 非空渲染设置弹窗", () => {
+    const closeSettings = vi.fn();
+    const { container } = render(
+      <LayoutFrame {...frameCtx({ safeMode: true, settingsSection: "theme", closeSettings })} />,
+    );
+    expect(container.textContent).toContain(t("app.safeMode"));
+    expect(screen.getByRole("dialog", { name: t("settings.title") })).not.toBeNull();
   });
 });

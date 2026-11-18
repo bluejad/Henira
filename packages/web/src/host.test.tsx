@@ -82,12 +82,15 @@ describe("createWebApp", () => {
       );
       if (diskGroup === undefined) throw new Error("disk group not rendered");
       fireEvent.click(diskGroup);
-      await vi.waitFor(() => {
-        if (diskGroup.getAttribute("aria-expanded") !== "true") {
-          throw new Error("disk group not expanded");
-        }
-        return true;
-      });
+      await vi.waitFor(
+        () => {
+          if (diskGroup.getAttribute("aria-expanded") !== "true") {
+            throw new Error("disk group not expanded");
+          }
+          return true;
+        },
+        { timeout: 4000 }, // 全仓并跑负载下 1s 默认预算不够（831f1a3 同款竞态）
+      );
       // 轮询 disk 行出现（CI 纪律：异步断言禁固定 sleep——
       // 慢机 50ms 不够；失败时打印现有行文本自证）
       await vi.waitFor(
@@ -110,12 +113,18 @@ describe("createWebApp", () => {
       );
       if (diskRow === undefined) throw new Error("s-disk row not rendered");
       fireEvent.click(diskRow);
-      await vi.waitFor(() => {
-        if (!snapshots.includes("s-disk")) throw new Error("snapshot not refetched"); // 补拉
-      });
-      await vi.waitFor(() => {
-        if (!el.textContent?.includes("历史会话存量行")) throw new Error("rows not rendered"); // 不再空对话
-      });
+      await vi.waitFor(
+        () => {
+          if (!snapshots.includes("s-disk")) throw new Error("snapshot not refetched"); // 补拉
+        },
+        { timeout: 4000 },
+      );
+      await vi.waitFor(
+        () => {
+          if (!el.textContent?.includes("历史会话存量行")) throw new Error("rows not rendered"); // 不再空对话
+        },
+        { timeout: 4000 },
+      );
       expect(snapshots).toEqual(["s-disk"]);
     } finally {
       await app.dispose(); // throw 路径也收尾——残根会污染下一用例（「设置」按钮 multiple 连锁）

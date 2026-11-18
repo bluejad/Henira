@@ -54,6 +54,9 @@
   --henira-radius-lg: 12px;
   --henira-radius-xl: 16px;
   --henira-sidebar-width: 260px;
+  /* 三栏骨架（D-062 UI 侧子项）：中列 header 高（ZCode WorkspaceHeader h-12 行为层）与右栏默认宽 */
+  --henira-header-height: 48px;
+  --henira-right-width: 380px;
 
   /* 刻度（M4 批 A 视觉打磨）：4px 基距间距 / 四档字号 / 对话列限宽（<80ch 可读性） */
   --henira-space-1: 4px;
@@ -473,7 +476,7 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-danger-text);
   color: var(--henira-panel);
 }
-/* 工具排：模型选择器（ghost 形态原生 select——ZCode ModelConfigSelect 行为层） */
+/* 工具排：模型选择弹层（BC ModelSelect 行为层：触发钮 + 搜索 + 厂商分组 + 管理模型入口） */
 .henira-model-select {
   position: relative;
   display: inline-flex;
@@ -481,32 +484,134 @@ button:focus-visible > .henira-row-caret {
   min-width: 0;
   max-width: 220px;
 }
-.henira-model-select select {
+.henira-model-trigger {
   appearance: none;
   border: 1px solid transparent;
   background: none;
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
-  padding: 3px 20px 3px 8px;
+  padding: 3px 8px;
   border-radius: var(--henira-radius);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
-.henira-model-select select:hover {
+.henira-model-trigger:hover {
   color: var(--henira-text);
   border-color: var(--henira-border);
 }
-.henira-model-select select:focus-visible {
+.henira-model-trigger:focus-visible {
   outline: 1px solid var(--henira-info-text);
 }
-.henira-model-caret {
+.henira-model-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-model-popover {
   position: absolute;
-  right: 6px;
-  display: inline-flex;
+  z-index: 65;
+  min-width: 240px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+}
+.henira-model-popover[data-direction="up"] {
+  bottom: calc(100% + 4px);
+}
+.henira-model-popover[data-direction="down"] {
+  top: calc(100% + 4px);
+}
+.henira-model-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 6px;
+  border-bottom: 1px solid var(--henira-border);
+  margin-bottom: 4px;
   color: var(--henira-text-muted);
-  pointer-events: none;
+}
+.henira-model-search {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  outline: none;
+}
+.henira-model-list {
+  display: block;
+  overflow-y: auto;
+  max-height: 220px;
+}
+.henira-model-group {
+  display: block;
+}
+.henira-model-group-label {
+  display: block;
+  padding: 4px 8px 2px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-model-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-model-item:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-model-item[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-model-empty {
+  display: block;
+  padding: 8px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-model-manage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--henira-border);
+  background: none;
+  text-align: left;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 0 0 calc(var(--henira-radius) - 2px) calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-model-manage:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
 }
 .henira-composer-hint {
   color: var(--henira-text-muted);
@@ -828,6 +933,223 @@ button:focus-visible > .henira-row-caret {
   transition:
     background 0.12s ease,
     border-color 0.12s ease;
+}
+
+/* ── 三栏骨架（D-062 UI 侧子项）：中列 header / 右栏 tab 框架 / 设置弹窗左菜单 / 新会话行 ── */
+
+/* 中列 header：目录名 · 会话标题占位（ZCode WorkspaceHeader h-12 行为层） */
+.henira-header {
+  height: var(--henira-header-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--henira-space-4);
+  border-bottom: 1px solid var(--henira-border);
+  background: var(--henira-surface);
+  font-size: var(--henira-fs-base);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.henira-header-dir {
+  color: var(--henira-text-strong);
+  font-weight: 600;
+}
+.henira-header-sep {
+  color: var(--henira-text-muted);
+}
+.henira-header-title {
+  color: var(--henira-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右栏（官方默认件 RightPanel：⌄ + tabs + ＋ + ⤢；溢出横滚，tab 最小 60px） */
+.henira-right-col {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  border-left: 1px solid var(--henira-border);
+  background: var(--henira-surface);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.henira-right-panel--max {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--henira-bg);
+}
+.henira-right-tabs {
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--henira-space-2);
+  border-bottom: 1px solid var(--henira-border);
+  min-width: 0;
+}
+.henira-right-tablist-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.henira-right-tabmenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.henira-right-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px 0;
+}
+.henira-right-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 60px;
+  max-width: 180px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--henira-radius);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  flex-shrink: 0;
+  background: none;
+}
+.henira-right-tab[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-right-tab:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-right-tab-label {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-right-tab-close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 2px;
+  display: inline-flex;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  border-radius: calc(var(--henira-radius) - 2px);
+}
+.henira-right-tab-close:hover {
+  opacity: 1;
+  background: var(--henira-surface-hover);
+}
+.henira-right-barbtn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+}
+.henira-right-barbtn:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-right-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.henira-right-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+
+/* 设置弹窗（左菜单右内容——BC SettingsPanel 行为层，分区收敛为现有三项） */
+.henira-settings-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+.henira-settings-body {
+  display: flex;
+  gap: var(--henira-space-4);
+  flex: 1;
+  min-height: 0;
+}
+.henira-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  border-right: 1px solid var(--henira-border);
+  padding-right: var(--henira-space-2);
+}
+.henira-app .henira-settings-nav button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--henira-radius);
+  font: inherit;
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.henira-app .henira-settings-nav button:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-app .henira-settings-nav button[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+/* 「＋新会话」独立行（任务列表之上——用户裁定三栏骨架形状） */
+.henira-new-session {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--henira-space-3);
+  justify-content: flex-start;
 }
 
 @media (prefers-reduced-motion: reduce) {

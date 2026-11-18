@@ -38,6 +38,8 @@ export interface HeniraClientLike {
   }): Promise<{ version: 1 }>;
   /** 模型目录（可选——手写覆盖 + models.dev 快照清单；无密钥） */
   listModels?(): Promise<{ providers: Record<string, { baseUrl?: string; models?: string[] }> }>;
+  /** 服务商密钥写（可选——设置弹窗·模型管理页消费；D-030：只进 credentials.json，永不回读） */
+  putCredential?(provider: string, key: string): Promise<void>;
   /** 登记工作目录列表（可选——侧栏目录区消费，data-directory §4；宿主缺方法 = 目录登记交互不渲染） */
   listDirs?(): Promise<RegisteredDir[]>;
   /** 登记工作目录（可选——校验：绝对路径+存在+是目录；非法抛错） */
@@ -103,6 +105,23 @@ export interface WebPartContext {
   /** 界面态写（D-063）：部件只交 patch，宿主顶层合并 + 统一防抖落盘（部件不自己 PUT）；
    * 缺席 = 宿主未实装（件退化为纯内存态） */
   updateUiState?(patch: SessionUiState): void;
+  // ── 以下为宿主级关注面（框架件消费；全部可选——宿主缺省 = 对应 UI 不渲染，沿
+  //    getSettings feature-detect 先例；packages/web 宿主 createWebApp 全量提供）──
+  /** 整页布局选项（D-043 挑件；缺席按 full） */
+  layout?: LayoutOption;
+  /** 安全模式（徽标显示；双击 Alt 切换由宿主管） */
+  safeMode?: boolean;
+  /** 当前会话工作目录（中列 header 目录名；null/缺席 = 只显标题占位） */
+  sessionCwd?: string | null;
+  /** 主题切换（设置弹窗主题页；第三方主题包带 cssUrl 由宿主注入 <link>，D-059） */
+  onTheme?(next: string, cssUrl?: string): void;
+  /** 语言包切换（设置弹窗语言页；undefined 字典 = 回官方 zh） */
+  onLocale?(dict: Record<string, string> | undefined, localeId: string): void;
+  /** 设置弹窗开合：宿主持有状态——openSettings 请求开（指定分区，缺省主题页），
+   * settingsSection 为当前开着的分区（null = 关闭）；两者缺席 = 宿主未实装弹窗 */
+  openSettings?(section?: SettingsSection): void;
+  closeSettings?(): void;
+  settingsSection?: SettingsSection | null;
 }
 
 export type WebPart = (ctx: WebPartContext) => ReactNode;
@@ -113,8 +132,20 @@ export type ToolCallView = (args: { ctx: WebPartContext; row: ToolRow }) => Reac
 /** 槽位件联合：区域槽/追加位 = WebPart；keyed 工具卡 = ToolCallView（消费侧按槽种收窄） */
 export type SlotPart = WebPart | ToolCallView;
 
-/** 宿主槽位词表（D-033：name 按当前宿主词表校验）；未装件的槽位收起 */
-export type WebSlotName = "sidebar" | "conversation" | "composer";
+/** 宿主槽位词表·区域级（D-033 三名 + D-062 结构性两名：layout 整页框架槽 / sidebar.right 右栏；
+ * 追加位与行级槽走开放 string 名，不在此联合里）；未装件的槽位收起 */
+export type WebSlotName = "layout" | "sidebar" | "conversation" | "composer" | "sidebar.right";
+
+/** 设置弹窗分区（弹窗只列现有三项——用户裁定 2026-11-18：主题/语言/模型管理） */
+export type SettingsSection = "theme" | "locale" | "models";
+
+/** 整页布局选项（D-043 挑件语义，宿主 createWebApp opts.layout 同形）：
+ * 预置三态（full=三栏 / center=对话+输入 / composer=只输入）或显式零件表 */
+export type LayoutOption =
+  | "full"
+  | "center"
+  | "composer"
+  | { parts: Partial<Record<WebSlotName, WebPart>> };
 
 export interface UiModuleContext {
   /** 追挂（append）到该槽位；name 按宿主词表校验（D-033 区域词表 + D-057 keyed 前缀词表） */

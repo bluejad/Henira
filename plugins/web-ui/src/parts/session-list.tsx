@@ -206,6 +206,10 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         width: "100%", // 随宿主列宽走（D-063 拖宽落宿主列内联宽，var 缺省时同值）
       }}
     >
+      {/* 「＋新会话」独立一行置任务列表之上（用户裁定 2026-11-18 三栏骨架形状） */}
+      <button type="button" className="henira-primary henira-new-session" onClick={createSession}>
+        + {ctx.t("sessions.new")}
+      </button>
       <div
         className="henira-sidebar-header"
         style={{
@@ -217,24 +221,19 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         }}
       >
         <strong style={{ color: "var(--henira-text-strong)" }}>{ctx.t("dirs.title")}</strong>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--henira-space-1)" }}>
-          {hasDirSupport ? (
-            <button
-              type="button"
-              className="henira-hover-reveal"
-              aria-label={ctx.t("dirs.add")}
-              title={ctx.t("dirs.add")}
-              onClick={() => {
-                setAddOpen(true);
-              }}
-            >
-              + {ctx.t("dirs.add")}
-            </button>
-          ) : null}
-          <button type="button" className="henira-primary" onClick={createSession}>
-            + {ctx.t("sessions.new")}
+        {hasDirSupport ? (
+          <button
+            type="button"
+            className="henira-hover-reveal"
+            aria-label={ctx.t("dirs.add")}
+            title={ctx.t("dirs.add")}
+            onClick={() => {
+              setAddOpen(true);
+            }}
+          >
+            + {ctx.t("dirs.add")}
           </button>
-        </div>
+        ) : null}
       </div>
       {sessions.length === 0 && groups.length === 0 ? (
         <span style={{ color: "var(--henira-text-muted)" }}>{ctx.t("sessions.empty")}</span>
