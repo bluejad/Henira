@@ -2,28 +2,29 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 // 职责：帧流消费（喂 store）/ PluginUiHost 门面实现（13 方法 M3 子集）/ UI 模块激活
 // （公共注册路径）或安全模式（编译期出口默认组合）/ 主题接线 / 双击 Alt 切安全模式。
-// React 渲染委托 shell.tsx 的 Shell（本文件不写 JSX——createElement 走 shell 侧类型）。
+// 渲染 = 只挂 layout 槽的官方框架件（D-062 整页框架槽）——宿主零界面 JSX，一切可见物
+// 都在 plugin-web-ui 件（框架件同一注册声明子槽，声明=独占渲染权，dsh AppFrame 行为层）。
 
 import {
   defaultParts,
+  type LayoutOption,
+  makeT,
   type PluginUiHost,
+  type SettingsSection,
   type SlotPart,
   type UiModuleContext,
   type WebPart,
+  type WebPartContext,
   type WebSlotName,
   webUiModule,
 } from "@henira/plugin-web-ui";
 import type { GlobalUiState, ServerFrame, SessionSummary, SessionUiState } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
-import { makeT, Shell, type ShellProps } from "./shell.js";
 import { RowStore } from "./store.js";
 
-export type Layout =
-  | "full"
-  | "center"
-  | "composer"
-  | { parts: Partial<Record<WebSlotName, WebPart>> };
+/** 整页布局选项（形状真源在 plugin-web-ui types.LayoutOption；API 兼容别名） */
+export type Layout = LayoutOption;
 
 export interface WebAppOptions {
   client: HeniraFacade;
@@ -69,6 +70,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   //    + 统一 500ms 防抖整份 PUT；切会话前冲刷、pagehide 冲刷。undefined = 新会话文档未加载。
   let uiState: SessionUiState | undefined;
   let uiStateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 设置弹窗当前分区（null = 关闭；宿主持有开合，框架件经 ctx 读渲染） */
+  let settingsSection: SettingsSection | null = null;
+  /** 取字工厂引用稳定（行 memo 比较器比 ctx.t 引用——语言包变化才换新） */
+  let t = makeT(localeOverride);
 
   function flushUiState(): Promise<void> {
     if (uiStateTimer !== undefined) {
@@ -114,12 +119,15 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   }
 
   // ── 槽位管理：激活 UI 模块（公共注册路径）或安全模式直用编译期出口 ──
-  // 词表（D-033 区域 + D-043 官方三槽 + D-057 keyed 前缀）；词表外静默忽略（别的宿主词表同款），
-  // 告警基建随批 C 管理面补。keyed 前缀合法、后缀自由（工具名/扩展名——含插件自家工具名）。
+  // 词表（D-033 区域 + D-043 官方槽 + D-057 keyed 前缀 + D-062 结构性/右栏）；词表外静默
+  // 忽略（别的宿主词表同款），告警基建随批 C 管理面补。keyed 前缀合法、后缀自由。
   const REGION_SLOTS = new Set([
+    "layout",
     "sidebar",
     "conversation",
     "composer",
+    "sidebar.right",
+    "sidebar.right.tab",
     "turn.tail",
     "conversation.images",
   ]);
@@ -192,7 +200,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     renderMarkdown(text: string, opts?: { streaming?: boolean }) {
       // markdown 落地（M4 批 A）：实现体在 markdown.ts（GFM；raw HTML 不渲染）。
       // t 由宿主注入（代码块复制钮文案跟随语言包）；streaming 透传（流式中不高亮）。
-      return markdownNode(text, { streaming: opts?.streaming, t: makeT(localeOverride) });
+      return markdownNode(text, { streaming: opts?.streaming, t });
     },
     getSession() {
       return sessionId === null ? null : { sessionId, cwd: sessionCwd };
@@ -272,6 +280,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     themeLink?.remove();
     themeLink = undefined;
     localeOverride = undefined;
+    t = makeT(undefined); // 取字工厂同步回落官方（残留第三方字典 = 安全模式漏字）
   }
 
   /**
@@ -321,19 +330,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   function render(): void {
     if (root === undefined || container === undefined) return;
     applyTheme();
-    const props: ShellProps = {
-      store,
-      slots,
+    const ctx: WebPartContext = {
       client: opts.client,
-      layout: opts.layout ?? "full",
-      host: hostFacade,
-      theme,
-      localeOverride,
-      safeMode,
       sessionId,
-      uiState,
-      updateUiState,
-      onSelectSession: (id) => {
+      selectSession: (id) => {
         if (id === null) {
           // 列表受控选中恒有会话——null 属签名兜底：清选中不补拉
           void flushUiState();
@@ -344,26 +344,41 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         }
         activateSession(id); // 与 boot 还原同一路径（补拉快照/写指针/载文档都在里面）
       },
-      onToggleSafe: (on) => {
-        safeMode = on;
-        moduleDispose?.();
-        moduleDispose = undefined;
-        if (on) enterSafeMode();
-        renderSlots();
-        render();
-      },
+      t,
+      theme,
+      store,
+      host: hostFacade,
+      slots,
+      uiState,
+      updateUiState,
+      layout: opts.layout ?? "full",
+      safeMode,
+      sessionCwd,
       onTheme: (next, cssUrl) => {
         theme = next;
         if (cssUrl !== undefined) themeUrls.set(next, cssUrl);
         applyTheme();
-        render(); // 主题变了要重渲 React 侧——漏了则设置浮层下拉显示值与实际主题脱节（R125）
+        render(); // 主题变了要重渲 React 侧——漏了则设置弹窗显示值与实际主题脱节（R125）
       },
       onLocale: (dict) => {
         localeOverride = dict !== undefined && Object.keys(dict).length > 0 ? dict : undefined;
+        t = makeT(localeOverride); // 引用稳定纪律：语言包变化才换新（行 memo 比较器比 ctx.t）
         render();
       },
+      openSettings: (section) => {
+        settingsSection = section ?? "theme";
+        render();
+      },
+      closeSettings: () => {
+        settingsSection = null;
+        render();
+      },
+      settingsSection,
     };
-    root.render(createElement(Shell, props));
+    // root 只挂 layout 槽的官方框架件（D-062 整页框架槽；顶替者经 replaceSlot("layout")
+    // 占槽即整页重排——官方区域件声明随框架件消失，安全模式回落官方框架）
+    const [framePart] = (slots.get("layout") ?? []) as WebPart[];
+    root.render(framePart === undefined ? null : createElement(framePart, ctx));
   }
 
   return {
