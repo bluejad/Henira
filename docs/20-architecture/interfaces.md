@@ -475,6 +475,8 @@ POST /api/sessions/:id/steer                { entryId } → { ok: boolean }     
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
+GET  /api/sessions/:id/ui-state                         → SessionUiState  // 界面绑定态文档（草稿 / 折叠组 / 面板宽度 / 右栏 tab 引用；web 宿主所有形状，服务端不解释内容；D-063，落码随批 C）
+PUT  /api/sessions/:id/ui-state             { doc }     → { ok: true }    // 整份原子重写（tmp+rename），后写者赢；大小上限（D-063）
 GET  /api/dirs                                          → RegisteredDir[]  // 登记工作目录（data-directory §4 projects.json，可自愈；D-060）
 POST /api/dirs                              { cwd }     → { ok: true; dir }  // 登记：绝对路径 + 存在 + 是目录（非法 400）
 DELETE /api/dirs/:id                                    → { ok: true }     // busy → 200 { ok: false; blocked: [sessionId] }（批操作语义响应，与删会话 409 双轨——D-060）；
@@ -489,6 +491,8 @@ GET  /api/models                                        → 模型清单（model
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
 GET  /api/ui-assets                                     → UiAssets        // 界面资产清单（D-059 语言包/主题包；扫描已装插件包）
 GET  /api/ui-assets/:id/:version/:kind/:file → 资产文件伺服            // kind = locale | theme；SAFE_SEG + startsWith 双防线（D-059）
+GET  /api/ui-state                                       → GlobalUiState   // 全局"上次选中"（backing state/ui.json；启动还原：在列表则选中，否则回落最新更新 / 新建；D-063，落码随批 C）
+PUT  /api/ui-state                           { doc }     → { ok: true }    // 选中变化时写（D-063）
 GET  /api/events                                        → SSE 帧流        // 唯一订阅端点（帧序/心跳/有界队列见下「SSE 传输形状」）
 ```
 
@@ -508,6 +512,10 @@ interface UiAssets {
   locales: UiAssetLocale[];
   themes: UiAssetTheme[];
 } // GET /api/ui-assets（D-059 语言包/主题包清单）
+interface GlobalUiState {
+  lastSessionId: string | null; // 全局"上次选中"（state/ui.json，运行态不进 settings.json；D-063）
+}
+type SessionUiState = Record<string, unknown>; // 每会话界面绑定态文档——形状归 web 宿主（草稿 / 侧栏折叠 / 面板宽度 / 右栏 tab 引用，随宿主生长），服务端不解释内容；删会话随整树走（D-063）
 interface UiAssetLocale {
   pluginId: string;
   version: string;
@@ -703,6 +711,11 @@ interface HeniraFacade {
   deleteDir(id: string): Promise<void>; // 删登记目录（该 cwd 全部会话 + 登记条目；盘上工作目录不动；busy 抛错——D-060）
   browseDirs(path?: string): Promise<DirBrowse>; // 全局目录浏览一层（新增目录弹窗数据源；D-060）
   deleteSession(id: string): Promise<void>; // 删单个会话（账本目录整棵；busy 抛错——D-060）
+  // 界面绑定状态四方法（⏳ 落码随批 C——D-063；写时机 = 客户端防抖 + 关页 / 切会话冲刷）
+  getUiState(): Promise<GlobalUiState>; // 全局"上次选中"（backing state/ui.json）
+  putUiState(doc: GlobalUiState): Promise<void>;
+  getSessionUiState(sessionId: string): Promise<SessionUiState>; // 选中会话时拉取回填
+  putSessionUiState(sessionId: string, doc: SessionUiState): Promise<void>; // 整份原子重写，后写者赢
   events(): AsyncIterable<ServerFrame>; // 全局帧流（connected/快照/增量），
   //   内置断档不猜纪律与重连
 }

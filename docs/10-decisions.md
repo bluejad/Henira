@@ -755,3 +755,16 @@
   7. **落码随批 C**：第三方 UI 装载通道（server 伺服 ui entry + 宿主动态 import + import map 注入 react / `@henira/kernel` / `@henira/protocol` / 官方件唯一实例）＋ Shell 拆解为占 `layout` 槽的官方框架件 ＋ 右栏 tab 框架 ＋ 宿主词表对齐（REGION_SLOTS 扩为词表十名）＋ 插件管理面（D-029 / D-030 / D-048 确认卡）同批闭环。
 - **理由**："AI 写插件替换内置"的物理前置是装载通道——没有它 registerSlot / replaceSlot 全是纸上谈兵（机制层 API 齐、外部代码拿不到 ctx）；词表名统一是零设计量的还账，越晚还不越多的插件死在静默忽略上；layout 槽与 tab 框架是 dsh 已验证的形状（行为层参照、实现自家写法）；整页替换给风险标注 + 安全模式回落双护栏，与"可换"核心承诺（P8）一致不缩窄。
 - **备注**：plugins.md（依据行 / §3 ui.slots / §4 挂载点词表块 / §7.2 词表定稿块）、interfaces.md（web 段词表块 + WebPartContext slots 注释）、10-decisions.md（本条 + D-033 后续修订）、roadmap M4 内容行（批 C 闭环项）、INDEX plugins 行。批 C 验收判据随批出计划：第三方 UI 插件真装载 + `replaceSlot("layout")` 整页重排演示 + 右栏插件 tab 面板真渲染 + 安全模式全回落官方。
+
+## D-063 会话绑定界面状态持久化：每会话 ui-state.json + 全局 state/ui.json
+
+- **状态**：已定 · 2026-11-18 · 文档先行；落码随 M4 批 C（右栏 tab 需要这个家——"开着哪些 tab"的总账住 ui-state.json）；落码前端点与文件合法不存在（D-059 先例，两边标注）
+- **背景**：项目所有者逐项质询"会话绑定的状态重启 / 刷新是否还原"：左侧选中的、输入框草稿、排队、审批、提问、plan、task、右栏打开的 tab、左中右拖动的宽度。审计结论：会话内容早已落盘可还原（账本），但界面绑定态几乎全内存——选中 = 启动自动选**最新更新**的会话（host 取列表第一个，非"上次选中的"；projects.json `lastSessionId` 字段只写未读）；草稿纯内存（全库零浏览器存储），刷新即丢；右栏未建（D-062 随批 C）；宽度不可调（侧栏 260px 固定 + 内容列视口自动三档）；排队是唯一已持久化的（queue.json，D-045）但 UI 不渲染队列内容（不进事件账本，P9-1，投影与 REST 均不暴露）；审批刷新存活（审批行账本投影）但重启后留幽灵 pending 行（等待器随进程死，revoked 事件投影认识、无人写）。取证两条路线（行为层，D-004 / D-047）：ZCode = 纯界面态归浏览器 localStorage 分键（按工作区 + 会话存草稿 / 选中 / 分栏布局；队列与审批明确不持久化——重启即丢是写进协议注释的裁决）；BC = 界面绑定态归服务端（每会话一个 JSON 的字段族：draft / queue / rightPanel{tabs,active,width} / leftWidth，客户端防抖上报 + 关页冲刷，重启后打开会话即续）。项目所有者拍板：**走 BC 同构、落我们目录树**；全局"上次选中"住 `state/ui.json`（服务端存，弃浏览器 localStorage——换浏览器 / 换设备即丢，与"重启 / 刷新都要还原"的要求不贴）。
+- **决定**：
+  1. **每会话一个 `ui-state.json`**，住会话目录（与 session.v1.jsonl / meta.json 平级）：`projects/<key>/sessions/<id>/ui-state.json`。装**界面绑定态**：草稿、侧栏折叠组、左右面板宽度、右栏开着的 tab 引用（插件 id + 面板 id；**只存引用不存面板内部状态**——插件自己的状态归 `plugins-data/<id>/`，边界同"不放 meta.json"的 per-owner 文件规矩）。**归属 = web 宿主**（宿主是 D-062 语义下的真插件，它的状态文件它所有）；服务端不解释内容，当不透明 JSON 对象整份收发 + 大小上限；**整份 tmp+rename 原子重写**（同 meta.json / queue.json 模子）；**不进事件账本**（状态是"现在的样子"不是历史，P9-1 同 queue 先例）；删会话随整树走——"和各自会话绑定"由目录生命周期天然保证；多窗口并发 = 后写者赢（整份换）；
+  2. **全局"上次选中"一条**：`state/ui.json`（与 server.json 同目录——state/ 本就是运行态的家）：`{ "lastSessionId": "s-..." }`。启动还原顺序：读之 → 在会话列表中则选中 → 否则回落最新更新（现状行为）/ 列表空则新建。**不进 settings.json**（那是用户设置；这是程序运行态）。projects.json `lastSessionId`（按目录记）处置随批 C 定：接消费方或作废；
+  3. **写时机**（BC 行为层自家写法）：客户端防抖（草稿 500ms 级）+ 关页 / 切会话冲刷，服务端整份落盘；读时机 = 选中会话时拉取回填；
+  4. **不进 ui-state.json 的**：plan / task（引擎态不是界面态，已有家 `plans/index.json` 的 active 字段 + `tasks/<id>.json`，M5 落地用既定住处）；审批 / 提问（**活等待不跨重启**，与 ZCode / BC 同裁——刷新存活靠审批行账本投影；重启 = 对账标中断；幽灵 pending 行清理语义随批 C 一并定）；
+  5. **REST 面两对端点**：`GET/PUT /api/sessions/:id/ui-state`（每会话）＋ `GET/PUT /api/ui-state`（全局，backing `state/ui.json`）。facade 四方法（getUiState / putUiState / getSessionUiState / putSessionUiState）随码落档。
+- **理由**：服务端存贴用户要求（重启 / 刷新 / 换浏览器都还原）；放会话目录 = 生命周期天然绑定，零新增机制（文件三模子全是既有先例：只追加流水 / 可改元数据整份重写 / 状态不进账本）；"上次选中"单列全局文件是因为它跨会话，塞进任一会话目录都错位；ZCode 路线在其单机单用户桌面形态下成立，我们是 server + web 多端形态，状态归服务端才有一致的还原语义。
+- **备注**：落点 = data-directory.md（全局树 / 会话目录树 / §2.1 表 / §5 写者表 / §7 删除范围 / projects.json 注）、interfaces.md（REST 面 + DTO + facade）、roadmap 批 C 行、50-open 账目行。落码验收随批 C 计划出：改宽度 / 折叠 / 草稿 → 重启 serve + 刷新浏览器全还原；换浏览器打开同一 server 同样还原。
