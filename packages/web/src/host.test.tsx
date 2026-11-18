@@ -65,19 +65,40 @@ describe("createWebApp", () => {
     document.body.append(el);
     const app = createWebApp({ client });
     app.mount(el);
-    await new Promise((r) => setTimeout(r, 50)); // 初始选择 s-live（第一个）
-    snapshots.length = 0; // 本用例只看点击后的补拉
+    try {
+      // 初始选择 s-live（第一个）——轮询 disk 行出现（CI 纪律：异步断言禁固定 sleep——
+      // 慢机 50ms 不够；失败时打印现有行文本自证）
+      await vi.waitFor(
+        () => {
+          const rows = [...el.querySelectorAll(".henira-sessions li button")];
+          const disk = rows.find((b) => b.textContent?.includes("disk"));
+          if (disk === undefined) {
+            throw new Error(
+              `s-disk row not ready; rows=${JSON.stringify(rows.map((b) => b.textContent))}`,
+            );
+          }
+          return disk;
+        },
+        { timeout: 5000 },
+      );
+      snapshots.length = 0; // 本用例只看点击后的补拉
 
-    const diskRow = [...el.querySelectorAll(".henira-sessions li button")].find((b) =>
-      b.textContent?.includes("disk"),
-    );
-    if (diskRow === undefined) throw new Error("s-disk row not rendered");
-    fireEvent.click(diskRow);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(snapshots).toEqual(["s-disk"]); // 无数据 → 补拉快照
-    expect(el.textContent).toContain("历史会话存量行"); // 行渲染出来（不再是空对话）
-    await app.dispose();
-    el.remove();
+      const diskRow = [...el.querySelectorAll(".henira-sessions li button")].find((b) =>
+        b.textContent?.includes("disk"),
+      );
+      if (diskRow === undefined) throw new Error("s-disk row not rendered");
+      fireEvent.click(diskRow);
+      await vi.waitFor(() => {
+        if (!snapshots.includes("s-disk")) throw new Error("snapshot not refetched"); // 补拉
+      });
+      await vi.waitFor(() => {
+        if (!el.textContent?.includes("历史会话存量行")) throw new Error("rows not rendered"); // 不再空对话
+      });
+      expect(snapshots).toEqual(["s-disk"]);
+    } finally {
+      await app.dispose(); // throw 路径也收尾——残根会污染下一用例（「设置」按钮 multiple 连锁）
+      el.remove();
+    }
   });
 
   it("正常装载：UI 模块激活 → 三槽位官方件在渲染（公共注册路径，判据④正向）", async () => {
