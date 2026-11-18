@@ -248,6 +248,16 @@ export function createWebApp(opts: WebAppOptions): WebApp {
             sessionCwd = all.find((s) => s.id === id)?.cwd ?? "";
           })
           .catch(() => {});
+        // 磁盘历史会话（不在扇出范围）补拉快照——否则选中即空对话（SSE 快照帧只发在订会话）
+        if (id !== null && !store.has(id)) {
+          void opts.client
+            .snapshot(id)
+            .then((snapshot) => {
+              store.applySnapshot({ kind: "snapshot", sessionId: id, snapshot });
+              render();
+            })
+            .catch(() => {});
+        }
         render();
       },
       onToggleSafe: (on) => {

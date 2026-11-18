@@ -1,5 +1,7 @@
 // 行 store（web 客户端的唯一数据源——哑渲染器：本 store 应用帧 → 件渲染行）。
 // 断档不猜：lastSeq 按会话跟踪；跳号 → 触发重拉快照换发（快照整体替换，消费端永不猜中间态）。
+// 行引用契约（虚拟滚动 memo 化的前提，ZCode 同款）：未变化的行保持同一引用，
+// 变化的行给新对象（row.delta 不再原地 mutate）；行列表 append-only + 前插仅经 loadOlder。
 // getSession 返回缓存对象（版本化）——useSyncExternalStore 要求引用稳定。
 
 import type { Delta, Row, ServerFrame, SessionSnapshot, SessionState } from "@henira/protocol";
@@ -7,12 +9,24 @@ import type { Delta, Row, ServerFrame, SessionSnapshot, SessionState } from "@he
 export interface SessionView {
   rows: readonly Row[];
   state: SessionState;
+  /** true = 窗口首行之前还有历史（快照窗口化随帧下发；loadOlder 翻页依据） */
+  hasOlder: boolean;
+  /** 全序行数（快照下发；滚动条长度估计用） */
+  totalRows: number;
 }
 
 export class RowStore {
   readonly #sessions = new Map<
     string,
-    { rows: Row[]; byId: Map<string, Row>; state: SessionState; lastSeq: number; version: number }
+    {
+      rows: Row[];
+      byId: Map<string, Row>;
+      state: SessionState;
+      lastSeq: number;
+      hasOlder: boolean;
+      totalRows: number;
+      version: number;
+    }
   >();
   readonly #listeners = new Set<() => void>();
   readonly #views = new Map<string, { view: SessionView; version: number }>();
@@ -39,9 +53,24 @@ export class RowStore {
     return EMPTY;
   };
 
-  /** 会话是否有已投影数据（列表选中态初始渲染用） */
+  /** 会话是否有已投影数据（列表选中态初始渲染 / 选中历史会话补拉快照判据用） */
   has(sessionId: string): boolean {
     return this.#sessions.has(sessionId);
+  }
+
+  /** 历史前插（loadOlder）：页行按 rowSeq 过滤只收窗口首行之前、按 rowId 去重后前插——
+   *  ZCode mergeOlderRows 同语义（防复活已删行 / 防重复合并）；无新行返回 false 不触发订阅 */
+  mergeOlderRows(sessionId: string, page: readonly Row[]): boolean {
+    const session = this.#sessions.get(sessionId);
+    if (session === undefined || page.length === 0) return false;
+    const headSeq = session.rows[0]?.rowSeq ?? Number.POSITIVE_INFINITY;
+    const seen = new Set(session.rows.map((r) => r.rowId));
+    const older = page.filter((r) => r.rowSeq < headSeq && !seen.has(r.rowId));
+    if (older.length === 0) return false;
+    session.rows = [...older, ...session.rows];
+    for (const row of older) session.byId.set(row.rowId, row);
+    this.#touch(sessionId);
+    return true;
   }
 
   #touch(sessionId: string): void {
@@ -49,7 +78,12 @@ export class RowStore {
     const session = this.#sessions.get(sessionId);
     if (session === undefined) return;
     this.#views.set(sessionId, {
-      view: { rows: [...session.rows], state: { ...session.state } },
+      view: {
+        rows: [...session.rows],
+        state: { ...session.state },
+        hasOlder: session.hasOlder,
+        totalRows: session.totalRows,
+      },
       version: this.#version,
     });
     for (const cb of this.#listeners) cb();
@@ -62,6 +96,8 @@ export class RowStore {
     session.byId = new Map(snapshot.rows.map((row) => [row.rowId, row]));
     session.state = { ...snapshot.state };
     session.lastSeq = snapshot.seq;
+    session.hasOlder = snapshot.hasOlder ?? false; // 兜底：老 client / 测试桩无窗口字段
+    session.totalRows = snapshot.totalRows ?? snapshot.rows.length;
     this.#touch(frame.sessionId);
   }
 
@@ -94,12 +130,17 @@ export class RowStore {
           this.#refetch?.(sessionId); // 行不存在 = 断档的另一种形态：重拉
           return;
         }
-        if (delta.field === "text") {
-          (row as { text: string }).text += delta.text;
-        } else {
-          const assistant = row as { reasoning?: string };
-          assistant.reasoning = (assistant.reasoning ?? "") + delta.text;
-        }
+        // 不可变替换：变化行给新对象（memo 化的行引用契约——原对象保持冻结）
+        const next: Row =
+          delta.field === "text"
+            ? ({ ...row, text: (row as { text: string }).text + delta.text } as Row)
+            : ({
+                ...row,
+                reasoning: ((row as { reasoning?: string }).reasoning ?? "") + delta.text,
+              } as Row);
+        const index = session.rows.indexOf(row);
+        session.rows[index] = next;
+        session.byId.set(next.rowId, next);
         break;
       }
       case "row.upserted": {
@@ -125,6 +166,8 @@ export class RowStore {
     byId: Map<string, Row>;
     state: SessionState;
     lastSeq: number;
+    hasOlder: boolean;
+    totalRows: number;
     version: number;
   } {
     let session = this.#sessions.get(sessionId);
@@ -134,6 +177,8 @@ export class RowStore {
         byId: new Map(),
         state: { busy: false },
         lastSeq: 0,
+        hasOlder: false,
+        totalRows: 0,
         version: 0,
       };
       this.#sessions.set(sessionId, session);
@@ -142,4 +187,4 @@ export class RowStore {
   }
 }
 
-const EMPTY: SessionView = { rows: [], state: { busy: false } };
+const EMPTY: SessionView = { rows: [], state: { busy: false }, hasOlder: false, totalRows: 0 };

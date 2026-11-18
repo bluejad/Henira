@@ -178,6 +178,82 @@ describe("RowStore", () => {
     expect(refetch).toHaveBeenCalledTimes(2);
   });
 
+  it("row.delta 不可变：变化行换新对象，原行引用冻结（虚拟滚动 memo 化前提）", () => {
+    const store = new RowStore();
+    store.applySnapshot(snapshotFrame("s-1", 1));
+    store.applyFrame({
+      kind: "delta",
+      sessionId: "s-1",
+      seq: 2,
+      delta: {
+        op: "row.appended",
+        row: {
+          kind: "assistant",
+          rowId: "a:t-1:1",
+          rowSeq: 1,
+          turn: "t-1",
+          step: 1,
+          text: "前",
+          streaming: true,
+        },
+      },
+    });
+    const before = store.getSession("s-1").rows[0];
+    store.applyFrame({
+      kind: "delta",
+      sessionId: "s-1",
+      seq: 3,
+      delta: { op: "row.delta", rowId: "a:t-1:1", field: "text", text: "后" },
+    });
+    const after = store.getSession("s-1").rows[0];
+    expect(after).not.toBe(before); // 新对象
+    expect(before).toMatchObject({ text: "前" }); // 原对象冻结
+    expect(after).toMatchObject({ text: "前后" });
+  });
+
+  it("mergeOlderRows：前插只收窗口首行之前 + rowId 去重；无新行返回 false", () => {
+    const store = new RowStore();
+    store.applySnapshot(
+      snapshotFrame("s-1", 5, [
+        { kind: "user", rowId: "u:4", rowSeq: 4, turn: "t-2", text: "窗口首", source: "send" },
+      ]),
+    );
+    // 页含：更早行（收，服务端保证页内升序——sliceRowsPage 契约）、窗口内重复行（滤）
+    const merged = store.mergeOlderRows("s-1", [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "早二", source: "send" },
+      { kind: "user", rowId: "u:2", rowSeq: 2, turn: "t-1", text: "早一", source: "send" },
+      { kind: "user", rowId: "u:4", rowSeq: 4, turn: "t-2", text: "窗口首", source: "send" },
+    ]);
+    expect(merged).toBe(true);
+    const view = store.getSession("s-1");
+    expect(view.rows.map((r) => r.rowId)).toEqual(["u:1", "u:2", "u:4"]);
+    // 重复合并同一页 → 无新行 → false 且不触发订阅
+    const again = store.mergeOlderRows("s-1", [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "早二", source: "send" },
+    ]);
+    expect(again).toBe(false);
+    expect(view.rows).toHaveLength(3);
+  });
+
+  it("快照窗口字段进视图：hasOlder/totalRows 随快照下发", () => {
+    const store = new RowStore();
+    store.applySnapshot({
+      kind: "snapshot",
+      sessionId: "s-1",
+      snapshot: {
+        sessionId: "s-1",
+        seq: 5,
+        rows: [{ kind: "user", rowId: "u:9", rowSeq: 9, turn: "t-1", text: "尾", source: "send" }],
+        state: { busy: false },
+        hasOlder: true,
+        totalRows: 120,
+      },
+    });
+    const view = store.getSession("s-1");
+    expect(view.hasOlder).toBe(true);
+    expect(view.totalRows).toBe(120);
+  });
+
   it("row.delta 指向不存在的行 → 重拉（断档的另一形态）", () => {
     const store = new RowStore();
     const refetch = vi.fn();
