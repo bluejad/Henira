@@ -107,14 +107,20 @@ async function waitUiStateOnDisk(
 
 const activeRow = (page: Page) => page.locator('.henira-sessions li button[data-active="true"]');
 
-test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + 折叠组 + 正文", async ({ page }) => {
+test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + 正文；折叠纯本地（活跃组展开）", async ({
+  page,
+}) => {
   const ctx = await startPersistServer(HISTORY_SCRIPT);
   try {
     await page.goto(ctx.server.url);
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
       timeout: 15_000,
     });
-    // 初始选中 = 列表第一个（updatedAt 最新 = dirB 会话）；全局指针此刻为 null——先点 A 再回来
+    // 初值组态 = 选中会话所在组展开、其余折叠（本地默认）；初始选中 = dirB 会话 → 先展开 A 组
+    const groupA = page.locator("button.henira-session-group", { hasText: "persist-a" });
+    const groupB = page.locator("button.henira-session-group", { hasText: "persist-b" });
+    await expect(page.locator("button.henira-session-group")).toHaveCount(2);
+    await groupA.click();
     const rowA = page.locator(".henira-sessions li button", { hasText: "persist-a" });
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
@@ -144,16 +150,11 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     });
     const navWide = await page.locator("nav.henira-sessions").boundingBox();
     expect(navWide?.width ?? 0).toBeGreaterThan(340); // 260 + 120 ≈ 380（拖宽生效）
-    // 折叠非活跃组（dirB 组，A 的文档）→ B 行隐藏
-    const groupHeaders = page.locator("button.henira-session-group");
-    await expect(groupHeaders).toHaveCount(2);
-    await groupHeaders.first().click(); // 组序 = 登记表 lastOpenedAt 降序 → first = dirB（非活跃）
-    await waitUiStateOnDisk(ctx.dataDir, (doc) => {
-      const sidebar = doc.sidebar as { collapsedGroups?: unknown } | undefined;
-      return Array.isArray(sidebar?.collapsedGroups);
-    });
-    await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 只剩 A
-    // ── 刷新：四样全还原 ──
+    // 折叠是纯本地态（不持久化）：把两组都折起来（li=0）——刷新后应按「活跃组展开、其余折叠」重播
+    await groupB.click();
+    await groupA.click();
+    await expect(page.locator(".henira-sessions li")).toHaveCount(0);
+    // ── 刷新：选中/草稿/宽度/正文还原 + 组态按活跃组重播 ──
     await page.reload();
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
       timeout: 15_000,
@@ -161,11 +162,11 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await expect(activeRow(page)).toContainText("persist-a"); // 上次选中
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 }); // 正文随快照回
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT); // 文档已进宿主（稳定锚）
-    await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 折叠还原（B 行仍隐藏）
+    await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 刷新前 li=0 → 现在只有活跃组 1 行
     const navAfter = await page.locator("nav.henira-sessions").boundingBox();
     expect(navAfter?.width ?? 0).toBeGreaterThan(340); // 宽度还原
-    // 展开组 → 切 B → 草稿随 B 的文档为空；切回 A → 草稿还原
-    await page.locator("button.henira-session-group").first().click();
+    // 展开 B 组 → 切 B → 草稿随 B 的文档为空；切回 A → 草稿还原
+    await groupB.click();
     await expect(page.locator(".henira-sessions li")).toHaveCount(2);
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
     await expect(activeRow(page)).toContainText("persist-b");
@@ -180,13 +181,20 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
   }
 });
 
-test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全还原 + 正文", async ({ page }) => {
+test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/草稿/正文还原（折叠本地重播）", async ({
+  page,
+}) => {
   const ctx = await startPersistServer(HISTORY_SCRIPT);
   try {
     await page.goto(ctx.server.url);
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
       timeout: 15_000,
     });
+    // 初值组态 = 选中会话所在组展开、其余折叠 → 先展开 A 组再点 A
+    const groupA = page.locator("button.henira-session-group", { hasText: "persist-a" });
+    const groupB = page.locator("button.henira-session-group", { hasText: "persist-b" });
+    await expect(page.locator("button.henira-session-group")).toHaveCount(2);
+    await groupA.click();
     const rowA = page.locator(".henira-sessions li button", { hasText: "persist-a" });
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
@@ -197,14 +205,10 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
     await area.fill(DRAFT);
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT);
-    // 折叠非活跃组（dirB）后停服——不 wipe 盘
-    const groupHeaders = page.locator("button.henira-session-group");
-    await expect(groupHeaders).toHaveCount(2);
-    await groupHeaders.first().click();
-    await waitUiStateOnDisk(ctx.dataDir, (doc) => {
-      const sidebar = doc.sidebar as { collapsedGroups?: unknown } | undefined;
-      return Array.isArray(sidebar?.collapsedGroups);
-    });
+    // 本地折起两组（不落盘）后停服——重启后组态应重播为「活跃组展开」
+    await groupB.click();
+    await groupA.click();
+    await expect(page.locator(".henira-sessions li")).toHaveCount(0);
     await ctx.stop(false);
 
     // ── 重启：新实例同 dataDir（新端口）──
@@ -215,8 +219,8 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例四样全
     });
     await expect(activeRow(page)).toContainText("persist-a"); // 上次选中跨重启
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 }); // 正文跨重启
-    await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 折叠还原
-    await page.locator("button.henira-session-group").first().click(); // 展开 → 切 B → 草稿随 B 文档为空
+    await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 组态重播：A 展开、B 折叠
+    await groupB.click(); // 展开 B → 切 B → 草稿随 B 文档为空
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue("");
     await rowA.click();

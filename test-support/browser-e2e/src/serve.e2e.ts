@@ -244,6 +244,8 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
       timeout: 15_000,
     });
+    // 折叠组纯本地（用户裁决 2026-11-18）：非活跃组初值收起——先展开自己目录的组再切会话
+    await page.locator("button.henira-session-group", { hasText: "henira-e2e-long" }).click();
     await page.locator(".henira-sessions li button", { hasText: "henira-e2e-long" }).click();
   } finally {
     await fs.rm(longDir, { recursive: true, force: true }).catch(() => {});

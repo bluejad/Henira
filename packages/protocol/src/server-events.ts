@@ -171,14 +171,12 @@ export interface GlobalUiState {
 
 /** GET/PUT /api/sessions/:id/ui-state（每会话界面绑定态：<sessionDir>/ui-state.json，D-063）。
  * 形状归 web 宿主所有，服务端不解释内容（整份收发 + 64KB 上限）；常用字段可选 + 开放索引
- * 签名随宿主加法生长；rightPanel 留位随批 C（D-062 右栏 tab 框架）接线。删会话随整树走。 */
+ * 签名随宿主加法生长；rightPanel 留位随批 C（D-062 右栏 tab 框架）接线。删会话随整树走。
+ * 折叠组不在此列（用户裁决 2026-11-18）：刷新/重启只展开选中会话所在组、其余组收起，
+ * 平时折叠/展开是纯本地临时态。 */
 export interface SessionUiState {
   /** 输入框草稿文本 */
   draft?: string;
-  sidebar?: {
-    /** 侧栏折叠的目录组（按项目 key） */
-    collapsedGroups?: string[];
-  };
   layout?: {
     /** 左侧栏拖动宽度 px（钳位由宿主管） */
     leftWidth?: number;

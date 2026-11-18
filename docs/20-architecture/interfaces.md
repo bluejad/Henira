@@ -475,7 +475,7 @@ POST /api/sessions/:id/steer                { entryId } → { ok: boolean }     
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
-GET  /api/sessions/:id/ui-state                         → SessionUiState  // 界面绑定态文档（草稿 / 折叠组 / 面板宽度 / 右栏 tab 引用；web 宿主所有形状，服务端不解释内容；D-063，✓ 界面持久化批）
+GET  /api/sessions/:id/ui-state                         → SessionUiState  // 界面绑定态文档（草稿 / 面板宽度 / 右栏 tab 引用；web 宿主所有形状，服务端不解释内容；折叠组不入档——本地态；D-063，✓ 界面持久化批）
 PUT  /api/sessions/:id/ui-state             { doc }     → { ok: true }    // 整份原子重写（tmp+rename），后写者赢；64KB 上限（D-063）
 GET  /api/dirs                                          → RegisteredDir[]  // 登记工作目录（data-directory §4 projects.json，可自愈；D-060）
 POST /api/dirs                              { cwd }     → { ok: true; dir }  // 登记：绝对路径 + 存在 + 是目录（非法 400）
@@ -519,8 +519,8 @@ interface SessionUiState {
   // 每会话界面绑定态文档——形状归 web 宿主，服务端不解释内容（整份收发 + 64KB 上限）；
   // 常用字段可选 + 开放索引签名随宿主加法生长；rightPanel 留位随批 C 接线；删会话随整树走（D-063；
   //   真源 = @henira/protocol server-events.ts，落码·界面持久化批）
+  // 折叠组不入档（用户裁决 2026-11-18）：刷新/重启只展开选中会话所在组、其余收起，平时折叠纯本地
   draft?: string;
-  sidebar?: { collapsedGroups?: string[] };
   layout?: { leftWidth?: number; rightWidth?: number };
   rightPanel?: {
     open?: boolean;

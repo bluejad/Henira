@@ -66,7 +66,22 @@ describe("createWebApp", () => {
     const app = createWebApp({ client });
     app.mount(el);
     try {
-      // 初始选择 s-live（第一个）——轮询 disk 行出现（CI 纪律：异步断言禁固定 sleep——
+      // 初始选择 s-live（第一个）；非活跃组（disk）初值收起（本地折叠语义）——先展开其组
+      await vi.waitFor(
+        () => {
+          if (el.querySelectorAll("button.henira-session-group").length < 2) {
+            throw new Error("session groups not ready");
+          }
+          return true;
+        },
+        { timeout: 5000 },
+      );
+      const diskGroup = [...el.querySelectorAll("button.henira-session-group")].find((b) =>
+        b.textContent?.includes("disk"),
+      );
+      if (diskGroup === undefined) throw new Error("disk group not rendered");
+      fireEvent.click(diskGroup);
+      // 轮询 disk 行出现（CI 纪律：异步断言禁固定 sleep——
       // 慢机 50ms 不够；失败时打印现有行文本自证）
       await vi.waitFor(
         () => {
@@ -220,7 +235,12 @@ describe("createWebApp", () => {
         }
         return true;
       });
-      // 切到 s-a → 全局指针写 s-a
+      // 切到 s-a → 全局指针写 s-a。非活跃组（alpha）初值收起（本地折叠语义）——先展开
+      const alphaGroup = [...el.querySelectorAll("button.henira-session-group")].find((b) =>
+        b.textContent?.includes("alpha"),
+      );
+      if (alphaGroup === undefined) throw new Error("alpha group not rendered");
+      fireEvent.click(alphaGroup);
       const rowA = [...el.querySelectorAll(".henira-sessions li button")].find((b) =>
         b.textContent?.includes("alpha"),
       );

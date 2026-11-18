@@ -443,14 +443,14 @@ describe("REST 面与设置", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           draft: "继续写",
-          sidebar: { collapsedGroups: ["--demo-key--"] },
+          layout: { leftWidth: 320 },
         }),
       });
       expect(res.status).toBe(200);
       res = await fetch(`${base}/api/sessions/${id}/ui-state`);
       expect(await res.json()).toEqual({
         draft: "继续写",
-        sidebar: { collapsedGroups: ["--demo-key--"] },
+        layout: { leftWidth: 320 },
       });
       const keys = await fs.readdir(path.join(dataDir, "projects"));
       expect(keys.length).toBe(1);

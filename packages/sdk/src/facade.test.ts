@@ -297,14 +297,14 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect(await facade.getSessionUiState(session.id)).toEqual({});
     await facade.putSessionUiState(session.id, {
       draft: "接着来",
-      sidebar: { collapsedGroups: ["--demo--"] },
+      layout: { leftWidth: 320 },
     });
     expect(await facade.getSessionUiState(session.id)).toEqual({
       draft: "接着来",
-      sidebar: { collapsedGroups: ["--demo--"] },
+      layout: { leftWidth: 320 },
     });
     await facade.putSessionUiState(session.id, { draft: "" });
-    expect((await facade.getSessionUiState(session.id)).sidebar).toBeUndefined();
+    expect((await facade.getSessionUiState(session.id)).layout).toBeUndefined();
     // 未知会话拒绝
     await expect(facade.getSessionUiState("s-zz-000000")).rejects.toThrow();
   });

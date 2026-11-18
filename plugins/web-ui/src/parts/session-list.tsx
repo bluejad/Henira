@@ -88,20 +88,14 @@ type MenuState =
 export const SessionList: WebPart = (ctx: WebPartContext) => {
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
   const [dirs, setDirs] = useState<readonly RegisteredDir[] | null>(null);
+  // 折叠组是纯本地态（用户裁决 2026-11-18：折叠不持久化——刷新/重启只展开选中会话所在组、
+  // 其余组收起；平时的折叠/展开是临时操作，不落盘、不跨刷新还原）
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // 初始折叠种子锚：首次拿到「选中会话已在列表里」时播一次，此后纯本地
+  const seededRef = useRef(false);
   const [menu, setMenu] = useState<MenuState>(null);
   const [pending, setPending] = useState<PendingDelete | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  // 折叠组随会话走（D-063）：宿主加载好的 uiState 到位后按会话回填一次（此后本地直跑，
-  // toggle 经 updateUiState 交宿主防抖落盘）；活跃组自动展开是本地临时态——重启还原时
-  // 按同一逻辑再展开，无需持久化
-  const collapsedSyncedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (ctx.uiState === undefined) return; // 未加载 / 宿主未实装——保持现状
-    if (ctx.sessionId === collapsedSyncedFor.current) return;
-    collapsedSyncedFor.current = ctx.sessionId;
-    setCollapsed(new Set(ctx.uiState.sidebar?.collapsedGroups ?? []));
-  }, [ctx.sessionId, ctx.uiState]);
   // 目录区交互 feature-detect：宿主五方法齐备才渲染（模型选择器三可选先例同款——
   // 不做半可用状态：缺任一方法 = 目录登记交互整体收起，退化为纯 cwd 分组）
   const hasDirSupport =
@@ -133,6 +127,24 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     };
   }, [refresh, ctx.store]);
 
+  // 初始折叠种子：刷新/重启后只保证「选中会话所在组展开、其余组收起」。播一次即完——
+  // 此后用户想折叠想展开随他，不落盘也不跨刷新还原（用户裁决 2026-11-18）
+  useEffect(() => {
+    if (seededRef.current) return;
+    const active =
+      ctx.sessionId === null ? undefined : sessions.find((s) => s.id === ctx.sessionId);
+    if (active === undefined) return; // 等列表 + 选中就位再播
+    seededRef.current = true;
+    const activeCwd = active.cwd ?? "";
+    setCollapsed(
+      new Set(
+        buildGroups(sessions, dirs, ctx.t)
+          .map((group) => group.cwd)
+          .filter((cwd) => cwd !== activeCwd),
+      ),
+    );
+  }, [ctx.sessionId, sessions, dirs, ctx.t]);
+
   // 活跃会话所在组自动展开（BC 行为：选中即见其组）
   useEffect(() => {
     if (ctx.sessionId === null) return;
@@ -163,18 +175,15 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     [ctx.client, refresh],
   );
 
-  const toggle = useCallback(
-    (cwd: string): void => {
-      setCollapsed((prev) => {
-        const next = new Set(prev);
-        if (next.has(cwd)) next.delete(cwd);
-        else next.add(cwd);
-        ctx.updateUiState?.({ sidebar: { collapsedGroups: [...next] } }); // D-063 防抖落盘
-        return next;
-      });
-    },
-    [ctx.updateUiState],
-  );
+  const toggle = useCallback((cwd: string): void => {
+    // 纯本地折叠态（不持久化）：想折就折、想展就展，刷新后按「活跃组展开」重来
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(cwd)) next.delete(cwd);
+      else next.add(cwd);
+      return next;
+    });
+  }, []);
 
   const copyPath = useCallback((cwd: string): void => {
     void navigator.clipboard?.writeText(cwd).catch(() => {});

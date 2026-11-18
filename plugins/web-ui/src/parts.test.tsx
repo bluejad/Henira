@@ -106,14 +106,16 @@ describe("SessionList", () => {
     const headers = container.querySelectorAll("button.henira-session-group");
     expect(headers).toHaveLength(2); // demo / other 两组
     expect(container.querySelectorAll(".henira-session-count")).toHaveLength(2);
-    // 折叠 demo 组 → 其子行消失；other 组子行仍在
+    // 初值：活跃组（demo）展开、非活跃组（other）收起 → 只有 s-1 行（本地折叠语义）
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    // 折叠 demo 组 → 其子行消失（两组都收起）
     const demoHeader = headers[0] as HTMLButtonElement;
     expect(demoHeader.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(demoHeader);
     expect(demoHeader.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1); // 只剩 other 组的 s-2
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(0);
     fireEvent.click(demoHeader);
-    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1); // demo 行回来（other 仍收起）
   });
 
   it("活跃会话所在组自动展开（选中即见其组）", async () => {
@@ -122,9 +124,14 @@ describe("SessionList", () => {
     await waitFor(() => {
       expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
     });
-    // 折叠「非活跃组」（other）——活跃组 demo 的手动折叠会与自动展开 effect 竞态（CI 慢机抓过：
-    // effect 在断言后 flush 把组弹回；语义上选中即展开，测非活跃组才确定性）
+    // 初值：非活跃组（other）收起（种子 effect 与列表到达同一批提交，等一拍再断言）
     const other = container.querySelectorAll("button.henira-session-group")[1] as HTMLButtonElement;
+    await waitFor(() => {
+      expect(other.getAttribute("aria-expanded")).toBe("false");
+    });
+    fireEvent.click(other);
+    expect(other.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
     fireEvent.click(other);
     expect(other.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1); // 只剩活跃组 demo 的 s-1
@@ -284,6 +291,13 @@ describe("SessionList", () => {
     const ctx = fixtureCtx({ client });
     const deleteSession = vi.spyOn(ctx.client, "deleteSession");
     const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
+    });
+    // 非活跃组（other）初值收起——先展开才有 s-2 行
+    fireEvent.click(
+      container.querySelectorAll("button.henira-session-group")[1] as HTMLButtonElement,
+    );
     await waitFor(() => {
       expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
     });
@@ -733,23 +747,23 @@ describe("界面绑定状态（D-063）", () => {
     expect(updateUiState).toHaveBeenCalledWith({ draft: "" }); // 持久层同步清空
   });
 
-  it("SessionList：非活跃组按 uiState 折叠 + toggle 上报 updateUiState（活跃组自动展开不持久化）", async () => {
+  it("SessionList：折叠纯本地——初值非活跃组收起、toggle 不上报持久层", async () => {
     const updateUiState = vi.fn();
-    const ctx = fixtureCtx({
-      uiState: { sidebar: { collapsedGroups: ["C:\\other"] } },
-      updateUiState,
-    });
+    const ctx = fixtureCtx({ updateUiState });
     const { container } = render(<SessionList {...ctx} />);
     await waitFor(() => {
       expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
     });
-    // other 组（非活跃）折叠 → 只剩 demo 组的 1 条会话行（活跃组 demo 自动展开是本地临时态）
-    expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    // 初值（刷新/重启语义）：选中会话所在组（demo）展开、其余组收起——不上报、不落盘
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    });
+    expect(updateUiState).not.toHaveBeenCalled();
     const headers = container.querySelectorAll("button.henira-session-group");
-    fireEvent.click(headers[1] as HTMLButtonElement); // 展开 other 组
-    expect(updateUiState).toHaveBeenCalledWith({ sidebar: { collapsedGroups: [] } });
+    fireEvent.click(headers[1] as HTMLButtonElement); // 展开 other 组（纯本地）
     await waitFor(() => {
       expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
     });
+    expect(updateUiState).not.toHaveBeenCalled(); // 折叠状态不进持久层
   });
 });
