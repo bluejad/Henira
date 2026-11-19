@@ -25,7 +25,7 @@ interface StepArgs {
   deps: LoopDeps;
   batcher: DeltaBatcher;
   signal: AbortSignal;
-  /** 模型/思考按次覆盖（回合开始即定，全步一致——BC 每次提问绑定语义） */
+  /** 模型/思考按次覆盖（回合开始即定，全步一致——每次提问绑定语义） */
   opts?: PromptOptions;
 }
 

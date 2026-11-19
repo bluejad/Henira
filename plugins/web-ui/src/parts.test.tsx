@@ -103,7 +103,7 @@ describe("SessionList", () => {
     expect(selectSession).toHaveBeenCalledWith("s-1");
   });
 
-  it("按 cwd 分组：组头=目录名+计数徽标；点组头折叠/展开（BC「目录」行为层）", async () => {
+  it("按 cwd 分组：组头=目录名+计数徽标；点组头折叠/展开", async () => {
     const { container } = render(<SessionList {...fixtureCtx()} />);
     await waitFor(() => {
       expect(container.querySelectorAll("button.henira-session-group").length).toBe(2);
@@ -488,13 +488,13 @@ describe("Composer", () => {
     const trigger = (await screen.findByRole("button", {
       name: t("composer.model"),
     })) as HTMLButtonElement;
-    // 触发钮显示模型显示名（厂商 id 不进按钮——BC ModelSelect 同档）
+    // 触发钮显示模型显示名（厂商 id 不进按钮）
     await waitFor(() => expect(trigger.textContent).toContain("DeepSeek V4 Flash"));
     expect(trigger.textContent).not.toContain("deepseek/");
     fireEvent.click(trigger);
     const listbox = await screen.findByRole("listbox", { name: t("composer.model") });
     expect(listbox.textContent).toContain("zhipuai"); // 按厂商分组
-    // 条目可访问名 = 显示名+徽章排（BC 档）——按 title 定位完整 id
+    // 条目可访问名 = 显示名+徽章排——按 title 定位完整 id
     fireEvent.click(screen.getByRole("option", { name: "DeepSeek Flash" }));
     // 笔 6 语义：composer 选择 = 会话绑定（ui-state 记忆），全局默认归设置弹窗·模型管理页
     expect(updateUiState).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
@@ -1025,7 +1025,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(localeSelect.value).toBe("zh"); // 显示生效值，不是磁盘的 fr
   });
 
-  it("模型管理面板（BC 四视图）：分组+开关回调 → 厂商选择页 → 连接表单 → 自定义表单", async () => {
+  it("模型管理面板（四视图）：分组+开关回调 → 厂商选择页 → 连接表单 → 自定义表单", async () => {
     const setModelEnabled = vi.fn().mockResolvedValue(undefined);
     const connectProvider = vi.fn().mockResolvedValue(undefined);
     const putCustomProvider = vi.fn().mockResolvedValue({ id: "user-relay-1" });
@@ -1064,7 +1064,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
             {
               id: "moonshotai",
               name: "Moonshot",
-              connected: false, // 主列表不列未连接厂商（BC 同形）——连接态只在挑选页显示
+              connected: false, // 主列表不列未连接厂商——连接态只在挑选页显示
               models: [{ id: "kimi-x", enabled: true }],
             },
           ],
@@ -1090,7 +1090,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(screen.getByText("131k")).not.toBeNull();
     const switches = screen.getAllByRole("switch");
     expect(switches).toHaveLength(3); // deepseek×2 + relay×1（moonshot 未连接：不进主列表）
-    // 主列表只列已连接厂商（BC ModelsPanel 同形）——未连接组与模型行整块不渲染
+    // 主列表只列已连接厂商——未连接组与模型行整块不渲染
     const groups = document.querySelectorAll(".henira-provider-group");
     expect(groups).toHaveLength(2);
     expect(
@@ -1119,7 +1119,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(toolbar?.textContent).toContain(t("settings.models.back"));
     const firstItem = document.querySelector(".henira-provider-picker .henira-picker-item");
     expect(firstItem?.textContent).toContain(t("settings.models.customEntry"));
-    // 连接态标只住挑选页（BC 同形）：未连接厂商在这里显示「未连接」，已连接显示 is-on
+    // 连接态标只住挑选页：未连接厂商在这里显示「未连接」，已连接显示 is-on
     const pickerItems = Array.from(document.querySelectorAll(".henira-picker-item"));
     const moonItem = pickerItems.find((el) => el.textContent?.includes("Moonshot"));
     expect(moonItem?.textContent).toContain(t("settings.models.notConnected"));
@@ -1200,7 +1200,7 @@ describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JS
   });
 });
 
-describe("思考档按次绑定（BC 语义——骨架批）", () => {
+describe("思考档按次绑定（骨架批）", () => {
   function ctxWithRows(rows: Row[]): WebPartContext {
     const snapshot = { rows, state: { busy: false } }; // 引用稳定——useSyncExternalStore 语义
     return fixtureCtx({
@@ -1211,7 +1211,7 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     });
   }
 
-  it("模型条目 BC 档显示：行首显示名、行尾上下文窗/视觉徽章；纯 id 条目无徽章排（模型目录收敛批）", async () => {
+  it("模型条目显示：行首显示名、行尾上下文窗/视觉徽章；纯 id 条目无徽章排（模型目录收敛批）", async () => {
     const ctx = fixtureCtx();
     const providers = {
       deepseek: {
@@ -1251,7 +1251,7 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     expect(second.querySelector(".henira-model-item-meta")).toBeNull(); // 无徽章位不渲染排
   });
 
-  it("触发钮显示模型显示名（不出厂商 id）；绑定值目录里失效 → 回落清单首个（BC 同语义）", async () => {
+  it("触发钮显示模型显示名（不出厂商 id）；绑定值目录里失效 → 回落清单首个", async () => {
     const ctx = fixtureCtx();
     const providers = {
       deepseek: {

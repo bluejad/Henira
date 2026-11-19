@@ -15,7 +15,7 @@ export const TURN_END_REASONS = [
 ] as const;
 export type TurnEndReason = (typeof TURN_END_REASONS)[number];
 
-/** 每次提问携带的模型/思考覆盖（BC 语义：模型与思考档按每次提问绑定，会话级记忆只做
+/** 每次提问携带的模型/思考覆盖（模型与思考档按每次提问绑定，会话级记忆只做
  * composer 回填——权威在每次请求携带；缺省回落 settings.model 全局默认） */
 export interface PromptOptions {
   /** 显式模型 id（provider/model）；loop 经 config.model(id) 既有显式缝解析 */

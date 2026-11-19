@@ -55,7 +55,7 @@ export interface TurnCallbacks {
 }
 
 /** 单回合（含步循环与全部落账）；返回终局原因。队列冲刷由外层驱动。
- * opts = 模型/思考按次覆盖（BC 语义：每次提问绑定；插话条目进场不换档——回合档位在
+ * opts = 模型/思考按次覆盖（每次提问绑定；插话条目进场不换档——回合档位在
  * 回合开始即定，steer 只进文本）。 */
 export async function runTurnCore(
   prompt: string,

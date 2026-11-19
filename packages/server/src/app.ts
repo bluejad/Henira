@@ -189,7 +189,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(page);
   });
 
-  // ── 输入投递（D-045 单口：闲直跑 / 忙入队；模型/思考按次覆盖可选——BC 每次提问绑定）──
+  // ── 输入投递（D-045 单口：闲直跑 / 忙入队；模型/思考按次覆盖可选——每次提问绑定）──
   app.post("/api/sessions/:id/prompt", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
@@ -319,7 +319,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true, dir });
   });
 
-  // busy 拒绝走 200 + {ok:false, blocked}（批操作语义，与删会话 409 双轨——BC 行为层）
+  // busy 拒绝走 200 + {ok:false, blocked}（批操作语义，与删会话 409 双轨）
   app.delete("/api/dirs/:id", async (c) => {
     const id = c.req.param("id");
     const dir = await deps.dirs.get(id);
@@ -471,7 +471,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/models", async (c) => {
     // 选择器清单（模型目录收敛批）：key + baseUrl 齐备的厂商才出现——断开（摘 key）即从
-    // 选择器消失、缺地址（必然跑不通）不出现；条目带显示名/上下文窗/徽章位（对齐 BC 档）。
+    // 选择器消失、缺地址（必然跑不通）不出现；条目带显示名/上下文窗/徽章位。
     // 思考档批（2026-11-19）：模型条目带 reasoningOptions（models.dev 档位集合真源）——
     // UI 档位按数据驱动；provider 级 reasoning 保留作形状/兜底提示
     const { credIds, modelsFile } = await providerUnion();
@@ -807,7 +807,7 @@ async function requireEntry(c: Context, deps: AppDeps) {
   return deps.registry.get(id) ?? (await deps.registry.attach(id));
 }
 
-/** 绝对路径判据（win32 盘符形或 posix 根形——BC project.add 校验行为层） */
+/** 绝对路径判据（win32 盘符形或 posix 根形） */
 function isAbsoluteCwd(cwd: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("/") || cwd.startsWith("\\");
 }

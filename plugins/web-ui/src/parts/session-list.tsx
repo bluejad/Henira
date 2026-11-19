@@ -1,9 +1,9 @@
 // 官方件：侧栏目录区（槽 sidebar）——登记工作目录 + 其下会话两层数据：
 // 目录 = 登记表（client.listDirs，可选方法；宿主缺方法退化为纯 cwd 分组）+ 未登记会话 cwd 补组。
-// 区头 hover 显「新增目录」（服务端目录树弹窗——BC OpenDirectoryDialog 行为层）；
+// 区头 hover 显「新增目录」（服务端目录树弹窗）；
 // 目录行 hover 显 ＋（在该目录新建会话——ZCode ProjectNodeContent 行为层）；
 // 右键组头/会话行出菜单（新建会话/复制路径/删除）；删除一律确认弹窗（硬删不可恢复——
-// BC 确认弹窗 + busy 守卫语义；busy 会话菜单项 disabled「运行中，请先中断」）。
+// 确认弹窗 + busy 守卫语义；busy 会话菜单项 disabled「运行中，请先中断」）。
 // 列表项 = 32px 行 + 16px 前置状态槽（busy 转圈 / idle 圆点——ZCode TaskListItem 行为层参照）。
 
 import type { RegisteredDir, SessionSummary } from "@henira/protocol";
@@ -147,7 +147,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     );
   }, [ctx.sessionId, sessions, dirs, ctx.t]);
 
-  // 活跃会话所在组自动展开（BC 行为：选中即见其组）
+  // 活跃会话所在组自动展开（选中即见其组）
   useEffect(() => {
     if (ctx.sessionId === null) return;
     const hit = sessions.find((s) => s.id === ctx.sessionId);
@@ -556,7 +556,7 @@ function ContextMenu(props: {
   );
 }
 
-/** 删除确认弹窗（硬删除不可恢复；目录删除带 busy 前置守卫——BC DeleteProjectModal 行为层） */
+/** 删除确认弹窗（硬删除不可恢复；目录删除带 busy 前置守卫） */
 function DeleteConfirm(props: {
   ctx: WebPartContext;
   target: PendingDelete;

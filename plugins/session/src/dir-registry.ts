@@ -1,6 +1,6 @@
 // 登记工作目录注册表（data-directory §4 projects.json——权威工作区列表）：
 // id = sha256(canonical cwd) 前 16 位；条目含 id ↔ cwd ↔ key 映射，查找不靠目录名。
-// 可自愈：list 时扫账本目录从会话头 cwd 复活缺失条目（BC reconcileProjects 行为层）。
+// 可自愈：list 时扫账本目录从会话头 cwd 复活缺失条目。
 // 原子重写（tmp+rename，与 settings.json 同一纪律）。住 plugin-session：账本域共享知识，
 // server 与 sdk 双宿主消费（规则 3 禁宿主互依——知识下沉引擎层）。
 
@@ -18,7 +18,7 @@ export function isDrivesRoot(path: string): boolean {
   return path === DRIVES_ROOT;
 }
 
-/** canonical cwd：resolve + Windows 大小写归一（同目录不同写法归一条目，BC 行为层） */
+/** canonical cwd：resolve + Windows 大小写归一（同目录不同写法归一条目） */
 function canonicalCwd(cwd: string): string {
   const resolved = path.resolve(cwd);
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
@@ -28,7 +28,7 @@ function dirId(cwd: string): string {
   return createHash("sha256").update(canonicalCwd(cwd)).digest("hex").slice(0, 16);
 }
 
-/** Windows 盘符大小写不敏感比较（删目录 busy 判据用，BC fullCwdFor 行为层） */
+/** Windows 盘符大小写不敏感比较（删目录 busy 判据用） */
 export function sameCwd(a: string, b: string): boolean {
   return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
@@ -101,7 +101,7 @@ export class DirRegistry {
     return file.projects.find((p) => p.id === id);
   }
 
-  /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key 校正；新条目置顶（BC 行为层）。
+  /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key 校正；新条目置顶。
    *  读改写全程在写互斥内（与 remove/list 并发时丢更新防护） */
   upsert(cwd: string, sessionId?: string): Promise<RegisteredDir> {
     return this.#serialize(() => this.#upsertLocked(cwd, sessionId));

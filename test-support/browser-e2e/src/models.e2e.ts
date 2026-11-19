@@ -1,4 +1,4 @@
-// 模型管理面板 e2e（BC 四视图真浏览器闭环）：自定义厂商连接 → 分组/开关 → 选择器过滤 →
+// 模型管理面板 e2e（四视图真浏览器闭环）：自定义厂商连接 → 分组/开关 → 选择器过滤 →
 // 刷新持久化（models.json 落盘）。选择器取 zh 字典；输入串 ASCII；断言走磁盘轮询确定性等待。
 
 import { promises as fs } from "node:fs";
@@ -57,9 +57,7 @@ async function startServer(script: MockEntry[] = []): Promise<{
   };
 }
 
-test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 → 选择器过滤 → 刷新还原", async ({
-  page,
-}) => {
+test("模型管理（四视图）：自定义厂商连接 → 分组/开关 → 选择器过滤 → 刷新还原", async ({ page }) => {
   const ctx = await startServer();
   try {
     await page.goto(ctx.server.url);
@@ -94,16 +92,16 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
     await expect(group).toBeVisible({ timeout: 15_000 });
     await expect(group.getByText("my-model")).toBeVisible();
 
-    // 已知厂商断开（BC 同形 2026-11-19 用户纠偏）：组从主列表消失；连接态只在挑选页显示
+    // 已知厂商断开（2026-11-19 用户纠偏）：组从主列表消失；连接态只在挑选页显示
     const dsGroup = page.locator(".henira-provider-group", { hasText: "DeepSeek" });
     await expect(dsGroup).toBeVisible({ timeout: 15_000 });
     await dsGroup.locator(".henira-provider-disconnect").click();
     await expect(dsGroup).toHaveCount(0); // 断开即从面板消失（数据层 baseUrl 保留）
     // 断开当场回落（设置弹窗仍开）：目录广播通知 composer 重拉——绑定失效即切清单首个
-    //（本环境唯一剩余 = my-model），不等弹窗关闭（BC 全局清单同形 2026-11-19 用户纠偏）
+    //（本环境唯一剩余 = my-model），不等弹窗关闭（2026-11-19 用户纠偏）
     const triggerLabel = page.locator(".henira-model-trigger-label");
     await expect(triggerLabel).toHaveText("my-model", { timeout: 15_000 });
-    await expect(triggerLabel).not.toContainText("/"); // 厂商 id 不进按钮（BC 同档）
+    await expect(triggerLabel).not.toContainText("/"); // 厂商 id 不进按钮
     await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
     const dsPicker = page.locator(".henira-provider-picker .henira-picker-item", {
       hasText: "DeepSeek",

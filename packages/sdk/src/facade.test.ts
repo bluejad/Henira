@@ -357,7 +357,7 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect(one.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
   });
 
-  it("prompt opts（BC 每次提问绑定）：modelId/reasoningEffort 随请求到达引擎侧 LlmRequest", async () => {
+  it("prompt opts（每次提问绑定）：modelId/reasoningEffort 随请求到达引擎侧 LlmRequest", async () => {
     const reply = [
       mockText("回"),
       mockUsage({ inputTokens: 1, outputTokens: 1 }),

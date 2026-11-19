@@ -441,7 +441,7 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
             alignItems: "center",
           }}
         >
-          {/* 思考档徽章（request/header.params 投影；off = 缺省语义不渲染——BC 行上档位可见性） */}
+          {/* 思考档徽章（request/header.params 投影；off = 缺省语义不渲染——行上档位可见性） */}
           {row.reasoningEffort !== undefined && row.reasoningEffort !== "off" ? (
             <span
               className="henira-mono"

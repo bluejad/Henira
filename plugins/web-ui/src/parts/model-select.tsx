@@ -1,10 +1,10 @@
-// 模型选择弹层（BC ModelSelect 行为层参照：触发钮 + 搜索 + 按厂商分组 + 底部「管理模型…」）。
+// 模型选择弹层（触发钮 + 搜索 + 按厂商分组 + 底部「管理模型…」）。
 // 官方共享件：composer 工具排用（设置弹窗·模型管理页的全局默认选择入口已撤——用户裁定
 // 2026-11-19：composer 会话级绑定即职责）。清单来自 client.listModels
 //（key+baseUrl 齐备的厂商才出现——模型目录收敛批闸门）；选择只回调不落盘——语义归调用方
-//（composer 会话绑定各自行事）。条目渲染显示名 + 上下文窗/视觉/思考徽章（BC 选择器档——裸 id 退场）；
+//（composer 会话绑定各自行事）。条目渲染显示名 + 上下文窗/视觉/思考徽章（裸 id 退场）；
 // 触发钮同样只显示模型显示名（厂商 id 永不进按钮），绑定值目录里失效即回落清单首个
-//（断开 DeepSeek 后按钮不挂着已断厂商——2026-11-19 BC 对齐）。
+//（断开 DeepSeek 后按钮不挂着已断厂商——2026-11-19）。
 
 import type { ReasoningOption } from "@henira/protocol";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -26,7 +26,7 @@ export type PickerProviders = Record<
   { name?: string; baseUrl?: string; models?: PickerModel[] }
 >;
 
-/** 上下文窗紧凑显示（BC 同档：≥1M 显 M 去尾零、其余 k）——设置页管理分组共用 */
+/** 上下文窗紧凑显示（≥1M 显 M 去尾零、其余 k）——设置页管理分组共用 */
 export function fmtWindow(n?: number): string {
   if (n === undefined || n <= 0) return "";
   if (n >= 1_000_000) {
@@ -54,7 +54,7 @@ function findModel(
   return undefined;
 }
 
-/** 清单首个可选条目（BC ModelSelect 回落语义：绑定失效 → 清单第一个） */
+/** 清单首个可选条目（绑定失效 → 清单第一个） */
 function firstModel(providers: PickerProviders): { fullId: string; label: string } | undefined {
   for (const [provider, entry] of Object.entries(providers)) {
     const first = entry.models?.[0];
@@ -134,7 +134,7 @@ export function ModelSelect(props: {
 
   const hasCatalog = Object.keys(providers).length > 0;
 
-  // 触发钮文案 = 目录条目的显示名（BC ModelSelect 同档：按钮上永不出厂商 id）。目录里
+  // 触发钮文案 = 目录条目的显示名（按钮上永不出厂商 id）。目录里
   // 没有该绑定值（断开/移除/禁用后失效）→ 裸模型 id 兜底，同样不带厂商前缀
   const current = value === "" ? undefined : findModel(providers, value);
   const fallback = value === "" ? undefined : firstModel(providers);
@@ -142,7 +142,7 @@ export function ModelSelect(props: {
   const currentLabel =
     value === "" ? ariaLabel : (current?.label ?? (bareId === "" ? value : bareId));
 
-  // 绑定失效 → 回落清单首个（BC：current = 清单查 ?? 清单[0]——断开后按钮不会挂着已断厂商）。
+  // 绑定失效 → 回落清单首个（current = 清单查 ?? 清单[0]——断开后按钮不会挂着已断厂商）。
   // 目录为空/未到不动：目录外绑定（如测试桩 model）在没有目录可比时不误换。
   useEffect(() => {
     if (value === "" || current !== undefined) return;

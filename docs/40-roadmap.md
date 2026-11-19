@@ -51,7 +51,7 @@
 
 - [x] 同一会话：两个网页同时连接，事件都到达（`packages/server/src/server.test.ts` 判据①具名测试：双 SSE 订阅同会话增量都达）
 - [x] 断开网络后重连：审批卡重放（`server.test.ts` 判据②具名测试：审批挂起 → 新客户端首帧快照携带挂起审批行 → REST 收答回合继续）
-- [x] 设置页可用（默认模型 / 主题 / 密钥录入）；mock 模式离线可跑（`server.test.ts` 设置端点 + `packages/web/src/host.test.tsx` 面板渲染；`henira serve --mock` 离线全链真机验收：静态页出货 + [mock] 回合 + 快照两行。插件管理面随 M4 插件一起验收）
+- [x] 设置页可用（默认模型 / 主题 / 密钥录入）；mock 模式离线可跑（`server.test.ts` 设置端点 + `packages/web/src/host.test.tsx` 面板渲染；`henira serve --mock` 离线全链活体验收：静态页出货 + [mock] 回合 + 快照两行。插件管理面随 M4 插件一起验收）
 - [x] 界面以官方界面插件包形态装载——真插件走公共注册路径；槽位级自动回退与安全模式（双击 Alt / `?ui=safe`）可演示（`packages/web/src/host.test.tsx`：模块激活正向 + safeMode 同零件库编译期出口渲染 + layout 挑件槽位收起）
 - [x] server 回环三件套生效并有测试：默认只绑 127.0.0.1、随机端口、Host/Origin 校验（`server.test.ts` 判据⑤具名测试 + 可选 token 位；D-035）
 - [x] 界面无写死的用户可见文案：全部经 locale 词表取字（D-050，机器可查——`pnpm check:ui-locale` 机械闸：代码剥离注释后零 CJK，字典文件唯一允许地；已进 CI）

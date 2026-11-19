@@ -3,7 +3,7 @@
 // 插话）、忙+空草稿=停止——有字时圆钮恒为发送，杜绝「打着字点按钮却停了回合」的歧义。
 // 审批接管 dock（M4 批 A 视觉二轮）：pending 审批卡渲染在输入卡上方，Enter 让位语义照旧。
 // prompt 失败不静默：草稿回填 + 行内错误提示。
-// 模型/思考按次绑定（BC 语义，骨架批）：选择=会话级绑定（ui-state 记忆，回填一次），权威在
+// 模型/思考按次绑定（骨架批）：选择=会话级绑定（ui-state 记忆，回填一次），权威在
 // 每次请求携带（prompt opts）；不再写全局 settings.model（那是设置弹窗·模型管理页的职责）。
 // 思考档数据驱动（思考档批 2026-11-19）：档位集合来自模型条目 reasoningOptions（models.dev
 // 真源——toggle=关/开两档、effort=厂商档位映射四档子集）；目录未到/无数据 → 形状表兜底；
@@ -41,7 +41,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     if (ctx.sessionId === draftSyncedFor.current) return;
     draftSyncedFor.current = ctx.sessionId;
     setDraft(ctx.uiState.draft ?? "");
-    // 模型/思考会话级记忆（BC 语义：composer 回填；权威在每次请求携带）
+    // 模型/思考会话级记忆（composer 回填；权威在每次请求携带）
     if (ctx.uiState.model !== undefined) setModel(ctx.uiState.model);
     setEffort(ctx.uiState.reasoningEffort ?? null);
   }, [ctx.sessionId, ctx.uiState]);
@@ -81,7 +81,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
   }, [ctx.client, settingsReady, ctx.sessionId]);
   // 厂商能力表（思考档置灰依据；清单同时下传 ModelSelect 免二次拉取）。目录重拉三触发：
   // mount / 设置关闭（下段）/ **设置内写操作广播**（modelCatalogVersion 自增——断开当场回落，
-  // 不用等弹窗关，BC 全局清单同形 2026-11-19 用户纠偏）
+  // 不用等弹窗关，2026-11-19 用户纠偏）
   // biome-ignore lint/correctness/useExhaustiveDependencies: modelCatalogVersion 是纯重拉触发信号（版本号只供依赖比较，体内不消费——断开/连接/开关后目录即时刷新）
   useEffect(() => {
     if (!settingsReady) return;
@@ -231,7 +231,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
               providers={catalog}
             />
           ) : null}
-          {/* 思考档（BC ReasoningSelect 行为层）：档位集合数据驱动（模型 reasoningOptions）——
+          {/* 思考档：档位集合数据驱动（模型 reasoningOptions）——
               空集合（none/budget/形状未收录）置灰「—」；toggle-only 两档「关/开」 */}
           {settingsReady ? (
             levels.length === 0 ? (

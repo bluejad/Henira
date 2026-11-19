@@ -110,7 +110,7 @@ async function startedHarness(interaction: ServiceDefinition, rules: PermissionR
     .use(approvalPlugin());
   await harness.start();
   const ctx = asHeniraContext(harness.context);
-  // 打开回合（loop 在真机广播同款总线事件；会话事件由 loop 落账）
+  // 打开回合（loop 在活体广播同款总线事件；会话事件由 loop 落账）
   await (ctx.get("session") as unknown as { append(i: never): Promise<unknown> }).append({
     type: "turn/start",
     data: { turn: "t1" },

@@ -1223,7 +1223,7 @@ describe("重启续聊（懒挂载 attach）", () => {
   });
 });
 
-describe("模型管理面（BC 四视图服务端半边）", () => {
+describe("模型管理面（四视图服务端半边）", () => {
   it("presets 全表 + 连接 → 选择器并入 + 分组连接态；key 明文永不回读（D-030）", async () => {
     const { base, cleanup, globalDir } = await makeServer([]);
     try {

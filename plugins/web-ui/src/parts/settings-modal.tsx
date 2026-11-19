@@ -1,7 +1,7 @@
 // 设置弹窗（用户裁定 2026-11-18：左菜单右内容，只列现有三项——主题 / 语言 / 模型管理）。
-// BC SettingsPanel 行为层参照（分区导航 + 右侧内容），分区收敛为现有能力；模型管理页 =
+// 设置页结构（分区导航 + 右侧内容），分区收敛为现有能力；模型管理页 =
 // 分组开关列表（无全局默认模型入口——用户裁定 2026-11-19：composer 会话级绑定即职责，
-// 全局兜底只读 settings.json 现值）。主列表只列已连接厂商（BC ModelsPanel 同形：未连接不进
+// 全局兜底只读 settings.json 现值）。主列表只列已连接厂商（未连接不进
 // 组列表，连接/重连走「＋ 连接提供商」挑选页；2026-11-19 用户纠偏）。开合状态归宿主
 //（ctx.settingsSection / openSettings / closeSettings），本件只渲染当前分区。
 
@@ -157,7 +157,7 @@ function LocalePage(props: { ctx: WebPartContext; locales: UiAssetLocale[] }): R
   );
 }
 
-// ── 模型管理页（BC ModelsPanel 行为层参照，四视图：分组列表 / 厂商选择 / 连接已知 / 自定义）──
+// ── 模型管理页（四视图：分组列表 / 厂商选择 / 连接已知 / 自定义）──
 // 数据面：listProviders（连接态+显隐开关）/ listModelPresets（厂商选择全表）/ connect /
 // disconnect / setModelEnabled / putCustomProvider（宿主缺 = 只渲染默认模型页）。
 // key 形态纪律（D-030）：password 输入只写 credentials.json，永不回显。
@@ -261,7 +261,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
     try {
       await ctx.client.disconnectProvider?.(id);
       reloadProviders();
-      ctx.notifyModelCatalogChanged?.(); // 目录广播——断开当场回落，不等设置关闭（BC 同形）
+      ctx.notifyModelCatalogChanged?.(); // 目录广播——断开当场回落，不等设置关闭
     } catch (err) {
       setError(errMsg(err));
     }
@@ -289,7 +289,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
   // ── 视图一：分组列表（已连接厂商分组 + 模型开关 + 搜索）──
 
   const q = query.trim().toLowerCase();
-  // 主列表只列已连接厂商（BC ModelsPanel 同形：未连接不进组列表，连接入口走「＋ 连接提供商」；
+  // 主列表只列已连接厂商（未连接不进组列表，连接入口走「＋ 连接提供商」；
   // 每家连接态只在挑选页显示）。数据层不动——断开止血后 baseUrl/label 仍保留在 models.json
   const connectedGroups = groups.filter((g) => g.connected);
   const visibleGroups = connectedGroups.filter(
@@ -334,7 +334,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
               <div className="henira-provider-head">
                 <span className="henira-provider-name">{group.name ?? group.id}</span>
                 {/* 主列表只有已连接组（上面过滤）——断开钮恒在场，点后组即从列表消失
-                    （数据层保留 baseUrl/label，重连不用再填地址；2026-11-19 BC 对齐） */}
+                    （数据层保留 baseUrl/label，重连不用再填地址；2026-11-19） */}
                 <button
                   type="button"
                   className="henira-provider-disconnect"
@@ -519,7 +519,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
             await ctx.client.connectProvider?.(target, key);
             setView("list");
             reloadProviders();
-            ctx.notifyModelCatalogChanged?.(); // 连上即进选择器——目录广播（BC 同形当步可见）
+            ctx.notifyModelCatalogChanged?.(); // 连上即进选择器——目录广播（当步可见）
           } catch (err) {
             setError(errMsg(err));
           } finally {
@@ -544,7 +544,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
           await ctx.client.putCustomProvider?.(input);
           setView("list");
           reloadProviders();
-          ctx.notifyModelCatalogChanged?.(); // 自定义厂商进选择器——目录广播（BC 同形）
+          ctx.notifyModelCatalogChanged?.(); // 自定义厂商进选择器——目录广播
         } catch (err) {
           setError(errMsg(err));
         } finally {

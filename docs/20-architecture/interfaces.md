@@ -470,7 +470,7 @@ GET  /api/sessions                                      → SessionSummary[]
 DELETE /api/sessions/:id                                → { ok: true }     // busy → 409 { code: "session_busy" }；删账本目录整棵（data-directory §7）
 GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口；长会话 = 尾窗 60——ZCode snapshotTailWindowRows 同档）
 GET  /api/sessions/:id/rows?before=&limit=              → RowsPage        // 行翻页（长会话历史：before = rowSeq 排他游标、页首补齐到轮边界、limit 钳 200——D-061）
-POST /api/sessions/:id/prompt               { text, modelId?, reasoningEffort? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；模型/思考按次覆盖（BC 每次提问绑定，骨架批）
+POST /api/sessions/:id/prompt               { text, modelId?, reasoningEffort? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；模型/思考按次覆盖（每次提问绑定，骨架批）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
@@ -492,8 +492,8 @@ GET  /api/settings                                      → settings.json 内容
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
 GET  /api/models                                        → 选择器清单（闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；断开即摘出清单；开关关的模型过滤；条目带显示名/上下文窗/视觉·思考徽章位/**reasoningOptions 档位真源**；无密钥——收敛批+思考档批 2026-11-19）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
-// ── 模型管理面（BC ModelsPanel 行为层；✓ 模型管理批 2026-11-19）──
-GET  /api/providers                                     → 管理分组（连接态/显示名/模型条目含开关+上下文窗；无密钥——D-030；数据全量含未连接，**主列表 UI 只渲染已连接组**——未连接不进组列表、连接态只在「＋ 连接提供商」挑选页显示，BC ModelsPanel 同形 2026-11-19）
+// ── 模型管理面（✓ 模型管理批 2026-11-19）──
+GET  /api/providers                                     → 管理分组（连接态/显示名/模型条目含开关+上下文窗；无密钥——D-030；数据全量含未连接，**主列表 UI 只渲染已连接组**——未连接不进组列表、连接态只在「＋ 连接提供商」挑选页显示，2026-11-19）
 GET  /api/models.presets                                → 厂商选择页预设全表（config-loader 字典：快照+缓存；无密钥）
 POST /api/models.presets/refresh                        → { ok }        // 在线刷新目录（models.dev；失败保留快照/缓存现状）
 PUT  /api/providers/:id/connect             { key }     → 连接已知厂商（key 必填——无 env 兜底；D-030；缺 baseUrl 从目录快照 endpoint 自动种——连接即可跑，用户永不手写地址，收敛批 2026-11-19）
@@ -516,7 +516,7 @@ interface SettingsData {
   ui?: { theme?: string; locale?: string };
 }
 interface CatalogModel {
-  // 选择器单模型条目（收敛批 2026-11-19 条目化——裸 string id 退场，BC 选择器档）
+  // 选择器单模型条目（收敛批 2026-11-19 条目化——裸 string id 退场）
   id: string;
   name?: string; // 显示名（快照 name）
   contextWindow?: number;
@@ -651,7 +651,7 @@ interface AssistantRow {
   finishReason?: string;
   usage?: TokenUsage; // 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage）
   interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）
-  reasoningEffort?: ReasoningEffort; // 本步实际生效思考档（request/header.params 投影——BC 行上档位可见性，骨架批）
+  reasoningEffort?: ReasoningEffort; // 本步实际生效思考档（request/header.params 投影——行上档位可见性，骨架批）
 }
 interface ToolRowOutput {
   content: string;
@@ -765,7 +765,7 @@ interface HeniraFacade {
   stop(): Promise<void>; // 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（BC 每次提问绑定，骨架批）
+  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（每次提问绑定，骨架批）
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
@@ -859,13 +859,13 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
-- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode / BC 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
+- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；
-  - 布局与部件基线（批 A3，2026-11-17 用户拍板照 ZCode/BC 形态）：**会话列表按工作目录分组**（折叠组头 = caret + 目录名 + 会话数徽标，活跃会话所在组自动展开——BC「目录」/ZCode projects view 行为层）；**设置齿轮住侧栏左下**固定行（ZCode WorkspaceSidebarFooter 行为层）；**输入卡两层**（输入行上 / 工具排下；卡 focus-within 边框变 accent + 底色提亮、内部无独立焦点环），工具排左 = 模型选择器（宿主设置/目录面齐备时渲染，值变更写会话级记忆 updateUiState；**触发钮只显示模型显示名**——厂商 id 不进按钮，绑定值目录里失效即回落清单首个，BC ModelSelect 同语义 2026-11-19）、右 = 圆形发送钮；**发送/停止语义 = ZCode**（忙+有草稿 = 发送排队、忙+空草稿 = 停止——有字时圆钮恒为发送）；prompt 失败回填草稿 + 行内错误提示（不静默）；**对话列宽三档**（列含内衬默认 808px → 视口 ≥1124px 896 → ≥1540px 1152，对话列与输入 dock 同档——ZCode conversationLayout 672/896/1152 行为层）；**滚动条细圆条**（14px 槽 / thumb 3px 透明边 padding-box 胶囊 / track 透明 / 色=border 派生档，对话列 `scrollbar-gutter: stable`——ZCode styles.css 数值档行为层，实现自家写法）；usage 徽章全 0 不渲染；
+  - 布局与部件基线（批 A3，2026-11-17 用户拍板照 ZCode 形态）：**会话列表按工作目录分组**（折叠组头 = caret + 目录名 + 会话数徽标，活跃会话所在组自动展开——ZCode projects view 行为层）；**设置齿轮住侧栏左下**固定行（ZCode WorkspaceSidebarFooter 行为层）；**输入卡两层**（输入行上 / 工具排下；卡 focus-within 边框变 accent + 底色提亮、内部无独立焦点环），工具排左 = 模型选择器（宿主设置/目录面齐备时渲染，值变更写会话级记忆 updateUiState；**触发钮只显示模型显示名**——厂商 id 不进按钮，绑定值目录里失效即回落清单首个，2026-11-19）、右 = 圆形发送钮；**发送/停止语义 = ZCode**（忙+有草稿 = 发送排队、忙+空草稿 = 停止——有字时圆钮恒为发送）；prompt 失败回填草稿 + 行内错误提示（不静默）；**对话列宽三档**（列含内衬默认 808px → 视口 ≥1124px 896 → ≥1540px 1152，对话列与输入 dock 同档——ZCode conversationLayout 672/896/1152 行为层）；**滚动条细圆条**（14px 槽 / thumb 3px 透明边 padding-box 胶囊 / track 透明 / 色=border 派生档，对话列 `scrollbar-gutter: stable`——ZCode styles.css 数值档行为层，实现自家写法）；usage 徽章全 0 不渲染；
   - **长会话渲染（批 A'，2026-11-18——D-061）**：对话时间线虚拟滚动（tanstack react-virtual——ZCode 同款；虚拟单位 = 轮，turn 相同行不拆散；measureElement 动态测高、estimateSize 一屏兜底、overscan 2；会话切换以 sessionId 为内层 React key 重挂换测高缓存）；**bottom-follow**（上滚手势 wheel/touchmove/方向键 capture 解除 + 落点贴底 48px 恢复 + 回底按钮——dsh 显式按钮不取）；**滚顶翻页**（scrollTop < 64 且 hasOlder → `sessionRows(before=窗口首行 rowSeq)` → store 前插合并（只收窗口首行之前 + rowId 去重）+ scrollTop 补位防跳顶；宿主缺 sessionRows = 静态窗口）；**行引用契约**（store：未变行同引用、变化行新对象）+ RowView/SessionRow memo（比较函数拆稳定子集 row+t+host+slots——ctx 本体每渲染新对象不可比）；jsdom 无 ResizeObserver 降级全量渲染；
-  - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径——BC OpenDirectoryDialog 行为层自家写法）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——BC 确认弹窗 + busy 前置守卫语义）；
+  - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——确认弹窗 + busy 前置守卫）；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT，light/regular 档细线），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
   - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）；
   - 界面资产缝（D-059，**已落码，M4 批 A**）：插件包可带 `locales/<lang>.json` 语言包（缺 key 回落官方 zh，不 fail-loud）与 `themes/<名>.css` 主题包（变量组追加进设置下拉，官方 light / dark 两档永在不可覆盖）；读者 = 官方界面件；`settings.ui.theme` / `ui.locale` 扩为任意已装 id；安全模式回落官方默认组合；清单与伺服走 `GET /api/ui-assets` 两端点（scanUiAssets 住 config-loader）。

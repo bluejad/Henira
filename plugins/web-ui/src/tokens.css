@@ -466,7 +466,7 @@ button:focus-visible > .henira-row-caret {
   justify-content: center;
   flex-shrink: 0;
 }
-/* 停止态圆钮（danger 实色——BC stop 行为层；发送=henira-primary 圆钮照旧） */
+/* 停止态圆钮（danger 实色；发送=henira-primary 圆钮照旧） */
 .henira-app button.henira-icon-round.henira-stop {
   background: var(--henira-danger-bg);
   border-color: var(--henira-danger-text);
@@ -476,7 +476,7 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-danger-text);
   color: var(--henira-panel);
 }
-/* 工具排：模型选择弹层（BC ModelSelect 行为层：触发钮 + 搜索 + 厂商分组 + 管理模型入口） */
+/* 工具排：模型选择弹层（触发钮 + 搜索 + 厂商分组 + 管理模型入口） */
 .henira-model-select {
   position: relative;
   display: inline-flex;
@@ -586,7 +586,7 @@ button:focus-visible > .henira-row-caret {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* 行尾徽章排（BC 选择器档位：上下文窗 + 视觉 + 思考图标） */
+/* 行尾徽章排（上下文窗 + 视觉 + 思考图标） */
 .henira-model-item-meta {
   display: inline-flex;
   align-items: center;
@@ -636,7 +636,7 @@ button:focus-visible > .henira-row-caret {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 思考档（BC ReasoningSelect 行为层：Brain 图标 + 关/低/中/高 ghost select；none=置灰「—」） */
+/* 思考档（Brain 图标 + 关/低/中/高 ghost select；none=置灰「—」） */
 .henira-thinking-select {
   position: relative;
   display: inline-flex;
@@ -714,7 +714,7 @@ button:focus-visible > .henira-row-caret {
   outline: none;
 }
 
-/* 目录分组头（BC「目录」/ZCode projects view 行为层：chevron+名称+计数，安静可折叠） */
+/* 目录分组头（ZCode projects view 行为层：chevron+名称+计数，安静可折叠） */
 .henira-app button.henira-session-group {
   display: flex;
   align-items: center;
@@ -861,7 +861,7 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-border);
 }
 
-/* 弹窗（删除确认 / 新增目录共用形态——BC ConfirmModal 行为层） */
+/* 弹窗（删除确认 / 新增目录共用形态） */
 .henira-overlay {
   position: fixed;
   inset: 0;
@@ -1200,7 +1200,7 @@ button:focus-visible > .henira-row-caret {
   font-size: var(--henira-fs-sm);
 }
 
-/* 设置弹窗（左菜单右内容——BC SettingsPanel 行为层；大面板形态，鬼鬼祟祟小窗退场） */
+/* 设置弹窗（左菜单右内容；大面板形态，鬼鬼祟祟小窗退场） */
 .henira-settings-dialog {
   width: min(920px, calc(100vw - 64px));
   height: min(680px, calc(100vh - 96px));
@@ -1262,7 +1262,7 @@ button:focus-visible > .henira-row-caret {
   }
 }
 
-/* ── 模型管理页（BC ModelsPanel 行为层：分组列表 / 厂商选择 / 连接 / 自定义四视图）── */
+/* ── 模型管理页（分组列表 / 厂商选择 / 连接 / 自定义四视图）── */
 .henira-models-panel {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-// 模型/思考按次覆盖（BC 语义：每次提问绑定）：显式 modelId 走 config.model(id) 既有显式缝、
+// 模型/思考按次覆盖（每次提问绑定）：显式 modelId 走 config.model(id) 既有显式缝、
 // 缺省回落全局默认；思考档进 LlmRequest + request/header.params（实际生效档审计）；
 // 忙时入队条目携带覆盖、回合末冲刷按原选择开新回合。插话进场不换档（回合档位回合开始即定）。
 
@@ -89,7 +89,7 @@ async function startedLoop(script: Parameters<typeof mockLlm>[0]) {
   return { ctx, loop: ctx.get("loop"), mock, session: ctx.get("session"), sessionDir };
 }
 
-describe("模型/思考按次覆盖（BC 每次提问绑定）", () => {
+describe("模型/思考按次覆盖（每次提问绑定）", () => {
   it("显式 modelId：config.model(id) 显式缝生效，request/header 记实际解析模型；缺省回落全局默认", async () => {
     const { loop, session } = await startedLoop([
       [mockText("好"), mockUsage(USAGE), mockFinish("stop")],

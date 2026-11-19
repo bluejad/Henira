@@ -78,7 +78,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   /** 设置弹窗当前分区（null = 关闭；宿主持有开合，框架件经 ctx 读渲染） */
   let settingsSection: SettingsSection | null = null;
   /** 模型目录版本号：设置内写操作（连接/断开/开关/自定义/刷新）成功 → 自增重渲 → composer
-   * 即时重拉 listModels（断开当场回落，不等设置关闭——BC 全局清单同形 2026-11-19） */
+   * 即时重拉 listModels（断开当场回落，不等设置关闭——2026-11-19） */
   let modelCatalogVersion = 0;
   /** 取字工厂引用稳定（行 memo 比较器比 ctx.t 引用——语言包变化才换新） */
   let t = makeT(localeOverride);

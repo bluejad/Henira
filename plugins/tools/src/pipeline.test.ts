@@ -17,7 +17,7 @@ import { ToolRegistry } from "./registry.js";
 import { toolsPlugin } from "./service.js";
 
 // 五段管线 + 批执行测试。判定链 = 可编程 requestPermission：记录 (tool, opts.floor)、
-// 按表返回 Decision——ToolContext 由测试装配（loop 在真机上做同一件事）。
+// 按表返回 Decision——ToolContext 由测试装配（loop 在活体上做同一件事）。
 
 let root: string;
 

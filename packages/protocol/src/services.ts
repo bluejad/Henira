@@ -29,7 +29,7 @@ export type ModelMessage =
       content: string;
       toolCalls?: ToolCallDraft[];
       /** 思维链文本（账本 assistant/message.reasoning）：开思考且模型声明 interleaved 时
-       * 适配器回传 provider（DeepSeek V4.1+ 带 tool_calls 不回传 400——BC 实证） */
+       * 适配器回传 provider（DeepSeek V4.1+ 带 tool_calls 不回传 400——端点实证） */
       reasoning?: string;
     }
   | { role: "tool"; callId: string; name: string; content: string; isError: boolean };

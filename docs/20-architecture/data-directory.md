@@ -260,7 +260,7 @@
 
 - 密钥只放 `config/credentials.json`，文件权限 **0600**（Windows 用用户目录 ACL）；
 - 密钥只经 `ConfigService` 读取；**不进事件、meta、日志、模型上下文、导出物**；
-- `models.json` 只放 provider / model 定义与能力字段，**不放 `apiKey`**（明文 key 是要避开的做法）；能力字段可由 models.dev 字典同步预填，手写覆盖字典（D-040）；模型管理面（BC ModelsPanel 行为层，✓ 2026-11-19）写同文件四样：厂商 `label` 显示名、模型 `hidden` 显隐清单（开关关=加入，选择器过滤）、自定义 OpenAI 兼容厂商的显式 `models` 记录（`user-` 前缀 id，无 key 也算连接态）、已知厂商缺 `baseUrl` 时连接自动从目录快照 `endpoint` 种（收敛批 2026-11-19——baseUrl 承重配置，断开永不碰）；连接/断开写 `credentials.json`（0600，只进明文 key，管理面响应永不回读——D-030）；
+- `models.json` 只放 provider / model 定义与能力字段，**不放 `apiKey`**（明文 key 是要避开的做法）；能力字段可由 models.dev 字典同步预填，手写覆盖字典（D-040）；模型管理面（✓ 2026-11-19）写同文件四样：厂商 `label` 显示名、模型 `hidden` 显隐清单（开关关=加入，选择器过滤）、自定义 OpenAI 兼容厂商的显式 `models` 记录（`user-` 前缀 id，无 key 也算连接态）、已知厂商缺 `baseUrl` 时连接自动从目录快照 `endpoint` 种（收敛批 2026-11-19——baseUrl 承重配置，断开永不碰）；连接/断开写 `credentials.json`（0600，只进明文 key，管理面响应永不回读——D-030）；
 - **插件目录不是凭据存储**：`plugins/<id>/<version>/` 与 `plugins-data/<id>/` 的任何文件都不得写 API key / token / 密码；`mcp/*.json` 只写引用名，密钥由宿主从 `credentials.json` 注入（D-030）；
 - 权限规则**两层**：全局 `config/permissions.json`（跨会话、可手改、可撤销）与会话级事件（`approval/decided{scope:'session'}` 存在会话日志里，**不是独立文件**）；详见 [tools-approval.md](./tools-approval.md) §3.1；
 

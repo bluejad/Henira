@@ -38,7 +38,7 @@ export interface AssistantRow {
   usage?: TokenUsage;
   /** true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定） */
   interrupted?: boolean;
-  /** 本步实际生效思考档（request/header.params 投影——BC 行上可见每次提问档位语义） */
+  /** 本步实际生效思考档（request/header.params 投影——行上可见每次提问档位语义） */
   reasoningEffort?: ReasoningEffort;
 }
 
@@ -193,7 +193,7 @@ export interface SessionUiState {
   };
   /** 会话级模型记忆（provider/model；composer 回填用——权威在每次请求携带，引擎无会话态） */
   model?: string;
-  /** 会话级思考档记忆（同上；BC 存服务端 SessionInfo，我们靠每次请求携带更薄） */
+  /** 会话级思考档记忆（同上；我们靠每次请求携带更薄） */
   reasoningEffort?: ReasoningEffort;
   [key: string]: unknown;
 }

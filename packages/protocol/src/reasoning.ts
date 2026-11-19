@@ -1,4 +1,4 @@
-// 思考能力表（合同层——BC reasoningCapabilityOf 在其 protocol/dto 同位）：provider id 前缀 →
+// 思考能力表（合同层）：provider id 前缀 →
 // 该厂商 OpenAI 兼容端点接受的**参数形状**（参数名叫什么、嵌套在哪——models.dev 不描述，只能表登记）。
 // 模型级**档位集合**由 models.dev `reasoning_options` 数据驱动（reasoningLevels）——数据决定
 // 「有没有/哪些档」，形状表只决定「怎么写进请求体」。两者都有才放开（数据缺失 → 形状表兜底）。
