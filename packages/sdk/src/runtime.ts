@@ -114,7 +114,7 @@ const CORE_SLOT_NAMES = new Set([
   "mcp",
 ]);
 
-/** useResource 数据泵单跳的截断上限（plugins.md §4：200KB；与 server 同值） */
+/** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符；与 server 同值） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
 
 /** MCP 声明 → 工厂入参（config-loader 共享展开；凭据值表进程内读——D-030 值只进内存） */
@@ -267,14 +267,25 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     onAppend: (event: SessionEvent) => void;
     /** 已确认且凭据已展开的 MCP server 声明（plugin-mcp 工厂入参；D-064） */
     mcpServers: import("@henira/protocol").McpServerSpec[];
+    /** 官方 preset 条目是否启用（settings.plugins.<id>.enabled；内圈五件受保护不受影响） */
+    isPresetEntryEnabled: (id: string) => boolean;
   }): ServiceDefinition<unknown>[] => {
-    const entries =
-      opts.plugins !== undefined && opts.plugins.length > 0 ? opts.plugins : defaultPreset;
+    const configured = opts.plugins;
+    const entries = configured !== undefined && configured.length > 0 ? configured : defaultPreset;
+    const usingPreset = entries === defaultPreset;
     const out: ServiceDefinition<unknown>[] = [];
     const seen = new Set<string>();
     for (const entry of entries) {
       if (seen.has(entry.id)) continue;
       seen.add(entry.id);
+      // 外圈官方件停用真生效（D-064：plugin-mcp 可停用）；内圈五件照旧保护——关也装
+      if (
+        usingPreset &&
+        !OFFICIAL_PLUGIN_IDS.has(entry.id) &&
+        !ctx.isPresetEntryEnabled(entry.id)
+      ) {
+        continue;
+      }
       switch (entry.id) {
         case "plugin-session":
           if (entry.definition !== undefined) {
@@ -366,8 +377,16 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
       const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
       const mcpServers = await prepareMcpSpecs(preparedNow, cwd, globalDir);
+      const settingsNow = await readSettings(globalDir);
       const harness = createHarness();
-      for (const definition of baseDefinitions({ id, cwd, directory, onAppend, mcpServers })) {
+      for (const definition of baseDefinitions({
+        id,
+        cwd,
+        directory,
+        onAppend,
+        mcpServers,
+        isPresetEntryEnabled: (entryId) => isPluginEnabled(settingsNow, entryId),
+      })) {
         harness.use(definition);
       }
       harness.use(opts.interaction ?? autoRejectInteraction());

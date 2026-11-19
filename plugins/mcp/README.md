@@ -10,6 +10,7 @@ mcp 槽位官方读者（服务件，占 `mcp` 槽 + inject `tools`，D-064）�
 
 - **异步连接**：装配不等 server；连上 → `tools/list` → 注册；`list_changed` → 整代原子换注册（失败保旧代，sync 单队列串行）
 - **有界退避**：1s × 2，3 次耗尽 → 注销该 server 全部工具 + 告警（新会话重来；stdio 死亡不自动 respawn）
+- **收尾**：`stop()` 等待连接关闭（删会话 / 停用插件不留孤儿子进程）；connect 与 dispose 竞态用代际守卫关掉晚到连接；同一失败不重复排重连
 - **命名**：`mcp__<server>__<tool>`，非法字符 → `_`、超 64 截断 + 短哈希防塌缩；跨 server 撞名整代回滚
 - **审批**：转接工具 `isConcurrencySafe` 恒缺省——外部 server 默认过审批卡（D-039 判定链不变）
 - **凭据（D-030）**：`${credential:名}` 由宿主展开后内存传入；本件不接触 credentials.json、不回显 env / headers；stdio 父环境经宿主清洗（剔 `KEY|PASSWORD|SECRET|TOKEN` 与 `HENIRA_*`）

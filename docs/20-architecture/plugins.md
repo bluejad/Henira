@@ -192,7 +192,7 @@
 - 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；`pluginId` 必须是当前插件目录名；
 - 只允许调用**同一插件 `mcp/` 里声明过的 server**（所有权闸，越权 403）；
 - 宿主 2 秒共享轮询：同地址多 UI 共用一份泵、引用计数、末订阅者退订；
-- 单次 30 秒超时、结果 200 KB 截断；失败保留上次数据（`status:'failed'` 但 `data` 还在）；
+- 单次 30 秒超时、结果 200 × 1024 字符截断；失败保留上次数据（`status:'failed'` 但 `data` 还在）；
 - `data` = 工具返回文本的 JSON 解析结果；解析失败时 `text` 保留原文。
 
 **终局映射（D-028）**：

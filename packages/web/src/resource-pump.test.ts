@@ -125,6 +125,31 @@ describe("createResourcePump（useResource 数据泵，D-064）", () => {
     expect(seen2[0]?.error).toBe("fetch failed");
   });
 
+  it("上一跳未完成时跳过该 tick（慢工具不堆叠请求）", async () => {
+    vi.useFakeTimers();
+    let release: ((reply: ResourceReply) => void) | undefined;
+    let calls = 0;
+    const pump = createResourcePump({
+      execute: () =>
+        new Promise<ResourceReply>((resolve) => {
+          calls += 1;
+          release = resolve;
+        }),
+      getSessionId: () => "s-1",
+      pollMs: 2000,
+    });
+    pump.subscribe("henira-data://p/a/tool", "p", () => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(6000); // 三个 tick 都在飞，全部跳过
+    expect(calls).toBe(1);
+    release?.({ ok: true, text: "{}", updatedAt: 1 });
+    await vi.advanceTimersByTimeAsync(0); // 落定后放行
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(calls).toBe(2);
+    pump.clearAll();
+  });
+
   it("无会话：首拉即 failed（不打端点）；snapshotOf 读现值", async () => {
     const { calls, pump } = makeDeps({ sessionId: null });
     const seen: ResourceSnapshot[] = [];

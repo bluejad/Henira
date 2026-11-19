@@ -549,7 +549,7 @@ PUT  /api/plugins/:id/enabled               { enabled }  → { ok: true }    // 
 PUT  /api/plugins/:id/version               { version }  → { ok: true }    // 版本钉（盘上须存在；官方件拒绝；新会话生效）
 DELETE /api/plugins/:id                                  → { ok: true }    // 卸载（删 plugins/<id> 整目录；plugins-data 保留；官方件 403；不存在 404）
 POST /api/plugins/:id/confirm-mcp                        → { ok: true }    // C5：MCP 变更确认放行（D-030：首次连接或 mcp/*.json 变更后须确认；写 settings.plugins.<id>.mcpFingerprint；未确认 = 不 spawn、工具不进注册表）
-POST /api/sessions/:id/resource             { pluginId, address } → ResourceReply // C5：useResource 数据泵单跳（address = henira-data://<pluginId>/<server>/<tool>?args=<URL 编码 JSON>；所有权闸：pluginId 与声明双校验，越权 403；30s 超时、200KB 截断；失败保上次数据由宿主泵负责——plugins.md §4）
+POST /api/sessions/:id/resource             { pluginId, address } → ResourceReply // C5：useResource 数据泵单跳（address = henira-data://<pluginId>/<server>/<tool>?args=<URL 编码 JSON>；所有权闸：pluginId 与声明双校验，越权 403；30s 超时、200 × 1024 字符截断；失败保上次数据由宿主泵负责——plugins.md §4）
 GET  /api/ui-state                                       → GlobalUiState   // 全局"上次选中"（backing state/ui.json；启动还原：在列表则选中，否则回落最新更新 / 新建；D-063，✓ 界面持久化批）
 PUT  /api/ui-state                           { doc }     → { ok: true }    // 选中变化时写（D-063）
 GET  /api/events                                        → SSE 帧流        // 唯一订阅端点（帧序/心跳/有界队列见下「SSE 传输形状」）
@@ -944,8 +944,8 @@ interface PluginUiHost {
   renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——opts.streaming 透传，delta 高频重渲下高亮留到回合完成）
 
   // 数据
-  useResource(address: string): ResourceSnapshot; // ⏳ M4 占位（M3 返回 { status: "failed", error: "随 M4（plugin-mcp）落地" }）；React hook 语义：仅 render 期调用
-  listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // ⏳ M4 占位（M3 返回 []——插件管理面随 M4）
+  useResource(address: string): ResourceSnapshot; // ✓ C5（plugin-mcp 数据泵：2s 共享轮询 / 越权地址返回 failed 快照、不订阅）；React hook 语义：仅 render 期调用
+  listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // ✓ 批 C（GET /api/plugins；管理面数据源；category 过滤预留）
   listDir(path: string): Promise<DirEntry[]>; // ✓ M3（经 server files 端点）；只限会话工作区；隐藏项不返
   listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3（经 GET /api/sessions）
 
@@ -976,7 +976,7 @@ interface ResourceSnapshot {
 // POST /api/sessions/:id/resource 回复（useResource 泵单跳；C5）
 interface ResourceReply {
   ok: boolean;
-  text?: string; // 工具返回文本（≤200KB，出口限量已应用）
+  text?: string; // 工具返回文本（≤200 × 1024 字符，出口限量已应用）
   error?: string; // ok = false 时的可行动提示（未确认 / 未连接 / 越权 403 由状态码区分）
   updatedAt: number;
 }
@@ -1018,7 +1018,7 @@ interface SessionRef {
 ```
 
 - 官方界面件（会话列表 / 对话面板 / 输入框 / 审批卡…）经**宿主标准件出口**供插件 import（import map，与 react 同口子，D-043）；件与**会话上下文**一起给——连着哪个会话、往哪发、流式增量从哪来（**承重缝已定稿 = `WebPartContext`，见 web 段**）；没装东西的区域槽**收起**（不渲染不占宽）；
-- `useResource` 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；只允许同一插件 `mcp/` 里声明过的 server（越权 403）；2 秒共享轮询、30 秒超时、200 KB 截断；失败保留上次数据；
+- `useResource` 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；只允许同一插件 `mcp/` 里声明过的 server（越权 403）；2 秒共享轮询、30 秒超时、200 × 1024 字符截断；失败保留上次数据；
 - `onTurnFinished` 只收该 UI 模块自己发起那一轮的终稿；终局映射见 [plugins.md](./plugins.md) §4；
 - `openInExplorer` 是能力查询：非桌面宿主返回 `false`，UI 模块应自行降级；
 - `renderMarkdown` 的返回类型由宿主决定（protocol 不依赖 React）；非 web 宿主不实现 UI 门面。

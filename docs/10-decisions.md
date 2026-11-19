@@ -279,7 +279,7 @@
      - **数据**：`useResource(address)` → 三态快照（loading / live / failed；失败保留上次数据）；`listPlugins({ category? })`；`listDir(path)`（只限会话工作区）；`listSessionsByCwd(cwd)`；
      - **宿主**：`getSession()`；`openInExplorer(path)`（仅桌面宿主，其他宿主返回 false）；`openPlugin(id, view?)`；`getInitialView()`（本次 view 读后即焚、按插件隔离）。
   2. **单向阀**：UI 模块 → 中柱只有 `sendPrompt` 一条路；AI → UI 模块没有事件流；模型不知道 UI 模块存在。`onTurnFinished` 只收该模块自己发起那一轮的终稿，不订阅全局回合事件。
-  3. `useResource` 地址格式 `reins-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；宿主 2 秒共享轮询（同地址共用、引用计数、末订阅者退订）；30 秒超时、结果 200 KB 截断；只允许调用**同一插件 `mcp/` 里声明过的 server**（越权 403）；失败保留旧数据。
+  3. `useResource` 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；宿主 2 秒共享轮询（同地址共用、引用计数、末订阅者退订）；30 秒超时、结果 200 × 1024 字符截断；只允许调用**同一插件 `mcp/` 里声明过的 server**（越权 403）；失败保留旧数据。
   4. `onTurnFinished` 的四终局与 loop 的 `turn/end.reason` 映射：正常完成 → `ok`；用户中断 → `interrupted`；错误 → `error`；提交失败 / 未进入回合 → `submit_failed`（映射表写在 plugins.md §4）。
   5. 门面只存在于 **web 系宿主**（web / Electron / 云端网页 / 手机网页）；TUI 与 headless 没有插件 UI，不实现该门面。
   6. **不求值**：UI 模块仍是 ESM 模块加载（D-021），不引入 `new Function`。
@@ -782,7 +782,7 @@
   4. **凭据**：env / headers 值支持 `${credential:名}` 引用，宿主从 `credentials.json` 展开后内存传递，缺失 fail-closed 跳过不 spawn；stdio 父环境清洗（剔 `KEY|PASSWORD|SECRET|TOKEN` 与 `HENIRA_*` 名）再合并声明 env（防环境侧信道）；plugin-mcp 本体永不接触 credentials.json、不回显密钥；
   5. **生命周期**：会话装配时异步连接（不阻塞开屏）；连上 → tools/list → 注册；`list_changed` → 重列、整代原子换注册（sync 单队列串行；失败保旧代）；有界退避（1s×2，3 次）耗尽 → 注销该 server 全部工具 + 告警，新会话重来；stdio 死亡不自动 respawn（新会话重连）；
   6. **结果**：text 内容按序 join；image / audio 以占位行计入（blob 落盘挂账）；`isError` 原样透传；截断走 execute 出口既有限量（参照物里 opencode 漏接截断，是我们避开的坑）；
-  7. **形态（D-049）**：服务件占 `mcp` 槽（`McpService` 契约进 protocol：`call(target, args, signal)` 最小面）+ `inject:['tools']` 注册工具；server 声明由装配前置扫描（config-loader 纯文件读，复用批 C 骨架）喂工厂（opts 模式同 llm 特例）——插件不扫目录、不碰凭据文件；`defaultPreset` 一行（可停用；不可卸载靠「官方件无盘上目录」天然成立，不进 OFFICIAL 保护集）；useResource（plugins.md §4 数据泵规格：所有权闸 / 2s 共享泵 / 30s / 200KB / 失败保旧数据）经 `POST /api/sessions/:id/resource` → `McpService.call` 落地；
+  7. **形态（D-049）**：服务件占 `mcp` 槽（`McpService` 契约进 protocol：`call(target, args, signal)` 最小面）+ `inject:['tools']` 注册工具；server 声明由装配前置扫描（config-loader 纯文件读，复用批 C 骨架）喂工厂（opts 模式同 llm 特例）——插件不扫目录、不碰凭据文件；`defaultPreset` 一行（可停用；不可卸载靠「官方件无盘上目录」天然成立，不进 OFFICIAL 保护集）；useResource（plugins.md §4 数据泵规格：所有权闸 / 2s 共享泵 / 30s / 200 × 1024 字符 / 失败保旧数据）经 `POST /api/sessions/:id/resource` → `McpService.call` 落地；
   8. **范围外挂账**：OAuth、prompt templates / resources / elicitation / sampling、server instructions 注入、进程级连接池共享、管理面连接状态显示与重连钮、图像 / 音频 blob 落盘、MCP 工具描述长度上限、SSE-only transport。
 - **理由**：MCP 是行业标准（D-019「市面上现成的直接可用」），官方 SDK 是四家参照物的共同选择——自研传输层零收益；命名与审批语义跟着生态同形（模型与用户都无需学新约定）；确认指纹是我们已有的 D-030 语义（「MCP 定义变更要确认」），落形为内容指纹即可，不引入新机制；凭据引用替代配置内求值（dsh `!!js`）与配置内明文（CC headers），是我们凭据分离架构（D-030）的自然延伸——插件目录零 key 这条线从 M3 设置浮层起就没破过。
 - **备注**：落点 = interfaces.md（`## mcp` 契约小节 / REST 面 +2 / ResourceReply + PluginDetail.mcp confirmed / 能力服务表行）、plugins.md（落码状态 + §4 mcp 行注）、packages.md（plugin-mcp 行落码标注）、50-open（销 ④⑥⑦ + 新挂账行）、roadmap（批 C 闭环项销账）。验收随批：未确认不 spawn → confirm 后新会话工具进注册表 → mock llm 触达 → useResource 越权 403 / happy / 失败保旧 → e2e 真浏览器确认 → live → 停用全链。

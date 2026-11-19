@@ -126,7 +126,7 @@ const CORE_SLOT_NAMES = new Set([
   "mcp",
 ]);
 
-/** useResource 数据泵单跳的截断上限（plugins.md §4：200KB） */
+/** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
 
 export class SessionRegistry {
@@ -267,16 +267,25 @@ export class SessionRegistry {
     onAppend: (event: SessionEvent) => void;
     /** 已确认且凭据已展开的 MCP server 声明（plugin-mcp 工厂入参；D-064） */
     mcpServers: McpServerSpec[];
+    /** 官方 preset 条目是否启用（settings.plugins.<id>.enabled；内圈五件受保护不受影响） */
+    isPresetEntryEnabled: (id: string) => boolean;
   }): ServiceDefinition<unknown>[] {
-    const entries =
-      this.#opts.plugins !== undefined && this.#opts.plugins.length > 0
-        ? this.#opts.plugins
-        : defaultPreset;
+    const configured = this.#opts.plugins;
+    const entries = configured !== undefined && configured.length > 0 ? configured : defaultPreset;
+    const usingPreset = entries === defaultPreset;
     const out: ServiceDefinition<unknown>[] = [];
     const seen = new Set<string>();
     for (const entry of entries) {
       if (seen.has(entry.id)) continue;
       seen.add(entry.id);
+      // 外圈官方件停用真生效（D-064：plugin-mcp 可停用）；内圈五件照旧保护——关也装
+      if (
+        usingPreset &&
+        !OFFICIAL_PLUGIN_IDS.has(entry.id) &&
+        !ctx.isPresetEntryEnabled(entry.id)
+      ) {
+        continue;
+      }
       switch (entry.id) {
         case "plugin-session":
           if (entry.definition !== undefined) {
@@ -337,7 +346,7 @@ export class SessionRegistry {
   }
 
   /** useResource 数据泵单跳（plugins.md §4 / D-064）：地址解析 → 所有权闸 → McpService.call
-   *  → 200KB 截断。执行失败走 200 + {ok:false}（泵语义：失败保旧数据由宿主负责）；越权 403。 */
+   *  → 200 × 1024 字符截断。执行失败走 200 + {ok:false}（泵语义：失败保旧数据由宿主负责）；越权 403。 */
   async callResource(
     sessionId: string,
     callerPluginId: string,
@@ -567,8 +576,16 @@ export class SessionRegistry {
     // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
     const prepared = await this.#prepare();
     const mcpServers = await this.#mcpSpecs(prepared, cwd);
+    const settings = await readSettings(this.#opts.globalDir);
     const harness = createHarness();
-    for (const definition of this.#baseDefinitions({ id, cwd, directory, onAppend, mcpServers })) {
+    for (const definition of this.#baseDefinitions({
+      id,
+      cwd,
+      directory,
+      onAppend,
+      mcpServers,
+      isPresetEntryEnabled: (entryId) => isPluginEnabled(settings, entryId),
+    })) {
       harness.use(definition);
     }
     harness.use({ name: "interaction", start: () => interaction });

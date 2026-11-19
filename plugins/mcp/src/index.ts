@@ -105,8 +105,17 @@ class ServerConnection {
   #retries = 0;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #stopped = false;
+  /** 尝试代际：旧代的 onclose / 晚到连接不得干扰新代（防双重重连与子进程泄漏） */
+  #generation = 0;
   /** sync 单队列串行（防 list_changed 与重连的注册交错，D-064） */
   #chain: Promise<void> = Promise.resolve();
+
+  /** 入队（必须重赋 #chain 才真正串行——只挂 .then 不入队 = 并发） */
+  #enqueue(task: () => Promise<void>): void {
+    this.#chain = this.#chain.then(task).catch((err) => {
+      this.#warn(`后台任务失败：${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
 
   constructor(
     readonly spec: McpServerSpec,
@@ -130,7 +139,7 @@ class ServerConnection {
 
   /** 启动入口：异步连（不阻塞装配）；结果走 #chain 串行落 */
   begin(): void {
-    void this.#chain.then(() => this.#attempt());
+    this.#enqueue(() => this.#attempt());
   }
 
   async dispose(): Promise<void> {
@@ -176,6 +185,7 @@ class ServerConnection {
 
   #scheduleReconnect(): void {
     if (this.#stopped) return;
+    if (this.#retryTimer !== undefined) return; // onclose 与 connect 失败双路径去重
     if (this.#retries >= MAX_RETRIES) {
       this.#dropGeneration(); // 耗尽：注销该 server 全部工具（新会话重来，不 crash-loop）
       this.#warn(`连接失败已重试 ${MAX_RETRIES} 次——放弃本轮，工具已注销`);
@@ -185,12 +195,13 @@ class ServerConnection {
     this.#retries += 1;
     this.#retryTimer = setTimeout(() => {
       this.#retryTimer = undefined;
-      void this.#chain.then(() => this.#attempt());
+      this.#enqueue(() => this.#attempt());
     }, delay);
   }
 
   async #attempt(): Promise<void> {
     if (this.#stopped) return;
+    const generation = ++this.#generation;
     const spec = this.spec;
     let transport: Transport;
     try {
@@ -217,19 +228,30 @@ class ServerConnection {
                   this.#warn(`工具清单刷新失败：${err.message}——保留当前代`);
                   return;
                 }
-                void this.#chain.then(() => this.#sync());
+                this.#enqueue(() => this.#sync());
               },
             },
           },
         },
       );
       client.onclose = () => {
-        if (!this.#stopped) this.#scheduleReconnect();
+        if (this.#stopped || generation !== this.#generation) return;
+        this.#client = undefined;
+        this.#scheduleReconnect();
       };
       client.onerror = (err) => {
         if (!this.#stopped) this.#warn(`连接错误：${err.message}`);
       };
       await client.connect(transport);
+      if (this.#stopped || generation !== this.#generation) {
+        // dispose / 新代已接管：关闭晚到的连接，别把子进程泄漏到会话之外
+        try {
+          await client.close();
+        } catch {
+          /* 已断开 */
+        }
+        return;
+      }
       this.#client = client;
       this.#retries = 0;
       await this.#sync();
@@ -314,6 +336,10 @@ class ServerConnection {
   }
 }
 
+/** 工厂内部收尾口（不进 McpService 公共面）：start 把异步收尾挂上，stop 等待完成 */
+const TEARDOWN = Symbol("mcp.teardown");
+type TeardownCarrier = { [TEARDOWN]?: () => Promise<void> };
+
 /** 官方 plugin-mcp 工厂（占 'mcp' 槽；inject tools——D-049 服务件形状） */
 export function mcpPlugin(opts: McpPluginOptions): ServiceDefinition<McpService> {
   return {
@@ -324,11 +350,8 @@ export function mcpPlugin(opts: McpPluginOptions): ServiceDefinition<McpService>
       const nameOwners = new Map<string, string>();
       const conns = opts.servers.map((spec) => new ServerConnection(spec, tools, opts, nameOwners));
       for (const conn of conns) conn.begin(); // 异步连：装配不等 server（D-064）
-      ctx.effect(() => () => {
-        void Promise.all(conns.map((c) => c.dispose()));
-      });
       const byKey = new Map(conns.map((c) => [c.key, c] as const));
-      const service: McpService = {
+      const service: McpService & TeardownCarrier = {
         call: (target, args, signal) => {
           const conn = byKey.get(`${target.pluginId}/${target.server}`);
           if (conn === undefined) {
@@ -339,7 +362,15 @@ export function mcpPlugin(opts: McpPluginOptions): ServiceDefinition<McpService>
           return conn.call(target.tool, args, signal);
         },
       };
+      // 收尾放 stop（内核 await）而非 effect（同步 Disposable）——删会话要等子进程真退出
+      service[TEARDOWN] = () =>
+        Promise.all(conns.map((conn) => conn.dispose())).then(() => undefined);
       return service;
+    },
+    async stop(svc) {
+      // start 抛错回滚时 svc 可能为空（内核仍调 stop 收尾）
+      const teardown = (svc as (McpService & TeardownCarrier) | undefined)?.[TEARDOWN];
+      await teardown?.();
     },
   };
 }

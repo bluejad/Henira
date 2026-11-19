@@ -3,6 +3,7 @@
 
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ServiceDefinition } from "@henira/kernel";
@@ -1669,7 +1670,12 @@ process.stdin.on("data", (c) => {
 function reply(msg, result, isErr) {
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, [isErr ? "error" : "result"]: isErr ? { code: -32601, message: "method not found" } : result }) + "\\n");
 }
-process.stdin.on("end", () => process.exit(0));
+process.stdin.on("end", () => {
+  if (process.env.MCP_EXIT_MARKER) {
+    try { require("node:fs").writeFileSync(process.env.MCP_EXIT_MARKER, "exited"); } catch {}
+  }
+  process.exit(0);
+});
 `;
 
   /** 写一个带 mcp 槽的纯内容包（echo stdio server + 凭据 server） */
@@ -1684,7 +1690,12 @@ process.stdin.on("end", () => process.exit(0));
     );
     await fs.writeFile(
       path.join(v, "mcp", "echo.json"),
-      JSON.stringify({ command: process.execPath, args: [path.join(v, "stub.js")] }),
+      JSON.stringify({
+        command: process.execPath,
+        args: [path.join(v, "stub.js")],
+        // 子进程退出探针（会话删除用例：stop 必须等到子进程真退出）
+        env: { MCP_EXIT_MARKER: path.join(v, "mcp-exited.txt") },
+      }),
       "utf8",
     );
     await fs.writeFile(
@@ -1862,6 +1873,210 @@ process.stdin.on("end", () => process.exit(0));
       expect(JSON.parse(outcome.result.content)).toEqual({ secret: "sk-test-secret" });
     } finally {
       await cleanup();
+    }
+  });
+
+  it("plugin-mcp 停用：settings enabled:false 后新会话不装配（开关真生效）", async () => {
+    const { server, base, dataDir, cleanup } = await makeServer([]);
+    try {
+      await writeMcpPack(dataDir, false);
+      await fetch(`${base}/api/plugins/echo-mcp/confirm-mcp`, { method: "POST" });
+      const off = await fetch(`${base}/api/plugins/plugin-mcp/enabled`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      });
+      expect(off.status).toBe(200);
+      const session = await server.registry.create({ cwd: dataDir });
+      await new Promise((r) => setTimeout(r, 400));
+      const names = (session.ctx.get("tools") as { project(): { name: string }[] })
+        .project()
+        .map((w) => w.name);
+      expect(names.some((n) => n.startsWith("mcp__"))).toBe(false);
+      let assembled = true;
+      try {
+        session.ctx.get("mcp");
+      } catch {
+        assembled = false;
+      }
+      expect(assembled).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("会话删除：MCP 子进程随 dispose 关闭（stop 等待退出）", async () => {
+    const { server, base, dataDir, cleanup } = await makeServer([]);
+    try {
+      const v = await writeMcpPack(dataDir, false);
+      await fetch(`${base}/api/plugins/echo-mcp/confirm-mcp`, { method: "POST" });
+      const entry = await server.registry.create({ cwd: dataDir });
+      const names = (): string[] =>
+        (entry.ctx.get("tools") as { project(): { name: string }[] }).project().map((w) => w.name);
+      await until("mcp tools registered", () => names().includes("mcp__echo__echo"));
+      const marker = path.join(v, "mcp-exited.txt");
+      expect(
+        await fs
+          .access(marker)
+          .then(() => true)
+          .catch(() => false),
+      ).toBe(false);
+      expect(await server.registry.deleteSession(entry.id)).toBe(true);
+      expect(await fs.readFile(marker, "utf8")).toBe("exited");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  /** 最小 Streamable HTTP MCP 桩（application/json 响应，不实现 SSE 流）：验证远程
+   *  transport 全链与 headers 传递（D-064 的 remote 分支此前零运行时覆盖） */
+  async function startHttpMcpStub(): Promise<{
+    url: string;
+    seenHeaders: Array<Record<string, string | string[] | undefined>>;
+    close: () => Promise<void>;
+  }> {
+    const seenHeaders: Array<Record<string, string | string[] | undefined>> = [];
+    const http = createHttpServer((req, res) => {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        seenHeaders.push({ ...req.headers });
+        const send = (status: number, payload?: unknown): void => {
+          res.statusCode = status;
+          if (payload === undefined) {
+            res.end();
+            return;
+          }
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(payload));
+        };
+        if (req.method !== "POST") {
+          send(405);
+          return;
+        }
+        let msg: { id?: unknown; method?: string; params?: Record<string, unknown> };
+        try {
+          msg = JSON.parse(body) as typeof msg;
+        } catch {
+          send(400);
+          return;
+        }
+        if (msg.method === "initialize") {
+          send(200, {
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              protocolVersion: (msg.params as { protocolVersion?: string })?.protocolVersion,
+              capabilities: { tools: {} },
+              serverInfo: { name: "http-echo", version: "1.0.0" },
+            },
+          });
+          return;
+        }
+        if (msg.method === "tools/list") {
+          send(200, {
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              tools: [
+                {
+                  name: "echo",
+                  description: "echo over http",
+                  inputSchema: {
+                    type: "object",
+                    properties: { text: { type: "string" } },
+                  },
+                },
+              ],
+            },
+          });
+          return;
+        }
+        if (msg.method === "tools/call") {
+          const params = msg.params as { arguments?: { text?: string } };
+          send(200, {
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ echo: params.arguments?.text ?? null }),
+                },
+              ],
+            },
+          });
+          return;
+        }
+        // notifications/initialized 等：200 空体（202 会让 client 转而开 GET SSE，桩不伺服）
+        send(200);
+      });
+    });
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", () => resolve()));
+    const address = http.address();
+    if (address === null || typeof address === "string") throw new Error("http stub listen failed");
+    return {
+      url: `http://127.0.0.1:${address.port}/mcp`,
+      seenHeaders,
+      close: () =>
+        new Promise<void>((resolve) => {
+          http.closeAllConnections();
+          http.close(() => resolve());
+        }),
+    };
+  }
+
+  it("远程 transport（Streamable HTTP）：连接 / tools 注册 / 调用 / headers 凭据注入", async () => {
+    const { server, base, dataDir, globalDir, cleanup } = await makeServer([]);
+    const stub = await startHttpMcpStub();
+    try {
+      const v = await writeMcpPack(dataDir, false);
+      await fs.writeFile(
+        path.join(v, "mcp", "remote.json"),
+        JSON.stringify({
+          url: stub.url,
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: 凭据引用语法本身即此字面量
+          headers: { Authorization: "Bearer ${credential:remote-token}" },
+        }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(globalDir, "credentials.json"),
+        JSON.stringify({ providers: { "remote-token": "sk-remote-secret" } }),
+        "utf8",
+      );
+      await fetch(`${base}/api/plugins/echo-mcp/confirm-mcp`, { method: "POST" });
+      const entry = await server.registry.create({ cwd: dataDir });
+      const names = (): string[] =>
+        (entry.ctx.get("tools") as { project(): { name: string }[] }).project().map((w) => w.name);
+      await until("remote mcp tools registered", () => names().includes("mcp__remote__echo"));
+      const executeOf = (
+        entry.ctx.get("tools") as {
+          execute(
+            call: { callId: string; name: string; argsText: string },
+            ctx: unknown,
+          ): Promise<{ result: { content: string } }>;
+        }
+      ).execute.bind(entry.ctx.get("tools"));
+      const outcome = await executeOf(
+        {
+          callId: "t-http",
+          name: "mcp__remote__echo",
+          argsText: JSON.stringify({ text: "over-http" }),
+        },
+        toolCtxOf(entry, dataDir),
+      );
+      expect(JSON.parse(outcome.result.content)).toEqual({ echo: "over-http" });
+      // header 展开生效（凭据只进请求头，不回显到结果）
+      expect(stub.seenHeaders.some((h) => h.authorization === "Bearer sk-remote-secret")).toBe(
+        true,
+      );
+    } finally {
+      await cleanup();
+      await stub.close();
     }
   });
 

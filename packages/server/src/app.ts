@@ -229,7 +229,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   // useResource 数据泵单跳（plugins.md §4 / D-064）：所有权闸（地址 pluginId 必须 = 调用方
-  // 插件且该插件声明了此 server，越权 403）在 registry——30s 超时与 200KB 截断同层
+  // 插件且该插件声明了此 server，越权 403）在 registry——30s 超时与 200 × 1024 字符截断同层
   app.post("/api/sessions/:id/resource", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);

@@ -143,7 +143,7 @@ export interface HeniraFacade {
   /** MCP 变更确认放行（D-030/D-064：写 settings.plugins.<id>.mcpFingerprint，新会话 spawn） */
   confirmPluginMcp(id: string): Promise<void>;
   /** useResource 数据泵单跳（plugins.md §4：地址 = henira-data://<pluginId>/<server>/<tool>?args=…；
-   *  所有权闸越权 403、30s 超时、200KB 截断；执行失败 200 + {ok:false}——失败保旧数据由宿主泵负责） */
+   *  所有权闸越权 403、30s 超时、200 × 1024 字符截断；执行失败 200 + {ok:false}——失败保旧数据由宿主泵负责） */
   executeResource(sessionId: string, pluginId: string, address: string): Promise<ResourceReply>;
   /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;

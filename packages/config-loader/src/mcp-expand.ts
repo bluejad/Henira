@@ -2,6 +2,7 @@
 // 双形态一致性走共享实现，不各写一份）。纯配置函数：credentials 由宿主读好传入（本模块
 // 不读凭据文件）；展开值只进内存——永不进日志 / 响应体 / 账本（D-030）。
 
+import path from "node:path";
 import type { McpServerSpec } from "@henira/protocol";
 import type { McpServerDecl } from "./discovery.js";
 
@@ -16,6 +17,13 @@ export function scrubSpawnEnv(): Record<string, string> {
     out[name] = value;
   }
   return out;
+}
+
+/** command 解析（interfaces.md §mcp）：含路径分隔符的相对路径相对插件版本目录解析；
+ *  裸命令名走 PATH，绝对路径原样（模板变量展开后通常已是绝对路径） */
+function resolveCommandPath(command: string, versionDir: string): string {
+  if (!command.includes("/") && !command.includes("\\")) return command;
+  return path.isAbsolute(command) ? command : path.resolve(versionDir, command);
 }
 
 /** 声明展开：`${HENIRA_PLUGIN_ROOT}` / `${HENIRA_PROJECT_DIR}` 与生态别名（plugins.md §4 模板
@@ -64,7 +72,10 @@ export function expandMcpServers(input: {
       decl.headers === undefined
         ? undefined
         : Object.fromEntries(Object.entries(decl.headers).map(([k, v]) => [k, expand(v)]));
-    const command = decl.command === undefined ? undefined : expand(decl.command);
+    const command =
+      decl.command === undefined
+        ? undefined
+        : resolveCommandPath(expand(decl.command), decl.versionDir);
     const args = decl.args?.map(expand);
     const url = decl.url === undefined ? undefined : expand(decl.url);
     if (failed) continue;

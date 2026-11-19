@@ -32,6 +32,8 @@ export function createResourcePump(deps: ResourcePumpDeps): ResourcePumpControll
     subscribers: Set<(snapshot: ResourceSnapshot) => void>;
     timer?: ReturnType<typeof setInterval>;
     snapshot: ResourceSnapshot;
+    /** 上一跳在飞：跳过该 tick（慢工具不堆叠请求、不产生乱序覆盖） */
+    inFlight: boolean;
   }
   const pumps = new Map<string, Pump>();
   const pollMs = deps.pollMs ?? 2000;
@@ -66,19 +68,26 @@ export function createResourcePump(deps: ResourcePumpDeps): ResourcePumpControll
   }
 
   async function fetchOnce(address: string, pluginId: string): Promise<void> {
-    const sessionId = deps.getSessionId();
-    if (sessionId === null) {
-      apply(address, { ok: false, error: "no active session", updatedAt: Date.now() });
-      return;
-    }
+    const pump = pumps.get(address);
+    if (pump === undefined || pump.inFlight) return;
+    pump.inFlight = true;
     try {
-      apply(address, await deps.execute(sessionId, pluginId, address));
-    } catch (err) {
-      apply(address, {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-        updatedAt: Date.now(),
-      });
+      const sessionId = deps.getSessionId();
+      if (sessionId === null) {
+        apply(address, { ok: false, error: "no active session", updatedAt: Date.now() });
+        return;
+      }
+      try {
+        apply(address, await deps.execute(sessionId, pluginId, address));
+      } catch (err) {
+        apply(address, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          updatedAt: Date.now(),
+        });
+      }
+    } finally {
+      pump.inFlight = false;
     }
   }
 
@@ -86,7 +95,7 @@ export function createResourcePump(deps: ResourcePumpDeps): ResourcePumpControll
     subscribe(address, pluginId, cb) {
       let pump = pumps.get(address);
       if (pump === undefined) {
-        pump = { subscribers: new Set(), snapshot: { status: "loading" } };
+        pump = { subscribers: new Set(), snapshot: { status: "loading" }, inFlight: false };
         pumps.set(address, pump);
       }
       pump.subscribers.add(cb);

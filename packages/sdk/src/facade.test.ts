@@ -609,6 +609,10 @@ process.stdin.on("end", () => process.exit(0));
       expect(JSON.parse(reply.text ?? "{}")).toEqual({ echo: "pong" });
       // 所有权闸（双形态同语义）：调用方 pluginId ≠ 地址 pluginId → 拒
       await expect(facade.executeResource(session2.id, "other-pack", address)).rejects.toThrow();
+      // 停用 plugin-mcp → 新会话不装配（D-064 开关真生效，双形态同语义）
+      await facade.setPluginEnabled("plugin-mcp", false);
+      const session3 = await facade.createSession({ cwd: dataDir });
+      await expect(facade.executeResource(session3.id, "echo-mcp", address)).rejects.toThrow();
     });
   },
 );
