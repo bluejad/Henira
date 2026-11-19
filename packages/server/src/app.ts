@@ -493,7 +493,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!credIds.includes(id) && SNAPSHOT[id] !== undefined) continue;
       const baseUrl = entry.baseUrl;
       providers[id] = {
-        name: SNAPSHOT[id]?.name,
+        name: entry.label ?? SNAPSHOT[id]?.name, // 用户显示名优先（与管理页同口径——收敛批审查 2026-11-19）
         baseUrl,
         reasoning: reasoningCapability(id), // 思考能力提示（UI 档位移除/置灰依据）
         models: modelEntries(id, modelsFile)

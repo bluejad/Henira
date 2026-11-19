@@ -265,6 +265,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
   };
 
   const doRefresh = async (): Promise<void> => {
+    setBusy(true); // 双击防抖——刷新与表单共用 busy（审查 P3 2026-11-19：改前 disabled 不生效）
     setRefreshMsg(null);
     try {
       const r = await ctx.client.refreshModelPresets?.();
@@ -276,6 +277,8 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
       }
     } catch {
       setRefreshMsg(ctx.t("settings.models.refreshFail"));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -323,16 +326,24 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
             <div key={group.id} className="henira-provider-group">
               <div className="henira-provider-head">
                 <span className="henira-provider-name">{group.name ?? group.id}</span>
-                <button
-                  type="button"
-                  className="henira-provider-disconnect"
-                  title={ctx.t("settings.models.disconnectTip")}
-                  onClick={() => {
-                    void disconnect(group.id);
-                  }}
-                >
-                  {ctx.t("settings.models.disconnect")}
-                </button>
+                {group.connected ? (
+                  <button
+                    type="button"
+                    className="henira-provider-disconnect"
+                    title={ctx.t("settings.models.disconnectTip")}
+                    onClick={() => {
+                      void disconnect(group.id);
+                    }}
+                  >
+                    {ctx.t("settings.models.disconnect")}
+                  </button>
+                ) : (
+                  // 断开止血语义后已知厂商断开不消失（baseUrl 保留）——未连接组只给状态标，
+                  // 断开钮对已断开组是幂等空转还误导（收敛批审查 2026-11-19）
+                  <span className="henira-picker-state">
+                    {ctx.t("settings.models.notConnected")}
+                  </span>
+                )}
               </div>
               {group.models.length === 0 ? (
                 <div className="henira-models-hint">{ctx.t("settings.models.groupEmpty")}</div>
@@ -557,6 +568,9 @@ function KnownProviderForm(props: {
 }): ReactNode {
   const { ctx } = props;
   const [key, setKey] = useState("");
+  // 空 key 本地拦（词表文案）——服务端 400 原文是英文，不该直出到用户眼前（审查 P2 2026-11-19）
+  const [localError, setLocalError] = useState<string | null>(null);
+  const err = localError ?? props.error;
   return (
     <div className="henira-models-panel">
       <div className="henira-provider-form-title">
@@ -575,13 +589,18 @@ function KnownProviderForm(props: {
           }}
         />
       </label>
-      {props.error !== null ? <div className="henira-models-error">{props.error}</div> : null}
+      {err !== null ? <div className="henira-models-error">{err}</div> : null}
       <div className="henira-model-form-actions">
         <button
           type="button"
           className="henira-primary"
           disabled={props.busy}
           onClick={() => {
+            if (key.trim() === "") {
+              setLocalError(ctx.t("settings.models.errKey"));
+              return;
+            }
+            setLocalError(null);
             props.onSubmit(key);
           }}
         >

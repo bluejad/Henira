@@ -102,7 +102,7 @@ export const zh = {
   "settings.models.notConnected": "未连接",
   "settings.models.disconnect": "断开",
   "settings.models.connect": "连接",
-  "settings.models.disconnectTip": "断开并移除该厂商全部模型",
+  "settings.models.disconnectTip": "断开该厂商（地址与模型配置保留，重连只需密钥）",
   "settings.models.back": "返回",
   "settings.models.refresh": "⟳ 刷新模型目录",
   "settings.models.refreshing": "刷新中…",

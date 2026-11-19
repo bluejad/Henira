@@ -283,7 +283,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         if (!credIds.includes(id) && SNAPSHOT[id] !== undefined) continue;
         const baseUrl = entry.baseUrl;
         providers.providers[id] = {
-          name: SNAPSHOT[id]?.name,
+          name: entry.label ?? SNAPSHOT[id]?.name, // 与 server 同口径：label 优先（收敛批审查 2026-11-19）
           baseUrl,
           reasoning: reasoningCapability(id),
           models: runtimeModelEntries(id, modelsFile)

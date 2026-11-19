@@ -1,8 +1,8 @@
 // 模型选择弹层（BC ModelSelect 行为层参照：触发钮 + 搜索 + 按厂商分组 + 底部「管理模型…」）。
-// 官方共享件：composer 工具排与设置弹窗·模型管理页同用一份。清单来自 client.listModels
+// 官方共享件：composer 工具排用（设置弹窗·模型管理页的全局默认选择入口已撤——用户裁定
+// 2026-11-19：composer 会话级绑定即职责）。清单来自 client.listModels
 //（key+baseUrl 齐备的厂商才出现——模型目录收敛批闸门）；选择只回调不落盘——语义归调用方
-//（composer 会话绑定 / 设置页全局默认各自行事）。条目渲染显示名 + 上下文窗/视觉/思考徽章
-//（BC 选择器档位——裸 id 退场）。
+//（composer 会话绑定各自行事）。条目渲染显示名 + 上下文窗/视觉/思考徽章（BC 选择器档——裸 id 退场）。
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { WebPartContext } from "../types.js";

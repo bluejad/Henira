@@ -1354,9 +1354,10 @@ describe("模型管理面（BC 四视图服务端半边）", () => {
       const customCatalog = (await (await fetch(`${base}/api/models`)).json()) as {
         providers: Record<
           string,
-          { baseUrl?: string; models?: Array<{ id: string; name?: string }> }
+          { name?: string; baseUrl?: string; models?: Array<{ id: string; name?: string }> }
         >;
       };
+      expect(customCatalog.providers[custom.id]?.name).toBe("relay station"); // label 优先（选择器/管理页同口径——收敛批审查 2026-11-19）
       expect(customCatalog.providers[custom.id]?.baseUrl).toBe("https://relay.example.com/v1");
       expect(customCatalog.providers[custom.id]?.models).toEqual([
         { id: "my-model", name: "My Model" },

@@ -113,9 +113,9 @@ export interface HeniraFacade {
   listModelPresets(): Promise<ModelPresets>;
   /** 在线刷新模型目录（成功 ok:true；失败保留快照/缓存现状） */
   refreshModelPresets(): Promise<{ ok: boolean }>;
-  /** 连接已知厂商（key 必填——无 env 兜底；D-030 只进 credentials.json 0600） */
+  /** 连接已知厂商（key 必填——无 env 兜底；缺 baseUrl 从快照 endpoint 自动种；D-030 只进 credentials.json 0600） */
   connectProvider(providerId: string, key: string): Promise<void>;
-  /** 断开厂商（credentials.json 摘键 + models.json 摘目录条目；幂等） */
+  /** 断开厂商（credentials.json 摘键；models.json 分档——已知厂商只清显隐保 baseUrl/label，自定义整条删；幂等） */
   disconnectProvider(providerId: string): Promise<void>;
   /** 模型显隐开关（models.json hidden 清单——开 = 移出，关 = 加入） */
   setModelEnabled(providerId: string, model: string, enabled: boolean): Promise<void>;

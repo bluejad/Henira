@@ -1056,6 +1056,12 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
               connected: true,
               models: [{ id: "my-model", enabled: true }],
             },
+            {
+              id: "moonshotai",
+              name: "Moonshot",
+              connected: false, // 断开止血语义：已知厂商断开不消失（审查 P2 2026-11-19）
+              models: [{ id: "kimi-x", enabled: true }],
+            },
           ],
         }),
         listModelPresets: async () => ({
@@ -1077,7 +1083,15 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(screen.getByTitle("deepseek/deepseek-chat")).not.toBeNull();
     expect(screen.getByText("131k")).not.toBeNull();
     const switches = screen.getAllByRole("switch");
-    expect(switches).toHaveLength(3); // deepseek×2 + relay×1
+    expect(switches).toHaveLength(4); // deepseek×2 + relay×1 + moonshot×1
+    // 未连接组：状态标在场、断开钮退场（断开止血语义——对已断开组断开是幂等空转）
+    const groups = document.querySelectorAll(".henira-provider-group");
+    expect(groups).toHaveLength(3);
+    const offGroup = Array.from(groups).find((g) =>
+      g.textContent?.includes(t("settings.models.notConnected")),
+    );
+    expect(offGroup).toBeDefined();
+    expect(offGroup?.querySelector(".henira-provider-disconnect")).toBeNull();
     const off = switches.find((s) => s.getAttribute("aria-checked") === "false");
     expect(off).toBeDefined();
     fireEvent.click(off as HTMLElement);
@@ -1092,8 +1106,11 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     const firstItem = document.querySelector(".henira-provider-picker .henira-picker-item");
     expect(firstItem?.textContent).toContain(t("settings.models.customEntry"));
     fireEvent.click(screen.getByText("Anthropic"));
-    // 连接已知厂商：password 输入 + 提交回调
+    // 连接已知厂商：空 key 本地拦（词表文案——服务端 400 英文原文不出用户眼前，审查 P2）
     const keyInput = await screen.findByPlaceholderText(t("settings.models.keyPlaceholder"));
+    fireEvent.click(screen.getByRole("button", { name: t("settings.models.submit") }));
+    expect(screen.getByText(t("settings.models.errKey"))).not.toBeNull();
+    expect(connectProvider).not.toHaveBeenCalled();
     fireEvent.change(keyInput, { target: { value: "sk-abc" } });
     fireEvent.click(screen.getByRole("button", { name: t("settings.models.submit") }));
     await waitFor(() => expect(connectProvider).toHaveBeenCalledWith("anthropic", "sk-abc"));

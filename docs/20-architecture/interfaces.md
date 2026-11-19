@@ -490,14 +490,14 @@ GET  /api/dirs/browse?path=                             → DirBrowse        // 
 GET  /api/server/info                                   → { version; startedAt; model }
 GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
-GET  /api/models                                        → 模型清单（models.dev 字典 + 手写覆盖 + 凭据在册厂商；开关关的模型过滤；无密钥）
+GET  /api/models                                        → 选择器清单（闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；断开即摘出清单；开关关的模型过滤；条目带显示名/上下文窗/视觉·思考徽章位；无密钥——收敛批 2026-11-19）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
 // ── 模型管理面（BC ModelsPanel 行为层；✓ 模型管理批 2026-11-19）──
 GET  /api/providers                                     → 管理分组（连接态/显示名/模型条目含开关+上下文窗；无密钥——D-030）
 GET  /api/models.presets                                → 厂商选择页预设全表（config-loader 字典：快照+缓存；无密钥）
 POST /api/models.presets/refresh                        → { ok }        // 在线刷新目录（models.dev；失败保留快照/缓存现状）
-PUT  /api/providers/:id/connect             { key }     → 连接已知厂商（key 必填——无 env 兜底；D-030）
-DELETE /api/providers/:id                               → 断开（credentials.json 摘键 + models.json 摘目录条目；幂等）
+PUT  /api/providers/:id/connect             { key }     → 连接已知厂商（key 必填——无 env 兜底；D-030；缺 baseUrl 从目录快照 endpoint 自动种——连接即可跑，用户永不手写地址，收敛批 2026-11-19）
+DELETE /api/providers/:id                               → 断开（credentials.json 摘键；models.json **分档**——已知厂商只清 hidden 显隐，baseUrl/label 承重配置永不碰；自定义厂商整条删；幂等——2026-11-19 教训：整条删毁过用户手写地址）
 PUT  /api/providers/:id/models/:model/enabled { enabled } → 开关显隐（models.json hidden 清单；开=移出，关=加入）
 POST /api/providers/custom                  { label?, baseUrl, key?, models[] } → 自定义 OpenAI 兼容厂商（显式清单；请求头不收——引擎不消费不造假配置）
 GET  /api/ui-assets                                     → UiAssets        // 界面资产清单（D-059 语言包/主题包；扫描已装插件包）
@@ -515,21 +515,37 @@ interface SettingsData {
   model?: string;
   ui?: { theme?: string; locale?: string };
 }
+interface CatalogModel {
+  // 选择器单模型条目（收敛批 2026-11-19 条目化——裸 string id 退场，BC 选择器档）
+  id: string;
+  name?: string; // 显示名（快照 name）
+  contextWindow?: number;
+  vision?: boolean; // 图片输入徽章「视觉」（models.dev modalities 派生）
+  reasoning?: boolean; // 原生思考徽章（显示用——思考档置灰判据仍走 reasoning 参数族提示）
+}
 interface ModelCatalog {
-  // GET /api/models（手写 models.json + models.dev 快照 + 凭据在册厂商，按 id 查；开关关的模型过滤）
+  // GET /api/models（选择器清单；闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；
+  //   开关关的模型过滤；断开（摘 key）即从清单消失）
   providers: Record<
     string,
-    { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
+    { name?: string; baseUrl?: string; reasoning?: ReasoningCapability; models?: CatalogModel[] }
   >; // reasoning = 思考参数族提示（合同层能力表同源；none → UI 思考档置灰「—」，骨架批）
 }
 interface ProviderCatalogEntry {
   // GET /api/providers（管理分组——模型管理页主视图数据源）
   id: string;
-  name?: string;
+  name?: string; // label（用户显式命名）?? 快照 name ?? id
   baseUrl?: string;
   reasoning?: ReasoningCapability;
   connected: boolean; // credentials.json 在册；自定义厂商无 key 也算连接（目录条目即在册）
-  models: Array<{ id: string; name?: string; contextWindow?: number; enabled: boolean }>;
+  models: Array<{
+    id: string;
+    name?: string; // 模型 label ?? 快照 name
+    contextWindow?: number;
+    vision?: boolean; // 模型级徽章（管理行 meta；收敛批透传）
+    reasoning?: boolean;
+    enabled: boolean; // models.json hidden 清单——开 = 不在清单
+  }>;
 }
 interface ModelPresets {
   // GET /api/models.presets（厂商选择页——快照+缓存字典视图）
@@ -537,6 +553,13 @@ interface ModelPresets {
     string,
     { name?: string; models: Record<string, { name?: string; contextWindow?: number }> }
   >;
+}
+interface CustomProviderInput {
+  // POST /api/providers/custom 入参（自定义 OpenAI 兼容厂商）
+  label?: string;
+  baseUrl: string;
+  key?: string; // 可选——无 key 也算连接（既有语义）
+  models: Array<{ model: string; label?: string }>; // 显式清单；请求头不收——引擎不消费不造假配置
 }
 interface UiAssets {
   locales: UiAssetLocale[];
@@ -744,13 +767,22 @@ interface HeniraFacade {
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉（长会话 = 尾窗 60）
+  sessionRows(sessionId: string, opts?: { before?: number; limit?: number }): Promise<RowsPage>; // 行翻页（D-061：before = rowSeq 排他游标；hasOlder=false = 已到顶）
   getSettings(): Promise<SettingsData>; // 设置读（settings.json；凭据永不出现，D-030）
   putSettings(patch: {
     model?: string;
     ui?: { theme?: string; locale?: string };
   }): Promise<SettingsData>; // 设置写（程序写，data-directory §2.3）
-  listModels(): Promise<ModelCatalog>; // 模型目录（手写覆盖 + models.dev 快照；无密钥）
+  listModels(): Promise<ModelCatalog>; // 选择器清单（闸门分档——已知厂商 key+baseUrl、自定义 baseUrl；条目化 CatalogModel；无密钥）
   putCredential(providerId: string, key: string): Promise<void>; // 密钥写入（credentials.json 0600；无读取面——D-030 永不回读）
+  // ── 模型管理面七方法（✓ 模型管理批 2026-11-19 + 收敛批语义；REST 同名端点同语义，双形态同测锁）──
+  listProviders(): Promise<{ providers: ProviderCatalogEntry[] }>; // 管理分组（连接态/显示名/模型条目含开关与徽章位）
+  listModelPresets(): Promise<ModelPresets>; // 厂商选择页预设全表（快照 + 本地缓存字典视图）
+  refreshModelPresets(): Promise<{ ok: boolean }>; // 在线刷新目录（models.dev；失败保留快照/缓存现状）
+  connectProvider(providerId: string, key: string): Promise<void>; // 连接已知厂商（key 必填；缺 baseUrl 从快照 endpoint 自动种）
+  disconnectProvider(providerId: string): Promise<void>; // 断开（摘键；models.json 分档——已知厂商只清显隐保 baseUrl/label，自定义整条删）
+  setModelEnabled(providerId: string, model: string, enabled: boolean): Promise<void>; // 开关显隐（models.json hidden 清单——开 = 移出，关 = 加入）
+  putCustomProvider(input: CustomProviderInput): Promise<{ id: string }>; // 自定义 OpenAI 兼容厂商（显式清单；返回生成的 user- 前缀 id）
   listUiAssets(): Promise<UiAssets>; // 界面资产清单（D-059 语言包/主题包）
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>; // 会话工作区文件列表（只限会话 cwd；隐藏项不返）
   listDirs(): Promise<RegisteredDir[]>; // 登记工作目录（data-directory §4 projects.json；D-060）
@@ -803,6 +835,7 @@ interface WebPartContext {
   selectSession(id: string | null): void; // 会话切换（承重缝：SessionList → 宿主单源）
   t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud；D-059 语言包覆盖优先、回落 zh）
   theme: string; // 主题 id：官方 light/dark 或已装主题包名（D-059）
+  locale?: string; // 生效语言 id（宿主 boot 还原后的实际值——语言页显示生效值不读磁盘旧值；旧宿主缺省 = 官方 zh，审查三修 2026-11-19）
   store: RowStoreLike; // 流式增量从哪来
   host: PluginUiHost; // 宿主门面（13 方法）
   slots: ReadonlyMap<string, readonly SlotPart[]>; // 槽位只读视图（结构性 / 区域 + 行级，D-057 / D-062）

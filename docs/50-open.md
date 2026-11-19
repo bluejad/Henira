@@ -20,6 +20,7 @@ _无。M1 开工前的阻塞项已全部定稿。_
 
 - [ ] **serial 事件模式去留**——kernel 四模式中 serial 消费 / 注册两侧当前全库零命中（2026-11-17 查实：emit = loop 全部引擎事件；waterfall = tools 管线两缝；bail = 熔断件已定 M4 首发批，2026-11-17 拍板见 D-058）。保留理由存在：plugin-hooks（M6 批）"事件上顺序执行外部命令"是 serial 语义的天然消费者——M6 落码时复评，届时仍无消费者再议删（kernel 模式 4→3 是架构动作，立 ADR）
 - [ ] **性能基准实测（M5 compaction 落码顺带）**——四项零实测：deriveMessages 长会话全量派生 / JSONL 单文件全量读入 / fork 整目录复制成本 / 断线重连全量快照；设计均有重开条件、无实测数字。可选：M4 取证 pass 捎带跑一个大日志 deriveMessages 基准先有个底
+- [ ] **deepseek / agnes 思考参数形状（R145 ⑥挂账，2026-11-18）**——两家原生思考的请求参数真实形状未取证（能力表无此两家条目 → UI 思考档置灰「—」是正确降级，非缺陷）；接入 = 先真 key 采样确认参数名与取值再接能力表，不造假参数；模型徽章（BrainGlyph 显示位）已随收敛批走 models.dev `reasoning` 字段，与本挂账（思考**档位**可调）是两回事
 
 - [ ] 黑窗口聊天（cli 包）与 Repl 命令集、流式渲染——发布后启做
 - [ ] TUI 拓扑：**倾向 C1** 薄客户端连本地 server（终端"不起服务"的坑位由发布后 cli 聊天占住）——共同成本是 InteractionService 终端实现；发布后按需求定稿（[hosts.md](./20-architecture/hosts.md) §6）

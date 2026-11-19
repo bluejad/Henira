@@ -30,6 +30,17 @@ async function startServer(script: MockEntry[] = []): Promise<{
     JSON.stringify({ version: 1, model: "mock/mock-1" }),
     "utf8",
   );
+  // 预置已连接的已知厂商（断开止血步用：组不消失 + baseUrl 承重保留——收敛批语义）
+  await fs.writeFile(
+    path.join(globalDir, "models.json"),
+    JSON.stringify({ providers: { deepseek: { baseUrl: "https://api.deepseek.com" } } }),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(globalDir, "credentials.json"),
+    JSON.stringify({ providers: { deepseek: "sk-e2e" } }),
+    "utf8",
+  );
   const server = await createServer({
     dataDir,
     globalDir,
@@ -62,11 +73,12 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
 
     // 厂商选择页：返回在顶部工具行 + 自定义入口第一行 + DeepSeek（快照预设）
     await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
-    await expect(page.locator(".henira-models-toolbar").getByText(zh["settings.models.back"]))
-      .toBeVisible();
     await expect(
-      page.locator(".henira-provider-picker .henira-picker-item").first(),
-    ).toContainText(zh["settings.models.customEntry"]);
+      page.locator(".henira-models-toolbar").getByText(zh["settings.models.back"]),
+    ).toBeVisible();
+    await expect(page.locator(".henira-provider-picker .henira-picker-item").first()).toContainText(
+      zh["settings.models.customEntry"],
+    );
     await expect(page.getByText(zh["settings.models.hot"])).toBeVisible();
     await expect(page.getByText("DeepSeek").first()).toBeVisible();
 
@@ -81,6 +93,34 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
     const group = page.locator(".henira-provider-group", { hasText: "relay station" });
     await expect(group).toBeVisible({ timeout: 15_000 });
     await expect(group.getByText("my-model")).toBeVisible();
+
+    // 已知厂商断开止血（收敛批语义 + 审查 P2）：组不消失 + 未连接标 + 断开钮退场
+    const dsGroup = page.locator(".henira-provider-group", { hasText: "DeepSeek" });
+    await expect(dsGroup).toBeVisible({ timeout: 15_000 });
+    await dsGroup.locator(".henira-provider-disconnect").click();
+    await expect(dsGroup).toBeVisible();
+    await expect(dsGroup.getByText(zh["settings.models.notConnected"])).toBeVisible();
+    await expect(dsGroup.locator(".henira-provider-disconnect")).toHaveCount(0);
+
+    // 空 key 本地拦（审查 P2）：词表文案、请求不出门
+    await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
+    await page
+      .locator(".henira-provider-picker .henira-picker-item", { hasText: "DeepSeek" })
+      .click();
+    await page.getByRole("button", { name: zh["settings.models.submit"] }).click();
+    await expect(page.getByText(zh["settings.models.errKey"])).toBeVisible();
+    // 连接表单的返回（表单操作区，非工具行）→ 回选择页
+    await page
+      .locator(".henira-model-form-actions")
+      .getByRole("button", { name: zh["settings.models.back"] })
+      .click();
+    await expect(page.getByText(zh["settings.models.hot"])).toBeVisible();
+    // 返回列表视图（后续开关步在分组列表上做）
+    await page
+      .locator(".henira-models-toolbar")
+      .getByRole("button", { name: zh["settings.models.back"] })
+      .click();
+    await expect(group).toBeVisible();
 
     // 开关关 → 选择器摘除；开回 → 还原
     const sw = group.getByRole("switch", { name: /my-model/ });
