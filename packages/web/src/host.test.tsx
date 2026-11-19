@@ -264,6 +264,111 @@ describe("createWebApp", () => {
     }
   });
 
+  it("安全模式往返还原外观（审查 P2）：boot dark → 进安全模式强制官方 → 退出即从磁盘还原 dark，不停留 light 直到刷新", async () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const client = fakeClient({
+      getSettings: async () => ({ version: 1, ui: { theme: "dark" } }),
+    });
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (el.dataset.theme !== "dark") {
+            throw new Error(`boot not dark; got ${String(el.dataset.theme)}`);
+          }
+        },
+        { timeout: 4000 },
+      );
+      app.setSafeMode(true);
+      expect(el.dataset.theme).toBe("light"); // 进入安全模式：强制官方默认（D-059）
+      app.setSafeMode(false);
+      await vi.waitFor(
+        () => {
+          if (el.dataset.theme !== "dark") {
+            throw new Error(`exit safe mode not restored; got ${String(el.dataset.theme)}`);
+          }
+        },
+        { timeout: 4000 },
+      );
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
+  it("双击 Alt 往返还原外观（审查 P2 真实用户路径）：keyListener 退出分支与 setSafeMode 同款从磁盘还原", async () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const client = fakeClient({
+      getSettings: async () => ({ version: 1, ui: { theme: "dark" } }),
+    });
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (el.dataset.theme !== "dark") {
+            throw new Error(`boot not dark; got ${String(el.dataset.theme)}`);
+          }
+        },
+        { timeout: 4000 },
+      );
+      const doubleAlt = (): void => {
+        fireEvent.keyDown(window, { key: "Alt" });
+        fireEvent.keyDown(window, { key: "Alt" });
+      };
+      doubleAlt(); // 进安全模式
+      expect(el.dataset.theme).toBe("light");
+      expect(el.textContent).toContain(zh["app.safeMode"]);
+      doubleAlt(); // 退出——keyListener 退出分支重跑 restoreAppearance
+      await vi.waitFor(
+        () => {
+          if (el.dataset.theme !== "dark") {
+            throw new Error(`alt-exit not restored; got ${String(el.dataset.theme)}`);
+          }
+        },
+        { timeout: 4000 },
+      );
+      expect(el.textContent).not.toContain(zh["app.safeMode"]);
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
+  it("boot 还原竞态守卫（审查 P3-a）：还原窗口内用户已手选主题 → getSettings 晚到的磁盘旧值不翻回", async () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    let resolveSettings: (v: { version: 1; ui?: { theme?: string } }) => void = () => {};
+    const client = fakeClient({
+      // getSettings 挂起不放——模拟「boot 还原请求还在飞」的竞态窗口
+      getSettings: () =>
+        new Promise<{ version: 1; ui?: { theme?: string } }>((resolve) => {
+          resolveSettings = resolve;
+        }),
+    });
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      // 用户先手选 dark（真实 UI 路径：设置弹窗主题页）——findByRole 自带轮询
+      //（mount 后 React 并发渲染异步落 DOM，立即 getByRole 是空 body）
+      fireEvent.click(await screen.findByRole("button", { name: "设置" }));
+      const dialog = await screen.findByRole("dialog", { name: "设置" });
+      const themeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
+      fireEvent.change(themeSelect, { target: { value: "dark" } });
+      expect(el.dataset.theme).toBe("dark");
+      // 磁盘旧值这才晚到
+      resolveSettings({ version: 1, ui: { theme: "light" } });
+      await new Promise((r) => setTimeout(r, 60)); // 让还原路径跑完
+      expect(el.dataset.theme).toBe("dark"); // 未被旧值 light 翻回
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
   it("界面绑定状态（D-063）：启动还原上次选中（非列表第一个）+ 点选写全局指针 + 会话文档回填", async () => {
     const docs = new Map<string, unknown>([
       ["s-a", { draft: "甲的草稿" }],

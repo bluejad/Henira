@@ -958,6 +958,22 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     );
   });
 
+  it("语言页显示实际生效语言（宿主 ctx.locale）：包卸载 boot 回落官方后不读磁盘旧值漂移显示（审查 P3-b）", () => {
+    const ctx = fixtureCtx({
+      locale: "zh", // 宿主生效值（boot 时磁盘上的 fr 包不在场已回落官方）
+      closeSettings: vi.fn(),
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, ui: { locale: "fr" } }), // 磁盘残留装不上的语言
+        listUiAssets: async () => ({ locales: [], themes: [] }),
+      },
+    });
+    render(<SettingsModal ctx={ctx} section="locale" onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: t("settings.title") });
+    const localeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
+    expect(localeSelect.value).toBe("zh"); // 显示生效值，不是磁盘的 fr
+  });
+
   it("模型管理面板（BC 四视图）：分组+开关回调 → 厂商选择页 → 连接表单 → 自定义表单", async () => {
     const setModelEnabled = vi.fn().mockResolvedValue(undefined);
     const connectProvider = vi.fn().mockResolvedValue(undefined);

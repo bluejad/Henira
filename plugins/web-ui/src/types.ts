@@ -141,6 +141,9 @@ export interface WebPartContext {
   t: (key: string) => string; // D-050 locale 取字（缺 key fail-loud；D-059 语言包覆盖优先、回落 zh）
   /** 主题 id：官方 light/dark 或已装主题包名（D-059） */
   theme: string;
+  /** 当前生效语言 id（官方 zh 或已装语言包 lang，D-059）：显示值跟实际生效走，不读磁盘
+   * （磁盘上装不上的旧值不漂移显示——审查 P3-b）；缺席 = 官方 zh */
+  locale?: string;
   store: RowStoreLike; // 流式增量从哪来
   host: PluginUiHost;
   /** 槽位只读视图（区域槽 + 行级 keyed 槽，D-057）：官方默认件不在表内——未被顶替时生效 */

@@ -51,6 +51,11 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   let sessionId: string | null = null;
   let sessionCwd = "";
   let theme: string = opts.theme ?? "light";
+  /** 当前生效语言 id（官方 zh 或语言包 lang）：设置弹窗语言页显示生效值（审查 P3-b） */
+  let localeLang = "zh";
+  /** 外观已被显式选择（用户手选/嵌入方 setTheme）——boot 还原竞态守卫：getSettings 晚到的
+   *  磁盘旧值不翻回用户刚做的选择（审查 P3-a；与语言侧 override 判据同旨） */
+  let appearanceTouched = false;
   /** 已知主题包的 css 资产地址（onTheme 传入；applyTheme 据此注入 <link>，D-059） */
   const themeUrls = new Map<string, string>();
   let themeLink: HTMLLinkElement | undefined;
@@ -280,7 +285,58 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     themeLink?.remove();
     themeLink = undefined;
     localeOverride = undefined;
+    localeLang = "zh"; // 生效语言同步回落官方（语言页显示值跟手）
     t = makeT(undefined); // 取字工厂同步回落官方（残留第三方字典 = 安全模式漏字）
+  }
+
+  /**
+   * 外观还原（①读侧）：官方主题直落／主题包按资产清单回查地址注入 <link>／磁盘 id 已不在场
+   * （包卸载）回落官方默认；语言包 fetch 字典覆盖。boot 调一次（checkTouched=true——用户/
+   * 嵌入方已显式选择则磁盘旧值不覆盖，竞态守卫）；安全模式退出重跑（checkTouched=false——
+   * 进入时被强制官方，退出后从磁盘还原，不停留 light/zh 直到刷新，审查 P2）。
+   * 旧服务器无 getSettings 静默跳过。
+   */
+  async function restoreAppearance(checkTouched: boolean): Promise<void> {
+    if (safeMode || opts.client.getSettings === undefined) return;
+    if (checkTouched && appearanceTouched) return;
+    const s = await opts.client.getSettings();
+    const assets =
+      opts.client.listUiAssets !== undefined
+        ? await opts.client.listUiAssets().catch(() => ({ locales: [], themes: [] }))
+        : { locales: [], themes: [] };
+    const wantedTheme = s.ui?.theme;
+    if (wantedTheme !== undefined && wantedTheme !== theme) {
+      const pack = assets.themes.find((x) => x.name === wantedTheme);
+      if (pack !== undefined) {
+        theme = wantedTheme;
+        themeUrls.set(wantedTheme, pack.url);
+      } else if (wantedTheme === "light" || wantedTheme === "dark") {
+        theme = wantedTheme;
+        themeLink?.remove(); // 官方主题无 link
+        themeLink = undefined;
+      } else {
+        theme = "light"; // 磁盘 id 已不在场（主题包卸载）——回落官方默认
+        themeLink?.remove();
+        themeLink = undefined;
+      }
+      applyTheme();
+      render();
+    }
+    const wantedLocale = s.ui?.locale;
+    if (wantedLocale !== undefined && wantedLocale !== "zh" && localeOverride === undefined) {
+      const pack = assets.locales.find((x) => x.lang === wantedLocale);
+      if (pack !== undefined) {
+        const dict = await fetch(pack.url)
+          .then((r) => r.json() as Promise<Record<string, string>>)
+          .catch(() => null);
+        if (dict !== null && Object.keys(dict).length > 0) {
+          localeOverride = dict;
+          localeLang = wantedLocale; // 语言页显示值跟生效走（审查 P3-b）
+          t = makeT(localeOverride); // 引用稳定纪律：语言包变化才换新
+          render();
+        }
+      }
+    }
   }
 
   /**
@@ -346,6 +402,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       },
       t,
       theme,
+      locale: localeLang,
       store,
       host: hostFacade,
       slots,
@@ -355,13 +412,16 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       safeMode,
       sessionCwd,
       onTheme: (next, cssUrl) => {
+        appearanceTouched = true; // 显式选择——boot 还原不再覆盖（审查 P3-a）
         theme = next;
         if (cssUrl !== undefined) themeUrls.set(next, cssUrl);
         applyTheme();
         render(); // 主题变了要重渲 React 侧——漏了则设置弹窗显示值与实际主题脱节（R125）
       },
-      onLocale: (dict) => {
+      onLocale: (dict, lang) => {
+        appearanceTouched = true; // 同上（语言侧）
         localeOverride = dict !== undefined && Object.keys(dict).length > 0 ? dict : undefined;
+        localeLang = lang ?? "zh"; // 生效语言跟手（审查 P3-b）
         t = makeT(localeOverride); // 引用稳定纪律：语言包变化才换新（行 memo 比较器比 ctx.t）
         render();
       },
@@ -405,49 +465,9 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         activateSession(picked.id, picked.cwd);
       })().catch(() => {});
       // 启动还原外观（补全①：设置弹窗已写 ui.theme/ui.locale 落盘，改前启动不读——
-      // 选深色刷新回落亮色）。官方主题直接落；主题包/语言包按资产清单回查资产地址；
-      // 磁盘 id 已不在场（包卸载）回落官方默认；旧服务器无 getSettings 静默跳过；
-      // 安全模式入口不还原（D-059 回落官方 light/zh）。
-      void (async () => {
-        if (safeMode || opts.client.getSettings === undefined) return;
-        const s = await opts.client.getSettings();
-        const assets =
-          opts.client.listUiAssets !== undefined
-            ? await opts.client.listUiAssets().catch(() => ({ locales: [], themes: [] }))
-            : { locales: [], themes: [] };
-        const wantedTheme = s.ui?.theme;
-        if (wantedTheme !== undefined && wantedTheme !== theme) {
-          const pack = assets.themes.find((x) => x.name === wantedTheme);
-          if (pack !== undefined) {
-            theme = wantedTheme;
-            themeUrls.set(wantedTheme, pack.url);
-          } else if (wantedTheme === "light" || wantedTheme === "dark") {
-            theme = wantedTheme;
-            themeLink?.remove(); // 官方主题无 link
-            themeLink = undefined;
-          } else {
-            theme = "light"; // 磁盘 id 已不在场（主题包卸载）——回落官方默认
-            themeLink?.remove();
-            themeLink = undefined;
-          }
-          applyTheme();
-          render();
-        }
-        const wantedLocale = s.ui?.locale;
-        if (wantedLocale !== undefined && wantedLocale !== "zh" && localeOverride === undefined) {
-          const pack = assets.locales.find((x) => x.lang === wantedLocale);
-          if (pack !== undefined) {
-            const dict = await fetch(pack.url)
-              .then((r) => r.json() as Promise<Record<string, string>>)
-              .catch(() => null);
-            if (dict !== null && Object.keys(dict).length > 0) {
-              localeOverride = dict;
-              t = makeT(localeOverride); // 引用稳定纪律：语言包变化才换新
-              render();
-            }
-          }
-        }
-      })().catch(() => {});
+      // 选深色刷新回落亮色）。语义全在 restoreAppearance（boot 带 touched 守卫——
+      // 用户在还原窗口内已手选则磁盘旧值不覆盖，审查 P3-a）。
+      void restoreAppearance(true).catch(() => {});
       // 关页前尽力冲刷草稿（D-063 写时机：防抖之外补冲刷；同源无 token 场景可靠，
       // 带 token 时 best-effort——防抖主通道通常已落盘）
       pageHideListener = (): void => {
@@ -464,6 +484,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
             moduleDispose?.();
             moduleDispose = undefined;
             if (safeMode) enterSafeMode();
+            else void restoreAppearance(false).catch(() => {}); // 双击 Alt 退出同样从磁盘还原（审查 P2——setSafeMode 同款）
             renderSlots();
             render();
             lastAlt = 0;
@@ -483,6 +504,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       await opts.client.stop();
     },
     setTheme(next, cssUrl) {
+      appearanceTouched = true; // 嵌入方显式选择——boot 还原不再覆盖（审查 P3-a）
       theme = next;
       if (cssUrl !== undefined) themeUrls.set(next, cssUrl);
       applyTheme();
@@ -492,6 +514,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       moduleDispose?.();
       moduleDispose = undefined;
       if (on) enterSafeMode();
+      else void restoreAppearance(false).catch(() => {}); // 退出安全模式从磁盘还原（审查 P2——改前停留 light/zh 直到刷新）
       renderSlots();
       render();
     },
