@@ -514,6 +514,13 @@ PUT  /api/providers/:id/models/:model/enabled { enabled } → 开关显隐（mod
 POST /api/providers/custom                  { label?, baseUrl, key?, models[] } → 自定义 OpenAI 兼容厂商（显式清单；请求头不收——引擎不消费不造假配置）
 GET  /api/ui-assets                                     → UiAssets        // 界面资产清单（D-059 语言包/主题包；扫描已装插件包）
 GET  /api/ui-assets/:id/:version/:kind/:file → 资产文件伺服            // kind = locale | theme；SAFE_SEG + startsWith 双防线（D-059）
+GET  /api/ui-assets/:id/:version/file/*path → 插件文件伺服              // 批 C：ui 入口 + 同目录相对依赖；逐段 SAFE_SEG + startsWith；MIME 表白名单；html/svg 带 CSP sandbox（§4 安全规则）
+GET  /api/ui-shims/:file                                 → ESM shim        // 批 C：react / jsx-runtime / react-dom-client 三个 shim（从 window.__HENIRA_UI__ 表 re-export 宿主唯一实例；import map 指到这里）
+GET  /api/plugins                                        → { plugins: PluginState[]; fingerprint: string }  // 批 C：插件清单（官方五件 + 目录件；状态模型见 plugins.md §5；指纹供 UI 2s 轮询重装）；无密钥（D-030）
+POST /api/plugins/:id/confirm               { version }  → { ok: true }    // 确认卡放行（engine 件首次生效/版本升级；写 settings.plugins.<id>.confirmedVersion；未确认 = 不装载）
+PUT  /api/plugins/:id/enabled               { enabled }  → { ok: true }    // 启停（settings.plugins.<id>.enabled；缺 key = 启用；官方五件拒绝 404）
+PUT  /api/plugins/:id/version               { version }  → { ok: true }    // 版本钉（盘上须存在；官方件拒绝；新会话生效）
+DELETE /api/plugins/:id                                  → { ok: true }    // 卸载（删 plugins/<id> 整目录；plugins-data 保留；官方件 403；不存在 404）
 GET  /api/ui-state                                       → GlobalUiState   // 全局"上次选中"（backing state/ui.json；启动还原：在列表则选中，否则回落最新更新 / 新建；D-063，✓ 界面持久化批）
 PUT  /api/ui-state                           { doc }     → { ok: true }    // 选中变化时写（D-063）
 GET  /api/events                                        → SSE 帧流        // 唯一订阅端点（帧序/心跳/有界队列见下「SSE 传输形状」）

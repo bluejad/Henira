@@ -164,14 +164,14 @@
 - `ui`：界面偏好，宿主消费——`theme` / `locale` 为字符串 id：官方 `light` / `dark` / `zh` 或已装语言包/主题包 id（D-059；安全模式回落官方默认）；
 - 同一项若项目 `henira.config.ts` 也写了，**听项目的**。
 
-**装配三步**（每次新会话执行，D-016）：① 基础清单 = 项目 `henira.config.ts` 写了 `plugins` 听它的，否则官方出厂清单（config-loader 导出）；② 加上已装目录里的插件（`~/.henira/plugins/` 与项目 `.henira/plugins/`，同 id 不重复算，同名项目盖用户级；用户包 id 撞官方且带 `engine/` → 经确认卡替换官方，D-048）；③ 去掉 `enabled: false` 的。对**新会话**立即生效，运行中的会话不变；内圈 5 槽位不给关。插件目录格式与槽位见 [plugins.md](./plugins.md)。
+**装配三步**（每次新会话执行，D-016）：① 基础清单 = 项目 `henira.config.ts` 写了 `plugins` 听它的，否则官方出厂清单（config-loader 导出）；② 加上已装目录里的插件（`~/.henira/plugins/` 与项目 `.henira/plugins/`，同 id 不重复算，同名项目盖用户级；用户包 id 撞官方且带 `engine/` → 经确认卡替换官方，D-048；**v1 只扫用户级，项目级随装配②**）；③ 去掉 `enabled: false` 的。对**新会话**立即生效，运行中的会话不变；内圈 5 槽位不给关。插件目录格式与槽位见 [plugins.md](./plugins.md)。
 
 ## 3. 项目内树
 
 ```
 <repo>/.henira/
 ├─ agents/<name>.md                   # 项目级子代理；同名覆盖用户级
-├─ plugins/<id>/<version>/          # 项目级插件；与用户级同构
+├─ plugins/<id>/<version>/          # 项目级插件；与用户级同构（v1 后置：v1 只做用户级，项目级随装配②）
 └─ plugins-data/<id>/               # 项目级插件数据
 ```
 

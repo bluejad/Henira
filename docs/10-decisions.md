@@ -568,7 +568,7 @@
 - **理由**："一切可换"的承诺必须对全部用户成立，只对会写代码的人成立等于没承诺；dsh 用现役产品验证了"AI 写引擎代码 + 审批闸管信任"可行；D-016 当年否决的是"静默顶替"的魔法机制，不是"用户想换"的需求——显式确认把两者接通。信任靠闸（确认卡 + 审批链 + 兼容门 + 回落）不靠隔离。
 - **修订**：D-016 第 4 条"不做目录自动顶替"收窄为"不做**静默**顶替"（同 id 且带 `engine/` 经确认卡可替换，本条）；D-017 第 2 点"不做 node_modules 随目录"与第 4 点"纯内容包 / `ui/` 唯一代码口子"由本条修订（`engine/` 为第二个代码口子、可带依赖）；D-032 同名插件条款补"带 `engine/` 经确认替换官方"；D-029 管理面补确认卡与"已被替换"显示。
 - **备注**：[plugins.md](./20-architecture/plugins.md) §1 / §2 / §3 / §4 / §5 / §6 / §7.1；[data-directory.md](./20-architecture/data-directory.md) §2 / §5；50-open 归档。
-- **后续修订**：**D-049** 能力服务化——"与官方同一套 API"落实为 defineTool + ServiceDefinition + **注入能力服务**（官方与第三方同权）；替换语义增**两级粒度**（换工具件 / 换服务件，同一套确认卡与回落官方）；官方件计数 16→21 见 D-049。
+- **后续修订**：**D-049** 能力服务化——"与官方同一套 API"落实为 defineTool + ServiceDefinition + **注入能力服务**（官方与第三方同权）；替换语义增**两级粒度**（换工具件 / 换服务件，同一套确认卡与回落官方）；官方件计数 16→21 见 D-049。**2026-11-19 批 C 前修订**：第 5 条兼容门字段名 `engine` → **`engines`**（原名与 §3 的 `engine` 段对象撞 JSON key）；第 3 条确认卡范围从"同 id 替换官方"扩为**任何带 `engine/` 的包首次生效及版本升级都弹卡**（新 id 的引擎件 = 任意 Node 代码执行，无卡即无门；同 id 替换场景卡上额外写明替换对象）；确认记录落 `settings.json plugins.<id>.confirmedVersion`，**未确认不装载**（fail-closed）。
 
 ## D-049 能力服务化：能力一律服务、按族拆包
 
@@ -755,6 +755,7 @@
   7. **落码随批 C**：第三方 UI 装载通道（server 伺服 ui entry + 宿主动态 import + import map 注入 react / `@henira/kernel` / `@henira/protocol` / 官方件唯一实例）＋ Shell 拆解为占 `layout` 槽的官方框架件 ＋ 右栏 tab 框架 ＋ 宿主词表对齐（REGION_SLOTS 扩为词表十名）＋ 插件管理面（D-029 / D-030 / D-048 确认卡）同批闭环。**先行落码（2026-11-18 三栏骨架批）**：上列 UI 侧三项（Shell 拆解 / 右栏 tab 框架 / 宿主词表对齐）已落地，批 C 收敛为装载通道与管理面闭环。
 - **理由**："AI 写插件替换内置"的物理前置是装载通道——没有它 registerSlot / replaceSlot 全是纸上谈兵（机制层 API 齐、外部代码拿不到 ctx）；词表名统一是零设计量的还账，越晚还不越多的插件死在静默忽略上；layout 槽与 tab 框架是 dsh 已验证的形状（行为层参照、实现自家写法）；整页替换给风险标注 + 安全模式回落双护栏，与"可换"核心承诺（P8）一致不缩窄。
 - **备注**：plugins.md（依据行 / §3 ui.slots / §4 挂载点词表块 / §7.2 词表定稿块）、interfaces.md（web 段词表块 + WebPartContext slots 注释）、10-decisions.md（本条 + D-033 后续修订）、roadmap M4 内容行（批 C 闭环项）、INDEX plugins 行。批 C 验收判据随批出计划：第三方 UI 插件真装载 + `replaceSlot("layout")` 整页重排演示 + 右栏插件 tab 面板真渲染 + 安全模式全回落官方。
+- **后续修订（2026-11-19 批 C 落码）**：第三方 UI 装载通道上线——window 模块表（宿主 React family）+ server 伺服的 ESM shim + import map（:227 同一口子）、版本化 URL（`?v=<version>`）装载、清单指纹 2s 轮询**免刷新重装**（停用/启用/切版本 dispose+重装，不等整页刷新）、槽件 ErrorBoundary 崩溃隔离（该件退出，不白屏）、`registerSlot` 的 `order` 落码、词表外槽告警；`replaceSlot("layout")` 整页重排与右栏插件 tab 渲染由通道自然支持（e2e 覆盖 turn.tail 实证；整页重排演示待首个真实替换件）。
 
 ## D-063 会话绑定界面状态持久化：每会话 ui-state.json + 全局 state/ui.json
 
