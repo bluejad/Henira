@@ -77,7 +77,10 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
       })
       .catch(() => {});
   }, [ctx.client, settingsReady, ctx.sessionId]);
-  // 厂商能力表（思考档置灰依据；清单同时下传 ModelSelect 免二次拉取）
+  // 厂商能力表（思考档置灰依据；清单同时下传 ModelSelect 免二次拉取）。目录重拉三触发：
+  // mount / 设置关闭（下段）/ **设置内写操作广播**（modelCatalogVersion 自增——断开当场回落，
+  // 不用等弹窗关，BC 全局清单同形 2026-11-19 用户纠偏）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: modelCatalogVersion 是纯重拉触发信号（版本号只供依赖比较，体内不消费——断开/连接/开关后目录即时刷新）
   useEffect(() => {
     if (!settingsReady) return;
     let alive = true;
@@ -90,7 +93,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     return () => {
       alive = false;
     };
-  }, [ctx.client, settingsReady]);
+  }, [ctx.client, settingsReady, ctx.modelCatalogVersion]);
   // 设置弹窗关上（非 null → null）重拉目录——模型管理里新连/开关的厂商立即可选，免整页刷新
   const prevSettingsSection = useRef<SettingsSection | null>(null);
   useEffect(() => {

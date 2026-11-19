@@ -250,6 +250,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
     try {
       await ctx.client.setModelEnabled?.(group.id, modelId, enabled);
       reloadProviders();
+      ctx.notifyModelCatalogChanged?.(); // 目录广播——composer 即时重拉（选择器当步跟上）
     } catch (err) {
       setError(errMsg(err));
     }
@@ -260,6 +261,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
     try {
       await ctx.client.disconnectProvider?.(id);
       reloadProviders();
+      ctx.notifyModelCatalogChanged?.(); // 目录广播——断开当场回落，不等设置关闭（BC 同形）
     } catch (err) {
       setError(errMsg(err));
     }
@@ -275,6 +277,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
       if (ok) {
         const p = await ctx.client.listModelPresets?.();
         if (p !== undefined) setPresets(p.presets);
+        ctx.notifyModelCatalogChanged?.(); // 目录刷新后显示名/上下文窗可能变——composer 跟上
       }
     } catch {
       setRefreshMsg(ctx.t("settings.models.refreshFail"));
@@ -283,7 +286,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
     }
   };
 
-  // ── 视图一：分组列表（默认模型 + 厂商分组 + 模型开关 + 搜索）──
+  // ── 视图一：分组列表（已连接厂商分组 + 模型开关 + 搜索）──
 
   const q = query.trim().toLowerCase();
   // 主列表只列已连接厂商（BC ModelsPanel 同形：未连接不进组列表，连接入口走「＋ 连接提供商」；
@@ -516,6 +519,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
             await ctx.client.connectProvider?.(target, key);
             setView("list");
             reloadProviders();
+            ctx.notifyModelCatalogChanged?.(); // 连上即进选择器——目录广播（BC 同形当步可见）
           } catch (err) {
             setError(errMsg(err));
           } finally {
@@ -540,6 +544,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
           await ctx.client.putCustomProvider?.(input);
           setView("list");
           reloadProviders();
+          ctx.notifyModelCatalogChanged?.(); // 自定义厂商进选择器——目录广播（BC 同形）
         } catch (err) {
           setError(errMsg(err));
         } finally {

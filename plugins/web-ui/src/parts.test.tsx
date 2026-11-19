@@ -1029,8 +1029,11 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     const setModelEnabled = vi.fn().mockResolvedValue(undefined);
     const connectProvider = vi.fn().mockResolvedValue(undefined);
     const putCustomProvider = vi.fn().mockResolvedValue({ id: "user-relay-1" });
+    const disconnectProvider = vi.fn().mockResolvedValue(undefined);
+    const notifyCatalog = vi.fn();
     const ctx = fixtureCtx({
       closeSettings: vi.fn(),
+      notifyModelCatalogChanged: notifyCatalog,
       client: {
         ...fixtureCtx().client,
         getSettings: async () => ({ version: 1, model: "deepseek/deepseek-chat" }),
@@ -1077,7 +1080,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
         setModelEnabled,
         connectProvider,
         putCustomProvider,
-        disconnectProvider: async () => {},
+        disconnectProvider,
       },
     });
     render(<SettingsModal ctx={ctx} section="models" onClose={() => {}} />);
@@ -1100,6 +1103,15 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     await waitFor(() =>
       expect(setModelEnabled).toHaveBeenCalledWith("deepseek", "deepseek-reasoner", true),
     );
+    expect(notifyCatalog).toHaveBeenCalled(); // 开关=目录变更广播（composer 即时重拉）
+    // 断开=目录广播（composer 当场回落，不等设置关闭——用户纠偏 2026-11-19）
+    notifyCatalog.mockClear();
+    const dsGroup = Array.from(document.querySelectorAll(".henira-provider-group")).find((g) =>
+      g.textContent?.includes("DeepSeek"),
+    );
+    fireEvent.click(dsGroup?.querySelector(".henira-provider-disconnect") as HTMLElement);
+    await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith("deepseek"));
+    expect(notifyCatalog).toHaveBeenCalled();
     // 厂商选择页：返回在顶部工具行 + 自定义入口第一行（用户拍板 2026-11-19）+ 热门节
     fireEvent.click(screen.getByRole("button", { name: t("settings.models.addProvider") }));
     await screen.findByText(t("settings.models.hot"));

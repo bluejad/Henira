@@ -180,6 +180,11 @@ export interface WebPartContext {
   openSettings?(section?: SettingsSection): void;
   closeSettings?(): void;
   settingsSection?: SettingsSection | null;
+  /** 模型目录变更广播：设置弹窗内写操作（连接/断开/开关/自定义/目录刷新）成功后调用——
+   * 宿主自增 modelCatalogVersion 并重渲，composer 据此**即时**重拉 listModels
+   *（BC 全局清单同形：断开当场回落，不等设置关闭）。两者缺席 = 宿主无目录缓存语义 */
+  notifyModelCatalogChanged?(): void;
+  modelCatalogVersion?: number;
 }
 
 export type WebPart = (ctx: WebPartContext) => ReactNode;

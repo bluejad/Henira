@@ -99,17 +99,20 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
     await expect(dsGroup).toBeVisible({ timeout: 15_000 });
     await dsGroup.locator(".henira-provider-disconnect").click();
     await expect(dsGroup).toHaveCount(0); // 断开即从面板消失（数据层 baseUrl 保留）
+    // 断开当场回落（设置弹窗仍开）：目录广播通知 composer 重拉——绑定失效即切清单首个
+    //（本环境唯一剩余 = my-model），不等弹窗关闭（BC 全局清单同形 2026-11-19 用户纠偏）
+    const triggerLabel = page.locator(".henira-model-trigger-label");
+    await expect(triggerLabel).toHaveText("my-model", { timeout: 15_000 });
+    await expect(triggerLabel).not.toContainText("/"); // 厂商 id 不进按钮（BC 同档）
     await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
     const dsPicker = page.locator(".henira-provider-picker .henira-picker-item", {
       hasText: "DeepSeek",
     });
     await expect(dsPicker).toContainText(zh["settings.models.notConnected"]);
 
-    // 关设置 → composer 触发钮不再挂着已断厂商：绑定回落清单首个（本环境唯一剩余 = my-model）
+    // 关设置 → composer 触发钮保持回落后的有效模型
     await page.locator(".henira-settings-dialog .henira-dialog-head button").click();
-    const triggerLabel = page.locator(".henira-model-trigger-label");
     await expect(triggerLabel).toHaveText("my-model", { timeout: 15_000 });
-    await expect(triggerLabel).not.toContainText("/"); // 厂商 id 不进按钮（BC 同档）
 
     // 重连往返：挑 DeepSeek → 空 key 本地拦（词表文案、请求不出门）→ 填 key → 组回来
     await page.getByRole("button", { name: zh["settings.open"] }).click();
