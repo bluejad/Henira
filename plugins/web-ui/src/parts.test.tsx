@@ -488,7 +488,9 @@ describe("Composer", () => {
     const trigger = (await screen.findByRole("button", {
       name: t("composer.model"),
     })) as HTMLButtonElement;
-    await waitFor(() => expect(trigger.textContent).toContain("deepseek/deepseek-v4-flash"));
+    // 触发钮显示模型显示名（厂商 id 不进按钮——BC ModelSelect 同档）
+    await waitFor(() => expect(trigger.textContent).toContain("DeepSeek V4 Flash"));
+    expect(trigger.textContent).not.toContain("deepseek/");
     fireEvent.click(trigger);
     const listbox = await screen.findByRole("listbox", { name: t("composer.model") });
     expect(listbox.textContent).toContain("zhipuai"); // 按厂商分组
@@ -1059,7 +1061,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
             {
               id: "moonshotai",
               name: "Moonshot",
-              connected: false, // 断开止血语义：已知厂商断开不消失（审查 P2 2026-11-19）
+              connected: false, // 主列表不列未连接厂商（BC 同形）——连接态只在挑选页显示
               models: [{ id: "kimi-x", enabled: true }],
             },
           ],
@@ -1068,6 +1070,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
           presets: {
             deepseek: { name: "DeepSeek", models: { "deepseek-chat": {} } },
             anthropic: { name: "Anthropic", models: { "claude-x": {} } },
+            moonshotai: { name: "Moonshot", models: { "kimi-x": {} } },
           },
         }),
         refreshModelPresets: async () => ({ ok: false }),
@@ -1083,15 +1086,14 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(screen.getByTitle("deepseek/deepseek-chat")).not.toBeNull();
     expect(screen.getByText("131k")).not.toBeNull();
     const switches = screen.getAllByRole("switch");
-    expect(switches).toHaveLength(4); // deepseek×2 + relay×1 + moonshot×1
-    // 未连接组：状态标在场、断开钮退场（断开止血语义——对已断开组断开是幂等空转）
+    expect(switches).toHaveLength(3); // deepseek×2 + relay×1（moonshot 未连接：不进主列表）
+    // 主列表只列已连接厂商（BC ModelsPanel 同形）——未连接组与模型行整块不渲染
     const groups = document.querySelectorAll(".henira-provider-group");
-    expect(groups).toHaveLength(3);
-    const offGroup = Array.from(groups).find((g) =>
-      g.textContent?.includes(t("settings.models.notConnected")),
-    );
-    expect(offGroup).toBeDefined();
-    expect(offGroup?.querySelector(".henira-provider-disconnect")).toBeNull();
+    expect(groups).toHaveLength(2);
+    expect(
+      Array.from(groups).some((g) => g.textContent?.includes(t("settings.models.notConnected"))),
+    ).toBe(false);
+    expect(screen.queryByText("Moonshot")).toBeNull();
     const off = switches.find((s) => s.getAttribute("aria-checked") === "false");
     expect(off).toBeDefined();
     fireEvent.click(off as HTMLElement);
@@ -1105,6 +1107,12 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(toolbar?.textContent).toContain(t("settings.models.back"));
     const firstItem = document.querySelector(".henira-provider-picker .henira-picker-item");
     expect(firstItem?.textContent).toContain(t("settings.models.customEntry"));
+    // 连接态标只住挑选页（BC 同形）：未连接厂商在这里显示「未连接」，已连接显示 is-on
+    const pickerItems = Array.from(document.querySelectorAll(".henira-picker-item"));
+    const moonItem = pickerItems.find((el) => el.textContent?.includes("Moonshot"));
+    expect(moonItem?.textContent).toContain(t("settings.models.notConnected"));
+    const deepItem = pickerItems.find((el) => el.textContent?.includes("DeepSeek"));
+    expect(deepItem?.querySelector(".henira-picker-state.is-on")).not.toBeNull();
     fireEvent.click(screen.getByText("Anthropic"));
     // 连接已知厂商：空 key 本地拦（词表文案——服务端 400 英文原文不出用户眼前，审查 P2）
     const keyInput = await screen.findByPlaceholderText(t("settings.models.keyPlaceholder"));
@@ -1231,6 +1239,74 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     expect(second.querySelector(".henira-model-item-meta")).toBeNull(); // 无徽章位不渲染排
   });
 
+  it("触发钮显示模型显示名（不出厂商 id）；绑定值目录里失效 → 回落清单首个（BC 同语义）", async () => {
+    const ctx = fixtureCtx();
+    const providers = {
+      deepseek: {
+        name: "DeepSeek",
+        baseUrl: "x",
+        models: [
+          { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+          { id: "deepseek-flash", name: "DeepSeek Flash" },
+        ],
+      },
+    };
+    const onChange = vi.fn();
+    render(
+      <ModelSelect
+        ctx={ctx}
+        value="deepseek/deepseek-v4-flash"
+        onChange={onChange}
+        ariaLabel={t("composer.model")}
+        providers={providers}
+      />,
+    );
+    // 按钮显示显示名——provider/model 裸串不出现在触发钮上
+    const trigger = screen.getByRole("button", { name: t("composer.model") });
+    expect(trigger.querySelector(".henira-model-trigger-label")?.textContent).toBe(
+      "DeepSeek V4 Flash",
+    );
+    expect(trigger.textContent).not.toContain("deepseek/");
+    expect(onChange).not.toHaveBeenCalled(); // 绑定有效不纠正
+    cleanup();
+
+    // 绑定失效（断开后目录里已无该厂商）→ 回落清单首个并回调纠正（按钮不挂已断厂商）
+    const stray = vi.fn();
+    render(
+      <ModelSelect
+        ctx={ctx}
+        value="deepseek/deepseek-flash"
+        onChange={stray}
+        ariaLabel={t("composer.model")}
+        providers={{
+          agnes: {
+            name: "Agnes AI",
+            baseUrl: "x",
+            models: [{ id: "agnes-3.0-flash", name: "Agnes 3.0 Flash" }],
+          },
+        }}
+      />,
+    );
+    await waitFor(() => expect(stray).toHaveBeenCalledWith("agnes/agnes-3.0-flash"));
+    cleanup();
+
+    // 目录为空/未到 → 不动绑定（目录外绑定不误换），按钮显示去前缀模型 id
+    const untouched = vi.fn();
+    render(
+      <ModelSelect
+        ctx={ctx}
+        value="mock/mock-1"
+        onChange={untouched}
+        ariaLabel={t("composer.model")}
+        providers={{}}
+      />,
+    );
+    expect(untouched).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: t("composer.model") }).textContent).toContain(
+      "mock-1",
+    );
+  });
+
   it("capability=none（deepseek）→ 思考档置灰「—」不可调；capability=thinking（zhipu）→ 四档可选", async () => {
     const noneCtx = fixtureCtx({
       client: {
@@ -1310,7 +1386,7 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     const { container } = render(<Composer {...ctx} />);
     // 会话绑定优先于全局默认（触发钮显示 glm）
     const trigger = await screen.findByRole("button", { name: t("composer.model") });
-    await waitFor(() => expect(trigger.textContent).toContain("zhipuai-coding-plan/glm-5.3-flash"));
+    await waitFor(() => expect(trigger.textContent).toContain("GLM-5.3-Flash"));
     const select = (await screen.findByRole("combobox", {
       name: t("composer.thinking"),
     })) as HTMLSelectElement;

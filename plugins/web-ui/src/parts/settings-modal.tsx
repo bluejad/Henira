@@ -1,8 +1,9 @@
 // 设置弹窗（用户裁定 2026-11-18：左菜单右内容，只列现有三项——主题 / 语言 / 模型管理）。
 // BC SettingsPanel 行为层参照（分区导航 + 右侧内容），分区收敛为现有能力；模型管理页 =
 // 分组开关列表（无全局默认模型入口——用户裁定 2026-11-19：composer 会话级绑定即职责，
-// 全局兜底只读 settings.json 现值）。开合状态归宿主（ctx.settingsSection /
-// openSettings / closeSettings），本件只渲染当前分区。
+// 全局兜底只读 settings.json 现值）。主列表只列已连接厂商（BC ModelsPanel 同形：未连接不进
+// 组列表，连接/重连走「＋ 连接提供商」挑选页；2026-11-19 用户纠偏）。开合状态归宿主
+//（ctx.settingsSection / openSettings / closeSettings），本件只渲染当前分区。
 
 import type { ReasoningCapability } from "@henira/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -285,7 +286,10 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
   // ── 视图一：分组列表（默认模型 + 厂商分组 + 模型开关 + 搜索）──
 
   const q = query.trim().toLowerCase();
-  const visibleGroups = groups.filter(
+  // 主列表只列已连接厂商（BC ModelsPanel 同形：未连接不进组列表，连接入口走「＋ 连接提供商」；
+  // 每家连接态只在挑选页显示）。数据层不动——断开止血后 baseUrl/label 仍保留在 models.json
+  const connectedGroups = groups.filter((g) => g.connected);
+  const visibleGroups = connectedGroups.filter(
     (g) =>
       q === "" ||
       g.name?.toLowerCase().includes(q) === true ||
@@ -311,7 +315,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
               {ctx.t("settings.models.addProvider")}
             </button>
           </div>
-          {groups.length === 0 ? (
+          {connectedGroups.length === 0 ? (
             <div className="henira-models-hint">{ctx.t("settings.models.empty")}</div>
           ) : null}
           <input
@@ -326,24 +330,18 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
             <div key={group.id} className="henira-provider-group">
               <div className="henira-provider-head">
                 <span className="henira-provider-name">{group.name ?? group.id}</span>
-                {group.connected ? (
-                  <button
-                    type="button"
-                    className="henira-provider-disconnect"
-                    title={ctx.t("settings.models.disconnectTip")}
-                    onClick={() => {
-                      void disconnect(group.id);
-                    }}
-                  >
-                    {ctx.t("settings.models.disconnect")}
-                  </button>
-                ) : (
-                  // 断开止血语义后已知厂商断开不消失（baseUrl 保留）——未连接组只给状态标，
-                  // 断开钮对已断开组是幂等空转还误导（收敛批审查 2026-11-19）
-                  <span className="henira-picker-state">
-                    {ctx.t("settings.models.notConnected")}
-                  </span>
-                )}
+                {/* 主列表只有已连接组（上面过滤）——断开钮恒在场，点后组即从列表消失
+                    （数据层保留 baseUrl/label，重连不用再填地址；2026-11-19 BC 对齐） */}
+                <button
+                  type="button"
+                  className="henira-provider-disconnect"
+                  title={ctx.t("settings.models.disconnectTip")}
+                  onClick={() => {
+                    void disconnect(group.id);
+                  }}
+                >
+                  {ctx.t("settings.models.disconnect")}
+                </button>
               </div>
               {group.models.length === 0 ? (
                 <div className="henira-models-hint">{ctx.t("settings.models.groupEmpty")}</div>
@@ -402,7 +400,7 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
       .map(([id, p]) => ({
         id,
         name: p.name ?? id,
-        connected: groups.some((g) => g.id === id),
+        connected: groups.some((g) => g.id === id && g.connected),
       }))
       .filter(({ id, name }) => pq === "" || id.includes(pq) || name.toLowerCase().includes(pq));
     const hot = all

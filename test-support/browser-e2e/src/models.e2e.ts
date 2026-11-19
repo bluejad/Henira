@@ -27,10 +27,10 @@ async function startServer(script: MockEntry[] = []): Promise<{
   await fs.mkdir(globalDir, { recursive: true });
   await fs.writeFile(
     path.join(globalDir, "settings.json"),
-    JSON.stringify({ version: 1, model: "mock/mock-1" }),
+    JSON.stringify({ version: 1, model: "deepseek/deepseek-flash" }),
     "utf8",
   );
-  // 预置已连接的已知厂商（断开止血步用：组不消失 + baseUrl 承重保留——收敛批语义）
+  // 预置已连接的已知厂商（断开/重连往返步用：组消失但 baseUrl 承重保留——收敛批语义）
   await fs.writeFile(
     path.join(globalDir, "models.json"),
     JSON.stringify({ providers: { deepseek: { baseUrl: "https://api.deepseek.com" } } }),
@@ -94,33 +94,40 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
     await expect(group).toBeVisible({ timeout: 15_000 });
     await expect(group.getByText("my-model")).toBeVisible();
 
-    // 已知厂商断开止血（收敛批语义 + 审查 P2）：组不消失 + 未连接标 + 断开钮退场
+    // 已知厂商断开（BC 同形 2026-11-19 用户纠偏）：组从主列表消失；连接态只在挑选页显示
     const dsGroup = page.locator(".henira-provider-group", { hasText: "DeepSeek" });
     await expect(dsGroup).toBeVisible({ timeout: 15_000 });
     await dsGroup.locator(".henira-provider-disconnect").click();
-    await expect(dsGroup).toBeVisible();
-    await expect(dsGroup.getByText(zh["settings.models.notConnected"])).toBeVisible();
-    await expect(dsGroup.locator(".henira-provider-disconnect")).toHaveCount(0);
-
-    // 空 key 本地拦（审查 P2）：词表文案、请求不出门
+    await expect(dsGroup).toHaveCount(0); // 断开即从面板消失（数据层 baseUrl 保留）
     await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
-    await page
-      .locator(".henira-provider-picker .henira-picker-item", { hasText: "DeepSeek" })
-      .click();
+    const dsPicker = page.locator(".henira-provider-picker .henira-picker-item", {
+      hasText: "DeepSeek",
+    });
+    await expect(dsPicker).toContainText(zh["settings.models.notConnected"]);
+
+    // 关设置 → composer 触发钮不再挂着已断厂商：绑定回落清单首个（本环境唯一剩余 = my-model）
+    await page.locator(".henira-settings-dialog .henira-dialog-head button").click();
+    const triggerLabel = page.locator(".henira-model-trigger-label");
+    await expect(triggerLabel).toHaveText("my-model", { timeout: 15_000 });
+    await expect(triggerLabel).not.toContainText("/"); // 厂商 id 不进按钮（BC 同档）
+
+    // 重连往返：挑 DeepSeek → 空 key 本地拦（词表文案、请求不出门）→ 填 key → 组回来
+    await page.getByRole("button", { name: zh["settings.open"] }).click();
+    await page.getByRole("button", { name: zh["settings.section.models"] }).click();
+    await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
+    await dsPicker.click();
     await page.getByRole("button", { name: zh["settings.models.submit"] }).click();
     await expect(page.getByText(zh["settings.models.errKey"])).toBeVisible();
-    // 连接表单的返回（表单操作区，非工具行）→ 回选择页
-    await page
-      .locator(".henira-model-form-actions")
-      .getByRole("button", { name: zh["settings.models.back"] })
-      .click();
-    await expect(page.getByText(zh["settings.models.hot"])).toBeVisible();
-    // 返回列表视图（后续开关步在分组列表上做）
-    await page
-      .locator(".henira-models-toolbar")
-      .getByRole("button", { name: zh["settings.models.back"] })
-      .click();
-    await expect(group).toBeVisible();
+    await page.getByPlaceholder(zh["settings.models.keyPlaceholder"]).fill("sk-e2e-2");
+    await page.getByRole("button", { name: zh["settings.models.submit"] }).click();
+    await expect(dsGroup).toBeVisible({ timeout: 15_000 });
+    // 断开止血落盘实锤：baseUrl 全程保留（重连不用再填地址）
+    const modelsRaw = await fs.readFile(path.join(ctx.globalDir, "models.json"), "utf8");
+    const modelsFile = JSON.parse(modelsRaw) as {
+      providers?: Record<string, { baseUrl?: string }>;
+    };
+    expect(modelsFile.providers?.deepseek?.baseUrl).toBe("https://api.deepseek.com");
+    await expect(group).toBeVisible(); // relay 组仍在（开关步在分组列表上做）
 
     // 开关关 → 选择器摘除；开回 → 还原
     const sw = group.getByRole("switch", { name: /my-model/ });
@@ -147,7 +154,7 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
     await sw.click();
     await expect(sw).toHaveAttribute("aria-checked", "true", { timeout: 15_000 });
 
-    // 关设置弹窗（头按钮）→ 选择器：my-model 在场（provider/model 全名）
+    // 关设置弹窗（头按钮）→ 选择器：my-model 在场（条目显示名档位；重连的 DeepSeek 也回来）
     await page.locator(".henira-settings-dialog .henira-dialog-head button").click();
     const trigger = page.getByRole("button", { name: zh["composer.model"] });
     await trigger.click();
