@@ -52,6 +52,7 @@ export const zh = {
   "composer.modelsEmpty": "没有匹配的模型",
   "composer.thinking": "思考",
   "composer.thinking.off": "关",
+  "composer.thinking.on": "开",
   "composer.thinking.low": "低",
   "composer.thinking.medium": "中",
   "composer.thinking.high": "高",

@@ -115,10 +115,12 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     return { outcome, usage };
   }
 
-  // 工具回合：assistant/message → 逐调用 tool/call → 执行 → tool/result → 续步
+  // 工具回合：assistant/message → 逐调用 tool/call → 执行 → tool/result → 续步。
+  // reasoning 与纯文本轮同形落账本（思考档批 2026-11-19：DeepSeek V4.1+ 带 tool_calls
+  // 的历史 assistant 消息回传 reasoning_content 是续轮硬要求——不落账本则无法回传）
   await session.append({
     type: "assistant/message",
-    data: { turn, step, content, model, finishReason },
+    data: { turn, step, content, reasoning, model, finishReason },
   });
   const toolCtx: ToolContext = {
     cwd: config.cwd,

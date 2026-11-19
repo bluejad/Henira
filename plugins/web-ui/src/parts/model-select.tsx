@@ -6,6 +6,7 @@
 // 触发钮同样只显示模型显示名（厂商 id 永不进按钮），绑定值目录里失效即回落清单首个
 //（断开 DeepSeek 后按钮不挂着已断厂商——2026-11-19 BC 对齐）。
 
+import type { ReasoningOption } from "@henira/protocol";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { WebPartContext } from "../types.js";
 import { BrainGlyph, CaretDownGlyph, GearGlyph, MagnifierGlyph } from "./icons.js";
@@ -17,6 +18,8 @@ export interface PickerModel {
   contextWindow?: number;
   vision?: boolean;
   reasoning?: boolean;
+  /** 思考档位集合真源（models.dev reasoning_options——composer 档位控件数据驱动） */
+  reasoningOptions?: ReasoningOption[];
 }
 export type PickerProviders = Record<
   string,

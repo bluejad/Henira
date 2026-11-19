@@ -10,6 +10,7 @@ import type {
   PromptOptions,
   PromptReceipt,
   ReasoningCapability,
+  ReasoningOption,
   RegisteredDir,
   RowsPage,
   ServerFrame,
@@ -31,13 +32,15 @@ export interface DirEntry {
   mtime?: number;
 }
 
-/** 选择器单模型条目（显示名/上下文窗/徽章位——模型目录收敛批，对齐 BC 档） */
+/** 选择器单模型条目（显示名/上下文窗/徽章位——模型目录收敛批，对齐 BC 档；思考档批
+ * 2026-11-19 增 reasoningOptions——档位集合真源，UI 按数据驱动） */
 export interface CatalogModel {
   id: string;
   name?: string;
   contextWindow?: number;
   vision?: boolean;
   reasoning?: boolean;
+  reasoningOptions?: ReasoningOption[];
 }
 
 export interface ModelCatalog {
@@ -54,6 +57,7 @@ export interface ProviderModelEntry {
   contextWindow?: number;
   vision?: boolean;
   reasoning?: boolean;
+  reasoningOptions?: ReasoningOption[];
   enabled: boolean;
 }
 

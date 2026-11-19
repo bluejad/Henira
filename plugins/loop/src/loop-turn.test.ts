@@ -2,7 +2,14 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHarness, type ServiceDefinition } from "@henira/kernel";
-import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
+import {
+  mockFinish,
+  mockLlm,
+  mockReasoning,
+  mockText,
+  mockToolCall,
+  mockUsage,
+} from "@henira/llm-mock";
 import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
 import { asHeniraContext, type Decision, type LlmService } from "@henira/protocol";
@@ -135,7 +142,12 @@ describe("turn/step 状态机（loop.md §1）", () => {
 
   it("工具回合：tool-call → tool-started/tool-finished 事件 → tool/result 落账 → 续步收尾（第二轮纯文本）", async () => {
     const { harness, loop, session } = await startedLoop([
-      [mockToolCall("c1", "read", '{"path":"a.txt"}'), mockUsage(USAGE), mockFinish("tool-calls")],
+      [
+        mockReasoning("先看看 a.txt"),
+        mockToolCall("c1", "read", '{"path":"a.txt"}'),
+        mockUsage(USAGE),
+        mockFinish("tool-calls"),
+      ],
       [mockText("文件内容是…"), mockUsage(USAGE), mockFinish("stop")],
     ]);
     const events = await collect(loop.run("看看 a.txt"));
@@ -145,6 +157,21 @@ describe("turn/step 状态机（loop.md §1）", () => {
     expect(types).toContain("tool/call");
     expect(types).toContain("tool/result");
     expect(types.filter((t) => t === "step/start")).toHaveLength(2); // 两个 step
+    // 思考档批（2026-11-19）：工具轮 reasoning 与纯文本轮同形落账本——DeepSeek V4.1+
+    // 带 tool_calls 的历史 assistant 回传 reasoning_content 是续轮硬要求，不落账无法回传
+    const firstAssistant = session.events().find((e) => e.type === "assistant/message");
+    expect(
+      firstAssistant === undefined
+        ? undefined
+        : (firstAssistant.data as { reasoning?: string }).reasoning,
+    ).toBe("先看看 a.txt");
+    const derived0 = session.deriveMessages();
+    const derivedToolTurn = derived0.find((m) => m.role === "assistant");
+    expect(
+      derivedToolTurn === undefined || derivedToolTurn.role !== "assistant"
+        ? undefined
+        : derivedToolTurn.reasoning,
+    ).toBe("先看看 a.txt");
     const result = session.events().find((e) => e.type === "tool/result");
     expect(result === undefined ? undefined : (result.data as { content: string }).content).toBe(
       "file body",

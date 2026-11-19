@@ -4,9 +4,12 @@
 // 逼用户手写 baseUrl）+ 模型层补 vision/reasoning 徽章位；缓存改自有形状 model-presets.json
 //（{fetchedAt, providers} 信封 + 2 空格缩进——用户目录文件必须人眼可读）；旧 models-dev-cache
 // .json 无 endpoint，读到即删不迁移（refresh 会带回全量）。
+// 2026-11-19 思考档批：模型层再补 reasoningOptions（models.dev reasoning_options——档位集合
+// 真源）与 interleaved（思维链回传字段）——上次这两字段被剪掉是继 endpoint 之后第二次「最后一米」。
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { InterleavedSpec, ReasoningOption } from "@henira/protocol";
 import snapshotJson from "./models-dev-snapshot.json" with { type: "json" };
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
@@ -20,6 +23,10 @@ export interface DictionaryModel {
   vision?: boolean;
   /** 原生思考（思考图标；显示用——思考档置灰判据仍走 protocol 厂商前缀表） */
   reasoning?: boolean;
+  /** 思考参数形态（models.dev reasoning_options：toggle / effort+values——档位集合真源） */
+  reasoningOptions?: ReasoningOption[];
+  /** 思维链回传声明（models.dev interleaved：{field:"reasoning_content"} 或布尔） */
+  interleaved?: InterleavedSpec;
 }
 
 export interface DictionaryProvider {
@@ -59,6 +66,29 @@ export const SNAPSHOT: Record<string, DictionaryProvider> = snapshotJson as unkn
   string,
   DictionaryProvider
 >;
+
+/** models.dev reasoning_options 容错修剪（与 scripts/update-models-dev-snapshot.mjs 同规则）：
+ * 只保已知形状（toggle / effort+values）；budget 与未知丢弃 */
+function trimReasoningOptions(options: unknown): ReasoningOption[] | undefined {
+  if (!Array.isArray(options)) return undefined;
+  const kept: ReasoningOption[] = [];
+  for (const option of options as Array<Record<string, unknown>>) {
+    if (option?.type === "toggle") kept.push({ type: "toggle" });
+    else if (option?.type === "effort" && Array.isArray(option.values)) {
+      kept.push({ type: "effort", values: (option.values as unknown[]).map(String) });
+    }
+  }
+  return kept.length > 0 ? kept : undefined;
+}
+
+/** models.dev interleaved 容错修剪：{field} 或 true；其余丢弃 */
+function trimInterleaved(interleaved: unknown): InterleavedSpec | undefined {
+  if (typeof interleaved === "string") return undefined;
+  if (interleaved === true) return true;
+  if (interleaved === null || typeof interleaved !== "object") return undefined;
+  const field = (interleaved as { field?: unknown }).field;
+  return typeof field === "string" ? { field } : true;
+}
 
 export class Dictionary {
   #providers: Record<string, DictionaryProvider>;
@@ -110,6 +140,8 @@ export class Dictionary {
             {
               name?: string;
               reasoning?: boolean;
+              reasoning_options?: unknown;
+              interleaved?: unknown;
               modalities?: { input?: string[] };
               limit?: { context?: number; output?: number };
             }
@@ -128,6 +160,8 @@ export class Dictionary {
               ? model.modalities.input.includes("image")
               : undefined,
             reasoning: model.reasoning === true ? true : undefined,
+            reasoningOptions: trimReasoningOptions(model.reasoning_options),
+            interleaved: trimInterleaved(model.interleaved),
           };
         }
         if (Object.keys(collected).length > 0) {
@@ -159,11 +193,25 @@ export class Dictionary {
   }
 
   /** 查询：<provider> 的模型能力（含手写覆盖前的字典视图） */
-  lookup(provider: string, model: string): { contextWindow?: number; maxOutputTokens?: number } {
+  lookup(
+    provider: string,
+    model: string,
+  ): {
+    contextWindow?: number;
+    maxOutputTokens?: number;
+    vision?: boolean;
+    reasoning?: boolean;
+    reasoningOptions?: ReasoningOption[];
+    interleaved?: InterleavedSpec;
+  } {
     const entry = this.#providers[provider]?.models[model];
     return {
       contextWindow: entry?.contextWindow,
       maxOutputTokens: entry?.maxOutputTokens,
+      vision: entry?.vision,
+      reasoning: entry?.reasoning,
+      reasoningOptions: entry?.reasoningOptions,
+      interleaved: entry?.interleaved,
     };
   }
 

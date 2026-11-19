@@ -1319,15 +1319,13 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     );
   });
 
-  it("capability=none（deepseek）→ 思考档置灰「—」不可调；capability=thinking（zhipu）→ 四档可选", async () => {
+  it("思考档数据驱动：未知厂商置灰「—」；zhipu 数据三档（关/低/高）；agnes 两档（关/开）", async () => {
     const noneCtx = fixtureCtx({
       client: {
         ...fixtureCtx().client,
-        getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
+        getSettings: async () => ({ version: 1, model: "foo/bar" }),
         listModels: async () => ({
-          providers: {
-            deepseek: { models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] },
-          },
+          providers: { foo: { models: [{ id: "bar", name: "Bar" }] } },
         }),
       },
     });
@@ -1354,6 +1352,7 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
                   name: "GLM-5.3-Flash",
                   contextWindow: 1000000,
                   reasoning: true,
+                  reasoningOptions: [{ type: "effort", values: ["low", "high", "max"] }],
                 },
               ],
             },
@@ -1365,8 +1364,46 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     const select = (await screen.findByRole("combobox", {
       name: t("composer.thinking"),
     })) as HTMLSelectElement;
-    expect(select.options).toHaveLength(4); // 关/低/中/高
+    // 数据驱动档位：effort 三档（关/低/高——max 归顶档，无中档）
+    expect(select.options).toHaveLength(3);
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      t("composer.thinking.off"),
+      t("composer.thinking.low"),
+      t("composer.thinking.high"),
+    ]);
     void glm;
+    cleanup();
+
+    // agnes 数据仅 toggle → 两档「关/开」（开承载 medium）
+    const agnesCtx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "agnes/agnes-3.0-flash" }),
+        listModels: async () => ({
+          providers: {
+            agnes: {
+              models: [
+                {
+                  id: "agnes-3.0-flash",
+                  name: "Agnes 3.0 Flash",
+                  reasoning: true,
+                  reasoningOptions: [{ type: "toggle" }],
+                },
+              ],
+            },
+          },
+        }),
+      },
+    });
+    render(<Composer {...agnesCtx} />);
+    const agnesSelect = (await screen.findByRole("combobox", {
+      name: t("composer.thinking"),
+    })) as HTMLSelectElement;
+    expect(Array.from(agnesSelect.options).map((o) => o.textContent)).toEqual([
+      t("composer.thinking.off"),
+      t("composer.thinking.on"),
+    ]);
+    expect(Array.from(agnesSelect.options).map((o) => o.value)).toEqual(["off", "medium"]);
   });
 
   it("选档写会话记忆（updateUiState）；发送携带 {modelId, reasoningEffort}", async () => {
@@ -1388,6 +1425,7 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
                   name: "GLM-5.3-Flash",
                   contextWindow: 1000000,
                   reasoning: true,
+                  reasoningOptions: [{ type: "effort", values: ["low", "high", "max"] }],
                 },
               ],
             },
@@ -1402,18 +1440,50 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     const select = (await screen.findByRole("combobox", {
       name: t("composer.thinking"),
     })) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "medium" } });
-    expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "medium" });
+    fireEvent.change(select, { target: { value: "high" } });
+    expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "high" });
     const area = screen.getByPlaceholderText(t("composer.placeholder")) as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "问一句" } });
     fireEvent.keyDown(area, { key: "Enter" });
     await waitFor(() =>
       expect(promptSpy).toHaveBeenCalledWith("s-1", "问一句", {
         modelId: "zhipuai-coding-plan/glm-5.3-flash",
-        reasoningEffort: "medium",
+        reasoningEffort: "high",
       }),
     );
     void container;
+  });
+
+  it("切模型档位 clamp：存储 high 在 toggle-only 模型（agnes）上不合法 → 落「开」=medium 并写会话记忆", async () => {
+    const updateUiState = vi.fn();
+    const ctx = fixtureCtx({
+      updateUiState,
+      uiState: { model: "agnes/agnes-3.0-flash", reasoningEffort: "high" }, // 旧模型档位残留
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, model: "agnes/agnes-3.0-flash" }),
+        listModels: async () => ({
+          providers: {
+            agnes: {
+              models: [
+                {
+                  id: "agnes-3.0-flash",
+                  name: "Agnes 3.0 Flash",
+                  reasoning: true,
+                  reasoningOptions: [{ type: "toggle" }],
+                },
+              ],
+            },
+          },
+        }),
+      },
+    });
+    render(<Composer {...ctx} />);
+    await waitFor(() => expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "medium" }));
+    const select = (await screen.findByRole("combobox", {
+      name: t("composer.thinking"),
+    })) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("medium")); // 显示为「开」
   });
 
   it("思考档行上徽章（AssistantRow.reasoningEffort 投影；off 不渲染）", () => {

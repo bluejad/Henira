@@ -24,7 +24,14 @@ export interface ToolCallDraft {
 export type ModelMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string; attachments?: SessionAttachment[] }
-  | { role: "assistant"; content: string; toolCalls?: ToolCallDraft[] }
+  | {
+      role: "assistant";
+      content: string;
+      toolCalls?: ToolCallDraft[];
+      /** 思维链文本（账本 assistant/message.reasoning）：开思考且模型声明 interleaved 时
+       * 适配器回传 provider（DeepSeek V4.1+ 带 tool_calls 不回传 400——BC 实证） */
+      reasoning?: string;
+    }
   | { role: "tool"; callId: string; name: string; content: string; isError: boolean };
 
 /** 会话槽位契约（interfaces.md protocol 段，2026-11-16 定稿） */

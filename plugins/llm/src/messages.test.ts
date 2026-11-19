@@ -70,6 +70,36 @@ describe("toAiMessages", () => {
       ]),
     ).toThrow();
   });
+
+  it("思维链回传：echo 开启时 assistant 带 reasoning part（tool 轮与纯文本轮同形）；关闭全剥", () => {
+    const history = [
+      {
+        role: "assistant" as const,
+        content: "我查一下",
+        reasoning: "先调 read",
+        toolCalls: [{ callId: "c1", name: "read", arguments: "{}" }],
+      },
+      { role: "assistant" as const, content: "答案", reasoning: "整理结论" },
+    ];
+    const echoed = toAiMessages(history, { echoReasoning: true });
+    expect(echoed[0].content).toEqual([
+      { type: "reasoning", text: "先调 read" },
+      { type: "text", text: "我查一下" },
+      { type: "tool-call", toolCallId: "c1", toolName: "read", input: {} },
+    ]);
+    expect(echoed[1].content).toEqual([
+      { type: "reasoning", text: "整理结论" },
+      { type: "text", text: "答案" },
+    ]);
+    // 关思考 = 全剥（严格网关安全——未知字段不出现）
+    const plain = toAiMessages(history, { echoReasoning: false });
+    expect(plain[1].content).toBe("答案");
+    expect(JSON.stringify(plain)).not.toContain("reasoning");
+    // 历史消息缺 reasoning → 不产 part
+    expect(
+      toAiMessages([{ role: "assistant", content: "纯文本" }], { echoReasoning: true }),
+    ).toEqual([{ role: "assistant", content: "纯文本" }]);
+  });
 });
 
 describe("toAiInstructions", () => {

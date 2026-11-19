@@ -32,7 +32,7 @@ const result = (callId: string, content: string, isError = false) =>
   ev("tool/result", { turn: "t1", step: 0, callId, isError, content, durationMs: 1 });
 
 describe("基本派生", () => {
-  it("消息进、审批对与审计事件跳过、reasoning 不回灌", () => {
+  it("消息进、审批对与审计事件跳过、reasoning 随 assistant 带上（回传条件在 llm 层）", () => {
     reset();
     const events = [
       ev("turn/start", { turn: "t1" }),
@@ -67,6 +67,7 @@ describe("基本派生", () => {
       {
         role: "assistant",
         content: "here is the answer",
+        reasoning: "internal reasoning",
         toolCalls: [{ callId: "c1", name: "fs_read", arguments: '{"path":"a.txt"}' }],
       },
       { role: "tool", callId: "c1", name: "fs_read", content: "file content", isError: false },

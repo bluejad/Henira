@@ -490,7 +490,7 @@ GET  /api/dirs/browse?path=                             → DirBrowse        // 
 GET  /api/server/info                                   → { version; startedAt; model }
 GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
 PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
-GET  /api/models                                        → 选择器清单（闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；断开即摘出清单；开关关的模型过滤；条目带显示名/上下文窗/视觉·思考徽章位；无密钥——收敛批 2026-11-19）
+GET  /api/models                                        → 选择器清单（闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；断开即摘出清单；开关关的模型过滤；条目带显示名/上下文窗/视觉·思考徽章位/**reasoningOptions 档位真源**；无密钥——收敛批+思考档批 2026-11-19）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
 // ── 模型管理面（BC ModelsPanel 行为层；✓ 模型管理批 2026-11-19）──
 GET  /api/providers                                     → 管理分组（连接态/显示名/模型条目含开关+上下文窗；无密钥——D-030；数据全量含未连接，**主列表 UI 只渲染已连接组**——未连接不进组列表、连接态只在「＋ 连接提供商」挑选页显示，BC ModelsPanel 同形 2026-11-19）
@@ -521,7 +521,9 @@ interface CatalogModel {
   name?: string; // 显示名（快照 name）
   contextWindow?: number;
   vision?: boolean; // 图片输入徽章「视觉」（models.dev modalities 派生）
-  reasoning?: boolean; // 原生思考徽章（显示用——思考档置灰判据仍走 reasoning 参数族提示）
+  reasoning?: boolean; // 原生思考徽章（显示用）
+  reasoningOptions?: ReasoningOption[]; // 思考档位集合真源（models.dev reasoning_options：
+  //   toggle=关/开两档、effort=values 档位映射四档子集——思考档批 2026-11-19；UI 数据驱动）
 }
 interface ModelCatalog {
   // GET /api/models（选择器清单；闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；
@@ -529,7 +531,8 @@ interface ModelCatalog {
   providers: Record<
     string,
     { name?: string; baseUrl?: string; reasoning?: ReasoningCapability; models?: CatalogModel[] }
-  >; // reasoning = 思考参数族提示（合同层能力表同源；none → UI 思考档置灰「—」，骨架批）
+  >; // reasoning = 思考参数形状族（合同层形状表：effort/thinking/enable/template-enable/
+  //   thinking-effort/none——只管「参数怎么写进请求体」；档位有无看模型条目 reasoningOptions）
 }
 interface ProviderCatalogEntry {
   // GET /api/providers（管理分组——模型管理页主视图数据源）

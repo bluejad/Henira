@@ -29,4 +29,19 @@ describe("models.dev 快照（D-040 兜底）", () => {
       .find((m) => typeof m.contextWindow === "number" && m.contextWindow > 0);
     expect(withLimit).toBeDefined();
   });
+
+  it("思考档数据在位（2026-11-19）：deepseek toggle+effort、agnes 仅 toggle、interleaved 回传字段", () => {
+    const ds = SNAPSHOT.deepseek?.models["deepseek-flash"];
+    expect(ds?.reasoningOptions?.some((o) => o.type === "toggle")).toBe(true);
+    expect(ds?.reasoningOptions?.some((o) => o.type === "effort" && o.values.includes("max"))).toBe(
+      true,
+    );
+    expect(ds?.interleaved).toEqual({ field: "reasoning_content" });
+
+    const ag = SNAPSHOT.agnes?.models["agnes-3.0-flash"];
+    expect(ag?.reasoningOptions).toEqual([{ type: "toggle" }]);
+
+    const glm = SNAPSHOT["zhipuai-coding-plan"]?.models["glm-5.3-flash"];
+    expect(glm?.reasoningOptions?.some((o) => o.type === "effort")).toBe(true);
+  });
 });

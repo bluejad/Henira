@@ -99,6 +99,8 @@ export function createConfigService(opts: ConfigLoaderOptions): HeniraConfigServ
         baseUrl: modelOverride?.baseUrl ?? providerOverride?.baseUrl,
         contextWindow: modelOverride?.contextWindow ?? capabilities.contextWindow,
         maxOutputTokens: modelOverride?.maxOutputTokens ?? capabilities.maxOutputTokens,
+        reasoningOptions: capabilities.reasoningOptions,
+        interleaved: capabilities.interleaved,
       };
     },
 

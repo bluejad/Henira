@@ -107,7 +107,14 @@ describe("models.dev 字典同步（D-040）", () => {
         myprov: {
           name: "My Prov",
           api: "https://api.myprov.example",
-          models: { big: { limit: { context: 999_999, output: 8_000 } } },
+          models: {
+            big: {
+              limit: { context: 999_999, output: 8_000 },
+              reasoning: true,
+              reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "max"] }],
+              interleaved: { field: "reasoning_content" },
+            },
+          },
         },
       }),
     })) as unknown as typeof fetch;
@@ -115,6 +122,12 @@ describe("models.dev 字典同步（D-040）", () => {
     await svc1.refreshDictionary();
     const config = await svc1.model("myprov/big");
     expect(config.contextWindow).toBe(999_999);
+    // 思考档批（2026-11-19）：reasoning_options/interleaved 保真进字典（档位/回传真源）
+    expect(config.reasoningOptions).toEqual([
+      { type: "toggle" },
+      { type: "effort", values: ["low", "max"] },
+    ]);
+    expect(config.interleaved).toEqual({ field: "reasoning_content" });
     // 收敛批：缓存改名 model-presets.json + {fetchedAt, providers} 信封 + 2 空格缩进 +
     // 厂商层带 name/endpoint（endpoint 上游本就有——旧管线裁掉它逼用户手写 baseUrl）
     const cached = await fs.readFile(path.join(globalDir, "model-presets.json"), "utf8");

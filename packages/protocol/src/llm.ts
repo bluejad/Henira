@@ -3,6 +3,7 @@
 // [opencode] packages/ai/src/schema/errors.ts:32-156）；中断由 loop 先查自有
 // AbortController 再诊断（P6 纪律 1）。
 
+import type { InterleavedSpec, ReasoningOption } from "./reasoning.js";
 import type { ModelMessage } from "./services.js";
 
 /** 裸 JSON Schema（D-044）：协议唯一形状——模型投影 / MCP tools/list / AI 创建内容包同形零转换 */
@@ -19,6 +20,10 @@ export interface ModelConfig {
   /** 能力字段——引擎内禁止厂商备表（P9-4），只从配置解析 */
   contextWindow?: number;
   maxOutputTokens?: number;
+  /** 思考参数形态（models.dev reasoning_options——档位集合数据真源） */
+  reasoningOptions?: ReasoningOption[];
+  /** 思维链回传声明（models.dev interleaved——开思考时历史 assistant 回传 reasoning_content） */
+  interleaved?: InterleavedSpec;
 }
 
 export interface TokenUsage {

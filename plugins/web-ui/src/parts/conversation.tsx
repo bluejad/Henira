@@ -10,6 +10,7 @@
 // 降级全量渲染。行引用契约（store 未变行同引用）让 RowView memo 跳过未变行渲染。
 
 import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
+import { reasoningCapability } from "@henira/protocol";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Fragment,
@@ -457,7 +458,17 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
               }}
             >
               <BrainGlyph size={11} />
-              {ctx.t(`composer.thinking.${row.reasoningEffort}`)}
+              {ctx.t(
+                // toggle 族（zhipu/qwen/agnes 开关形状）的「开」承载值 medium——行徽章与
+                // composer 控件同文案（「开」而非「中」）；effort 族照常显示档位
+                row.model !== undefined &&
+                  ["thinking", "enable", "template-enable"].includes(
+                    reasoningCapability(row.model.split("/")[0] ?? ""),
+                  ) &&
+                  row.reasoningEffort === "medium"
+                  ? "composer.thinking.on"
+                  : `composer.thinking.${row.reasoningEffort}`,
+              )}
             </span>
           ) : null}
           {row.usage !== undefined &&

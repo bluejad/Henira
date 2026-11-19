@@ -9,6 +9,7 @@ import type {
   PromptReceipt,
   ReasoningCapability,
   ReasoningEffort,
+  ReasoningOption,
   RegisteredDir,
   Row,
   RowsPage,
@@ -56,6 +57,8 @@ export interface HeniraClientLike {
           contextWindow?: number;
           vision?: boolean;
           reasoning?: boolean;
+          /** 思考档位集合真源（models.dev reasoning_options：toggle/effort 值——2026-11-19 思考档批） */
+          reasoningOptions?: ReasoningOption[];
         }>;
       }
     >;

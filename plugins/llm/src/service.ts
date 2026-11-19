@@ -10,6 +10,7 @@ import {
   type LlmRequest,
   type LlmService,
   reasoningCapability,
+  reasoningEchoField,
   reasoningParams,
   type StreamEvent,
 } from "@henira/protocol";
@@ -39,10 +40,16 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
             req.reasoningEffort !== undefined
               ? reasoningParams(reasoningCapability(req.model.provider), req.reasoningEffort)
               : undefined;
+          // 思维链回传（思考档批 2026-11-19）：开思考 + 模型声明 interleaved(reasoning_content)
+          // → 历史 assistant 消息带 reasoning part（DeepSeek V4.1+ 带 tool_calls 不回传 400）
+          const echoReasoning =
+            req.reasoningEffort !== undefined &&
+            req.reasoningEffort !== "off" &&
+            reasoningEchoField(req.model.interleaved) === "reasoning_content";
           const result = streamText({
             model,
             ...(instructions ? { instructions } : {}), // system 块唯一通道（AI SDK 不收 system 消息）
-            messages: toAiMessages(req.messages),
+            messages: toAiMessages(req.messages, { echoReasoning }),
             tools: Object.fromEntries(
               req.tools.map((tool) => [
                 tool.name,

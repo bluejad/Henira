@@ -120,6 +120,7 @@ function runtimeModelEntries(id: string, modelsFile: ModelsFile): ProviderModelE
       contextWindow: sm?.contextWindow,
       ...(sm?.vision === true ? { vision: true } : {}),
       ...(sm?.reasoning === true ? { reasoning: true } : {}),
+      ...(sm?.reasoningOptions !== undefined ? { reasoningOptions: sm.reasoningOptions } : {}),
       enabled: !hidden.has(model),
     };
   });
@@ -294,6 +295,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
               contextWindow: m.contextWindow,
               vision: m.vision,
               reasoning: m.reasoning,
+              reasoningOptions: m.reasoningOptions,
             })),
         };
       }

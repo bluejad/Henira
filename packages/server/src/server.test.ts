@@ -444,16 +444,27 @@ describe("REST 面与设置", () => {
               contextWindow?: number;
               vision?: boolean;
               reasoning?: boolean;
+              reasoningOptions?: Array<{ type: string; values?: string[] }>;
             }>;
           }
         >;
       };
       const deepseek = catalog.providers.deepseek;
       expect(deepseek?.baseUrl).toBe("https://api.deepseek.com");
-      expect(deepseek?.reasoning).toBe("none"); // 原生思考不可控 → 思考档置灰依据
+      expect(deepseek?.reasoning).toBe("thinking-effort"); // thinking 开关 + reasoning_effort 形状族
       expect((deepseek?.models ?? []).length).toBeGreaterThan(0);
       const first = deepseek?.models?.[0];
       expect(first?.name).toBeTruthy(); // 显示名（快照 name 透传）
+      // 思考档数据驱动：模型条目带 reasoningOptions（models.dev 真源——toggle+effort 三档）
+      const withOptions = (deepseek?.models ?? []).find(
+        (m) => (m.reasoningOptions ?? []).length > 0,
+      );
+      expect(withOptions?.reasoningOptions?.some((o) => o.type === "toggle")).toBe(true);
+      expect(
+        withOptions?.reasoningOptions?.some(
+          (o) => o.type === "effort" && (o.values ?? []).includes("max"),
+        ),
+      ).toBe(true);
       // 至少一个模型带徽章位（快照 324 家的 vision/reasoning 已再生入库）
       const withBadge = (deepseek?.models ?? []).some(
         (m) => m.vision === true || m.reasoning === true,

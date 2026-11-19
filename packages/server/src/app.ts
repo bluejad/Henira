@@ -16,6 +16,7 @@ import {
   DECISIONS,
   REASONING_EFFORTS,
   type ReasoningCapability,
+  type ReasoningOption,
   reasoningCapability,
   rebuildProjection,
   type ServerFrame,
@@ -445,6 +446,7 @@ export function createApp(deps: AppDeps): Hono {
     contextWindow?: number;
     vision?: boolean;
     reasoning?: boolean;
+    reasoningOptions?: ReasoningOption[];
     enabled: boolean;
   }> => {
     const override = modelsFile.providers?.[id];
@@ -461,6 +463,7 @@ export function createApp(deps: AppDeps): Hono {
         contextWindow: sm?.contextWindow,
         ...(sm?.vision === true ? { vision: true } : {}),
         ...(sm?.reasoning === true ? { reasoning: true } : {}),
+        ...(sm?.reasoningOptions !== undefined ? { reasoningOptions: sm.reasoningOptions } : {}),
         enabled: !hidden.has(model),
       };
     });
@@ -468,7 +471,9 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/models", async (c) => {
     // 选择器清单（模型目录收敛批）：key + baseUrl 齐备的厂商才出现——断开（摘 key）即从
-    // 选择器消失、缺地址（必然跑不通）不出现；条目带显示名/上下文窗/徽章位（对齐 BC 档）
+    // 选择器消失、缺地址（必然跑不通）不出现；条目带显示名/上下文窗/徽章位（对齐 BC 档）。
+    // 思考档批（2026-11-19）：模型条目带 reasoningOptions（models.dev 档位集合真源）——
+    // UI 档位按数据驱动；provider 级 reasoning 保留作形状/兜底提示
     const { credIds, modelsFile } = await providerUnion();
     const providers: Record<
       string,
@@ -482,6 +487,7 @@ export function createApp(deps: AppDeps): Hono {
           contextWindow?: number;
           vision?: boolean;
           reasoning?: boolean;
+          reasoningOptions?: ReasoningOption[];
         }>;
       }
     > = {};
@@ -495,7 +501,7 @@ export function createApp(deps: AppDeps): Hono {
       providers[id] = {
         name: entry.label ?? SNAPSHOT[id]?.name, // 用户显示名优先（与管理页同口径——收敛批审查 2026-11-19）
         baseUrl,
-        reasoning: reasoningCapability(id), // 思考能力提示（UI 档位移除/置灰依据）
+        reasoning: reasoningCapability(id), // 思考参数形状提示（UI 档位兜底依据）
         models: modelEntries(id, modelsFile)
           .filter((m) => m.enabled)
           .map((m) => ({
@@ -504,6 +510,7 @@ export function createApp(deps: AppDeps): Hono {
             contextWindow: m.contextWindow,
             vision: m.vision,
             reasoning: m.reasoning,
+            reasoningOptions: m.reasoningOptions,
           })),
       };
     }

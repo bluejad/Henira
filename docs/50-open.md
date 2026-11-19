@@ -20,7 +20,8 @@ _无。M1 开工前的阻塞项已全部定稿。_
 
 - [ ] **serial 事件模式去留**——kernel 四模式中 serial 消费 / 注册两侧当前全库零命中（2026-11-17 查实：emit = loop 全部引擎事件；waterfall = tools 管线两缝；bail = 熔断件已定 M4 首发批，2026-11-17 拍板见 D-058）。保留理由存在：plugin-hooks（M6 批）"事件上顺序执行外部命令"是 serial 语义的天然消费者——M6 落码时复评，届时仍无消费者再议删（kernel 模式 4→3 是架构动作，立 ADR）
 - [ ] **性能基准实测（M5 compaction 落码顺带）**——四项零实测：deriveMessages 长会话全量派生 / JSONL 单文件全量读入 / fork 整目录复制成本 / 断线重连全量快照；设计均有重开条件、无实测数字。可选：M4 取证 pass 捎带跑一个大日志 deriveMessages 基准先有个底
-- [ ] **deepseek / agnes 思考参数形状（R145 ⑥挂账，2026-11-18）**——两家原生思考的请求参数真实形状未取证（能力表无此两家条目 → UI 思考档置灰「—」是正确降级，非缺陷）；接入 = 先真 key 采样确认参数名与取值再接能力表，不造假参数；模型徽章（BrainGlyph 显示位）已随收敛批走 models.dev `reasoning` 字段，与本挂账（思考**档位**可调）是两回事
+- [x] **deepseek / agnes 思考参数形状（R145 ⑥挂账，2026-11-18；2026-11-19 思考档批销账）**——真 key 采样 + 官方文档双证：deepseek = `thinking:{type:"enabled"/"disabled"}` + `reasoning_effort`（low/high/max，medium 由服务端 clamp 到 high）；agnes = `chat_template_kwargs:{enable_thinking:boolean}`（仅开/关，采样实锤 reasoning_content 出现）；档位集合已改数据驱动（models.dev `reasoning_options`：toggle/effort values——快照与刷新管线补保真）、思维链回传（`interleaved` 声明 + 开思考 → 历史 assistant 带 reasoning_content）已落码
+- [ ] **思考档剩余挂账（2026-11-19 思考档批）**——①deepseek 真 key 采样待有效 key（用户旧 key 401）：参数形状按官方文档已落码，重连后补验；②zhipu 数据说 effort[low/high/max]、实现发 thinking 开关（R142 活体过）——统一口径待采样复核；③moonshotai/kimi 数据有 effort 但形状表未收录（仍 none）——采样后加一行形状；④老会话工具轮 reasoning 未落账本（无法回填）——deepseek 老会话开思考可能撞 400，错误行可行动文案兜底；⑤budget 型（anthropic/google budget_tokens）未接
 
 - [ ] 黑窗口聊天（cli 包）与 Repl 命令集、流式渲染——发布后启做
 - [ ] TUI 拓扑：**倾向 C1** 薄客户端连本地 server（终端"不起服务"的坑位由发布后 cli 聊天占住）——共同成本是 InteractionService 终端实现；发布后按需求定稿（[hosts.md](./20-architecture/hosts.md) §6）

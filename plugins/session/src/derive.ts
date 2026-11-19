@@ -122,7 +122,11 @@ interface ToolResultEventData {
 }
 
 function toMessage(event: SessionEvent): ModelMessage {
-  const data = event.data as { content: string; attachments?: SessionAttachment[] };
+  const data = event.data as {
+    content: string;
+    attachments?: SessionAttachment[];
+    reasoning?: string;
+  };
   switch (event.type) {
     case "user/message":
       return {
@@ -133,7 +137,15 @@ function toMessage(event: SessionEvent): ModelMessage {
     case "system/message":
       return { role: "system", content: data.content };
     case "assistant/message":
-      return { role: "assistant", content: data.content }; // reasoning 保留给 UI，不回灌模型
+      // 思维链随消息带上（llm 层按「本次开思考 + 模型 interleaved 声明」条件回传——
+      // DeepSeek V4.1+ 带 tool_calls 不回传 reasoning_content 会 400；2026-11-19 思考档批）
+      return {
+        role: "assistant",
+        content: data.content,
+        ...(typeof data.reasoning === "string" && data.reasoning !== ""
+          ? { reasoning: data.reasoning }
+          : {}),
+      };
     default:
       throw new Error(`not a message event: ${event.type}`);
   }

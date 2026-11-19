@@ -5,15 +5,18 @@
 // prompt 失败不静默：草稿回填 + 行内错误提示。
 // 模型/思考按次绑定（BC 语义，骨架批）：选择=会话级绑定（ui-state 记忆，回填一次），权威在
 // 每次请求携带（prompt opts）；不再写全局 settings.model（那是设置弹窗·模型管理页的职责）。
-// 思考档按厂商能力表置灰（none=「—」不可调——deepseek 原生思考不可控等）。
+// 思考档数据驱动（思考档批 2026-11-19）：档位集合来自模型条目 reasoningOptions（models.dev
+// 真源——toggle=关/开两档、effort=厂商档位映射四档子集）；目录未到/无数据 → 形状表兜底；
+// 形状族 none 或仅 budget 声明 → 置灰「—」。切模型后当前档不在新集合 → clamp（不渲染不存在的档）。
 
-import type { ApprovalRow, Row } from "@henira/protocol";
+import type { ApprovalRow, ReasoningOption, Row } from "@henira/protocol";
 import {
   type ReasoningCapability,
   type ReasoningEffort,
   reasoningCapability,
+  reasoningLevels,
 } from "@henira/protocol";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SettingsSection, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
@@ -22,7 +25,6 @@ import { ModelSelect, type PickerProviders } from "./model-select.js";
 const TEXTAREA_MAX_HEIGHT = 200;
 const EMPTY_ROWS: readonly Row[] = [];
 const EMPTY_CATALOG: PickerProviders = {};
-const THINKING_LEVELS: ReasoningEffort[] = ["off", "low", "medium", "high"];
 
 export const Composer: WebPart = (ctx: WebPartContext) => {
   const [draft, setDraft] = useState("");
@@ -109,6 +111,32 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
   }, [ctx.client, settingsReady, ctx.settingsSection]);
   const capability: ReasoningCapability =
     model === "" ? "none" : reasoningCapability(model.split("/")[0] ?? "");
+  // 档位集合：模型级数据真源（catalog 条目的 reasoningOptions）；目录未到/无数据 → 形状表兜底
+  const providerId = model === "" ? "" : (model.split("/")[0] ?? "");
+  const modelId = model === "" ? "" : model.slice(providerId.length + 1);
+  const modelOptions: ReasoningOption[] | undefined = catalog[providerId]?.models?.find(
+    (m) => m.id === modelId,
+  )?.reasoningOptions;
+  const levels = useMemo(
+    () => reasoningLevels(capability, modelOptions),
+    [capability, modelOptions],
+  );
+  // toggle-only 模型（如 agnes）：两档文案「关/开」（「开」承载值 medium——server 枚举只认四值）。
+  // 开关族且数据无 effort 档（含目录数据缺省）即按开关呈现
+  const toggleOnly =
+    (capability === "thinking" || capability === "enable" || capability === "template-enable") &&
+    modelOptions?.some((o) => o.type === "effort") !== true;
+
+  // 切模型后档位校验：当前值不在新可选集合 → clamp 到首个非 off（toggle 模型优先「开」=medium）；
+  // 置灰（集合空）不动存储值——切回可调模型时恢复
+  useEffect(() => {
+    if (levels.length === 0) return;
+    const current = effort ?? "off";
+    if (levels.includes(current)) return;
+    const next = levels.includes("medium") ? "medium" : (levels.find((l) => l !== "off") ?? "off");
+    setEffort(next);
+    ctx.updateUiState?.({ reasoningEffort: next });
+  }, [ctx, levels, effort]);
 
   useEffect(() => {
     // 草稿清空（发送成功）后复位自动增高
@@ -203,9 +231,10 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
               providers={catalog}
             />
           ) : null}
-          {/* 思考档（BC ReasoningSelect 行为层）：capability=none 置灰「—」（deepseek 原生不可控等） */}
+          {/* 思考档（BC ReasoningSelect 行为层）：档位集合数据驱动（模型 reasoningOptions）——
+              空集合（none/budget/形状未收录）置灰「—」；toggle-only 两档「关/开」 */}
           {settingsReady ? (
-            capability === "none" ? (
+            levels.length === 0 ? (
               <span
                 className="henira-thinking-select"
                 data-disabled="true"
@@ -224,9 +253,13 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
                     changeEffort(e.target.value as ReasoningEffort);
                   }}
                 >
-                  {THINKING_LEVELS.map((level) => (
+                  {levels.map((level) => (
                     <option key={level} value={level}>
-                      {ctx.t(`composer.thinking.${level}`)}
+                      {ctx.t(
+                        toggleOnly && level === "medium"
+                          ? "composer.thinking.on"
+                          : `composer.thinking.${level}`,
+                      )}
                     </option>
                   ))}
                 </select>

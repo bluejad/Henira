@@ -113,7 +113,7 @@ interface SessionHeader {
 - `user/message` → user 消息（`content` + `attachments`）；`system/message` → system 消息；`assistant/message` → assistant 消息（含 `tool_calls`）；
 - `tool/call` + 对应 `tool/result`（按 `callId` 配对）→ tool 结果消息；**孤儿 `tool/call`（无 result）在派生时合成错误结果**（中断纪律的产物，防 400）；
 - `turn/*`、`step/*`、`request/header`、`approval/*`、`assistant/attempt`、`error` → **跳过**，只用于展示与审计；
-- `assistant/message.reasoning` 保留给 UI，**不回灌模型**（下一轮请求不重放思考过程）；
+- `assistant/message.reasoning` 保留给 UI；**开思考且模型声明 `interleaved`（reasoning_content）时随派生消息回传 provider**（DeepSeek V4.1+ 带 tool_calls 不回传 400——思考档批 2026-11-19；关思考 / 未声明 = 全剥不回传）；工具轮 reasoning 与纯文本轮同形落账本（回传的数据来源）；
 - **`key` 去重（先于 `surfaceOp`）**：在**原始日志**上按 `key` 取 `seq` 最大的一条作为候选，其余同名事件一律跳过；候选留在自己的位置（靠近末尾——注意力最强的位置）。候选若落在被替换区间内，则随区间一起被替换，**不会"复活"更早的同名旧消息**；
 - **`surfaceOp` 应用**：按 `seq` 升序处理；遇到 `{op:'replace', startSeq, endSeq}` 时跳过该区间内的全部事件、在区间起点插入本条消息；区间外原样输出。
 
