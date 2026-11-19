@@ -33,6 +33,7 @@ import {
   type LlmService,
   type LoopEvent,
   Projection,
+  reasoningCapability,
   type ServerFrame,
   type SessionEvent,
   type SessionSummary,
@@ -43,6 +44,7 @@ import {
   type CustomProviderInput,
   frameQueue,
   type HeniraFacade,
+  type ModelCatalog,
   type ProviderModelEntry,
 } from "./facade.js";
 import {
@@ -110,12 +112,17 @@ function runtimeModelEntries(id: string, modelsFile: ModelsFile): ProviderModelE
   const all =
     dict === undefined ? explicit : [...new Set([...explicit, ...Object.keys(dict.models)])];
   const hidden = new Set(override?.hidden ?? []);
-  return all.map((model) => ({
-    id: model,
-    name: override?.models?.[model]?.label ?? dict?.models[model]?.name,
-    contextWindow: dict?.models[model]?.contextWindow,
-    enabled: !hidden.has(model),
-  }));
+  return all.map((model) => {
+    const sm = dict?.models[model];
+    return {
+      id: model,
+      name: override?.models?.[model]?.label ?? sm?.name,
+      contextWindow: sm?.contextWindow,
+      ...(sm?.vision === true ? { vision: true } : {}),
+      ...(sm?.reasoning === true ? { reasoning: true } : {}),
+      enabled: !hidden.has(model),
+    };
+  });
 }
 
 /** 厂商全集（credentials.json 在册 ∪ models.json 在册） */
@@ -265,16 +272,29 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     },
 
     async listModels() {
-      const { ids, modelsFile } = await runtimeProviderUnion(globalDir);
-      const providers: { providers: Record<string, { baseUrl?: string; models?: string[] }> } = {
-        providers: {},
-      };
-      for (const id of ids) {
+      // 闸门与条目形状与 server 同构（模型目录收敛批）：key + baseUrl 齐备才可选，
+      // 条目带显示名/上下文窗/徽章位
+      const { credIds, modelsFile } = await runtimeProviderUnion(globalDir);
+      const providers: { providers: ModelCatalog["providers"] } = { providers: {} };
+      for (const id of new Set([...credIds, ...Object.keys(modelsFile.providers ?? {})])) {
+        const entry = modelsFile.providers?.[id];
+        // 闸门与 server 同构：缺地址不可选；已知厂商需 key 在册；自定义厂商 key 可选
+        if (entry?.baseUrl === undefined) continue;
+        if (!credIds.includes(id) && SNAPSHOT[id] !== undefined) continue;
+        const baseUrl = entry.baseUrl;
         providers.providers[id] = {
-          baseUrl: modelsFile.providers?.[id]?.baseUrl,
+          name: SNAPSHOT[id]?.name,
+          baseUrl,
+          reasoning: reasoningCapability(id),
           models: runtimeModelEntries(id, modelsFile)
             .filter((m) => m.enabled)
-            .map((m) => m.id),
+            .map((m) => ({
+              id: m.id,
+              name: m.name,
+              contextWindow: m.contextWindow,
+              vision: m.vision,
+              reasoning: m.reasoning,
+            })),
         };
       }
       return providers;
@@ -328,14 +348,36 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async connectProvider(providerId, key) {
       await writeCredential(globalDir, providerId, key);
+      // 目录种子（与 server connect 同构）：已知厂商缺 baseUrl 时从快照 endpoint 补
+      const modelsFile = await readModelsFile(globalDir);
+      const entry = modelsFile.providers?.[providerId] ?? {};
+      const endpoint = SNAPSHOT[providerId]?.endpoint;
+      if (entry.baseUrl === undefined && endpoint !== undefined) {
+        await writeModelsFile(globalDir, {
+          ...modelsFile,
+          providers: {
+            ...(modelsFile.providers ?? {}),
+            [providerId]: { ...entry, baseUrl: endpoint },
+          },
+        });
+      }
     },
 
     async disconnectProvider(providerId) {
       await removeCredential(globalDir, providerId);
+      // 分档（与 server disconnect 同构）：已知厂商只清显隐——baseUrl/label 永不碰；
+      // 自定义厂商整条删
       const modelsFile = await readModelsFile(globalDir);
       if (modelsFile.providers?.[providerId] !== undefined) {
         const providers = { ...modelsFile.providers };
-        delete providers[providerId];
+        if (SNAPSHOT[providerId] === undefined) {
+          delete providers[providerId];
+        } else {
+          const rest = { ...providers[providerId] };
+          delete rest.hidden;
+          if (Object.keys(rest).length === 0) delete providers[providerId];
+          else providers[providerId] = rest;
+        }
         await writeModelsFile(globalDir, { ...modelsFile, providers });
       }
     },

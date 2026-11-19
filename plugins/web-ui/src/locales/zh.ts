@@ -63,6 +63,10 @@ export const zh = {
   "approval.pending": "等待处理",
   "approval.settled": "已处理",
   "error.title": "出错了",
+  "error.noCredentialHint": "该厂商还没有配置密钥——请在 设置 → 模型管理 里连接后再试。",
+  "error.noBaseUrlHint":
+    "该模型缺少服务地址——请在 设置 → 模型管理 里重新连接一次（连接会自动补上地址）。",
+  "error.rawDetail": "原始错误信息",
   "settings.title": "设置",
   "settings.model": "默认模型",
   "settings.modelPlaceholder": "provider/model，如 deepseek/deepseek-v4-flash",
@@ -87,6 +91,7 @@ export const zh = {
   "settings.models.addProvider": "＋ 连接提供商",
   "settings.models.searchModels": "搜索模型…",
   "settings.models.searchProviders": "搜索提供商…",
+  "settings.models.visionBadge": "视觉",
   "settings.models.empty": "还没有模型——点「＋ 连接提供商」，选厂商粘贴密钥即可。",
   "settings.models.groupEmpty": "该厂商暂无模型（搜索无匹配或配置为空）。",
   "settings.models.pickHint": "选择要连接的提供商，连接后该厂商全部模型进入模型选择器。共",

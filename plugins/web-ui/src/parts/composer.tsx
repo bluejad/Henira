@@ -17,11 +17,11 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import type { SettingsSection, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
-import { ModelSelect } from "./model-select.js";
+import { ModelSelect, type PickerProviders } from "./model-select.js";
 
 const TEXTAREA_MAX_HEIGHT = 200;
 const EMPTY_ROWS: readonly Row[] = [];
-const EMPTY_CATALOG: Record<string, { baseUrl?: string; models?: string[] }> = {};
+const EMPTY_CATALOG: PickerProviders = {};
 const THINKING_LEVELS: ReasoningEffort[] = ["off", "low", "medium", "high"];
 
 export const Composer: WebPart = (ctx: WebPartContext) => {

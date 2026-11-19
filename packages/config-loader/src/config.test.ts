@@ -100,19 +100,31 @@ describe("ConfigService（D-013②）", () => {
 });
 
 describe("models.dev 字典同步（D-040）", () => {
-  it("refresh()：fetch 成功 → 写缓存；断网（fetch 抛）→ 静默 false，快照仍可查", async () => {
+  it("refresh()：fetch 成功 → 写缓存（自有形状信封+缩进，收敛批）；断网（fetch 抛）→ 静默 false，快照仍可查", async () => {
     const fake = (async () => ({
       ok: true,
       json: async () => ({
-        myprov: { models: { big: { limit: { context: 999_999, output: 8_000 } } } },
+        myprov: {
+          name: "My Prov",
+          api: "https://api.myprov.example",
+          models: { big: { limit: { context: 999_999, output: 8_000 } } },
+        },
       }),
     })) as unknown as typeof fetch;
     const svc1 = await service({ fetchImpl: fake });
     await svc1.refreshDictionary();
     const config = await svc1.model("myprov/big");
     expect(config.contextWindow).toBe(999_999);
-    const cached = await fs.readFile(path.join(globalDir, "models-dev-cache.json"), "utf8");
+    // 收敛批：缓存改名 model-presets.json + {fetchedAt, providers} 信封 + 2 空格缩进 +
+    // 厂商层带 name/endpoint（endpoint 上游本就有——旧管线裁掉它逼用户手写 baseUrl）
+    const cached = await fs.readFile(path.join(globalDir, "model-presets.json"), "utf8");
     expect(cached).toContain("myprov");
+    expect(cached).toContain("https://api.myprov.example");
+    expect(cached.split("\n").length).toBeGreaterThan(3); // 缩进（非糊成一团）
+    const doc = JSON.parse(cached) as { fetchedAt?: string; providers?: Record<string, unknown> };
+    expect(typeof doc.fetchedAt).toBe("string");
+    expect(doc.providers?.myprov).toBeDefined();
+    await expect(fs.access(path.join(globalDir, "models-dev-cache.json"))).rejects.toThrow(); // 旧缓存已清
 
     // 新实例：缓存覆盖快照路径 + fetch 断网静默
     const offline = (async () => {

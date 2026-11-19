@@ -26,7 +26,8 @@
 ├─ projects.json                      # 工作区注册表（权威 + 可自愈）
 ├─ config/
 │   ├─ settings.json                  # 全局设置：默认模型 / 插件开关 / 界面偏好（程序写）
-│   ├─ models.json                    # provider / model 定义（不含密钥；能力字段可由 models.dev 同步预填，手写覆盖字典，D-040；模型管理面另存 label/hidden 开关清单/自定义厂商显式 models——模型管理批 2026-11-19）
+│   ├─ models.json                    # provider / model 定义（不含密钥；baseUrl 承重配置——断开只清显隐永不碰它，2026-11-19 教训锁；模型管理面另存 label/hidden 开关清单/自定义厂商显式 models；连接已知厂商从目录自动种 baseUrl）
+│   ├─ model-presets.json             # 厂商目录缓存（models.dev 在线刷新落盘：{fetchedAt, providers:{name/endpoint/models}} 信封形状，2 空格缩进人眼可读——endpoint 供连接种子，模型目录收敛批 2026-11-19；旧 models-dev-cache.json 已废弃清理）
 │   ├─ credentials.json               # 密钥（0600，绝不进会话 / 日志）
 │   └─ permissions.json               # 全局审批规则
 ├─ projects/

@@ -43,11 +43,21 @@ export interface HeniraClientLike {
     model?: string;
     ui?: { theme?: string; locale?: string };
   }): Promise<{ version: 1 }>;
-  /** 模型目录（可选——手写覆盖 + models.dev 快照清单；无密钥；reasoning=思考能力提示） */
+  /** 模型目录（可选——key+baseUrl 齐备的厂商才出现；条目带显示名/徽章位，模型目录收敛批） */
   listModels?(): Promise<{
     providers: Record<
       string,
-      { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
+      {
+        baseUrl?: string;
+        reasoning?: ReasoningCapability;
+        models?: Array<{
+          id: string;
+          name?: string;
+          contextWindow?: number;
+          vision?: boolean;
+          reasoning?: boolean;
+        }>;
+      }
     >;
   }>;
   /** 服务商密钥写（可选——设置弹窗·模型管理页消费；D-030：只进 credentials.json，永不回读） */

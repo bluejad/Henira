@@ -7,7 +7,7 @@ import type { ReasoningCapability } from "@henira/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SettingsSection, UiAssetLocale, UiAssetTheme, WebPartContext } from "../types.js";
 import { BrainGlyph, GearGlyph, XGlyph } from "./icons.js";
-import { ModelSelect } from "./model-select.js";
+import { fmtWindow, ModelSelect } from "./model-select.js";
 
 const SECTIONS: SettingsSection[] = ["theme", "locale", "models"];
 
@@ -194,15 +194,6 @@ interface ModelPreset {
 type ModelsView = "list" | "picker" | "known" | "custom";
 
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-/** 上下文窗紧凑显示（BC 同档：≥1M 显 M、其余 k） */
-function fmtWindow(n?: number): string {
-  if (n === undefined || n <= 0) return "";
-  if (n >= 1_000_000) {
-    return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-  }
-  return `${Math.round(n / 1000)}k`;
-}
 
 function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
   const { ctx } = props;

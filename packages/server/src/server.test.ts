@@ -404,27 +404,61 @@ describe("REST 面与设置", () => {
     }
   });
 
-  it("模型目录：手写 models.json + 快照清单 + reasoning 能力提示（思考档置灰依据）", async () => {
+  it("模型目录收敛批：闸门（无 key/缺地址不可选）+ 连接种地址 + 条目显示名/徽章位", async () => {
     const { base, cleanup, globalDir } = await makeServer([]);
     try {
+      // 手写 models.json 但无凭据 → 闸门拦下（不能跑的厂商不进选择器）
       await fs.writeFile(
         path.join(globalDir, "models.json"),
         JSON.stringify({
           providers: {
             deepseek: { baseUrl: "https://api.deepseek.com" },
-            "zhipuai-coding-plan": { baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
           },
         }),
         "utf8",
       );
-      const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
-        providers: Record<string, { baseUrl?: string; models?: string[]; reasoning?: string }>;
+      const gated = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<string, unknown>;
       };
-      // 手写条目在场 + 快照按 id 补模型清单 + 能力表提示（合同层同源，骨架批）
-      expect(catalog.providers.deepseek?.baseUrl).toBe("https://api.deepseek.com");
-      expect(catalog.providers.deepseek?.models?.length).toBeGreaterThan(0);
-      expect(catalog.providers.deepseek?.reasoning).toBe("none"); // 原生思考不可控 → 置灰
-      expect(catalog.providers["zhipuai-coding-plan"]?.reasoning).toBe("thinking"); // glm 系 → thinking 参数族
+      expect(gated.providers.deepseek).toBeUndefined(); // 无 key → 不出现
+
+      // 连接（只填 key）→ 快照 endpoint 种进 models.json + 选择器并入带显示名/徽章位
+      const put = await fetch(`${base}/api/providers/deepseek/connect`, {
+        method: "PUT",
+        body: JSON.stringify({ key: "sk-test-secret-123" }),
+      });
+      expect(put.status).toBe(200);
+      const modelsFile = JSON.parse(
+        await fs.readFile(path.join(globalDir, "models.json"), "utf8"),
+      ) as { providers?: Record<string, { baseUrl?: string }> };
+      expect(modelsFile.providers?.deepseek?.baseUrl).toBe("https://api.deepseek.com"); // 目录种子
+      const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
+        providers: Record<
+          string,
+          {
+            baseUrl?: string;
+            reasoning?: string;
+            models?: Array<{
+              id: string;
+              name?: string;
+              contextWindow?: number;
+              vision?: boolean;
+              reasoning?: boolean;
+            }>;
+          }
+        >;
+      };
+      const deepseek = catalog.providers.deepseek;
+      expect(deepseek?.baseUrl).toBe("https://api.deepseek.com");
+      expect(deepseek?.reasoning).toBe("none"); // 原生思考不可控 → 思考档置灰依据
+      expect((deepseek?.models ?? []).length).toBeGreaterThan(0);
+      const first = deepseek?.models?.[0];
+      expect(first?.name).toBeTruthy(); // 显示名（快照 name 透传）
+      // 至少一个模型带徽章位（快照 324 家的 vision/reasoning 已再生入库）
+      const withBadge = (deepseek?.models ?? []).some(
+        (m) => m.vision === true || m.reasoning === true,
+      );
+      expect(withBadge).toBe(true);
     } finally {
       await cleanup();
     }
@@ -1232,18 +1266,18 @@ describe("模型管理面（BC 四视图服务端半边）", () => {
         body: JSON.stringify({ key: "sk-x" }),
       });
       const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
-        providers: Record<string, { models?: string[] }>;
+        providers: Record<string, { models?: Array<{ id: string }> }>;
       };
-      const modelId = catalog.providers.deepseek?.models?.[0] as string;
+      const modelId = catalog.providers.deepseek?.models?.[0]?.id as string;
       const off = await fetch(
         `${base}/api/providers/deepseek/models/${encodeURIComponent(modelId)}/enabled`,
         { method: "PUT", body: JSON.stringify({ enabled: false }) },
       );
       expect(off.status).toBe(200);
       const after = (await (await fetch(`${base}/api/models`)).json()) as {
-        providers: Record<string, { models?: string[] }>;
+        providers: Record<string, { models?: Array<{ id: string }> }>;
       };
-      expect(after.providers.deepseek?.models).not.toContain(modelId);
+      expect(after.providers.deepseek?.models?.some((m) => m.id === modelId)).toBe(false);
       const modelsFile = JSON.parse(
         await fs.readFile(path.join(globalDir, "models.json"), "utf8"),
       ) as { providers?: Record<string, { hidden?: string[] }> };
@@ -1253,9 +1287,9 @@ describe("模型管理面（BC 四视图服务端半边）", () => {
         body: JSON.stringify({ enabled: true }),
       });
       const restored = (await (await fetch(`${base}/api/models`)).json()) as {
-        providers: Record<string, { models?: string[] }>;
+        providers: Record<string, { models?: Array<{ id: string }> }>;
       };
-      expect(restored.providers.deepseek?.models).toContain(modelId);
+      expect(restored.providers.deepseek?.models?.some((m) => m.id === modelId)).toBe(true);
       const bad = await fetch(
         `${base}/api/providers/deepseek/models/${encodeURIComponent(modelId)}/enabled`,
         { method: "PUT", body: JSON.stringify({ enabled: "yes" }) },
@@ -1266,7 +1300,7 @@ describe("模型管理面（BC 四视图服务端半边）", () => {
     }
   });
 
-  it("断开：凭据摘键 + 目录摘条目；自定义厂商（无 key 也算连接）显式清单落盘", async () => {
+  it("断开：凭据摘键 + 已知厂商只清显隐（baseUrl 保留——2026-11-19 教训锁）；自定义厂商整条删", async () => {
     const { base, cleanup, globalDir } = await makeServer([]);
     try {
       await fetch(`${base}/api/providers/deepseek/connect`, {
@@ -1278,11 +1312,17 @@ describe("模型管理面（BC 四视图服务端半边）", () => {
       const catalog = (await (await fetch(`${base}/api/models`)).json()) as {
         providers: Record<string, unknown>;
       };
-      expect(catalog.providers.deepseek).toBeUndefined();
+      expect(catalog.providers.deepseek).toBeUndefined(); // 闸门：无 key 不可选
       const credFile = JSON.parse(
         await fs.readFile(path.join(globalDir, "credentials.json"), "utf8"),
       ) as { providers?: Record<string, string> };
       expect(credFile.providers?.deepseek).toBeUndefined();
+      // 收敛批语义锁：断开不删承重配置——快照种的 baseUrl 仍在 models.json
+      const modelsFile = JSON.parse(
+        await fs.readFile(path.join(globalDir, "models.json"), "utf8"),
+      ) as { providers?: Record<string, { baseUrl?: string; hidden?: string[] }> };
+      expect(modelsFile.providers?.deepseek?.baseUrl).toBe("https://api.deepseek.com");
+      expect(modelsFile.providers?.deepseek?.hidden).toBeUndefined(); // 显隐已清
 
       // 自定义厂商：显式模型清单 + baseUrl；无 key = 连接态仍 true（目录条目即在册）
       const custom = (await (
@@ -1312,10 +1352,15 @@ describe("模型管理面（BC 四视图服务端半边）", () => {
       expect(group?.baseUrl).toBe("https://relay.example.com/v1");
       expect(group?.models).toEqual([{ id: "my-model", name: "My Model", enabled: true }]);
       const customCatalog = (await (await fetch(`${base}/api/models`)).json()) as {
-        providers: Record<string, { baseUrl?: string; models?: string[] }>;
+        providers: Record<
+          string,
+          { baseUrl?: string; models?: Array<{ id: string; name?: string }> }
+        >;
       };
       expect(customCatalog.providers[custom.id]?.baseUrl).toBe("https://relay.example.com/v1");
-      expect(customCatalog.providers[custom.id]?.models).toEqual(["my-model"]);
+      expect(customCatalog.providers[custom.id]?.models).toEqual([
+        { id: "my-model", name: "My Model" },
+      ]);
       // 断开自定义 = 摘目录条目
       await fetch(`${base}/api/providers/${custom.id}`, { method: "DELETE" });
       const after = (await (await fetch(`${base}/api/models`)).json()) as {

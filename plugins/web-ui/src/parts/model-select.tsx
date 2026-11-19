@@ -1,13 +1,40 @@
 // 模型选择弹层（BC ModelSelect 行为层参照：触发钮 + 搜索 + 按厂商分组 + 底部「管理模型…」）。
 // 官方共享件：composer 工具排与设置弹窗·模型管理页同用一份。清单来自 client.listModels
-//（手写 models.json + models.dev 快照，无密钥）；选择只回调不落盘——语义归调用方
-//（composer 会话绑定 / 设置页全局默认各自行事）。
+//（key+baseUrl 齐备的厂商才出现——模型目录收敛批闸门）；选择只回调不落盘——语义归调用方
+//（composer 会话绑定 / 设置页全局默认各自行事）。条目渲染显示名 + 上下文窗/视觉/思考徽章
+//（BC 选择器档位——裸 id 退场）。
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { WebPartContext } from "../types.js";
-import { CaretDownGlyph, GearGlyph, MagnifierGlyph } from "./icons.js";
+import { BrainGlyph, CaretDownGlyph, GearGlyph, MagnifierGlyph } from "./icons.js";
 
-const EMPTY_PROVIDERS: Record<string, { models?: string[] }> = {};
+/** 选择器目录条目（types.ts listModels 同形；本地声明——web-ui 不依 sdk） */
+export interface PickerModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  vision?: boolean;
+  reasoning?: boolean;
+}
+export type PickerProviders = Record<
+  string,
+  { name?: string; baseUrl?: string; models?: PickerModel[] }
+>;
+
+/** 上下文窗紧凑显示（BC 同档：≥1M 显 M 去尾零、其余 k）——设置页管理分组共用 */
+export function fmtWindow(n?: number): string {
+  if (n === undefined || n <= 0) return "";
+  if (n >= 1_000_000) {
+    const millions = n / 1_000_000;
+    const text = Number.isInteger(millions)
+      ? String(millions)
+      : millions.toFixed(1).replace(/\.0$/, "");
+    return `${text}M`;
+  }
+  return `${Math.round(n / 1000)}k`;
+}
+
+const EMPTY_PROVIDERS: PickerProviders = {};
 
 export function ModelSelect(props: {
   ctx: WebPartContext;
@@ -17,13 +44,13 @@ export function ModelSelect(props: {
   /** 弹层展开方向：composer 在屏幕底部 → 向上；设置弹窗内 → 向下（缺省） */
   direction?: "up" | "down";
   /** 厂商目录（可选——调用方已拉取时下传，免二次请求；缺省自取 client.listModels） */
-  providers?: Record<string, { models?: string[] }>;
+  providers?: PickerProviders;
 }): ReactNode {
   const { ctx, value, onChange, ariaLabel } = props;
   const direction = props.direction ?? "down";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [fetched, setFetched] = useState(EMPTY_PROVIDERS);
+  const [fetched, setFetched] = useState<PickerProviders>(EMPTY_PROVIDERS);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const providers = props.providers ?? fetched;
 
@@ -63,12 +90,15 @@ export function ModelSelect(props: {
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const out: Array<{ provider: string; models: string[] }> = [];
+    const out: Array<{ provider: string; label: string; models: PickerModel[] }> = [];
     for (const [provider, entry] of Object.entries(providers)) {
-      const models = (entry.models ?? [])
-        .map((m) => `${provider}/${m}`)
-        .filter((id) => q === "" || id.toLowerCase().includes(q));
-      if (models.length > 0) out.push({ provider, models });
+      const models = (entry.models ?? []).filter(
+        (m) =>
+          q === "" ||
+          `${provider}/${m.id}`.toLowerCase().includes(q) ||
+          (m.name ?? "").toLowerCase().includes(q),
+      );
+      if (models.length > 0) out.push({ provider, label: entry.name ?? provider, models });
     }
     return out;
   }, [providers, query]);
@@ -109,24 +139,40 @@ export function ModelSelect(props: {
             <span role="listbox" aria-label={ariaLabel} className="henira-model-list">
               {groups.map((group) => (
                 <span key={group.provider} className="henira-model-group">
-                  <span className="henira-model-group-label">{group.provider}</span>
-                  {group.models.map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      role="option"
-                      aria-selected={id === value}
-                      className="henira-model-item"
-                      data-active={id === value ? "true" : undefined}
-                      title={id}
-                      onClick={() => {
-                        setOpen(false);
-                        onChange(id);
-                      }}
-                    >
-                      {id}
-                    </button>
-                  ))}
+                  <span className="henira-model-group-label">{group.label}</span>
+                  {group.models.map((m) => {
+                    const fullId = `${group.provider}/${m.id}`;
+                    return (
+                      <button
+                        key={fullId}
+                        type="button"
+                        role="option"
+                        aria-selected={fullId === value}
+                        className="henira-model-item"
+                        data-active={fullId === value ? "true" : undefined}
+                        title={fullId}
+                        onClick={() => {
+                          setOpen(false);
+                          onChange(fullId);
+                        }}
+                      >
+                        <span className="henira-model-item-label">{m.name ?? m.id}</span>
+                        {m.contextWindow !== undefined ||
+                        m.vision === true ||
+                        m.reasoning === true ? (
+                          <span className="henira-model-item-meta">
+                            {fmtWindow(m.contextWindow) !== "" ? (
+                              <span>{fmtWindow(m.contextWindow)}</span>
+                            ) : null}
+                            {m.vision === true ? (
+                              <span>{ctx.t("settings.models.visionBadge")}</span>
+                            ) : null}
+                            {m.reasoning === true ? <BrainGlyph size={11} /> : null}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </span>
               ))}
               {groups.length === 0 ? (

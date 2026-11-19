@@ -730,6 +730,13 @@ function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
 }
 
 function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
+  // 已知配置类错误翻成可行动中文（模型目录收敛批：闸门后用户本不该走到这——兜底），
+  // 原文折叠保留（排障仍要英文原文）；其余错误照旧直出
+  const hint = row.message.includes("no credential for provider")
+    ? ctx.t("error.noCredentialHint")
+    : row.message.includes("has no baseUrl")
+      ? ctx.t("error.noBaseUrlHint")
+      : undefined;
   return (
     <div
       role="alert"
@@ -750,12 +757,26 @@ function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
           {row.code}
         </span>
       ) : null}
-      <span
-        className="henira-mono"
-        style={{ marginLeft: "var(--henira-space-2)", fontSize: "var(--henira-fs-md)" }}
-      >
-        {row.message}
-      </span>
+      {hint !== undefined ? (
+        <>
+          <div style={{ marginTop: "var(--henira-space-1)" }}>{hint}</div>
+          <details style={{ marginTop: "var(--henira-space-1)" }}>
+            <summary style={{ cursor: "pointer", fontSize: "var(--henira-fs-sm)" }}>
+              {ctx.t("error.rawDetail")}
+            </summary>
+            <span className="henira-mono" style={{ fontSize: "var(--henira-fs-md)" }}>
+              {row.message}
+            </span>
+          </details>
+        </>
+      ) : (
+        <span
+          className="henira-mono"
+          style={{ marginLeft: "var(--henira-space-2)", fontSize: "var(--henira-fs-md)" }}
+        >
+          {row.message}
+        </span>
+      )}
     </div>
   );
 }

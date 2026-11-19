@@ -439,35 +439,72 @@ export function createApp(deps: AppDeps): Hono {
   const modelEntries = (
     id: string,
     modelsFile: ModelsFile,
-  ): Array<{ id: string; name?: string; contextWindow?: number; enabled: boolean }> => {
+  ): Array<{
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    vision?: boolean;
+    reasoning?: boolean;
+    enabled: boolean;
+  }> => {
     const override = modelsFile.providers?.[id];
     const dict = SNAPSHOT[id];
     const explicit = Object.keys(override?.models ?? {});
     const all =
       dict === undefined ? explicit : [...new Set([...explicit, ...Object.keys(dict.models)])];
     const hidden = new Set(override?.hidden ?? []);
-    return all.map((model) => ({
-      id: model,
-      name: override?.models?.[model]?.label ?? dict?.models[model]?.name,
-      contextWindow: dict?.models[model]?.contextWindow,
-      enabled: !hidden.has(model),
-    }));
+    return all.map((model) => {
+      const sm = dict?.models[model];
+      return {
+        id: model,
+        name: override?.models?.[model]?.label ?? sm?.name,
+        contextWindow: sm?.contextWindow,
+        ...(sm?.vision === true ? { vision: true } : {}),
+        ...(sm?.reasoning === true ? { reasoning: true } : {}),
+        enabled: !hidden.has(model),
+      };
+    });
   };
 
   app.get("/api/models", async (c) => {
-    // 选择器清单（string[]）：只出开关开着的模型——管理面的显隐开关直接生效
-    const { ids, modelsFile } = await providerUnion();
+    // 选择器清单（模型目录收敛批）：key + baseUrl 齐备的厂商才出现——断开（摘 key）即从
+    // 选择器消失、缺地址（必然跑不通）不出现；条目带显示名/上下文窗/徽章位（对齐 BC 档）
+    const { credIds, modelsFile } = await providerUnion();
     const providers: Record<
       string,
-      { baseUrl?: string; models?: string[]; reasoning?: ReasoningCapability }
+      {
+        name?: string;
+        baseUrl?: string;
+        reasoning?: ReasoningCapability;
+        models: Array<{
+          id: string;
+          name?: string;
+          contextWindow?: number;
+          vision?: boolean;
+          reasoning?: boolean;
+        }>;
+      }
     > = {};
-    for (const id of ids) {
+    for (const id of new Set([...credIds, ...Object.keys(modelsFile.providers ?? {})])) {
+      const entry = modelsFile.providers?.[id];
+      // 闸门：缺地址（必然跑不通）不可选；已知厂商还需 key 在册（断开即摘除）——
+      // 自定义厂商 key 可选（无 key 也算连接，既有语义）
+      if (entry?.baseUrl === undefined) continue;
+      if (!credIds.includes(id) && SNAPSHOT[id] !== undefined) continue;
+      const baseUrl = entry.baseUrl;
       providers[id] = {
-        baseUrl: modelsFile.providers?.[id]?.baseUrl,
+        name: SNAPSHOT[id]?.name,
+        baseUrl,
+        reasoning: reasoningCapability(id), // 思考能力提示（UI 档位移除/置灰依据）
         models: modelEntries(id, modelsFile)
           .filter((m) => m.enabled)
-          .map((m) => m.id),
-        reasoning: reasoningCapability(id), // 思考能力提示（UI 档位移除/置灰依据）
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            contextWindow: m.contextWindow,
+            vision: m.vision,
+            reasoning: m.reasoning,
+          })),
       };
     }
     return c.json({ providers });
@@ -526,7 +563,19 @@ export function createApp(deps: AppDeps): Hono {
       .object({ key: z.string().min(1) })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "key required" }, 400);
-    await writeCredential(deps.globalDir, c.req.param("id"), parsed.data.key);
+    const id = c.req.param("id");
+    await writeCredential(deps.globalDir, id, parsed.data.key);
+    // 目录种子（模型目录收敛批）：已知厂商缺 baseUrl 时从快照 endpoint 补——连接即可跑，
+    // 用户永不手写地址（引擎仍只认 models.json，P9-4 不破）
+    const modelsFile = await readModelsFile(deps.globalDir);
+    const entry = modelsFile.providers?.[id] ?? {};
+    const endpoint = SNAPSHOT[id]?.endpoint;
+    if (entry.baseUrl === undefined && endpoint !== undefined) {
+      await writeModelsFile(deps.globalDir, {
+        ...modelsFile,
+        providers: { ...(modelsFile.providers ?? {}), [id]: { ...entry, baseUrl: endpoint } },
+      });
+    }
     return c.json({ ok: true }); // GET 无对应端点（D-030：明文永不回读）
   });
 
@@ -592,14 +641,23 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true, id });
   });
 
-  // 断开厂商：credentials.json 摘键（值从不回读）+ models.json 摘目录条目（自定义厂商同删）
+  // 断开厂商：credentials.json 摘键（值从不回读）；models.json 分档——已知厂商只清显隐
+  // （baseUrl/label 是承重配置，永不碰——2026-11-19 教训：整条删毁过用户手写地址）；
+  // 自定义厂商（user-*，面板自建）整条删
   app.delete("/api/providers/:id", async (c) => {
     const id = c.req.param("id");
     await removeCredential(deps.globalDir, id);
     const modelsFile = await readModelsFile(deps.globalDir);
     if (modelsFile.providers?.[id] !== undefined) {
       const providers = { ...modelsFile.providers };
-      delete providers[id];
+      if (SNAPSHOT[id] === undefined) {
+        delete providers[id];
+      } else {
+        const rest = { ...providers[id] };
+        delete rest.hidden;
+        if (Object.keys(rest).length === 0) delete providers[id];
+        else providers[id] = rest;
+      }
       await writeModelsFile(deps.globalDir, { ...modelsFile, providers });
     }
     return c.json({ ok: true });

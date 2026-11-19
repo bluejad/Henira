@@ -388,13 +388,17 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect(group?.connected).toBe(true);
     expect(JSON.stringify(groups)).not.toContain("sk-test-secret-123");
     // 开关隐藏 → 选择器过滤；管理面 enabled:false；开回还原
-    const modelId = catalog.providers.deepseek?.models?.[0] as string;
+    const modelId = catalog.providers.deepseek?.models?.[0]?.id as string;
     await facade.setModelEnabled("deepseek", modelId, false);
-    expect((await facade.listModels()).providers.deepseek?.models ?? []).not.toContain(modelId);
+    expect(
+      (await facade.listModels()).providers.deepseek?.models?.some((m) => m.id === modelId),
+    ).toBe(false);
     const off = (await facade.listProviders()).providers.find((p) => p.id === "deepseek");
     expect(off?.models.find((m) => m.id === modelId)?.enabled).toBe(false);
     await facade.setModelEnabled("deepseek", modelId, true);
-    expect((await facade.listModels()).providers.deepseek?.models ?? []).toContain(modelId);
+    expect(
+      (await facade.listModels()).providers.deepseek?.models?.some((m) => m.id === modelId),
+    ).toBe(true);
     // 自定义厂商（无 key 也算连接）：显式清单 + baseUrl；断开摘净
     const custom = await facade.putCustomProvider({
       label: "relay",
@@ -403,7 +407,7 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     });
     expect(custom.id.startsWith("user-")).toBe(true);
     const customCatalog = await facade.listModels();
-    expect(customCatalog.providers[custom.id]?.models).toContain("my-model");
+    expect(customCatalog.providers[custom.id]?.models?.some((m) => m.id === "my-model")).toBe(true);
     expect(customCatalog.providers[custom.id]?.baseUrl).toBe("https://relay.example.com/v1");
     await facade.disconnectProvider(custom.id);
     expect((await facade.listModels()).providers[custom.id]).toBeUndefined();

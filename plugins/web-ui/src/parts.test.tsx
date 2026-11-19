@@ -10,6 +10,7 @@ import { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
+import { ModelSelect } from "./parts/model-select.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import { SettingsModal } from "./parts/settings-modal.js";
@@ -455,8 +456,28 @@ describe("Composer", () => {
         getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
         listModels: async () => ({
           providers: {
-            deepseek: { baseUrl: "x", models: ["deepseek-v4-flash", "deepseek-flash"] },
-            zhipuai: { models: ["glm-5.3-flash"] },
+            deepseek: {
+              baseUrl: "x",
+              models: [
+                {
+                  id: "deepseek-v4-flash",
+                  name: "DeepSeek V4 Flash",
+                  contextWindow: 1048576,
+                  vision: true,
+                },
+                { id: "deepseek-flash", name: "DeepSeek Flash" },
+              ],
+            },
+            zhipuai: {
+              models: [
+                {
+                  id: "glm-5.3-flash",
+                  name: "GLM-5.3-Flash",
+                  contextWindow: 1000000,
+                  reasoning: true,
+                },
+              ],
+            },
           },
         }),
         putSettings,
@@ -471,7 +492,8 @@ describe("Composer", () => {
     fireEvent.click(trigger);
     const listbox = await screen.findByRole("listbox", { name: t("composer.model") });
     expect(listbox.textContent).toContain("zhipuai"); // 按厂商分组
-    fireEvent.click(screen.getByRole("option", { name: "deepseek/deepseek-flash" }));
+    // 条目可访问名 = 显示名+徽章排（BC 档）——按 title 定位完整 id
+    fireEvent.click(screen.getByRole("option", { name: "DeepSeek Flash" }));
     // 笔 6 语义：composer 选择 = 会话绑定（ui-state 记忆），全局默认归设置弹窗·模型管理页
     expect(updateUiState).toHaveBeenCalledWith({ model: "deepseek/deepseek-flash" });
     expect(putSettings).not.toHaveBeenCalled();
@@ -936,7 +958,11 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
       client: {
         ...fixtureCtx().client,
         getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
-        listModels: async () => ({ providers: { deepseek: { models: ["deepseek-v4-flash"] } } }),
+        listModels: async () => ({
+          providers: {
+            deepseek: { models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] },
+          },
+        }),
         putSettings,
         putCredential: async () => {},
       },
@@ -1121,12 +1147,56 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     });
   }
 
+  it("模型条目 BC 档显示：行首显示名、行尾上下文窗/视觉徽章；纯 id 条目无徽章排（模型目录收敛批）", async () => {
+    const ctx = fixtureCtx();
+    const providers = {
+      deepseek: {
+        name: "DeepSeek",
+        baseUrl: "x",
+        models: [
+          {
+            id: "deepseek-v4-flash",
+            name: "DeepSeek V4 Flash",
+            contextWindow: 1048576,
+            vision: true,
+          },
+          { id: "deepseek-flash", name: "DeepSeek Flash" },
+        ],
+      },
+    };
+    render(
+      <ModelSelect
+        ctx={ctx}
+        value=""
+        onChange={() => {}}
+        ariaLabel={t("composer.model")}
+        providers={providers}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: t("composer.model") }));
+    const items = await screen.findAllByRole("option");
+    expect(items).toHaveLength(2);
+    const first = items[0] as HTMLElement;
+    expect(first.querySelector(".henira-model-item-label")?.textContent).toBe("DeepSeek V4 Flash");
+    expect(first.getAttribute("title")).toBe("deepseek/deepseek-v4-flash"); // 完整 id 住 title
+    const meta = first.querySelector(".henira-model-item-meta")?.textContent ?? "";
+    expect(meta).toContain("1M"); // 上下文窗紧凑显示
+    expect(meta).toContain(t("settings.models.visionBadge"));
+    const second = items[1] as HTMLElement;
+    expect(second.querySelector(".henira-model-item-label")?.textContent).toBe("DeepSeek Flash");
+    expect(second.querySelector(".henira-model-item-meta")).toBeNull(); // 无徽章位不渲染排
+  });
+
   it("capability=none（deepseek）→ 思考档置灰「—」不可调；capability=thinking（zhipu）→ 四档可选", async () => {
     const noneCtx = fixtureCtx({
       client: {
         ...fixtureCtx().client,
         getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
-        listModels: async () => ({ providers: { deepseek: { models: ["deepseek-v4-flash"] } } }),
+        listModels: async () => ({
+          providers: {
+            deepseek: { models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] },
+          },
+        }),
       },
     });
     const { container } = render(<Composer {...noneCtx} />);
@@ -1144,7 +1214,18 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
         ...fixtureCtx().client,
         getSettings: async () => ({ version: 1, model: "zhipuai-coding-plan/glm-5.3-flash" }),
         listModels: async () => ({
-          providers: { "zhipuai-coding-plan": { models: ["glm-5.3-flash"] } },
+          providers: {
+            "zhipuai-coding-plan": {
+              models: [
+                {
+                  id: "glm-5.3-flash",
+                  name: "GLM-5.3-Flash",
+                  contextWindow: 1000000,
+                  reasoning: true,
+                },
+              ],
+            },
+          },
         }),
       },
     });
@@ -1167,7 +1248,18 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
         prompt: promptSpy,
         getSettings: async () => ({ version: 1, model: "deepseek/deepseek-v4-flash" }),
         listModels: async () => ({
-          providers: { "zhipuai-coding-plan": { models: ["glm-5.3-flash"] } },
+          providers: {
+            "zhipuai-coding-plan": {
+              models: [
+                {
+                  id: "glm-5.3-flash",
+                  name: "GLM-5.3-Flash",
+                  contextWindow: 1000000,
+                  reasoning: true,
+                },
+              ],
+            },
+          },
         }),
       },
     });

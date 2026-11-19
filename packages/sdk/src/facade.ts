@@ -31,8 +31,20 @@ export interface DirEntry {
   mtime?: number;
 }
 
+/** 选择器单模型条目（显示名/上下文窗/徽章位——模型目录收敛批，对齐 BC 档） */
+export interface CatalogModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  vision?: boolean;
+  reasoning?: boolean;
+}
+
 export interface ModelCatalog {
-  providers: Record<string, { baseUrl?: string; models?: string[] }>;
+  providers: Record<
+    string,
+    { name?: string; baseUrl?: string; reasoning?: ReasoningCapability; models?: CatalogModel[] }
+  >;
 }
 
 /** 管理面单模型条目（开关/显示名/上下文窗——模型管理分组消费） */
@@ -40,6 +52,8 @@ export interface ProviderModelEntry {
   id: string;
   name?: string;
   contextWindow?: number;
+  vision?: boolean;
+  reasoning?: boolean;
   enabled: boolean;
 }
 
