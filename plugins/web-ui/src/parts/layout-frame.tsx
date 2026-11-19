@@ -8,6 +8,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutOption, WebPart, WebPartContext, WebSlotName } from "../types.js";
 import { GearGlyph, HorseGlyph } from "./icons.js";
 import { SettingsModal } from "./settings-modal.js";
+import { SlotBoundary } from "./slot-boundary.js";
 
 /** 侧栏拖宽钳位（D-063；tokens.css --henira-sidebar-width 260 为未拖过时的 var 缺省） */
 const SIDEBAR_MIN = 200;
@@ -41,8 +42,13 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
     return (ctx.slots.get(slot) ?? []) as WebPart[];
   };
   const renderParts = (slot: WebSlotName): ReactNode[] =>
-    // key = 件名（同旧 Shell 惯例；同槽重名件是注册冲突场景，不在此兜）
-    partsOf(slot).map((Part) => <Part key={Part.name} {...ctx} />);
+    // key = 件名（同旧 Shell 惯例；同槽重名件是注册冲突场景，不在此兜）；
+    // 每件独立 boundary：崩溃只退出该件，不白屏（批 C，dsh abdicate 行为层）
+    partsOf(slot).map((Part) => (
+      <SlotBoundary key={Part.name} label={slot}>
+        <Part {...ctx} />
+      </SlotBoundary>
+    ));
 
   // ── 侧栏拖宽（D-063）：本地态管拖动中视觉，松手才落盘；每会话回填一次 ──
   const [leftWidth, setLeftWidth] = useState<number | undefined>(undefined);

@@ -13,6 +13,20 @@ export {
   type ModelsOverrideFile,
   SNAPSHOT,
 } from "./dictionary.js";
+export {
+  compareVersions,
+  type EngineModuleLoad,
+  loadEngineModule,
+  matchesEngineRange,
+  type PluginDiscovery,
+  type PluginManifest,
+  type PluginSettingsEntry,
+  type PluginState,
+  type PluginUiManifest,
+  type PrepareResult,
+  preparePlugins,
+  scanPlugins,
+} from "./discovery.js";
 export { type HeniraConfig, loadConfig } from "./load.js";
 export { bundledSkillDirs, defaultPreset, type PluginEntry } from "./preset.js";
 export {

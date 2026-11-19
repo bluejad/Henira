@@ -3,11 +3,23 @@
 // 语义）；InteractionService 缺省 = fail-closed 自动拒（没人应答一律拒，packages.md 槽位归属），
 // 嵌入方可整只替换。不写 server.json、不开端口——宿主职责到此为止。
 
-import { randomBytes } from "node:crypto";
-import { existsSync, promises as fs } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, promises as fs, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createConfigService, Dictionary, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
+import { fileURLToPath } from "node:url";
+import {
+  createConfigService,
+  Dictionary,
+  defaultPreset,
+  type PluginEntry,
+  type PluginSettingsEntry,
+  type PluginState,
+  type PrepareResult,
+  preparePlugins,
+  SNAPSHOT,
+  scanUiAssets,
+} from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
@@ -54,6 +66,7 @@ import {
   readModelsFile,
   readSettings,
   removeCredential,
+  setPluginSetting,
   writeCredential,
   writeModelsFile,
   writeSettings,
@@ -70,8 +83,74 @@ export interface RuntimeOptions {
   llm?: ServiceDefinition<LlmService>;
   /** 工具注册（嵌入方组合面——每个新建会话注册；缺省空） */
   tools?: readonly import("@henira/protocol").ToolDefinition[];
-  /** 额外引擎插件（henira.config.ts 清单加法，D-016①） */
-  plugins?: readonly ServiceDefinition<unknown>[];
+  /** 基础插件清单（henira.config.ts 的 plugins；非空 = 听它的，空/缺省 = 出厂清单。
+   *  条目 definition 在场 = 替换该官方件的实现；目录件由 preparePlugins 发现追加） */
+  plugins?: readonly PluginEntry[];
+}
+
+/** 官方五件 id：不给关/不给版本钉/不可卸载（§5 :222 / §6.4） */
+const OFFICIAL_PLUGIN_IDS = new Set([
+  "plugin-session",
+  "plugin-tools",
+  "plugin-llm",
+  "plugin-approval",
+  "plugin-loop",
+]);
+
+const CORE_SLOT_NAMES = new Set([
+  "session",
+  "tools",
+  "llm",
+  "approval",
+  "loop",
+  "interaction",
+  "config",
+]);
+
+/** 包入口解析（import 条件——@henira/* 的 exports 只声明 import）：优先 import.meta.resolve，
+ *  兜底按 monorepo 相对布局（src 与 dist 两种运行位置的层级一致） */
+function resolvePackageEntry(name: string, fallbackRel: string): string {
+  try {
+    const resolved = (import.meta as { resolve?: (specifier: string) => string }).resolve?.(name);
+    if (typeof resolved === "string" && resolved.startsWith("file:")) {
+      return fileURLToPath(resolved);
+    }
+  } catch {
+    // 环境不支持 / 解析失败 → 走布局兜底
+  }
+  return fileURLToPath(new URL(fallbackRel, import.meta.url));
+}
+
+/** 引擎件别名（§4 硬规矩 Node 侧）：@henira/kernel / @henira/protocol → 宿主唯一实例 */
+function engineAlias(): Record<string, string> {
+  return {
+    "@henira/kernel": resolvePackageEntry("@henira/kernel", "../../kernel/dist/index.js"),
+    "@henira/protocol": resolvePackageEntry("@henira/protocol", "../../protocol/dist/index.js"),
+  };
+}
+
+/** 引擎兼容门的主机版本（sdk 发布版本；读不到 = 0.0.0） */
+function sdkVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const manifest = JSON.parse(readFileSync(path.join(here, "../package.json"), "utf8")) as {
+      version?: string;
+    };
+    return manifest.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+/** 装配前置（与 server 同语义，双形态测试锁）：扫描 → settings 过滤 → 确认门 → 装载 → 预检 */
+async function prepareRuntimePlugins(dataDir: string, globalDir: string): Promise<PrepareResult> {
+  const settings = await readSettings(globalDir);
+  return preparePlugins({
+    pluginRoot: path.join(dataDir, "plugins"),
+    settings: settings as { plugins?: Record<string, PluginSettingsEntry> } | undefined,
+    engineAlias: engineAlias(),
+    hostVersion: sdkVersion(),
+  });
 }
 
 interface RuntimeSession {
@@ -153,6 +232,54 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
   }
 
   const sessions = new Map<string, RuntimeSession>();
+  /** 基础清单解析（§5 三步①）：官方 id → 内置工厂（definition 在场 = 替换实现；
+   *  session 槽 v1 只允许官方包装——宿主投影链要求，D-048 挂账） */
+  const baseDefinitions = (ctx: {
+    id: string;
+    cwd: string;
+    directory: string;
+    onAppend: (event: SessionEvent) => void;
+  }): ServiceDefinition<unknown>[] => {
+    const entries =
+      opts.plugins !== undefined && opts.plugins.length > 0 ? opts.plugins : defaultPreset;
+    const out: ServiceDefinition<unknown>[] = [];
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      switch (entry.id) {
+        case "plugin-session":
+          if (entry.definition !== undefined) {
+            console.warn(
+              "[sdk] 插件：v1 不支持替换 session 槽（宿主投影链要求官方包装，D-048 挂账）——按官方实现装载",
+            );
+          }
+          out.push(
+            observedSession(
+              sessionPlugin({ directory: ctx.directory, cwd: ctx.cwd, id: ctx.id }),
+              ctx.onAppend,
+            ),
+          );
+          break;
+        case "plugin-tools":
+          out.push(entry.definition ?? toolsPlugin({}));
+          break;
+        case "plugin-llm":
+          out.push(entry.definition ?? opts.llm ?? llmPlugin());
+          break;
+        case "plugin-approval":
+          out.push(entry.definition ?? approvalPlugin());
+          break;
+        case "plugin-loop":
+          out.push(entry.definition ?? loopPlugin());
+          break;
+        default:
+          if (entry.definition !== undefined) out.push(entry.definition);
+          else console.warn(`[sdk] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
+      }
+    }
+    return out;
+  };
   const dirs = new DirRegistry({ dataDir });
   const queues = new Map<object, ReturnType<typeof frameQueue>>();
   const seq = new Map<string, number>();
@@ -197,16 +324,27 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const onAppend = (event: SessionEvent): void => {
         publish(id, projection.ingest(event));
       };
-      const harness = createHarness()
-        .use(observedSession(sessionPlugin({ directory, cwd, id }), onAppend))
-        .use(toolsPlugin({}))
-        .use(opts.llm ?? llmPlugin())
-        .use(opts.interaction ?? autoRejectInteraction())
-        .use(approvalPlugin())
-        .use({ name: "config", start: () => createConfigService({ cwd, globalDir }) })
-        .use(loopPlugin());
-      for (const extra of opts.plugins ?? []) {
-        harness.use(extra); // 额外引擎插件（项目 henira.config.ts 清单加法，D-016①）
+      // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
+      const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
+      const harness = createHarness();
+      for (const definition of baseDefinitions({ id, cwd, directory, onAppend })) {
+        harness.use(definition);
+      }
+      harness.use(opts.interaction ?? autoRejectInteraction());
+      harness.use({ name: "config", start: () => createConfigService({ cwd, globalDir }) });
+      for (const item of preparedNow.definitions) {
+        const definition = item.definition as { name?: string; start?: unknown };
+        if (typeof definition.start !== "function") {
+          console.warn(`[sdk] 插件：${item.id} 的 definition 形状非法——跳过`);
+          continue;
+        }
+        if (definition.name !== undefined && CORE_SLOT_NAMES.has(definition.name)) {
+          console.warn(
+            `[sdk] 插件：${item.id} 占用内圈槽位 "${definition.name}"——跳过（§7.1 撞内圈不装载）`,
+          );
+          continue;
+        }
+        harness.use(item.definition as ServiceDefinition<unknown>);
       }
       await harness.start();
       session.harness = harness;
@@ -429,7 +567,59 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     },
 
     async listUiAssets() {
-      return scanUiAssets(globalDir);
+      return scanUiAssets(path.join(dataDir, "plugins"));
+    },
+
+    async listPlugins() {
+      // 每次现场发现（与 server 同语义：目录/开关变化即反映；装载走模块缓存）
+      const current = await prepareRuntimePlugins(dataDir, globalDir);
+      const official: PluginState[] = defaultPreset.map((entry) => ({
+        id: entry.id,
+        version: sdkVersion(),
+        name: entry.id,
+        forms: ["engine"],
+        enabled: true,
+        state: "loaded",
+        inject: [],
+        warnings: [],
+      }));
+      const plugins = [...official, ...current.states];
+      const fingerprint = createHash("sha1")
+        .update(JSON.stringify(plugins.map((p) => [p.id, p.version, p.state, p.enabled])))
+        .digest("hex")
+        .slice(0, 12);
+      return { plugins, fingerprint };
+    },
+
+    async confirmPlugin(id, version) {
+      await setPluginSetting(globalDir, id, { confirmedVersion: version });
+    },
+
+    async setPluginEnabled(id, enabled) {
+      if (OFFICIAL_PLUGIN_IDS.has(id)) throw new Error("official plugin is not toggleable");
+      if (!existsSync(path.join(dataDir, "plugins", id))) throw new Error("plugin not found");
+      await setPluginSetting(globalDir, id, { enabled });
+    },
+
+    async setPluginVersion(id, version) {
+      if (OFFICIAL_PLUGIN_IDS.has(id)) throw new Error("official plugin is not pinnable");
+      if (!existsSync(path.join(dataDir, "plugins", id, version, "plugin.json"))) {
+        throw new Error("plugin or version not found");
+      }
+      await setPluginSetting(globalDir, id, { version });
+    },
+
+    async removePlugin(id) {
+      if (OFFICIAL_PLUGIN_IDS.has(id)) throw new Error("official plugin is not removable");
+      const dir = path.join(dataDir, "plugins", id);
+      if (!existsSync(dir)) throw new Error("plugin not found");
+      await fs.rm(dir, { recursive: true, force: true });
+      const settings = await readSettings(globalDir);
+      if (settings?.plugins?.[id] !== undefined) {
+        const plugins = { ...settings.plugins };
+        delete plugins[id];
+        await writeSettings(globalDir, { plugins });
+      }
     },
 
     async listDir(sessionId, dirPath) {

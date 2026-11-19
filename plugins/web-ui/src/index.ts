@@ -14,9 +14,11 @@ export { RightPanel } from "./parts/right-panel.js";
 export { DetailPane, DisclosureRow, type DisclosureRowProps } from "./parts/row-chrome.js";
 export { SessionList } from "./parts/session-list.js";
 export { SettingsModal } from "./parts/settings-modal.js";
+export { SlotBoundary } from "./parts/slot-boundary.js";
 export type {
   HeniraClientLike,
   LayoutOption,
+  PluginInfo,
   PluginUiHost,
   RowStoreLike,
   SettingsSection,

@@ -42,7 +42,13 @@ interface SettingsFile {
   model?: string;
   plugins?: Record<
     string,
-    { enabled?: boolean; version?: string; options?: Record<string, unknown> }
+    {
+      enabled?: boolean;
+      version?: string;
+      /** 确认卡记录（批 C：engine 件首次生效 / 版本升级需用户确认） */
+      confirmedVersion?: string;
+      options?: Record<string, unknown>;
+    }
   >;
   ui?: { theme?: string };
 }

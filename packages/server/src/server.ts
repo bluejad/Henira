@@ -7,7 +7,7 @@ import type http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Dictionary } from "@henira/config-loader";
+import { Dictionary, type PluginEntry } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { DirRegistry } from "@henira/plugin-session";
 import type { LlmService } from "@henira/protocol";
@@ -29,8 +29,8 @@ export interface ServerOptions {
   token?: string;
   /** llm 槽位替换（测试 / demo 注入；默认官方 llmPlugin） */
   llm?: ServiceDefinition<LlmService>;
-  /** 额外引擎插件（henira.config.ts 清单加法，D-016①） */
-  plugins?: readonly ServiceDefinition<unknown>[];
+  /** 基础插件清单（henira.config.ts 的 plugins；非空 = 听它的，空/缺省 = 出厂清单 §5 装配三步①） */
+  plugins?: readonly PluginEntry[];
   /** web 静态产物目录（缺省自动定位 packages/web/dist-web；找不到 = 纯 API） */
   webDist?: string;
   /** 模型字典注入（测试桩；缺省现场构造 config-loader Dictionary） */
@@ -70,6 +70,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
     fanout,
     dataDir,
     globalDir,
+    pluginRoot: path.join(dataDir, "plugins"),
     version,
     startedAt,
     token,

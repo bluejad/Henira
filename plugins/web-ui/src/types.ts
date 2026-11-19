@@ -110,6 +110,29 @@ export interface HeniraClientLike {
   deleteSession?(id: string): Promise<void>;
   /** 行翻页（可选——长会话历史前插；宿主缺方法 = 不渲染「加载更早」，静态窗口） */
   sessionRows?(sessionId: string, opts?: { before?: number; limit?: number }): Promise<RowsPage>;
+  /** 插件清单（可选——设置弹窗插件页数据源；批 C：状态 enabled≠loaded + 指纹） */
+  listPlugins?(): Promise<{
+    plugins: Array<{
+      id: string;
+      version: string;
+      name: string;
+      description?: string;
+      forms: Array<"engine" | "ui" | "content">;
+      enabled: boolean;
+      state: "loaded" | "disabled" | "failed" | "awaiting-confirm";
+      reason?: string;
+      warnings: string[];
+    }>;
+    fingerprint: string;
+  }>;
+  /** 确认卡放行（可选——engine 件首次生效/版本升级） */
+  confirmPlugin?(id: string, version: string): Promise<void>;
+  /** 插件启停（可选——官方件拒绝；新会话生效） */
+  setPluginEnabled?(id: string, enabled: boolean): Promise<void>;
+  /** 插件版本钉（可选——官方件拒绝；新会话生效） */
+  setPluginVersion?(id: string, version: string): Promise<void>;
+  /** 卸载插件（可选——删 plugins/<id>；plugins-data 保留；官方件拒绝） */
+  removePlugin?(id: string): Promise<void>;
 }
 
 /** 行 store 最小结构面（哑渲染器的数据源：快照整体替换 + 增量；断档不猜纪律在 client） */
@@ -203,7 +226,7 @@ export type SlotPart = WebPart | ToolCallView;
 export type WebSlotName = "layout" | "sidebar" | "conversation" | "composer" | "sidebar.right";
 
 /** 设置弹窗分区（弹窗只列现有三项——用户裁定 2026-11-18：主题/语言/模型管理） */
-export type SettingsSection = "theme" | "locale" | "models";
+export type SettingsSection = "theme" | "locale" | "models" | "plugins";
 
 /** 整页布局选项（D-043 挑件语义，宿主 createWebApp opts.layout 同形）：
  * 预置三态（full=三栏 / center=对话+输入 / composer=只输入）或显式零件表 */
@@ -221,7 +244,16 @@ export interface UiModuleContext {
   host: PluginUiHost;
 }
 
-/** UI 模块拿到的宿主门面（M3 实装子集；useResource / listPlugins 为 M4 占位——返回 M4 语义值） */
+/** 插件清单元信息（PluginUiHost.listPlugins 成功面；批 C） */
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  enabled: boolean;
+}
+
+/** UI 模块拿到的宿主门面（M3 实装子集；useResource 为 M4 占位——返回 M4 语义值） */
 export interface PluginUiHost {
   sendPrompt(text: string): Promise<{ messageId: string | null; sessionId: string }>;
   /** 行词表帧流（ServerFrame，D-042 双向事件流：opt-in、有界队列背压） */
@@ -240,5 +272,5 @@ export interface PluginUiHost {
     cwd: string,
   ): Promise<{ id: string; cwd: string; title?: string; updatedAt: number }[]>;
   useResource(address: string): { status: "failed"; error: string }; // ⏳ M4 占位（plugin-mcp）
-  listPlugins(filter?: { category?: string }): Promise<never[]>; // ⏳ M4 占位（插件管理面随 M4）
+  listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // 批 C 实装（GET /api/plugins）
 }

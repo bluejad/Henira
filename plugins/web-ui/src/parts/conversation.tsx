@@ -13,7 +13,6 @@ import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/prot
 import { reasoningCapability } from "@henira/protocol";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  Fragment,
   memo,
   useEffect,
   useLayoutEffect,
@@ -26,6 +25,7 @@ import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
 import { ApprovalSettledRow } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 import { DetailPane, DisclosureRow } from "./row-chrome.js";
+import { SlotBoundary } from "./slot-boundary.js";
 
 /** 虚拟单位 = 轮（turn 相同行不拆散——工具输出与回答同轮同块；key = turnId，无 turn 的
  *  error 行独立成块）。ZCode ConversationTurnRenderUnit 思想的行模型简版。 */
@@ -198,10 +198,16 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
             {ctx.t("conversation.thinking")}
           </p>
         ) : null}
-        {tailParts.map((part, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 追加位件为无状态纯呈现函数（注册序即渲染序、卸载即整表移除）——索引键无重排歧义
-          <Fragment key={i}>{(part as WebPart)(ctx)}</Fragment>
-        ))}
+        {tailParts.map((part, i) => {
+          // 件 = React 组件（可带 hooks）：JSX 渲染，不直呼（直呼会把 hooks 落进外层序列——批 C 修正）
+          const TailPart = part as WebPart;
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 追加位按注册序渲染、卸载即整表移除——索引键无重排歧义
+            <SlotBoundary key={i} label="turn.tail">
+              <TailPart {...ctx} />
+            </SlotBoundary>
+          );
+        })}
       </div>
       {loadingOlder ? (
         <div
@@ -490,7 +496,16 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
           ) : null}
         </div>
       ) : null}
-      {gallery !== undefined ? gallery(ctx) : null}
+      {gallery !== undefined
+        ? (() => {
+            const Gallery = gallery; // 组件渲染（hooks 合法——批 C 修正）
+            return (
+              <SlotBoundary label="conversation.images">
+                <Gallery {...ctx} />
+              </SlotBoundary>
+            );
+          })()
+        : null}
     </div>
   );
 }
@@ -604,7 +619,14 @@ function ReasoningView({
 /** 工具行：keyed 槽 tool.call.view.<工具名> 顶替官方工具卡（D-057；官方默认=未被顶替时生效） */
 function ToolRowView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }): React.ReactNode {
   const view = ctx.slots.get(`tool.call.view.${row.name}`)?.[0] as ToolCallView | undefined;
-  return view !== undefined ? view({ ctx, row }) : <ToolView row={row} ctx={ctx} />;
+  const View = view; // 组件渲染（hooks 合法——批 C 修正）
+  return View !== undefined ? (
+    <SlotBoundary label={`tool.call.view.${row.name}`}>
+      <View ctx={ctx} row={row} />
+    </SlotBoundary>
+  ) : (
+    <ToolView row={row} ctx={ctx} />
+  );
 }
 
 /** 复制按钮（common.copy / common.copied）。t 可选注入（markdown 代码块头部条复用——

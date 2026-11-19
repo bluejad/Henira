@@ -268,6 +268,23 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     }
   });
 
+  it("listPlugins（批 C）：官方五件在列、状态 loaded、指纹 12 hex（双形态同形状）", async () => {
+    const { facade } = await form.make([]);
+    const snapshot = await facade.listPlugins();
+    const ids = new Set(snapshot.plugins.map((p) => p.id));
+    for (const id of [
+      "plugin-session",
+      "plugin-tools",
+      "plugin-llm",
+      "plugin-approval",
+      "plugin-loop",
+    ]) {
+      expect(ids.has(id)).toBe(true);
+    }
+    expect(snapshot.plugins.every((p) => p.state === "loaded" && p.enabled)).toBe(true);
+    expect(snapshot.fingerprint).toMatch(/^[0-9a-f]{12}$/);
+  });
+
   it("deleteSession：闲删后列表移除 + snapshot 拒绝；回合悬挂时拒绝（busy 保护）", async () => {
     const { facade } = await form.make(["hang"]);
     const session = await facade.createSession();

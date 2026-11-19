@@ -2,7 +2,7 @@
 // 吐同一 ServerEvent 词表——"进程内与远程行为一致"由同一测试套件对双形态跑锁。
 // 纯 TS 零 React（sdk 不携带界面，D-037）。
 
-import type { UiAssets } from "@henira/config-loader";
+import type { PluginState, UiAssets } from "@henira/config-loader";
 import type {
   Decision,
   DirBrowse,
@@ -129,6 +129,16 @@ export interface HeniraFacade {
   putCredential(providerId: string, key: string): Promise<void>;
   /** 界面资产清单（D-059 语言包/主题包；runtime 进程内直扫 globalDir、client 走 /api/ui-assets） */
   listUiAssets(): Promise<UiAssets>;
+  /** 插件清单（批 C：GET /api/plugins 同源——状态 enabled≠loaded + 指纹；UI 宿主轮询重装用） */
+  listPlugins(): Promise<{ plugins: PluginState[]; fingerprint: string }>;
+  /** 确认卡放行（engine 件首次生效 / 版本升级；写 settings.plugins.<id>.confirmedVersion） */
+  confirmPlugin(id: string, version: string): Promise<void>;
+  /** 插件启停（settings.plugins.<id>.enabled；官方件拒绝——§5 :222） */
+  setPluginEnabled(id: string, enabled: boolean): Promise<void>;
+  /** 插件版本钉（settings.plugins.<id>.version；新会话生效；官方件拒绝） */
+  setPluginVersion(id: string, version: string): Promise<void>;
+  /** 卸载插件（删 plugins/<id> 整目录；plugins-data 默认保留；官方件拒绝） */
+  removePlugin(id: string): Promise<void>;
   /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;
   /** 登记工作目录列表（data-directory §4 projects.json——权威工作区列表，含自愈） */

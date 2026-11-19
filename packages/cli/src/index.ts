@@ -68,18 +68,17 @@ function mockLlmService(): ServiceDefinition<LlmService> {
   };
 }
 
-/** 项目 henira.config.ts 的插件清单 → 装配物（definition 缺省的纯内容包条目跳过——不占引擎槽位） */
-async function loadPluginDefinitions(cwd: string): Promise<ServiceDefinition<unknown>[]> {
+/** 项目 henira.config.ts 的插件清单（基础清单原样传给宿主——官方 id 由宿主内置工厂解析，
+ *  自定义条目带 definition；纯内容包条目只带 id，由宿主目录读者处理） */
+async function loadPluginEntries(cwd: string): Promise<PluginEntry[]> {
   const cfg = await loadConfig(cwd);
-  return (cfg.plugins ?? [])
-    .map((entry: PluginEntry) => entry.definition)
-    .filter((def): def is ServiceDefinition<unknown> => def !== undefined);
+  return cfg.plugins ?? [];
 }
 
 async function serve(args: Args): Promise<void> {
   const cwd = args.flags.get("cwd") ?? process.cwd();
   process.chdir(cwd); // 会话 cwd 与 server 进程 cwd 一致（会话目录按 cwd 派生，data-directory §4）
-  const plugins = await loadPluginDefinitions(process.cwd());
+  const plugins = await loadPluginEntries(process.cwd());
   const server = await createServer({
     port: args.flags.has("port") ? Number(args.flags.get("port")) : undefined,
     host: args.flags.get("host"),
@@ -104,7 +103,7 @@ async function run(args: Args): Promise<void> {
   }
   const cwd = args.flags.get("cwd") ?? process.cwd();
   process.chdir(cwd);
-  const plugins = await loadPluginDefinitions(process.cwd());
+  const plugins = await loadPluginEntries(process.cwd());
   const runtime = await createRuntime({
     plugins,
     llm: args.flags.has("mock") ? mockLlmService() : undefined,

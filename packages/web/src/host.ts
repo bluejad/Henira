@@ -1,7 +1,11 @@
+import * as React from "react";
 import { createElement } from "react";
+import * as ReactJsxRuntime from "react/jsx-runtime";
+import * as ReactDOMClient from "react-dom/client";
 import { createRoot, type Root } from "react-dom/client";
 // 职责：帧流消费（喂 store）/ PluginUiHost 门面实现（13 方法 M3 子集）/ UI 模块激活
-// （公共注册路径）或安全模式（编译期出口默认组合）/ 主题接线 / 双击 Alt 切安全模式。
+// （公共注册路径）或安全模式（编译期出口默认组合）/ 主题接线 / 双击 Alt 切安全模式 /
+// 第三方 UI 件装载与免刷新重装（批 C）。
 // 渲染 = 只挂 layout 槽的官方框架件（D-062 整页框架槽）——宿主零界面 JSX，一切可见物
 // 都在 plugin-web-ui 件（框架件同一注册声明子槽，声明=独占渲染权，dsh AppFrame 行为层）。
 
@@ -25,6 +29,19 @@ import { RowStore } from "./store.js";
 
 /** 整页布局选项（形状真源在 plugin-web-ui types.LayoutOption；API 兼容别名） */
 export type Layout = LayoutOption;
+
+// 第三方 UI 共享实例表（批 C）：宿主 React family 挂 window，server 伺服的小 ESM shim
+// （/api/ui-shims/*）从这里 re-export——import map 把 "react" 等说明符指到 shim，
+// 插件与宿主零复制共用唯一实例（plugins.md §4 :227 口子）。SSR/无 window 环境跳过。
+if (typeof window !== "undefined") {
+  (window as unknown as { __HENIRA_UI__?: { modules: Record<string, unknown> } }).__HENIRA_UI__ = {
+    modules: {
+      react: React,
+      "react/jsx-runtime": ReactJsxRuntime,
+      "react-dom/client": ReactDOMClient,
+    },
+  };
+}
 
 export interface WebAppOptions {
   client: HeniraFacade;
@@ -127,8 +144,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   }
 
   // ── 槽位管理：激活 UI 模块（公共注册路径）或安全模式直用编译期出口 ──
-  // 词表（D-033 区域 + D-043 官方槽 + D-057 keyed 前缀 + D-062 结构性/右栏）；词表外静默
-  // 忽略（别的宿主词表同款），告警基建随批 C 管理面补。keyed 前缀合法、后缀自由。
+  // 词表（D-033 区域 + D-043 官方槽 + D-057 keyed 前缀 + D-062 结构性/右栏）；词表外 =
+  // 完全未知 → 告警并忽略（§7.2；别的宿主词表随移动端词表落地再区分）。keyed 前缀合法、后缀自由。
   const REGION_SLOTS = new Set([
     "layout",
     "sidebar",
@@ -143,12 +160,27 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   const slotAccepted = (name: string): boolean =>
     REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
   const slots = new Map<string, SlotPart[]>();
-  function activateModule(): void {
-    const ctx: UiModuleContext = {
-      registerSlot: (name, part) => {
-        if (!slotAccepted(name)) return () => {};
+  /** registerSlot 的 order 旁路记录（插入排序用；part 是函数，WeakMap 门牌） */
+  let partOrders = new WeakMap<object, number>();
+  /** UI 装载告警（管理面 C3 消费；先 console + 收集） */
+  const uiWarnings: string[] = [];
+  let moduleCtx: UiModuleContext | undefined;
+
+  function makeModuleContext(): UiModuleContext {
+    return {
+      registerSlot: (name, part, registerOpts) => {
+        if (!slotAccepted(name)) {
+          const message = `unknown UI slot, ignored: ${name}`;
+          console.warn(`[henira] ${message}`);
+          uiWarnings.push(message);
+          return () => {};
+        }
         const list = slots.get(name) ?? [];
-        list.push(part);
+        const order = registerOpts?.order ?? 0;
+        partOrders.set(part as unknown as object, order);
+        const at = list.findIndex((p) => (partOrders.get(p as unknown as object) ?? 0) > order);
+        if (at === -1) list.push(part);
+        else list.splice(at, 0, part);
         slots.set(name, list);
         return () => {
           const current = slots.get(name);
@@ -158,7 +190,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         };
       },
       replaceSlot: (name, part) => {
-        if (!slotAccepted(name)) return () => {};
+        if (!slotAccepted(name)) {
+          console.warn(`[henira] unknown UI slot, ignored: ${name}`);
+          return () => {};
+        }
         if (slots.has(name)) {
           throw new Error(`slot conflict: ${name} already has a default part (D-022)`);
         }
@@ -167,17 +202,113 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       },
       host: hostFacade,
     };
-    moduleDispose = webUiModule(ctx);
   }
+
   function renderSlots(): void {
     slots.clear();
+    partOrders = new WeakMap();
+    disposeThirdPartyUi();
     if (safeMode) {
       for (const [name, part] of Object.entries(defaultParts) as [WebSlotName, WebPart][]) {
         slots.set(name, [part]);
       }
     } else {
-      activateModule();
+      moduleCtx = makeModuleContext();
+      moduleDispose = webUiModule(moduleCtx);
+      void syncThirdPartyUi();
     }
+  }
+
+  // ── 第三方 UI 件装载（批 C）：清单 → 动态 import → apply(ctx)；指纹轮询免刷新重装
+  //（plugins.md §4 :206 升级口径：版本化 URL，停用/启用/切版本 = dispose + 重装，不刷新页面）
+  interface ThirdPartyEntry {
+    version: string;
+    dispose?: () => void;
+  }
+  const thirdParty = new Map<string, ThirdPartyEntry>();
+  let lastFingerprint = "";
+  let uiPollTimer: ReturnType<typeof setInterval> | undefined;
+
+  function disposeThirdPartyUi(): void {
+    for (const [id, entry] of [...thirdParty]) {
+      try {
+        entry.dispose?.();
+      } catch (err) {
+        console.warn(`[henira] UI plugin dispose failed ${id}:`, err);
+      }
+      thirdParty.delete(id);
+    }
+    if (uiPollTimer !== undefined) {
+      clearInterval(uiPollTimer);
+      uiPollTimer = undefined;
+    }
+    lastFingerprint = "";
+  }
+
+  async function syncThirdPartyUi(): Promise<void> {
+    if (safeMode || moduleCtx === undefined) return;
+    if (typeof opts.client.listPlugins !== "function") return; // 旧 facade / 假 client
+    let snapshot: Awaited<ReturnType<HeniraFacade["listPlugins"]>>;
+    try {
+      snapshot = await opts.client.listPlugins();
+    } catch {
+      return; // 目录拉不到不挡官方界面
+    }
+    if (uiPollTimer === undefined) {
+      uiPollTimer = setInterval(() => {
+        void syncThirdPartyUi();
+      }, 2000); // 指纹轮询：新版本目录 / 开关变化 → 免刷新重装
+    }
+    if (safeMode) return; // 轮询期间切了安全模式
+    if (snapshot.fingerprint === lastFingerprint) return;
+    lastFingerprint = snapshot.fingerprint;
+    for (const [id, entry] of [...thirdParty]) {
+      try {
+        entry.dispose?.();
+      } catch (err) {
+        console.warn(`[henira] UI plugin dispose-before-reload failed ${id}:`, err);
+      }
+      thirdParty.delete(id);
+    }
+    const targets = snapshot.plugins.filter(
+      (plugin) =>
+        plugin.enabled &&
+        plugin.state === "loaded" &&
+        plugin.forms.includes("ui") &&
+        plugin.ui !== undefined,
+    );
+    for (const plugin of targets) {
+      const entryPath = plugin.ui?.entry;
+      if (entryPath === undefined) continue;
+      const url = `/api/ui-assets/${encodeURIComponent(plugin.id)}/${encodeURIComponent(
+        plugin.version,
+      )}/file/${entryPath}?v=${encodeURIComponent(plugin.version)}`;
+      try {
+        const mod = (await import(/* @vite-ignore */ url)) as {
+          apply?: unknown;
+          default?: unknown;
+        };
+        const candidate =
+          typeof mod.apply === "function"
+            ? mod.apply
+            : typeof (mod.default as { apply?: unknown } | undefined)?.apply === "function"
+              ? (mod.default as { apply: (ctx: UiModuleContext) => unknown }).apply
+              : typeof mod.default === "function"
+                ? (mod.default as (ctx: UiModuleContext) => unknown)
+                : undefined;
+        if (candidate === undefined) throw new Error("module does not export apply(ctx)");
+        const dispose = await (candidate as (ctx: UiModuleContext) => unknown)(moduleCtx);
+        thirdParty.set(plugin.id, {
+          version: plugin.version,
+          dispose: typeof dispose === "function" ? (dispose as () => void) : undefined,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[henira] UI plugin load failed ${plugin.id}: ${message}`);
+        uiWarnings.push(`UI load failed ${plugin.id}: ${message}`);
+      }
+    }
+    render();
   }
 
   // ── PluginUiHost 门面（M3 实装子集；useResource / listPlugins 为 M4 占位）──
@@ -233,7 +364,16 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       error: "useResource lands with plugin-mcp (M4)",
     }),
     async listPlugins() {
-      return [] as never[]; // M4 占位（插件管理面随 M4）
+      const snapshot = await opts.client.listPlugins();
+      return snapshot.plugins
+        .filter((plugin) => plugin.enabled)
+        .map((plugin) => ({
+          id: plugin.id,
+          name: plugin.name,
+          version: plugin.version,
+          description: plugin.description,
+          enabled: plugin.enabled,
+        }));
     },
   };
 
@@ -507,6 +647,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       frameAbort?.abort();
       if (keyListener !== undefined) window.removeEventListener("keydown", keyListener);
       if (pageHideListener !== undefined) window.removeEventListener("pagehide", pageHideListener);
+      disposeThirdPartyUi();
       moduleDispose?.();
       root?.unmount();
       await opts.client.stop();

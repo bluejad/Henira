@@ -1477,3 +1477,55 @@ button:focus-visible > .henira-row-caret {
   flex: 1;
   min-width: 0;
 }
+
+/* ── 插件页（批 C，plugins.md §6.4 管理面）：列表行 / 状态徽章 / 开关 ── */
+.henira-plugins-page {
+  display: flex;
+  flex-direction: column;
+}
+.henira-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-fs-sm);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--henira-border);
+}
+.henira-plugin-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-plugin-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.henira-plugin-badge {
+  font-size: var(--henira-fs-sm);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--henira-border-strong);
+}
+.henira-plugin-badge[data-state="loaded"] {
+  color: var(--henira-ok-text);
+  background: var(--henira-ok-bg);
+  border-color: transparent;
+}
+.henira-plugin-badge[data-state="failed"] {
+  color: var(--henira-danger-text);
+  background: var(--henira-danger-bg);
+  border-color: transparent;
+}
+.henira-plugin-badge[data-state="confirm"] {
+  color: var(--henira-info-text);
+  background: var(--henira-info-bg);
+  border-color: transparent;
+}
+.henira-plugin-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--henira-fs-sm);
+}

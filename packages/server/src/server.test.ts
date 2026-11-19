@@ -42,7 +42,11 @@ const llmStub = (service: LlmService): ServiceDefinition<LlmService> => ({
 
 async function makeServer(
   script: readonly MockEntry[],
-  opts?: { token?: string; dictionary?: ServerOptions["dictionary"] },
+  opts?: {
+    token?: string;
+    dictionary?: ServerOptions["dictionary"];
+    plugins?: ServerOptions["plugins"];
+  },
 ): Promise<Ctx & { mock: { requests: readonly unknown[] }; globalDir: string; dataDir: string }> {
   const { mockLlm } = await import("@henira/llm-mock");
   const mock = mockLlm(script);
@@ -61,6 +65,7 @@ async function makeServer(
     token: opts?.token,
     llm: llmStub(mock.service),
     dictionary: opts?.dictionary,
+    plugins: opts?.plugins,
   });
   return {
     server,
@@ -630,9 +635,9 @@ describe("REST 面与设置", () => {
   });
 
   it("ui-assets（D-059）：清单枚举已装语言包 + 资产只读伺服 + 穿越与非法 kind 拒绝", async () => {
-    const { base, globalDir, cleanup } = await makeServer([]);
+    const { base, dataDir, cleanup } = await makeServer([]);
     try {
-      const v = path.join(globalDir, "plugins", "ja-pack", "1.0.0");
+      const v = path.join(dataDir, "plugins", "ja-pack", "1.0.0");
       await fs.mkdir(path.join(v, "locales"), { recursive: true });
       await fs.writeFile(
         path.join(v, "locales", "ja.json"),
@@ -1419,6 +1424,215 @@ describe("模型管理面（四视图服务端半边）", () => {
       };
       expect(presets.presets.fakeprov?.name).toBe("Fake");
       expect(presets.presets.fakeprov?.models.m1?.contextWindow).toBe(4096);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("插件装载（批 C：目录发现 + 确认门 + 目录件装配）", () => {
+  /** 写一个最小 engine 件（probe 服务 + inject tools） */
+  async function writeProbePack(dataDir: string): Promise<void> {
+    const v = path.join(dataDir, "plugins", "probe-pack", "1.0.0");
+    await fs.mkdir(path.join(v, "engine"), { recursive: true });
+    await fs.writeFile(
+      path.join(v, "plugin.json"),
+      JSON.stringify({ name: "probe-pack", version: "1.0.0", engine: {} }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(v, "engine", "main.js"),
+      'export const inject = ["tools"];\nexport default { name: "probe", start() { return { ok: true }; } };\n',
+      "utf8",
+    );
+  }
+
+  it("engine 件：未确认不装载 → confirm 后新会话生效（probe 槽）；/api/plugins 状态跟手 + 指纹", async () => {
+    const { server, base, dataDir, cleanup } = await makeServer([]);
+    try {
+      await writeProbePack(dataDir);
+      const before = (await (await fetch(`${base}/api/plugins`)).json()) as {
+        plugins: { id: string; state: string; forms: string[] }[];
+        fingerprint: string;
+      };
+      const pending = before.plugins.find((p) => p.id === "probe-pack");
+      expect(pending?.state).toBe("awaiting-confirm");
+      expect(pending?.forms).toContain("engine");
+      // 官方五件在列（source official 由 UI 侧区分；状态 loaded）
+      expect(before.plugins.some((p) => p.id === "plugin-loop" && p.state === "loaded")).toBe(true);
+      expect(before.fingerprint).toMatch(/^[0-9a-f]{12}$/);
+
+      // 未确认 = fail-closed：会话里没有 probe 槽
+      const blocked = await server.registry.create({ cwd: dataDir });
+      expect(() =>
+        (blocked.ctx as unknown as { get(name: string): unknown }).get("probe"),
+      ).toThrow();
+
+      const confirm = await fetch(`${base}/api/plugins/probe-pack/confirm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ version: "1.0.0" }),
+      });
+      expect(confirm.status).toBe(200);
+
+      const after = (await (await fetch(`${base}/api/plugins`)).json()) as {
+        plugins: { id: string; state: string }[];
+      };
+      expect(after.plugins.find((p) => p.id === "probe-pack")?.state).toBe("loaded");
+      const mounted = await server.registry.create({ cwd: dataDir });
+      expect((mounted.ctx as unknown as { get(name: string): unknown }).get("probe")).toEqual({
+        ok: true,
+      });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("坏清单 / 依赖违规：跳过 + 告警不挡启动，/api/plugins 可见 failed", async () => {
+    const { server, base, globalDir, dataDir, cleanup } = await makeServer([]);
+    try {
+      const badJson = path.join(dataDir, "plugins", "bad-pack", "1.0.0");
+      await fs.mkdir(badJson, { recursive: true });
+      await fs.writeFile(path.join(badJson, "plugin.json"), "{", "utf8");
+      const forbidden = path.join(dataDir, "plugins", "forbidden-pack", "1.0.0");
+      await fs.mkdir(path.join(forbidden, "engine"), { recursive: true });
+      await fs.writeFile(
+        path.join(forbidden, "plugin.json"),
+        JSON.stringify({ name: "forbidden-pack", version: "1.0.0", engine: {} }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(forbidden, "engine", "main.js"),
+        'export default { name: "x", start() { return {}; } };\n',
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(forbidden, "engine", "package.json"),
+        JSON.stringify({ dependencies: { "@henira/protocol": "*" } }),
+        "utf8",
+      );
+      // 依赖违规检查发生在「确认之后」（未确认先卡），预写确认记录再装配
+      await fs.writeFile(
+        path.join(globalDir, "settings.json"),
+        JSON.stringify({
+          version: 1,
+          model: "mock/mock-1",
+          plugins: { "forbidden-pack": { confirmedVersion: "1.0.0" } },
+        }),
+        "utf8",
+      );
+      await server.registry.create({ cwd: dataDir });
+      const list = (await (await fetch(`${base}/api/plugins`)).json()) as {
+        plugins: { id: string; state: string; reason?: string }[];
+      };
+      // 坏清单不进 plugins 列表（发现层跳过）但服务照常
+      expect(list.plugins.some((p) => p.id === "bad-pack")).toBe(false);
+      const failed = list.plugins.find((p) => p.id === "forbidden-pack");
+      expect(failed?.state).toBe("failed");
+      expect(failed?.reason).toContain("@henira/protocol");
+      // 启动与建会话不受影响
+      const sessions = await fetch(`${base}/api/sessions`);
+      expect(sessions.status).toBe(200);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("config.plugins 对 serve 生效：清单只列部分官方件 → 缺失槽位按内核报错兜底", async () => {
+    const { server, cleanup } = await makeServer([], { plugins: [{ id: "plugin-session" }] });
+    try {
+      const entry = await server.registry.create({ cwd: root });
+      expect(() => entry.ctx.get("loop")).toThrow(); // 清单没列 loop = 不装（听清单的）
+      expect(() => entry.ctx.get("tools")).toThrow();
+      expect(entry.ctx.get("session")).toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("config.plugins 自定义条目：definition 进 harness（非官方 id）", async () => {
+    const { server, cleanup } = await makeServer([], {
+      plugins: [
+        { id: "plugin-session" },
+        { id: "plugin-tools" },
+        { id: "plugin-llm" },
+        { id: "plugin-approval" },
+        { id: "plugin-loop" },
+        {
+          id: "custom-probe",
+          definition: { name: "probe", start: () => ({ ok: true }) },
+        },
+      ],
+    });
+    try {
+      const entry = await server.registry.create({ cwd: root });
+      expect((entry.ctx as unknown as { get(name: string): unknown }).get("probe")).toEqual({
+        ok: true,
+      });
+      expect(entry.ctx.get("loop")).toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("管理面端点：启停 / 版本钉 / 卸载（官方件一律拒绝；settings 落盘；plugins-data 保留）", async () => {
+    const { base, dataDir, globalDir, cleanup } = await makeServer([]);
+    const putJson = (urlPath: string, body: unknown): Promise<Response> =>
+      fetch(`${base}${urlPath}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    try {
+      // 装一个双版本 UI 件
+      for (const version of ["1.0.0", "2.0.0"]) {
+        const v = path.join(dataDir, "plugins", "admin-pack", version);
+        await fs.mkdir(v, { recursive: true });
+        await fs.writeFile(
+          path.join(v, "plugin.json"),
+          JSON.stringify({ name: "admin-pack", version }),
+          "utf8",
+        );
+      }
+
+      // 启停：写 settings.plugins.<id>.enabled；官方五件拒绝
+      expect((await putJson("/api/plugins/admin-pack/enabled", { enabled: false })).status).toBe(
+        200,
+      );
+      const settings = JSON.parse(
+        await fs.readFile(path.join(globalDir, "settings.json"), "utf8"),
+      ) as { plugins?: Record<string, { enabled?: boolean }> };
+      expect(settings.plugins?.["admin-pack"]?.enabled).toBe(false);
+      expect((await putJson("/api/plugins/plugin-loop/enabled", { enabled: false })).status).toBe(
+        404,
+      );
+
+      // 版本钉：盘上存在的版本 ok；不存在 404；官方件拒绝
+      expect((await putJson("/api/plugins/admin-pack/version", { version: "1.0.0" })).status).toBe(
+        200,
+      );
+      expect((await putJson("/api/plugins/admin-pack/version", { version: "9.9.9" })).status).toBe(
+        404,
+      );
+      expect((await putJson("/api/plugins/plugin-loop/version", { version: "1.0.0" })).status).toBe(
+        404,
+      );
+
+      // 卸载：官方件 403；删 plugins/<id> 整目录；plugins-data 保留；重复卸载 404
+      const pluginData = path.join(dataDir, "plugins-data", "admin-pack");
+      await fs.mkdir(pluginData, { recursive: true });
+      await fs.writeFile(path.join(pluginData, "state.json"), "{}", "utf8");
+      expect((await fetch(`${base}/api/plugins/plugin-loop`, { method: "DELETE" })).status).toBe(
+        403,
+      );
+      expect((await fetch(`${base}/api/plugins/admin-pack`, { method: "DELETE" })).status).toBe(
+        200,
+      );
+      await expect(fs.access(path.join(dataDir, "plugins", "admin-pack"))).rejects.toThrow();
+      await fs.access(pluginData); // plugins-data 保留（§6.4）
+      expect((await fetch(`${base}/api/plugins/admin-pack`, { method: "DELETE" })).status).toBe(
+        404,
+      );
     } finally {
       await cleanup();
     }

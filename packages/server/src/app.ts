@@ -37,6 +37,7 @@ import {
   writeModelsFile,
   writeSettings,
 } from "./settings-store.js";
+import { injectImportMap, lookupUiShim } from "./ui-shims.js";
 import {
   readGlobalUiState,
   readSessionUiState,
@@ -61,6 +62,8 @@ export interface AppDeps {
   /** 全局数据根（HENIRA_HOME；state/ui.json 与 projects/ 都在它下面） */
   dataDir: string;
   globalDir: string;
+  /** 用户级插件根（data-directory §2:61：~/.henira/plugins——批 C 修正，勿再拼 config/） */
+  pluginRoot: string;
   version: string;
   startedAt: number;
   token?: string;
@@ -681,7 +684,59 @@ export function createApp(deps: AppDeps): Hono {
 
   // ── 界面资产（D-059 语言包/主题包）：清单 + 只读伺服（同 ui/ 静态路由纪律：只读版本目录、禁穿越）──
   app.get("/api/ui-assets", async (c) => {
-    return c.json(await scanUiAssets(deps.globalDir));
+    return c.json(await scanUiAssets(deps.pluginRoot));
+  });
+
+  // ── 插件清单（批 C：plugins.md §5 状态模型；官方五件 + 目录件；指纹供 UI 轮询重装）──
+  app.get("/api/plugins", async (c) => {
+    return c.json(await deps.registry.pluginSnapshot());
+  });
+
+  // 确认卡放行（engine 件首次生效 / 版本升级，§4 安全规则）：写 settings.plugins.<id>.confirmedVersion
+  app.post("/api/plugins/:id/confirm", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { version?: unknown };
+    const version = typeof body.version === "string" ? body.version : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(version)) {
+      return c.json({ error: "invalid plugin id or version" }, 400);
+    }
+    const ok = await deps.registry.confirmPlugin(id, version);
+    if (!ok) return c.json({ error: "plugin not found or not an engine plugin" }, 404);
+    return c.json({ ok: true });
+  });
+
+  // ── 插件管理面（批 C，plugins.md §6.4）：启停 / 版本切换 / 卸载（官方件一律拒绝）──
+  app.put("/api/plugins/:id/enabled", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || typeof body.enabled !== "boolean") {
+      return c.json({ error: "invalid plugin id or enabled" }, 400);
+    }
+    const ok = await deps.registry.setPluginEnabled(id, body.enabled);
+    if (!ok) return c.json({ error: "plugin not found or official (not toggleable)" }, 404);
+    return c.json({ ok: true });
+  });
+
+  app.put("/api/plugins/:id/version", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { version?: unknown };
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || typeof body.version !== "string") {
+      return c.json({ error: "invalid plugin id or version" }, 400);
+    }
+    const ok = await deps.registry.setPluginVersion(id, body.version);
+    if (!ok) return c.json({ error: "plugin or version not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  app.delete("/api/plugins/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+      return c.json({ error: "invalid plugin id" }, 400);
+    }
+    const result = await deps.registry.removePlugin(id);
+    if (result === "official") return c.json({ error: "official plugin is not removable" }, 403);
+    if (result === "missing") return c.json({ error: "plugin not found" }, 404);
+    return c.json({ ok: true });
   });
 
   const SAFE_SEG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -695,7 +750,7 @@ export function createApp(deps: AppDeps): Hono {
     ) {
       return c.json({ error: "invalid asset path" }, 400);
     }
-    const root = path.resolve(deps.globalDir, "plugins");
+    const root = path.resolve(deps.pluginRoot);
     const resolved = path.resolve(root, id, version, kind, file);
     if (!resolved.startsWith(root + path.sep)) return c.json({ error: "invalid asset path" }, 400);
     try {
@@ -703,6 +758,73 @@ export function createApp(deps: AppDeps): Hono {
       const mime =
         kind === "locales" ? "application/json; charset=utf-8" : "text/css; charset=utf-8";
       return c.body(new Uint8Array(body), 200, { "Content-Type": mime });
+    } catch {
+      return c.json({ error: "asset not found" }, 404);
+    }
+  });
+
+  // ── 第三方 UI 共享实例 shim（批 C，plugins.md §4 :227 import map 口子）──
+  app.get("/api/ui-shims/:file", (c) => {
+    const shim = lookupUiShim(c.req.param("file"));
+    if (shim === undefined) return c.json({ error: "shim not found" }, 404);
+    return c.body(shim, 200, { "content-type": "text/javascript; charset=utf-8" });
+  });
+
+  // ── 插件文件伺服（批 C：ui 入口 + 同目录相对依赖；只读版本目录、禁穿越）──
+  const UI_FILE_MIME: Record<string, string> = {
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".map": "application/json; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".txt": "text/plain; charset=utf-8",
+  };
+  app.get("/api/ui-assets/:id/:version/file/*", async (c) => {
+    const id = c.req.param("id");
+    const version = c.req.param("version");
+    // Hono 通配参数在「中间段后的 *」不可靠：按 path 前缀切片，逐段解码校验
+    const prefix = `/api/ui-assets/${id}/${version}/file/`;
+    const raw = c.req.path.startsWith(prefix) ? c.req.path.slice(prefix.length) : "";
+    let segments: string[];
+    try {
+      segments = raw.split("/").map((segment) => decodeURIComponent(segment));
+    } catch {
+      return c.json({ error: "invalid asset path" }, 400);
+    }
+    if (
+      !SAFE_SEG.test(id) ||
+      !SAFE_SEG.test(version) ||
+      raw === "" ||
+      segments.length === 0 ||
+      segments.some((s) => !SAFE_SEG.test(s))
+    ) {
+      return c.json({ error: "invalid asset path" }, 400);
+    }
+    const versionDir = path.resolve(deps.pluginRoot, id, version);
+    const resolved = path.resolve(versionDir, ...segments);
+    if (!resolved.startsWith(versionDir + path.sep)) {
+      return c.json({ error: "invalid asset path" }, 400);
+    }
+    const mime = UI_FILE_MIME[path.extname(resolved).toLowerCase()];
+    if (mime === undefined) return c.json({ error: "unsupported asset type" }, 404);
+    try {
+      const body = await fs.readFile(resolved);
+      const headers: Record<string, string> = { "Content-Type": mime };
+      // §4 安全规则：html/svg 以文档形式伺服时带 CSP sandbox（ESM 模块与宿主同源，不在此列）
+      if (mime.startsWith("text/html") || mime === "image/svg+xml") {
+        headers["Content-Security-Policy"] = "sandbox";
+      }
+      return c.body(new Uint8Array(body), 200, headers);
     } catch {
       return c.json({ error: "asset not found" }, 404);
     }
@@ -786,12 +908,18 @@ export function createApp(deps: AppDeps): Hono {
         if (!file.startsWith(webDist)) return c.notFound(); // 路径围栏
         try {
           const body = await fs.readFile(file);
+          // import map 注入（批 C：第三方 UI 件共享宿主 React 的唯一口子）——只改 index.html
+          if (path.extname(file) === ".html") {
+            return c.body(injectImportMap(body.toString("utf8")), 200, {
+              "content-type": MIME[".html"],
+            });
+          }
           return c.body(body, 200, {
             "content-type": MIME[path.extname(file)] ?? "application/octet-stream",
           });
         } catch {
-          const index = await fs.readFile(indexFile); // SPA fallback
-          return c.body(index, 200, { "content-type": MIME[".html"] });
+          const index = await fs.readFile(indexFile, "utf8"); // SPA fallback
+          return c.body(injectImportMap(index), 200, { "content-type": MIME[".html"] });
         }
       });
     }

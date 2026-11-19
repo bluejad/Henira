@@ -9,7 +9,13 @@ export interface SettingsFile {
   model?: string;
   plugins?: Record<
     string,
-    { enabled?: boolean; version?: string; options?: Record<string, unknown> }
+    {
+      enabled?: boolean;
+      version?: string;
+      /** 确认卡记录（批 C：engine 件首次生效 / 版本升级需用户确认） */
+      confirmedVersion?: string;
+      options?: Record<string, unknown>;
+    }
   >;
   ui?: { theme?: string; locale?: string };
 }
@@ -31,13 +37,18 @@ export async function readSettings(globalDir: string): Promise<SettingsFile | un
 
 export async function writeSettings(
   globalDir: string,
-  patch: { model?: string; ui?: { theme?: string; locale?: string } },
+  patch: {
+    model?: string;
+    ui?: { theme?: string; locale?: string };
+    plugins?: SettingsFile["plugins"];
+  },
 ): Promise<SettingsFile> {
   const current = (await readSettings(globalDir)) ?? { version: 1 as const };
   const next: SettingsFile = {
     ...current,
     ...patch,
     version: 1, // 恒为 1：调用方改不动版本位
+    plugins: patch.plugins ?? current.plugins,
     ui: { ...current.ui, ...patch.ui },
   };
   await fs.writeFile(
@@ -122,4 +133,20 @@ export async function writeModelsFile(globalDir: string, file: ModelsFile): Prom
   const tmp = `${target}.tmp`;
   await fs.writeFile(tmp, `${JSON.stringify(file, null, 2)}\n`, "utf8");
   await fs.rename(tmp, target);
+}
+
+/** 深合并单个插件设置（enabled/version/confirmedVersion；与 server 同构各自实现——规则 3） */
+export async function setPluginSetting(
+  globalDir: string,
+  id: string,
+  patch: {
+    enabled?: boolean;
+    version?: string;
+    confirmedVersion?: string;
+    options?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const current = (await readSettings(globalDir)) ?? { version: 1 as const };
+  const plugins = { ...current.plugins, [id]: { ...current.plugins?.[id], ...patch } };
+  await writeSettings(globalDir, { plugins });
 }

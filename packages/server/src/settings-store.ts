@@ -11,7 +11,13 @@ export interface SettingsFile {
   model?: string;
   plugins?: Record<
     string,
-    { enabled?: boolean; version?: string; options?: Record<string, unknown> }
+    {
+      enabled?: boolean;
+      version?: string;
+      /** 确认卡记录（批 C：engine 件首次生效 / 版本升级需用户确认，未确认 = 不装载） */
+      confirmedVersion?: string;
+      options?: Record<string, unknown>;
+    }
   >;
   ui?: { theme?: string; locale?: string };
 }
@@ -45,6 +51,22 @@ export async function writeSettings(
   };
   await atomicWrite(path.join(globalDir, "settings.json"), `${JSON.stringify(next, null, 2)}\n`);
   return next;
+}
+
+/** 深合并单个插件设置（enabled/version/confirmedVersion）——管理面与确认卡写入口 */
+export async function setPluginSetting(
+  globalDir: string,
+  id: string,
+  patch: {
+    enabled?: boolean;
+    version?: string;
+    confirmedVersion?: string;
+    options?: Record<string, unknown>;
+  },
+): Promise<SettingsFile> {
+  const current = (await readSettings(globalDir)) ?? { version: 1 as const };
+  const plugins = { ...current.plugins, [id]: { ...current.plugins?.[id], ...patch } };
+  return writeSettings(globalDir, { plugins });
 }
 
 export async function writeCredential(

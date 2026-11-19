@@ -1,6 +1,7 @@
 // 界面资产扫描（D-059 语言包/主题包读者的唯一数据源实现——server 端点与 sdk runtime 共用，
-// P9-5 不两处手抄）：扫用户级已装插件目录的 locales/*.json + themes/*.css。
-// 项目级资产包随 M4-C 装配②（已装目录装配）进扫描面；本版仅用户级。
+// P9-5 不两处手抄）：扫用户级已装插件目录（`~/.henira/plugins`）的 locales/*.json + themes/*.css。
+// 根参 = 插件根目录本身（data-directory §2:61 口径，批 C 修正——原实参 globalDir 内部拼
+// "plugins" 导致默认扫到 config/plugins）；项目级资产包随装配②进扫描面；本版仅用户级。
 // 损坏名（路径穿越/非法字符）跳过不抛——资产是内容，坏一个不挡启动。
 
 import { promises as fs } from "node:fs";
@@ -30,9 +31,9 @@ export interface UiAssets {
 
 const SAFE_SEG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-export async function scanUiAssets(globalDir: string): Promise<UiAssets> {
+export async function scanUiAssets(pluginRoot: string): Promise<UiAssets> {
   const out: UiAssets = { locales: [], themes: [] };
-  const pluginsDir = path.join(globalDir, "plugins");
+  const pluginsDir = pluginRoot;
   let ids: string[];
   try {
     ids = await fs.readdir(pluginsDir);

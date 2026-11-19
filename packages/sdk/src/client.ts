@@ -166,6 +166,35 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       return requestJson("/api/ui-assets");
     },
 
+    async listPlugins() {
+      return requestJson("/api/plugins");
+    },
+
+    async confirmPlugin(id, version) {
+      await requestJson(`/api/plugins/${encodeURIComponent(id)}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      });
+    },
+
+    async setPluginEnabled(id, enabled) {
+      await requestJson(`/api/plugins/${encodeURIComponent(id)}/enabled`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+    },
+
+    async setPluginVersion(id, version) {
+      await requestJson(`/api/plugins/${encodeURIComponent(id)}/version`, {
+        method: "PUT",
+        body: JSON.stringify({ version }),
+      });
+    },
+
+    async removePlugin(id) {
+      await requestJson(`/api/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
+    },
+
     async listDir(sessionId, dirPath) {
       const query = dirPath === undefined ? "" : `?path=${encodeURIComponent(dirPath)}`;
       return requestJson(`/api/sessions/${sessionId}/files${query}`);

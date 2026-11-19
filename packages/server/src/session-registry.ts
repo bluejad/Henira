@@ -6,11 +6,19 @@
 // 登记工作目录注册表（projects.json）与 key 命名住 plugin-session（账本域共享知识，
 // 规则 3 禁宿主互依——不在 server/sdk 各自复制）。
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createConfigService } from "@henira/config-loader";
+import {
+  createConfigService,
+  defaultPreset,
+  type PluginEntry,
+  type PluginSettingsEntry,
+  type PluginState,
+  type PrepareResult,
+  preparePlugins,
+} from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
@@ -36,7 +44,12 @@ import {
 } from "@henira/protocol";
 import type { Fanout } from "./fanout.js";
 import { ServerInteraction } from "./interaction-service.js";
-import { isPluginEnabled, readSettings } from "./settings-store.js";
+import {
+  isPluginEnabled,
+  readSettings,
+  setPluginSetting,
+  writeSettings,
+} from "./settings-store.js";
 
 export { projectKey }; // @henira/server 公共面保持（既有出口，实现下沉 plugin-session）
 
@@ -58,19 +71,205 @@ export interface RegistryOptions {
   globalDir: string;
   /** llm 槽位替换（测试 / demo 注入；默认官方 llmPlugin） */
   llm?: ServiceDefinition<LlmService>;
-  /** 额外引擎插件（config.plugins 的自定义 definition——装配三步①的加法，D-016） */
-  plugins?: readonly ServiceDefinition<unknown>[];
+  /** 基础插件清单（henira.config.ts 的 plugins；非空 = 听它的，空/缺省 = 出厂清单
+   *  defaultPreset——§5 装配三步①。条目 definition 在场 = 替换该官方件的实现） */
+  plugins?: readonly PluginEntry[];
   fanout: Fanout;
 }
+
+/** 包入口解析（import 条件——@henira/* 的 exports 只声明 import）：优先 import.meta.resolve，
+ *  兜底按 monorepo 相对布局（src 与 dist 两种运行位置的层级一致） */
+function resolvePackageEntry(name: string, fallbackRel: string): string {
+  try {
+    const resolved = (import.meta as { resolve?: (specifier: string) => string }).resolve?.(name);
+    if (typeof resolved === "string" && resolved.startsWith("file:")) {
+      return fileURLToPath(resolved);
+    }
+  } catch {
+    // 环境不支持 / 解析失败 → 走布局兜底
+  }
+  return fileURLToPath(new URL(fallbackRel, import.meta.url));
+}
+
+/** 引擎件别名（§4 硬规矩的 Node 侧 import map 等价物）：插件对内核/协议的 import
+ *  一律落到宿主唯一实例，禁自带副本 */
+function engineAlias(): Record<string, string> {
+  return {
+    "@henira/kernel": resolvePackageEntry("@henira/kernel", "../../kernel/dist/index.js"),
+    "@henira/protocol": resolvePackageEntry("@henira/protocol", "../../protocol/dist/index.js"),
+  };
+}
+
+/** 内圈槽位名：目录件不得占用（§7.1 撞官方 = 跳过 + 告警；同 id 替换随 D-048 挂账） */
+/** 官方五件 id（defaultPreset）：不给关、不给版本钉、不可卸载（§5 :222 / §6.4） */
+const OFFICIAL_PLUGIN_IDS = new Set([
+  "plugin-session",
+  "plugin-tools",
+  "plugin-llm",
+  "plugin-approval",
+  "plugin-loop",
+]);
+
+const CORE_SLOT_NAMES = new Set([
+  "session",
+  "tools",
+  "llm",
+  "approval",
+  "loop",
+  "interaction",
+  "config",
+]);
 
 export class SessionRegistry {
   readonly #entries = new Map<string, SessionEntry>();
   /** attach 并发去重：同 id 的并行写请求共享同一次挂载（挂完即清） */
   readonly #attaching = new Map<string, Promise<SessionEntry | undefined>>();
   readonly #opts: RegistryOptions;
+  /** 用户级插件根（data-directory §2:61；批 C 起为目录件的发现入口） */
+  readonly #pluginRoot: string;
+  /** 最近一次装配前置结果（管理面读面 / 指纹轮询用；每次会话装配刷新） */
+  #prepared: PrepareResult | undefined;
 
   constructor(opts: RegistryOptions) {
     this.#opts = opts;
+    this.#pluginRoot = path.join(opts.dataDir, "plugins");
+  }
+
+  /** 发现 + settings 过滤 + 确认门 + 引擎装载 + inject 预检（plugins.md §5 装配三步②③） */
+  async #prepare(): Promise<PrepareResult> {
+    const settings = await readSettings(this.#opts.globalDir);
+    const result = await preparePlugins({
+      pluginRoot: this.#pluginRoot,
+      settings: settings as { plugins?: Record<string, PluginSettingsEntry> } | undefined,
+      engineAlias: engineAlias(),
+      hostVersion: serverVersion(),
+    });
+    this.#prepared = result;
+    for (const warning of result.warnings) console.warn(`[server] 插件：${warning}`);
+    return result;
+  }
+
+  /** 管理面读面（GET /api/plugins）：最近一次装配前置的状态 + 指纹（前端轮询用） */
+  async pluginSnapshot(): Promise<{ plugins: PluginState[]; fingerprint: string }> {
+    // 每次现场发现（轮询语义：目录新增版本 / 开关变化即反映；引擎装载走模块缓存）
+    const prepared = await this.#prepare();
+    // 官方五件 = 清单来源（source official，不可卸载；状态跟装载走）
+    const official: PluginState[] = defaultPreset.map((entry) => ({
+      id: entry.id,
+      version: serverVersion(),
+      name: entry.id,
+      forms: ["engine"],
+      enabled: true,
+      state: "loaded",
+      inject: [],
+      warnings: [],
+    }));
+    const plugins = [...official, ...prepared.states];
+    const fingerprint = createHash("sha1")
+      .update(JSON.stringify(plugins.map((p) => [p.id, p.version, p.state, p.enabled])))
+      .digest("hex")
+      .slice(0, 12);
+    return { plugins, fingerprint };
+  }
+
+  /** 确认卡放行（批 C，§4 安全规则）：写 confirmedVersion，新会话生效；只对 engine 件生效 */
+  async confirmPlugin(id: string, version: string): Promise<boolean> {
+    const prepared = this.#prepared ?? (await this.#prepare());
+    const target = prepared.states.find((p) => p.id === id);
+    if (target === undefined || !target.forms.includes("engine")) return false;
+    await setPluginSetting(this.#opts.globalDir, id, { confirmedVersion: version });
+    this.#prepared = undefined; // 确认后状态要重算（snapshot/下一会话读到 loaded）
+    return true;
+  }
+
+  /** 启停（§6.4：写 settings.plugins.<id>.enabled；缺 key = 启用）。官方件不给关（§5 :222） */
+  async setPluginEnabled(id: string, enabled: boolean): Promise<boolean> {
+    if (OFFICIAL_PLUGIN_IDS.has(id)) return false; // 官方五件不给关
+    const prepared = await this.#prepare();
+    if (!prepared.states.some((p) => p.id === id)) return false;
+    await setPluginSetting(this.#opts.globalDir, id, { enabled });
+    return true;
+  }
+
+  /** 版本切换（§6.2：settings.plugins.<id>.version 钉；新会话生效）。目标版本必须在盘上 */
+  async setPluginVersion(id: string, version: string): Promise<boolean> {
+    if (OFFICIAL_PLUGIN_IDS.has(id)) return false; // 官方件不提供版本钉（§5 :222）
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(version)) {
+      return false;
+    }
+    const manifestPath = path.join(this.#pluginRoot, id, version, "plugin.json");
+    if (!existsSync(manifestPath)) return false;
+    await setPluginSetting(this.#opts.globalDir, id, { version });
+    return true;
+  }
+
+  /** 卸载（§6.4：删 plugins/<id>/ 整目录；plugins-data 默认保留；官方件拒绝） */
+  async removePlugin(id: string): Promise<"ok" | "official" | "missing"> {
+    if (OFFICIAL_PLUGIN_IDS.has(id)) return "official";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) return "missing";
+    const dir = path.join(this.#pluginRoot, id);
+    if (!existsSync(dir)) return "missing";
+    await fs.rm(dir, { recursive: true, force: true });
+    // settings 里清该 id 的插件设置（开关/版本/确认记录随包一起失效）
+    const settings = await readSettings(this.#opts.globalDir);
+    if (settings?.plugins?.[id] !== undefined) {
+      const plugins = { ...settings.plugins };
+      delete plugins[id];
+      await writeSettings(this.#opts.globalDir, { plugins });
+    }
+    this.#prepared = undefined;
+    return "ok";
+  }
+
+  /** 基础清单解析（§5 装配三步①）：config.plugins 非空听它的，否则出厂清单；
+   *  官方 id → 内置工厂（definition 在场 = 替换实现；session 槽 v1 只允许官方包装） */
+  #baseDefinitions(ctx: {
+    id: string;
+    cwd: string;
+    directory: string;
+    onAppend: (event: SessionEvent) => void;
+  }): ServiceDefinition<unknown>[] {
+    const entries =
+      this.#opts.plugins !== undefined && this.#opts.plugins.length > 0
+        ? this.#opts.plugins
+        : defaultPreset;
+    const out: ServiceDefinition<unknown>[] = [];
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      switch (entry.id) {
+        case "plugin-session":
+          if (entry.definition !== undefined) {
+            console.warn(
+              "[server] 插件：v1 不支持替换 session 槽（宿主投影链要求官方包装，D-048 挂账）——按官方实现装载",
+            );
+          }
+          out.push(
+            observedSession(
+              sessionPlugin({ directory: ctx.directory, cwd: ctx.cwd, id: ctx.id }),
+              ctx.onAppend,
+            ),
+          );
+          break;
+        case "plugin-tools":
+          out.push(entry.definition ?? toolsPlugin({}));
+          break;
+        case "plugin-llm":
+          out.push(entry.definition ?? this.#opts.llm ?? llmPlugin());
+          break;
+        case "plugin-approval":
+          out.push(entry.definition ?? approvalPlugin());
+          break;
+        case "plugin-loop":
+          out.push(entry.definition ?? loopPlugin());
+          break;
+        default:
+          if (entry.definition !== undefined) out.push(entry.definition);
+          else console.warn(`[server] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
+      }
+    }
+    return out;
   }
 
   /** 在订会话（本进程装配的） */
@@ -224,17 +423,31 @@ export class SessionRegistry {
       this.#opts.fanout.publish(id, deltas);
     };
 
-    const harness = createHarness()
-      .use(observedSession(sessionPlugin({ directory, cwd, id }), onAppend))
-      .use(toolsPlugin({}))
-      .use(this.#opts.llm ?? llmPlugin())
-      .use({ name: "interaction", start: () => interaction })
-      .use(approvalPlugin())
-      .use({
-        name: "config",
-        start: () => createConfigService({ cwd, globalDir: this.#opts.globalDir }),
-      })
-      .use(loopPlugin());
+    // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
+    const prepared = await this.#prepare();
+    const harness = createHarness();
+    for (const definition of this.#baseDefinitions({ id, cwd, directory, onAppend })) {
+      harness.use(definition);
+    }
+    harness.use({ name: "interaction", start: () => interaction });
+    harness.use({
+      name: "config",
+      start: () => createConfigService({ cwd, globalDir: this.#opts.globalDir }),
+    });
+    for (const item of prepared.definitions) {
+      const definition = item.definition as { name?: string; start?: unknown };
+      if (typeof definition.start !== "function") {
+        console.warn(`[server] 插件：${item.id} 的 definition 形状非法——跳过`);
+        continue;
+      }
+      if (definition.name !== undefined && CORE_SLOT_NAMES.has(definition.name)) {
+        console.warn(
+          `[server] 插件：${item.id} 占用内圈槽位 "${definition.name}"——跳过（§7.1 撞官方不装载）`,
+        );
+        continue;
+      }
+      harness.use(item.definition as ServiceDefinition<unknown>);
+    }
     await harness.start();
     entry.harness = harness;
     entry.ctx = asHeniraContext(harness.context);

@@ -1508,3 +1508,85 @@ describe("思考档按次绑定（骨架批）", () => {
     expect(screen.queryByTitle(t("composer.thinking"))).toBeNull(); // off = 缺省语义不渲染
   });
 });
+
+describe("插件页（批 C，plugins.md §6.4 管理面）", () => {
+  it("列表状态徽章 + 官方件只读 + 确认/启停/卸载接线", async () => {
+    const base = fixtureCtx();
+    const calls: string[] = [];
+    const ctx: WebPartContext = {
+      ...base,
+      client: {
+        ...base.client,
+        listPlugins: async () => ({
+          plugins: [
+            {
+              id: "plugin-loop",
+              version: "0.0.0",
+              name: "plugin-loop",
+              forms: ["engine"] as const,
+              enabled: true,
+              state: "loaded" as const,
+              warnings: [],
+            },
+            {
+              id: "bad-pack",
+              version: "1.0.0",
+              name: "bad-pack",
+              forms: ["ui"] as const,
+              enabled: true,
+              state: "failed" as const,
+              reason: "装载失败：boom",
+              warnings: [],
+            },
+            {
+              id: "new-pack",
+              version: "2.0.0",
+              name: "new-pack",
+              forms: ["engine"] as const,
+              enabled: true,
+              state: "awaiting-confirm" as const,
+              warnings: [],
+            },
+          ],
+          fingerprint: "abc123456789",
+        }),
+        setPluginEnabled: async (id, enabled) => {
+          calls.push(`enabled:${id}:${String(enabled)}`);
+        },
+        confirmPlugin: async (id, version) => {
+          calls.push(`confirm:${id}:${version}`);
+        },
+        removePlugin: async (id) => {
+          calls.push(`remove:${id}`);
+        },
+      },
+    };
+    const { container } = render(<SettingsModal ctx={ctx} section="plugins" onClose={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("bad-pack"));
+    expect(container.textContent).toContain(zh["settings.plugins.state.failed"]);
+    expect(container.textContent).toContain(zh["settings.plugins.state.confirm"]);
+    expect(container.textContent).toContain(zh["settings.plugins.official"]);
+    // 官方件只读：checkbox 只有两个第三方件
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(2);
+    // 确认按钮 → confirmPlugin（版本取行上的 version）
+    const confirmButton = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === zh["settings.plugins.confirm"],
+    );
+    expect(confirmButton).toBeDefined();
+    fireEvent.click(confirmButton as HTMLButtonElement);
+    await waitFor(() => expect(calls).toContain("confirm:new-pack:2.0.0"));
+    // 启停开关 → setPluginEnabled
+    const firstCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(firstCheckbox);
+    await waitFor(() => expect(calls.some((c) => c.startsWith("enabled:bad-pack:"))).toBe(true));
+    // 卸载（window.confirm 确认后）→ removePlugin
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const removeButtons = [...container.querySelectorAll("button")].filter(
+      (b) => b.textContent === zh["settings.plugins.remove"],
+    );
+    expect(removeButtons.length).toBe(2);
+    fireEvent.click(removeButtons[0] as HTMLButtonElement);
+    await waitFor(() => expect(calls.some((c) => c.startsWith("remove:"))).toBe(true));
+    confirmSpy.mockRestore();
+  });
+});
