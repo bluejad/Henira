@@ -48,7 +48,7 @@ export function reasoningCapability(providerId: string): ReasoningCapability {
   return "none";
 }
 
-/** 厂商档位原值 → 四档（未知值丢弃）：low/minimal→低；medium→中；high/xhigh→高；max/ultra→高（顶档） */
+/** 厂商档位原值 → 五档（原值直通；仅别名归并：minimal→低、xhigh→高、ultra→最高；未知丢弃） */
 function mapLevelValue(value: string): ReasoningEffort | undefined {
   switch (value.toLowerCase()) {
     case "low":
@@ -61,17 +61,19 @@ function mapLevelValue(value: string): ReasoningEffort | undefined {
       return "high";
     case "max":
     case "ultra":
-      return "high";
+      return "max";
     default:
       return undefined;
   }
 }
 
-const ALL_LEVELS: ReasoningEffort[] = ["off", "low", "medium", "high"];
+/** 数据缺省时 effort 族兜底：四档（不含 max——未知端点认 max 概率低，不冒进） */
+const DEFAULT_EFFORT_LEVELS: ReasoningEffort[] = ["off", "low", "medium", "high"];
 
 /**
- * 模型实际可选档位（UI 档位集合真源）：`reasoning_options` 数据决定；数据缺失 → 形状表兜底
- * （开关族只给关/开两档——「开」承载值 medium；effort 族四档）。返回空数组 = 不可调（置灰）。
+ * 模型实际可选档位（UI 档位集合真源）：`reasoning_options` 数据决定（值直通——low/high/max
+ * 就是「低/高/最高」三档，medium 也在册才出「中」）；数据缺失 → 形状表兜底（开关族两档、
+ * effort 族四档不含 max）。返回空数组 = 不可调（置灰）。
  */
 export function reasoningLevels(
   capability: ReasoningCapability,
@@ -92,7 +94,7 @@ export function reasoningLevels(
   const hasToggle = options?.some((o) => o.type === "toggle") === true;
   if (hasToggle || isToggleFamily(capability)) return ["off", "medium"];
   // 数据缺省：形状表兜底（effort 族四档）
-  if (options === undefined || options.length === 0) return ALL_LEVELS;
+  if (options === undefined || options.length === 0) return DEFAULT_EFFORT_LEVELS;
   return []; // 仅 budget 声明（或未知形状）：未接——置灰，不造参数
 }
 
@@ -112,12 +114,12 @@ export function reasoningParams(
     case "template-enable":
       return { chat_template_kwargs: { enable_thinking: effort !== "off" } };
     case "thinking-effort":
-      // deepseek 官方：thinking 开关 + reasoning_effort（low/high/max；medium 由服务端 clamp 到 high）。
-      // 我方四档 → 厂商三档：off=disabled；low→low；medium→high；high→max（顶档对齐用户直觉）
+      // deepseek 官方：thinking 开关 + reasoning_effort（low/high/max）。档位直通——五档词表的
+      // low/high/max 与官方取值一致（medium 官方接受并 clamp 到 high，数据没列就不会出）
       if (effort === "off") return { thinking: { type: "disabled" } };
       return {
         thinking: { type: "enabled" },
-        reasoning_effort: effort === "low" ? "low" : effort === "medium" ? "high" : "max",
+        reasoning_effort: effort,
       };
     case "none":
       return undefined;

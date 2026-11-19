@@ -32,29 +32,29 @@ describe("reasoningCapability（provider id 前缀 → 参数形状族）", () =
 });
 
 describe("reasoningLevels（档位集合数据驱动；缺省形状表兜底）", () => {
-  it("deepseek 数据（toggle + effort low/high/max）→ 关/低/高（max 归顶档、无中档）", () => {
+  it("deepseek 数据（toggle + effort low/high/max）→ 关/低/高/最高 四档（值直通不归并）", () => {
     expect(
       reasoningLevels("thinking-effort", [
         { type: "toggle" },
         { type: "effort", values: ["low", "high", "max"] },
       ]),
-    ).toEqual(["off", "low", "high"]);
+    ).toEqual(["off", "low", "high", "max"]);
   });
 
   it("agnes 数据（仅 toggle）→ 两档 关/开（开承载 medium）", () => {
     expect(reasoningLevels("template-enable", [{ type: "toggle" }])).toEqual(["off", "medium"]);
   });
 
-  it("zhipu 数据（effort low/high/max）→ 三档；openai 系 effort medium 在册 → 四档", () => {
+  it("zhipu 数据（effort low/high/max）→ 四档；openai 系 medium 在册 → 关/低/中/高", () => {
     expect(
       reasoningLevels("thinking", [{ type: "effort", values: ["low", "high", "max"] }]),
-    ).toEqual(["off", "low", "high"]);
+    ).toEqual(["off", "low", "high", "max"]);
     expect(
       reasoningLevels("effort", [{ type: "effort", values: ["minimal", "low", "medium", "high"] }]),
     ).toEqual(["off", "low", "medium", "high"]);
   });
 
-  it("数据缺省 → 形状表兜底：开关族两档、effort 族四档；none 恒空（置灰）", () => {
+  it("数据缺省 → 形状表兜底：开关族两档、effort 族四档（不含 max——未知端点不冒进）；none 恒空", () => {
     expect(reasoningLevels("thinking")).toEqual(["off", "medium"]);
     expect(reasoningLevels("enable")).toEqual(["off", "medium"]);
     expect(reasoningLevels("template-enable")).toEqual(["off", "medium"]);
@@ -96,7 +96,7 @@ describe("reasoningParams（形状 × 档位 → 请求体附加参数；none/�
     });
   });
 
-  it("thinking-effort 族（deepseek）：off=disabled；低→low、中→high、高→max（官方三档映射）", () => {
+  it("thinking-effort 族（deepseek）：off=disabled；档位直通（low/medium/high/max 同名透传）", () => {
     expect(reasoningParams("thinking-effort", "off")).toEqual({ thinking: { type: "disabled" } });
     expect(reasoningParams("thinking-effort", "low")).toEqual({
       thinking: { type: "enabled" },
@@ -104,9 +104,13 @@ describe("reasoningParams（形状 × 档位 → 请求体附加参数；none/�
     });
     expect(reasoningParams("thinking-effort", "medium")).toEqual({
       thinking: { type: "enabled" },
-      reasoning_effort: "high",
+      reasoning_effort: "medium",
     });
     expect(reasoningParams("thinking-effort", "high")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+    });
+    expect(reasoningParams("thinking-effort", "max")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "max",
     });

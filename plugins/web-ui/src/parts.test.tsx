@@ -1319,7 +1319,7 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     );
   });
 
-  it("思考档数据驱动：未知厂商置灰「—」；zhipu 数据三档（关/低/高）；agnes 两档（关/开）", async () => {
+  it("思考档数据驱动：未知厂商置灰「—」；zhipu 数据四档（关/低/高/最高）；agnes 两档（关/开）", async () => {
     const noneCtx = fixtureCtx({
       client: {
         ...fixtureCtx().client,
@@ -1364,12 +1364,13 @@ describe("思考档按次绑定（BC 语义——骨架批）", () => {
     const select = (await screen.findByRole("combobox", {
       name: t("composer.thinking"),
     })) as HTMLSelectElement;
-    // 数据驱动档位：effort 三档（关/低/高——max 归顶档，无中档）
-    expect(select.options).toHaveLength(3);
+    // 数据驱动档位：effort 值直通——关/低/高/最高 四档（max 独立成档，不归并）
+    expect(select.options).toHaveLength(4);
     expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
       t("composer.thinking.off"),
       t("composer.thinking.low"),
       t("composer.thinking.high"),
+      t("composer.thinking.max"),
     ]);
     void glm;
     cleanup();

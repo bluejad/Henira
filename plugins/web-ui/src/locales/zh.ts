@@ -56,6 +56,7 @@ export const zh = {
   "composer.thinking.low": "低",
   "composer.thinking.medium": "中",
   "composer.thinking.high": "高",
+  "composer.thinking.max": "最高",
   "composer.thinking.none": "该模型不支持思考档调节",
   "composer.sendFailed": "发送失败，消息已留在输入框",
   "approval.title": "权限请求",

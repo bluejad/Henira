@@ -65,9 +65,11 @@ export type StreamEvent =
   | { type: "usage"; usage: TokenUsage }
   | { type: "finish"; reason: FinishReason };
 
-/** 思考档封闭词表（BC ReasoningSelect 语义：关/低/中/高）。随每次提问携带（PromptOptions）；
- * 厂商无对应参数时适配器不透传（reasoningCapability=none），档位不影响请求 */
-export const REASONING_EFFORTS = ["off", "low", "medium", "high"] as const;
+/** 思考档封闭词表（BC ReasoningSelect 语义扩展：关/低/中/高/最高——「最高」承载厂商的 max 档，
+ * 如 DeepSeek reasoning_effort 三档 low/high/max 完整呈现；档位集合由 models.dev
+ * reasoning_options 数据决定子集）。随每次提问携带（PromptOptions）；厂商无对应参数时
+ * 适配器不透传（reasoningCapability=none），档位不影响请求 */
+export const REASONING_EFFORTS = ["off", "low", "medium", "high", "max"] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export interface LlmRequest {
