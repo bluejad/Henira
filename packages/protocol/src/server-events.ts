@@ -181,7 +181,7 @@ export interface SessionUiState {
   layout?: {
     /** 左侧栏拖动宽度 px（钳位由宿主管） */
     leftWidth?: number;
-    /** 右栏宽度 px（右栏随批 C 落地后启用） */
+    /** 右栏宽度 px（三栏骨架批已接线，每会话各记各的；钳位由宿主管） */
     rightWidth?: number;
   };
   /** 右栏开着的 tab（D-062 右栏 tab 框架随骨架批接线；只存引用，面板内部状态归插件

@@ -127,6 +127,16 @@ interface SessionService {
 
 type JsonSchema = Record<string, unknown>; // 裸 JSON Schema（D-044）：书写层形状；装载期由 tools 校验
 
+// 思考参数形态（models.dev reasoning_options，模型级真源）：
+//   toggle = 开关两态；effort = 档位枚举（values 为厂商原值，如 low/high/max）；
+//   budget = 预算 token（未接——先容错保真，UI 端暂不放开）
+type ReasoningOption =
+  | { type: "toggle" }
+  | { type: "effort"; values: string[] }
+  | { type: "budget"; min?: number; max?: number };
+// 思维链回传声明（models.dev interleaved）：{ field: "reasoning_content" } 或布尔
+type InterleavedSpec = boolean | { field?: string };
+
 /** 模型配置：能力字段由 models.dev 字典预填、手写覆盖（D-040）；不含凭据（D-013②） */
 interface ModelConfig {
   provider: string; // 供应商标识（credentials / 字典键）
@@ -134,6 +144,8 @@ interface ModelConfig {
   baseUrl?: string; // OpenAI 兼容端点（自建 / 代理）
   contextWindow?: number; // 能力字段——引擎内禁止厂商备表（P9-4），只从配置解析
   maxOutputTokens?: number;
+  reasoningOptions?: ReasoningOption[]; // 思考参数形态（档位集合数据真源——思考档批 2026-11-19）
+  interleaved?: InterleavedSpec; // 思维链回传声明（开思考时历史 assistant 回传 reasoning_content）
 }
 
 interface TokenUsage {
