@@ -163,9 +163,12 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
   const createSession = useCallback((): void => {
     void ctx.client
       .createSession()
-      .then(() => refresh())
+      .then((session) => {
+        refresh();
+        ctx.selectSession(session.id); // 建完即切（「新会话」= 开始在那聊，不切反直觉）
+      })
       .catch(() => {});
-  }, [ctx.client, refresh]);
+  }, [ctx.client, ctx.selectSession, refresh]);
 
   const createIn = useCallback(
     (cwd: string): void => {

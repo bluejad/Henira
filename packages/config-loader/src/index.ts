@@ -17,6 +17,8 @@ export {
   compareVersions,
   type EngineModuleLoad,
   loadEngineModule,
+  type McpServerDecl,
+  type McpSlotInfo,
   matchesEngineRange,
   type PluginDiscovery,
   type PluginManifest,
@@ -28,6 +30,11 @@ export {
   scanPlugins,
 } from "./discovery.js";
 export { type HeniraConfig, loadConfig } from "./load.js";
+export {
+  expandMcpServers,
+  parseResourceAddress,
+  scrubSpawnEnv,
+} from "./mcp-expand.js";
 export { bundledSkillDirs, defaultPreset, type PluginEntry } from "./preset.js";
 export {
   scanUiAssets,

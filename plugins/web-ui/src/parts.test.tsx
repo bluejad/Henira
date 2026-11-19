@@ -1590,3 +1590,82 @@ describe("插件页（批 C，plugins.md §6.4 管理面）", () => {
     confirmSpy.mockRestore();
   });
 });
+
+describe("插件页 MCP 详情（C5，D-064）", () => {
+  it("mcp server 行渲染（名/目标/确认徽章）+ 确认按钮接线 confirmPluginMcp；plugin-mcp 可停用不可卸载", async () => {
+    const base = fixtureCtx();
+    const calls: string[] = [];
+    const ctx: WebPartContext = {
+      ...base,
+      client: {
+        ...base.client,
+        listPlugins: async () => ({
+          plugins: [
+            {
+              id: "plugin-mcp",
+              version: "0.0.0",
+              name: "plugin-mcp",
+              forms: ["engine"] as const,
+              enabled: true,
+              state: "loaded" as const,
+              warnings: [],
+            },
+            {
+              id: "echo-mcp",
+              version: "1.0.0",
+              name: "echo-mcp",
+              forms: ["content"] as const,
+              enabled: true,
+              state: "loaded" as const,
+              mcp: [
+                { name: "echo", target: "node stub.js", confirmed: true },
+                { name: "cred", target: "node stub.js", confirmed: false },
+              ],
+              warnings: [],
+            },
+          ],
+          fingerprint: "fedcba987654",
+        }),
+        setPluginEnabled: async (id, enabled) => {
+          calls.push(`enabled:${id}:${String(enabled)}`);
+        },
+        confirmPluginMcp: async (id) => {
+          calls.push(`confirmMcp:${id}`);
+        },
+        removePlugin: async (id) => {
+          calls.push(`remove:${id}`);
+        },
+      },
+    };
+    const { container } = render(<SettingsModal ctx={ctx} section="plugins" onClose={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("echo-mcp"));
+    // server 名 + 目标串可见（§6.4：连接目标必须在详情可见）
+    expect(container.textContent).toContain("cred");
+    expect(container.textContent).toContain("node stub.js");
+    // 徽章：已确认 + 待确认各一
+    expect(container.textContent).toContain(zh["settings.plugins.mcpConfirmed"]);
+    expect(container.textContent).toContain(zh["settings.plugins.mcpAwaiting"]);
+    // 确认按钮（有未确认 server 才出）→ confirmPluginMcp
+    const confirmButton = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === zh["settings.plugins.mcpConfirm"],
+    );
+    expect(confirmButton).toBeDefined();
+    fireEvent.click(confirmButton as HTMLButtonElement);
+    await waitFor(() => expect(calls).toContain("confirmMcp:echo-mcp"));
+    // plugin-mcp：官方外圈件——有停用开关（可关）、无卸载钮（不可卸）、官方徽章
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    const mcpToggle = [...checkboxes].find(
+      (el) => el.closest('[data-plugin-id="plugin-mcp"]') !== null,
+    );
+    expect(mcpToggle).toBeDefined();
+    const removeButtons = [...container.querySelectorAll("button")].filter(
+      (b) => b.textContent === zh["settings.plugins.remove"],
+    );
+    expect(removeButtons.every((b) => b.closest('[data-plugin-id="plugin-mcp"]') === null)).toBe(
+      true,
+    );
+    expect(container.querySelector('[data-plugin-id="plugin-mcp"]')?.textContent).toContain(
+      zh["settings.plugins.official"],
+    );
+  });
+});

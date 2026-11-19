@@ -110,7 +110,7 @@ export interface HeniraClientLike {
   deleteSession?(id: string): Promise<void>;
   /** 行翻页（可选——长会话历史前插；宿主缺方法 = 不渲染「加载更早」，静态窗口） */
   sessionRows?(sessionId: string, opts?: { before?: number; limit?: number }): Promise<RowsPage>;
-  /** 插件清单（可选——设置弹窗插件页数据源；批 C：状态 enabled≠loaded + 指纹） */
+  /** 插件清单（可选——设置弹窗插件页数据源；批 C：状态 enabled≠loaded + 指纹；C5 起 mcp 槽信息） */
   listPlugins?(): Promise<{
     plugins: Array<{
       id: string;
@@ -121,12 +121,15 @@ export interface HeniraClientLike {
       enabled: boolean;
       state: "loaded" | "disabled" | "failed" | "awaiting-confirm";
       reason?: string;
+      mcp?: Array<{ name: string; target: string; confirmed: boolean }>;
       warnings: string[];
     }>;
     fingerprint: string;
   }>;
   /** 确认卡放行（可选——engine 件首次生效/版本升级） */
   confirmPlugin?(id: string, version: string): Promise<void>;
+  /** MCP 变更确认放行（可选——D-030/D-064：mcp/*.json 首次连接或变更后） */
+  confirmPluginMcp?(id: string): Promise<void>;
   /** 插件启停（可选——官方件拒绝；新会话生效） */
   setPluginEnabled?(id: string, enabled: boolean): Promise<void>;
   /** 插件版本钉（可选——官方件拒绝；新会话生效） */
@@ -253,7 +256,18 @@ export interface PluginInfo {
   enabled: boolean;
 }
 
-/** UI 模块拿到的宿主门面（M3 实装子集；useResource 为 M4 占位——返回 M4 语义值） */
+/** useResource 数据泵快照（plugins.md §4 / D-064：2s 共享泵；失败保留上次 data） */
+export interface ResourceSnapshot {
+  status: "loading" | "live" | "failed";
+  /** 工具返回文本的 JSON 解析结果（对象/数组；标量不进 data——原文走 text） */
+  data?: unknown;
+  /** 原文；JSON 解析失败时保留 */
+  text?: string;
+  error?: string;
+  updatedAt?: number;
+}
+
+/** UI 模块拿到的宿主门面（M3 实装子集 → C5 起 useResource 实装） */
 export interface PluginUiHost {
   sendPrompt(text: string): Promise<{ messageId: string | null; sessionId: string }>;
   /** 行词表帧流（ServerFrame，D-042 双向事件流：opt-in、有界队列背压） */
@@ -271,6 +285,8 @@ export interface PluginUiHost {
   listSessionsByCwd(
     cwd: string,
   ): Promise<{ id: string; cwd: string; title?: string; updatedAt: number }[]>;
-  useResource(address: string): { status: "failed"; error: string }; // ⏳ M4 占位（plugin-mcp）
+  /** 数据泵（D-064）：地址 henira-data://<pluginId>/<server>/<tool>?args=…；仅限本插件
+   *  mcp/ 里声明过的 server（所有权闸，越权返回 failed）；React hook 语义，仅 render 期调用 */
+  useResource(address: string): ResourceSnapshot;
   listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // 批 C 实装（GET /api/plugins）
 }

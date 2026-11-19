@@ -220,3 +220,211 @@ export default { name: "needy", start() { return {}; } };
     await fs.rm(root, { recursive: true, force: true });
   });
 });
+
+describe("mcp 槽扫描（D-064：校验 / 指纹确认门 / D-032 去重）", () => {
+  const ALIAS = {
+    "@henira/kernel": "/dev/null/kernel.js",
+    "@henira/protocol": "/dev/null/protocol.js",
+  };
+  const SETTINGS_BASE = {
+    plugins: {} as Record<
+      string,
+      { enabled?: boolean; confirmedVersion?: string; mcpFingerprint?: string }
+    >,
+  };
+
+  it("stdio / remote 解析：target 串与 mcpServers；坏 JSON / 双缺 / sse 跳过 + 告警", async () => {
+    const root = await makeRoot();
+    await writePlugin(
+      root,
+      "mcp-pack",
+      "1.0.0",
+      { name: "mcp-pack", version: "1.0.0" },
+      {
+        "mcp/echo.json": JSON.stringify({ command: "node", args: ["server.js"], env: { A: "b" } }),
+        "mcp/remote.json": JSON.stringify({
+          url: "https://mcp.example/rpc",
+          headers: { Authorization: "x" },
+        }),
+        "mcp/broken.json": "{",
+        "mcp/empty.json": JSON.stringify({ env: {} }),
+        "mcp/sse.json": JSON.stringify({ url: "https://old.example/sse", type: "sse" }),
+      },
+    );
+    // 先探测指纹（未确认 = 只进读面），写入 mcpFingerprint 后声明才放出（D-030 fail-closed）
+    const probe = await preparePlugins({
+      pluginRoot: root,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(probe.mcpServers).toEqual([]);
+    const settings = {
+      plugins: { "mcp-pack": { mcpFingerprint: probe.states[0]?.mcpFingerprint ?? "" } },
+    };
+    const result = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(result.mcpServers.map((s) => s.server).sort()).toEqual(["echo", "remote"]);
+    const echo = result.mcpServers.find((s) => s.server === "echo");
+    expect(echo?.kind).toBe("stdio");
+    expect(echo?.command).toBe("node");
+    expect(echo?.env).toEqual({ A: "b" });
+    const remote = result.mcpServers.find((s) => s.server === "remote");
+    expect(remote?.kind).toBe("remote");
+    expect(remote?.url).toBe("https://mcp.example/rpc");
+    const state = result.states.find((p) => p.id === "mcp-pack");
+    expect(state?.mcp?.map((m) => m.name).sort()).toEqual(["echo", "remote"]);
+    expect(result.warnings.some((w) => w.includes("broken"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("empty"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("sse"))).toBe(true);
+  });
+
+  it("指纹确认门：未确认不进 mcpServers；写入 mcpFingerprint 后放出；内容变化指纹即变", async () => {
+    const root = await makeRoot();
+    const versionDir = await writePlugin(
+      root,
+      "gate-pack",
+      "1.0.0",
+      { name: "gate-pack", version: "1.0.0" },
+      {
+        "mcp/echo.json": JSON.stringify({ command: "node", args: ["a.js"] }),
+      },
+    );
+    const first = await preparePlugins({
+      pluginRoot: root,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(first.mcpServers).toEqual([]);
+    const fingerprint = first.states[0]?.mcpFingerprint ?? "";
+    expect(fingerprint).toMatch(/^[0-9a-f]{40}$/);
+
+    const settings = structuredClone(SETTINGS_BASE);
+    settings.plugins["gate-pack"] = { mcpFingerprint: fingerprint };
+    const confirmed = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(confirmed.mcpServers.map((s) => s.server)).toEqual(["echo"]);
+    expect(confirmed.states[0]?.mcp?.[0]?.confirmed).toBe(true);
+
+    // 内容变化（版本级不可变纪律下是"新声明"）→ 指纹变 → 回到待确认
+    await fs.writeFile(
+      path.join(versionDir, "mcp", "echo.json"),
+      JSON.stringify({ command: "node", args: ["b.js"] }),
+      "utf8",
+    );
+    const changed = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(changed.mcpServers).toEqual([]);
+    expect(changed.states[0]?.mcp?.[0]?.confirmed).toBe(false);
+  });
+
+  it("disabled 插件的 mcp server 不放出；enabled 且引擎语义通过才连（awaiting-confirm 连坐）", async () => {
+    const root = await makeRoot();
+    await writePlugin(
+      root,
+      "off-pack",
+      "1.0.0",
+      { name: "off-pack", version: "1.0.0" },
+      {
+        "mcp/a.json": JSON.stringify({ command: "node" }),
+      },
+    );
+    await writePlugin(
+      root,
+      "engine-mcp",
+      "1.0.0",
+      { name: "engine-mcp", version: "1.0.0", engine: {} },
+      {
+        "engine/main.js": ENGINE_SRC,
+        "mcp/b.json": JSON.stringify({ command: "node" }),
+      },
+    );
+    const settings = structuredClone(SETTINGS_BASE);
+    settings.plugins["off-pack"] = { enabled: false };
+    settings.plugins["engine-mcp"] = { confirmedVersion: "1.0.0" };
+    // off-pack 关掉、engine-mcp 引擎已确认但 mcp 未确认
+    const off = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(off.mcpServers).toEqual([]);
+    // engine-mcp 补 mcp 指纹（两把确认各自独立）
+    const fpOff = (
+      await preparePlugins({ pluginRoot: root, engineAlias: ALIAS, hostVersion: "0.1.0" })
+    ).states.find((p) => p.id === "engine-mcp")?.mcpFingerprint;
+    settings.plugins["engine-mcp"].mcpFingerprint = fpOff;
+    const both = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(both.mcpServers.map((s) => `${s.pluginId}/${s.server}`)).toEqual(["engine-mcp/b"]);
+    // 引擎回 awaiting（撤确认）→ mcp 连坐不连
+    delete settings.plugins["engine-mcp"].confirmedVersion;
+    const revoked = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(revoked.mcpServers).toEqual([]);
+    expect(revoked.states.find((p) => p.id === "engine-mcp")?.state).toBe("awaiting-confirm");
+  });
+
+  it("D-032 跨插件同名 server：id 字典序赢 + 告警", async () => {
+    const root = await makeRoot();
+    await writePlugin(
+      root,
+      "aaa-pack",
+      "1.0.0",
+      { name: "aaa-pack", version: "1.0.0" },
+      {
+        "mcp/weather.json": JSON.stringify({ command: "node", args: ["aaa.js"] }),
+      },
+    );
+    await writePlugin(
+      root,
+      "bbb-pack",
+      "1.0.0",
+      { name: "bbb-pack", version: "1.0.0" },
+      {
+        "mcp/weather.json": JSON.stringify({ url: "https://bbb.example" }),
+      },
+    );
+    const settings = structuredClone(SETTINGS_BASE);
+    settings.plugins["aaa-pack"] = { mcpFingerprint: "x" };
+    settings.plugins["bbb-pack"] = { mcpFingerprint: "y" };
+    void settings;
+    // 先拿真指纹再确认
+    const probe = await preparePlugins({
+      pluginRoot: root,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    const fp = (id: string): string => probe.states.find((p) => p.id === id)?.mcpFingerprint ?? "";
+    settings.plugins["aaa-pack"].mcpFingerprint = fp("aaa-pack");
+    settings.plugins["bbb-pack"].mcpFingerprint = fp("bbb-pack");
+    const result = await preparePlugins({
+      pluginRoot: root,
+      settings,
+      engineAlias: ALIAS,
+      hostVersion: "0.1.0",
+    });
+    expect(result.mcpServers.map((s) => `${s.pluginId}/${s.server}`)).toEqual(["aaa-pack/weather"]);
+    expect(result.warnings.some((w) => w.includes("已被其他插件占用"))).toBe(true);
+  });
+});

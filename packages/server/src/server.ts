@@ -86,7 +86,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
   const actualPort = typeof address === "object" && address !== null ? address.port : port;
   const url = `http://${host}:${actualPort}`;
 
-  // 握手文件（一切客户端发现：port/pid/version/token/urls——bc 同款发现协议的公开重写）
+  // 握手文件（一切客户端发现：port/pid/version/token/urls——本地回环发现协议）
   const stateDir = path.join(dataDir, "state");
   await fs.mkdir(stateDir, { recursive: true });
   const handshake = path.join(stateDir, "server.json");

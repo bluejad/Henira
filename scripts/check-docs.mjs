@@ -5,7 +5,8 @@
 //         AGENTS.md 文档粒度表）。识别口径 = 非测试 src 文件中 inputSchema 出现行
 //         邻域（±3 行）内的 name: "<id>" 字面量——工具对象的 name 与 inputSchema
 //         相邻，ServiceDefinition 的槽位名远离 inputSchema，借邻域滤掉假亲；
-//         闸门是兜底不是穷举，新形状照旧随包写 md。
+//         *.e2e.ts 同样排除（浏览器驱动脚本不是工具声明源，vitest/playwright 双轨
+//         同一区分）。闸门是兜底不是穷举，新形状照旧随包写 md。
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ function declaredTools(packageDir) {
       else if (
         entry.name.endsWith(".ts") &&
         !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".e2e.ts") &&
         !entry.name.endsWith(".d.ts")
       ) {
         files.push(full);

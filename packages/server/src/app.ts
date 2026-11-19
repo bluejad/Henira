@@ -228,6 +228,23 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // useResource 数据泵单跳（plugins.md §4 / D-064）：所有权闸（地址 pluginId 必须 = 调用方
+  // 插件且该插件声明了此 server，越权 403）在 registry——30s 超时与 200KB 截断同层
+  app.post("/api/sessions/:id/resource", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const parsed = z
+      .object({ pluginId: z.string().min(1), address: z.string().min(1) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "pluginId and address required" }, 400);
+    const result = await deps.registry.callResource(
+      entry.id,
+      parsed.data.pluginId,
+      parsed.data.address,
+    );
+    return c.json(result.body, result.status as 200);
+  });
+
   // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动）──
   app.post("/api/sessions/:id/approvals/:requestId", async (c) => {
     const entry = await requireEntry(c, deps);
@@ -736,6 +753,17 @@ export function createApp(deps: AppDeps): Hono {
     const result = await deps.registry.removePlugin(id);
     if (result === "official") return c.json({ error: "official plugin is not removable" }, 403);
     if (result === "missing") return c.json({ error: "plugin not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  // MCP 变更确认放行（D-030/D-064）：写 settings.plugins.<id>.mcpFingerprint（新会话 spawn）
+  app.post("/api/plugins/:id/confirm-mcp", async (c) => {
+    const id = c.req.param("id");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+      return c.json({ error: "invalid plugin id" }, 400);
+    }
+    const ok = await deps.registry.confirmPluginMcp(id);
+    if (!ok) return c.json({ error: "plugin not found or has no mcp servers" }, 404);
     return c.json({ ok: true });
   });
 

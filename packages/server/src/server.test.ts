@@ -1638,3 +1638,248 @@ describe("插件装载（批 C：目录发现 + 确认门 + 目录件装配）",
     }
   });
 });
+
+describe("MCP 读者（D-064：确认门 / stdio 全链 / useResource / 凭据注入）", () => {
+  /** MCP stdio 桩（手写 JSON-RPC，零 SDK——initialize / tools/list / tools/call echo + showenv） */
+  const MCP_STUB = `let buf = "";
+process.stdin.on("data", (c) => {
+  buf += c;
+  let idx;
+  while ((idx = buf.indexOf("\\n")) >= 0) {
+    const line = buf.slice(0, idx).trim();
+    buf = buf.slice(idx + 1);
+    if (line === "") continue;
+    const msg = JSON.parse(line);
+    if (msg.method === "initialize") {
+      reply(msg, { protocolVersion: msg.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "echo-server", version: "1.0.0" } });
+    } else if (msg.method === "tools/list") {
+      reply(msg, { tools: [
+        { name: "echo", description: "echo back", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
+        { name: "showenv", description: "show MY_SECRET", inputSchema: { type: "object", properties: {} } },
+      ] });
+    } else if (msg.method === "tools/call") {
+      const args = msg.params.arguments ?? {};
+      const text = msg.params.name === "showenv" ? JSON.stringify({ secret: process.env.MY_SECRET ?? null }) : JSON.stringify({ echo: args.text ?? null });
+      reply(msg, { content: [{ type: "text", text }], isError: false });
+    } else if (msg.method !== "notifications/initialized") {
+      reply(msg, {}, true);
+    }
+  }
+});
+function reply(msg, result, isErr) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, [isErr ? "error" : "result"]: isErr ? { code: -32601, message: "method not found" } : result }) + "\\n");
+}
+process.stdin.on("end", () => process.exit(0));
+`;
+
+  /** 写一个带 mcp 槽的纯内容包（echo stdio server + 凭据 server） */
+  async function writeMcpPack(dataDir: string, withCredentialRef: boolean): Promise<string> {
+    const v = path.join(dataDir, "plugins", "echo-mcp", "1.0.0");
+    await fs.mkdir(path.join(v, "mcp"), { recursive: true });
+    await fs.writeFile(path.join(v, "stub.js"), MCP_STUB, "utf8");
+    await fs.writeFile(
+      path.join(v, "plugin.json"),
+      JSON.stringify({ name: "echo-mcp", version: "1.0.0" }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(v, "mcp", "echo.json"),
+      JSON.stringify({ command: process.execPath, args: [path.join(v, "stub.js")] }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(v, "mcp", "cred.json"),
+      JSON.stringify({
+        command: process.execPath,
+        args: [path.join(v, "stub.js")],
+        env: withCredentialRef
+          ? // biome-ignore lint/suspicious/noTemplateCurlyInString: 凭据引用语法本身即此字面量
+            { MY_SECRET: "${credential:test-token}" }
+          : { MY_SECRET: "literal-value" },
+      }),
+      "utf8",
+    );
+    return v;
+  }
+
+  /** 轮询直至条件成立（连接/注册是异步的——装配不等 server，D-064） */
+  async function until(label: string, probe: () => boolean): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (!probe()) {
+      if (Date.now() > deadline) throw new Error(`timeout waiting for: ${label}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
+  /** 最小 ToolContext（tools.execute 直呼用） */
+  function toolCtxOf(entry: { ctx: { get(name: string): unknown } }, dataDir: string): unknown {
+    return {
+      cwd: dataDir,
+      signal: new AbortController().signal,
+      requestPermission: async () => "allowed-once",
+      config: entry.ctx.get("config"),
+    };
+  }
+
+  it("确认门 fail-closed：未确认不 spawn；confirm-mcp 后新会话工具进注册表并经 tools.execute 触达", async () => {
+    const { server, base, dataDir, cleanup } = await makeServer([]);
+    try {
+      await writeMcpPack(dataDir, false);
+      const before = (await (await fetch(`${base}/api/plugins`)).json()) as {
+        plugins: { id: string; mcp?: { name: string; target: string; confirmed: boolean }[] }[];
+      };
+      const entry0 = before.plugins.find((p) => p.id === "echo-mcp");
+      expect(entry0?.mcp?.map((m) => m.name).sort()).toEqual(["cred", "echo"]);
+      expect(entry0?.mcp?.every((m) => !m.confirmed)).toBe(true);
+
+      // 未确认：装配后工具不进注册表（连接根本不发生）
+      const blocked = await server.registry.create({ cwd: dataDir });
+      const namesOf = (session: { ctx: { get(name: string): unknown } }): string[] =>
+        (session.ctx.get("tools") as { project(): { name: string }[] })
+          .project()
+          .map((w) => w.name);
+      await new Promise((r) => setTimeout(r, 400));
+      expect(namesOf(blocked).some((n) => n.startsWith("mcp__"))).toBe(false);
+
+      const confirm = await fetch(`${base}/api/plugins/echo-mcp/confirm-mcp`, { method: "POST" });
+      expect(confirm.status).toBe(200);
+      // settings 持久化（重启续聊语义）
+      const settings = JSON.parse(
+        await fs.readFile(path.join(dataDir, "config", "settings.json"), "utf8"),
+      ) as { plugins?: Record<string, { mcpFingerprint?: string }> };
+      expect(settings.plugins?.["echo-mcp"]?.mcpFingerprint).toMatch(/^[0-9a-f]{40}$/);
+
+      // 新会话：异步连接 → 工具进注册表 → tools.execute 全链（含出口限量段）
+      const mounted = await server.registry.create({ cwd: dataDir });
+      await until("mcp tools registered", () => namesOf(mounted).includes("mcp__echo__echo"));
+      const executeOf = (session: { ctx: { get(name: string): unknown } }) =>
+        (
+          session.ctx.get("tools") as {
+            execute(
+              call: { callId: string; name: string; argsText: string },
+              ctx: unknown,
+            ): Promise<{ result: { content: string } }>;
+          }
+        ).execute.bind(session.ctx.get("tools"));
+      const outcome = await executeOf(mounted)(
+        { callId: "t-1", name: "mcp__echo__echo", argsText: JSON.stringify({ text: "hello" }) },
+        toolCtxOf(mounted, dataDir),
+      );
+      expect(JSON.parse(outcome.result.content)).toEqual({ echo: "hello" });
+      // 字面 env（非凭据引用）注入生效：showenv 回读 MY_SECRET
+      const envOutcome = await executeOf(mounted)(
+        { callId: "t-2", name: "mcp__cred__showenv", argsText: "{}" },
+        toolCtxOf(mounted, dataDir),
+      );
+      expect(JSON.parse(envOutcome.result.content)).toEqual({ secret: "literal-value" });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("useResource 端点：越权 403 / 未声明 server 403 / happy path", async () => {
+    const { server, base, dataDir, cleanup } = await makeServer([]);
+    try {
+      await writeMcpPack(dataDir, false);
+      await fetch(`${base}/api/plugins/echo-mcp/confirm-mcp`, { method: "POST" });
+      const entry = await server.registry.create({ cwd: dataDir });
+      const namesOf = (): string[] =>
+        (entry.ctx.get("tools") as { project(): { name: string }[] }).project().map((w) => w.name);
+      await until("mcp tools registered", () => namesOf().includes("mcp__echo__echo"));
+      const address = `henira-data://${encodeURIComponent("echo-mcp")}/echo/echo?args=${encodeURIComponent(
+        JSON.stringify({ text: "ping" }),
+      )}`;
+      // 所有权闸：调用方 pluginId 与地址不一致 → 403
+      const wrong = await fetch(`${base}/api/sessions/${entry.id}/resource`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pluginId: "other-pack", address }),
+      });
+      expect(wrong.status).toBe(403);
+      // 未声明 server → 403（同闸）
+      const undeclared = await fetch(`${base}/api/sessions/${entry.id}/resource`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pluginId: "echo-mcp", address: "henira-data://echo-mcp/nope/tool" }),
+      });
+      expect(undeclared.status).toBe(403);
+      // happy path：text JSON 可解析
+      const ok = await fetch(`${base}/api/sessions/${entry.id}/resource`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pluginId: "echo-mcp", address }),
+      });
+      expect(ok.status).toBe(200);
+      const body = (await ok.json()) as { ok: boolean; text?: string; updatedAt: number };
+      expect(body.ok).toBe(true);
+      expect(JSON.parse(body.text ?? "{}")).toEqual({ echo: "ping" });
+      expect(body.updatedAt).toBeGreaterThan(0);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("凭据引用：缺失 → 该 server 跳过不 spawn；凭据在场 → env 注入生效（值只进内存）", async () => {
+    const { server, base, dataDir, globalDir, cleanup } = await makeServer([]);
+    try {
+      await writeMcpPack(dataDir, true); // cred.json env.MY_SECRET = ${credential:test-token}
+      await fetch(`${base}/api/plugins/echo-mcp/confirm-mcp`, { method: "POST" });
+      const noCred = await server.registry.create({ cwd: dataDir });
+      const namesOf = (session: { ctx: { get(name: string): unknown } }): string[] =>
+        (session.ctx.get("tools") as { project(): { name: string }[] })
+          .project()
+          .map((w) => w.name);
+      await until("echo tool registered (cred server skipped)", () =>
+        namesOf(noCred).includes("mcp__echo__echo"),
+      );
+      await new Promise((r) => setTimeout(r, 300)); // 给 cred server 一个（不该发生的）连接窗口
+      expect(namesOf(noCred).includes("mcp__cred__showenv")).toBe(false);
+
+      // 写入凭据 → 指纹不变（凭据在 credentials.json，不在 mcp/*.json）→ 无需重确认；
+      // 新会话 env 注入生效
+      await fs.writeFile(
+        path.join(globalDir, "credentials.json"),
+        JSON.stringify({ providers: { "test-token": "sk-test-secret" } }),
+        "utf8",
+      );
+      const withCred = await server.registry.create({ cwd: dataDir });
+      await until("cred tool registered after credential write", () =>
+        namesOf(withCred).includes("mcp__cred__showenv"),
+      );
+      const executeOf = (session: { ctx: { get(name: string): unknown } }) =>
+        (
+          session.ctx.get("tools") as {
+            execute(
+              call: { callId: string; name: string; argsText: string },
+              ctx: unknown,
+            ): Promise<{ result: { content: string } }>;
+          }
+        ).execute.bind(session.ctx.get("tools"));
+      const outcome = await executeOf(withCred)(
+        { callId: "t-3", name: "mcp__cred__showenv", argsText: "{}" },
+        toolCtxOf(withCred, dataDir),
+      );
+      expect(JSON.parse(outcome.result.content)).toEqual({ secret: "sk-test-secret" });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("确认端点 404：无 mcp 槽的插件 / 未知 id", async () => {
+    const { base, dataDir, cleanup } = await makeServer([]);
+    try {
+      await fs.mkdir(path.join(dataDir, "plugins", "plain-pack", "1.0.0"), { recursive: true });
+      await fs.writeFile(
+        path.join(dataDir, "plugins", "plain-pack", "1.0.0", "plugin.json"),
+        JSON.stringify({ name: "plain-pack", version: "1.0.0" }),
+        "utf8",
+      );
+      const noMcp = await fetch(`${base}/api/plugins/plain-pack/confirm-mcp`, { method: "POST" });
+      expect(noMcp.status).toBe(404);
+      const unknown = await fetch(`${base}/api/plugins/ghost/confirm-mcp`, { method: "POST" });
+      expect(unknown.status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+});

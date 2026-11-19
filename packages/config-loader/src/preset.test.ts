@@ -3,13 +3,14 @@ import { SNAPSHOT } from "./dictionary.js";
 import { bundledSkillDirs, defaultPreset } from "./preset.js";
 
 describe("官方默认预设（D-016 / D-041）", () => {
-  it("M2 = 引擎 5 条 id-only（definition 由宿主装配注入）", () => {
+  it("出厂清单 = 引擎 5 + mcp 读者（D-064，C5）id-only（definition 由宿主装配注入）", () => {
     expect(defaultPreset.map((e) => e.id)).toEqual([
       "plugin-session",
       "plugin-llm",
       "plugin-tools",
       "plugin-approval",
       "plugin-loop",
+      "plugin-mcp",
     ]);
     expect(defaultPreset.every((e) => !("definition" in e))).toBe(true);
   });

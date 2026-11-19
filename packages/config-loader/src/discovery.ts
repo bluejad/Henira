@@ -4,6 +4,7 @@
 // （§4 硬规矩的 Node 侧等价物，禁插件自带副本）。
 // 失败语义一律「跳过 + 告警，不挡启动」（§3 清单坏 / §4 校验表）；本模块不依赖宿主包。
 
+import { createHash } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { createJiti } from "jiti";
@@ -305,7 +306,7 @@ export async function loadEngineModule(input: {
   return result;
 }
 
-/** 内圈槽位（官方五件 + 宿主两件）：注入预检的提供者基座（§4 :96，装配层预检） */
+/** 内圈槽位（官方五件 + 宿主两件 + mcp 读者，D-064）：注入预检的提供者基座（§4 :96，装配层预检） */
 const CORE_SLOTS = [
   "session",
   "tools",
@@ -314,14 +315,39 @@ const CORE_SLOTS = [
   "loop",
   "interaction",
   "config",
+  "mcp",
 ] as const;
 
-/** settings.plugins.<id> 形状（data-directory §2.3；confirmedVersion = 确认卡记录，批 C） */
+/** settings.plugins.<id> 形状（data-directory §2.3；confirmedVersion = 引擎确认卡记录，批 C；
+ *  mcpFingerprint = MCP 变更确认记录，D-030/D-064——指纹不符 = 不 spawn） */
 export interface PluginSettingsEntry {
   enabled?: boolean;
   version?: string;
   confirmedVersion?: string;
+  mcpFingerprint?: string;
   options?: Record<string, unknown>;
+}
+
+/** 管理面可见的单个 MCP server 声明（§6.4 详情；D-030 确认态随指纹） */
+export interface McpSlotInfo {
+  name: string;
+  /** command+args 或 url 的展示串（原始值，未展开模板变量——密钥引用永不展开进读面） */
+  target: string;
+  confirmed: boolean;
+}
+
+/** 单个 MCP server 声明（§4 mcp 槽，D-064）：本模块只读文件——模板变量与 `${credential:}` 展开
+ *  由宿主在喂工厂前做（展开值只进内存，永不回读面 / 日志） */
+export interface McpServerDecl {
+  pluginId: string;
+  server: string;
+  kind: "stdio" | "remote";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  versionDir: string;
 }
 
 /** 管理面 / GET /api/plugins 的每插件状态（plugins.md §5 状态模型） */
@@ -335,6 +361,9 @@ export interface PluginState {
   state: "loaded" | "disabled" | "failed" | "awaiting-confirm";
   reason?: string;
   ui?: PluginUiManifest;
+  mcp?: McpSlotInfo[];
+  /** 当前 mcp 槽指纹（confirm-mcp 端点写回 settings 用；无 mcp 槽 = 缺省） */
+  mcpFingerprint?: string;
   inject: string[];
   warnings: string[];
 }
@@ -344,13 +373,133 @@ export interface PrepareResult {
   states: PluginState[];
   /** 可装配的引擎件定义（宿主转型 ServiceDefinition 后 use） */
   definitions: Array<{ id: string; definition: unknown; inject: string[] }>;
+  /** 已确认且可连接的 MCP server 声明（宿主喂 plugin-mcp 工厂；D-064） */
+  mcpServers: McpServerDecl[];
   warnings: string[];
+}
+
+/** 字符串映射（env / headers）：非对象或含非字符串值 = undefined（调用方跳过该 server + 告警） */
+function stringMap(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v !== "string") return undefined;
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * mcp 槽扫描（§4 mcp 行 + D-030/D-064）：读 `<versionDir>/mcp/*.json`，坏一个跳过该 server +
+ * 告警，不挡其他；指纹 = 目录内全部文件内容 sha1（任何变更即需重新确认）。
+ * 声明里保留原始值——模板变量 / `${credential:}` 展开由宿主做。
+ */
+async function readMcpSlots(input: {
+  manifest: PluginManifest;
+  fingerprintConfirmed?: string;
+  warnings: string[];
+}): Promise<{ infos: McpSlotInfo[]; decls: McpServerDecl[]; fingerprint: string }> {
+  const { manifest, warnings } = input;
+  const mcpDir = path.join(manifest.versionDir, "mcp");
+  let files: string[] = [];
+  try {
+    files = (await fs.readdir(mcpDir)).filter((f) => f.endsWith(".json")).sort();
+  } catch {
+    return { infos: [], decls: [], fingerprint: "" }; // 无 mcp 槽 = 没有该槽位，不告警（§3）
+  }
+  const prefix0 = `${manifest.id}@${manifest.version}`;
+  const entries: Array<{ server: string; raw: string }> = [];
+  const hash = createHash("sha1");
+  for (const file of files) {
+    const server = file.slice(0, -".json".length);
+    if (!SAFE_SEG.test(server)) {
+      warnings.push(`${prefix0}/${server}: server 名含非法字符——跳过`);
+      continue;
+    }
+    const raw = await fs.readFile(path.join(mcpDir, file), "utf8").catch(() => undefined);
+    if (raw === undefined) {
+      warnings.push(`${prefix0}/${server}: 声明读取失败——跳过`);
+      continue;
+    }
+    entries.push({ server, raw });
+    hash.update(`${server}\u0000${raw}\u0000`);
+  }
+  const fingerprint = hash.digest("hex");
+  const confirmed = input.fingerprintConfirmed === fingerprint;
+  const infos: McpSlotInfo[] = [];
+  const decls: McpServerDecl[] = [];
+  for (const { server, raw } of entries) {
+    const prefix = `${prefix0}/${server}`;
+    let cfg: unknown;
+    try {
+      cfg = JSON.parse(raw);
+    } catch {
+      warnings.push(`${prefix}: JSON 损坏——跳过该 server`);
+      continue;
+    }
+    if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg)) {
+      warnings.push(`${prefix}: 声明不是对象——跳过该 server`);
+      continue;
+    }
+    const c = cfg as Record<string, unknown>;
+    if (c.type === "sse") {
+      warnings.push(`${prefix}: type "sse" 暂不支持——跳过该 server（挂账）`);
+      continue;
+    }
+    if (typeof c.command === "string" && c.command !== "") {
+      const env = stringMap(c.env);
+      if (c.env !== undefined && env === undefined) {
+        warnings.push(`${prefix}: env 含非字符串值——跳过该 server`);
+        continue;
+      }
+      const args = Array.isArray(c.args)
+        ? c.args.filter((a): a is string => typeof a === "string")
+        : [];
+      if (Array.isArray(c.args) && args.length !== c.args.length) {
+        warnings.push(`${prefix}: args 含非字符串项——已忽略非法项`);
+      }
+      if (confirmed) {
+        // 确认门（D-030 fail-closed）：指纹不符 = 只进读面、不进连接声明
+        decls.push({
+          pluginId: manifest.id,
+          server,
+          kind: "stdio",
+          command: c.command,
+          args,
+          env,
+          versionDir: manifest.versionDir,
+        });
+      }
+      infos.push({ name: server, target: [c.command, ...args].join(" "), confirmed });
+    } else if (typeof c.url === "string" && c.url !== "") {
+      const headers = stringMap(c.headers);
+      if (c.headers !== undefined && headers === undefined) {
+        warnings.push(`${prefix}: headers 含非字符串值——跳过该 server`);
+        continue;
+      }
+      if (confirmed) {
+        decls.push({
+          pluginId: manifest.id,
+          server,
+          kind: "remote",
+          url: c.url,
+          headers,
+          versionDir: manifest.versionDir,
+        });
+      }
+      infos.push({ name: server, target: c.url, confirmed });
+    } else {
+      warnings.push(`${prefix}: command 与 url 至少需要一个——跳过该 server`);
+    }
+  }
+  return { infos, decls, fingerprint };
 }
 
 /**
  * 装配前置（§5 装配三步的②+③ + 确认门 + 预检；宿主每次会话装配调用）：
  * 扫描 → settings 过滤（缺省启用）→ engines 兼容门 → 确认门（fail-closed）→
- * 引擎装载 → inject 预检（缺提供者 = 不装载 + 告警）。
+ * 引擎装载 → inject 预检（缺提供者 = 不装载 + 告警）→ mcp 槽扫描（D-064）。
  * 纯配置函数：不依赖任何宿主包；`engineAlias` 由宿主传（@henira/* → 唯一实例路径）。
  */
 export async function preparePlugins(opts: {
@@ -367,6 +516,7 @@ export async function preparePlugins(opts: {
   const warnings = [...discovery.warnings];
   const states: PluginState[] = [];
   const loaded: Array<{ id: string; definition: unknown; inject: string[]; name?: string }> = [];
+  const mcpPending: Array<{ pluginId: string; decls: McpServerDecl[] }> = [];
   for (const manifest of discovery.plugins) {
     const pref = opts.settings?.plugins?.[manifest.id];
     const enabled = pref?.enabled !== false;
@@ -387,6 +537,18 @@ export async function preparePlugins(opts: {
     if (manifest.description !== undefined) state.description = manifest.description;
     if (manifest.ui !== undefined) state.ui = manifest.ui;
     warnings.push(...manifest.warnings.map((w) => `${manifest.id}@${manifest.version}: ${w}`));
+    // mcp 槽（读面与声明；D-064）：声明只在「启用且引擎语义通过」时收集——插件整体
+    // disabled / awaiting-confirm / failed 时 MCP 一并不连接（fail-closed）
+    const mcp = await readMcpSlots({
+      manifest,
+      fingerprintConfirmed: pref?.mcpFingerprint,
+      warnings,
+    });
+    if (mcp.infos.length > 0) {
+      state.mcp = mcp.infos;
+      state.mcpFingerprint = mcp.fingerprint;
+    }
+    let mcpAllowed = enabled;
     if (!enabled) {
       state.state = "disabled";
       states.push(state);
@@ -397,38 +559,36 @@ export async function preparePlugins(opts: {
         state.state = "failed";
         state.reason = `引擎版本不兼容（requires ${String(manifest.engines)}，host ${opts.hostVersion}）`;
         warnings.push(`${manifest.id}: ${state.reason}——跳过`);
-        states.push(state);
-        continue;
-      }
-      if (pref?.confirmedVersion !== manifest.version) {
+        mcpAllowed = false;
+      } else if (pref?.confirmedVersion !== manifest.version) {
         state.state = "awaiting-confirm";
         state.reason = "待确认卡放行（引擎代码首次生效 / 版本升级）";
-        states.push(state);
-        continue;
+        mcpAllowed = false;
+      } else {
+        const load = await loadEngineModule({
+          versionDir: manifest.versionDir,
+          entry: manifest.engine.entry,
+          alias: opts.engineAlias,
+        });
+        if (load.error !== undefined || load.definition === undefined) {
+          state.state = "failed";
+          state.reason = load.error ?? "装载失败";
+          warnings.push(`${manifest.id}: ${state.reason}——跳过`);
+          mcpAllowed = false;
+        } else {
+          state.inject = load.inject;
+          loaded.push({
+            id: manifest.id,
+            definition: load.definition,
+            inject: load.inject,
+            name: (load.definition as { name?: string }).name,
+          });
+        }
       }
-      const load = await loadEngineModule({
-        versionDir: manifest.versionDir,
-        entry: manifest.engine.entry,
-        alias: opts.engineAlias,
-      });
-      if (load.error !== undefined || load.definition === undefined) {
-        state.state = "failed";
-        state.reason = load.error ?? "装载失败";
-        warnings.push(`${manifest.id}: ${state.reason}——跳过`);
-        states.push(state);
-        continue;
-      }
-      state.inject = load.inject;
-      loaded.push({
-        id: manifest.id,
-        definition: load.definition,
-        inject: load.inject,
-        name: (load.definition as { name?: string }).name,
-      });
-      states.push(state);
-    } else {
-      states.push(state); // 纯内容 / 纯 UI：无引擎装载语义
     }
+    if (mcpAllowed && mcp.decls.length > 0)
+      mcpPending.push({ pluginId: manifest.id, decls: mcp.decls });
+    states.push(state);
   }
   // inject 预检（§4 :96）：提供者 = 内圈槽 + 本批装载件的槽名；缺提供者 = 不装载 + 告警
   const providers = new Set<string>(CORE_SLOTS);
@@ -447,5 +607,20 @@ export async function preparePlugins(opts: {
     }
     definitions.push({ id: item.id, definition: item.definition, inject: item.inject });
   }
-  return { states, definitions, warnings };
+  // mcp server 名去重（D-032 同层：id 字典序赢 + 告警；discovery.plugins 已按 id 排序）
+  const mcpServers: McpServerDecl[] = [];
+  const seenServers = new Set<string>();
+  for (const { decls } of mcpPending) {
+    for (const decl of decls) {
+      if (seenServers.has(decl.server)) {
+        warnings.push(
+          `${decl.pluginId}/${decl.server}: server 名已被其他插件占用——跳过（同名先到先得）`,
+        );
+        continue;
+      }
+      seenServers.add(decl.server);
+      mcpServers.push(decl);
+    }
+  }
+  return { states, definitions, mcpServers, warnings };
 }

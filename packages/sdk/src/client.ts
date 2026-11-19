@@ -195,6 +195,17 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       await requestJson(`/api/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
     },
 
+    async confirmPluginMcp(id) {
+      await requestJson(`/api/plugins/${encodeURIComponent(id)}/confirm-mcp`, { method: "POST" });
+    },
+
+    async executeResource(sessionId, pluginId, address) {
+      return requestJson(`/api/sessions/${sessionId}/resource`, {
+        method: "POST",
+        body: JSON.stringify({ pluginId, address }),
+      });
+    },
+
     async listDir(sessionId, dirPath) {
       const query = dirPath === undefined ? "" : `?path=${encodeURIComponent(dirPath)}`;
       return requestJson(`/api/sessions/${sessionId}/files${query}`);

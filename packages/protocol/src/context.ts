@@ -8,10 +8,11 @@ import type { ConfigService } from "./config.js";
 import type { InteractionService } from "./interaction.js";
 import type { LlmService } from "./llm.js";
 import type { LoopService } from "./loop.js";
-import type { SessionService } from "./services.js";
+import type { McpService, SessionService } from "./services.js";
 import type { ToolsService } from "./tools.js";
 
-/** 槽位名 → 服务类型。commands 槽随 plugin-commands 落码（M6）进入（D-025） */
+/** 槽位名 → 服务类型。commands 槽随 plugin-commands 落码（M6）进入（D-025）；
+ *  mcp 槽随 plugin-mcp 落码进入（D-064） */
 export interface SlotMap {
   session: SessionService;
   llm: LlmService;
@@ -20,6 +21,7 @@ export interface SlotMap {
   loop: LoopService;
   interaction: InteractionService;
   config: ConfigService;
+  mcp: McpService;
 }
 
 export type HeniraContext = Omit<HarnessContext, "get"> & {

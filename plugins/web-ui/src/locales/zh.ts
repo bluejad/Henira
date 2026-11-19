@@ -144,6 +144,11 @@ export const zh = {
   "settings.plugins.confirm": "确认并启用",
   "settings.plugins.remove": "卸载",
   "settings.plugins.removeConfirm": "卸载该插件？版本目录将被删除（plugins-data 数据保留）。",
+  "settings.plugins.mcpConfirmed": "已确认",
+  "settings.plugins.mcpAwaiting": "待确认",
+  "settings.plugins.mcpConfirm": "确认连接",
+  "settings.plugins.mcpHint":
+    "MCP 首次连接或 mcp/*.json 变更后需确认（新会话自动连接，确认前工具不进注册表）。",
   "common.retry": "重试",
   "common.copy": "复制",
   "common.copied": "已复制",

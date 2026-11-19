@@ -197,3 +197,13 @@ export interface SessionUiState {
   reasoningEffort?: ReasoningEffort;
   [key: string]: unknown;
 }
+
+/** POST /api/sessions/:id/resource 回复（useResource 泵单跳，D-064）：执行失败走 200 +
+ *  {ok:false,error}（泵语义：失败保旧数据由宿主负责）；越权 / 未声明 = 403、会话缺 = 404 */
+export interface ResourceReply {
+  ok: boolean;
+  /** 工具返回文本（≤200KB，出口限量已应用） */
+  text?: string;
+  error?: string;
+  updatedAt: number;
+}

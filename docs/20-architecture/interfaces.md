@@ -452,6 +452,33 @@ applyConfig(harness: Harness, cfg: HeniraConfig): void;   // 翻译成 .use() �
 | `subagents`（子代理编排） / `web`（抓取）              | `plugin-subagent` / `plugin-fetch`    | M5 随设计文档 |
 | `skills`（技能目录）                                   | `plugin-skills`                       | M6 随设计文档 |
 | `commands`                                             | `plugin-commands`（D-025 已是服务）   | 已定          |
+| `mcp`（MCP 连接与工具转接）                            | `plugin-mcp`（服务件，D-064）         | 已定（C5 批） |
+
+## mcp（官方插件；对外形状 = McpService，D-064）
+
+> 契约定稿（2026-11-19，C5 批）：plugin-mcp 按插件包 `mcp/*.json` 声明连接外部 MCP server（stdio / streamable HTTP，官方 `@modelcontextprotocol` SDK），把其工具转接进 tools 注册表。服务形状刻意最小——useResource 数据泵（plugins.md §4）的宿主单跳落到这里；资源 / 提示模板 / 采样等其余 MCP 能力不进 v1（50-open 挂账）。
+
+```ts
+interface McpService {
+  /** 调一个已连接 server 的工具（useResource 数据泵单跳）；server 未声明 / 未连接 → 抛错 */
+  call(
+    target: { pluginId: string; server: string; tool: string },
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpCallResult>;
+}
+interface McpCallResult {
+  content: string; // text 内容按序 join；image / audio 等非文本项以占位行计入（blob 落盘挂账）
+  isError?: boolean; // MCP isError 结果原样透传
+}
+```
+
+- **连接语义**：会话装配时异步连接（不阻塞开屏）；连上 → `tools/list` → 注册进注册表；`list_changed` → 重列、**整代原子换注册**（失败保旧代；sync 单队列串行防交错）；有界退避（1s × 2，3 次）耗尽 → 注销该 server 全部工具 + 告警，新会话重来；stdio 死亡不自动 respawn（新会话重连，同生态惯例）；
+- **工具命名**：模型可见名 `mcp__<server>__<tool>`；非法字符 → `_`、超 64 截断并追加短哈希防塌缩；server 名跨插件按 D-032 链去重（同层 id 字典序赢 + 告警）；同 server 内规范化后撞名 → 后者跳过 + 告警；
+- **审批**：MCP 工具 `isConcurrencySafe` 缺省 false → 无规则命中走 `approval/request` 弹卡（外部 server 默认过目；D-039 判定链不变，无 MCP 特例）；
+- **凭据与展开（D-030）**：`mcp/*.json` 的 env / headers 值支持 `${credential:名}` 引用——宿主从 `config/credentials.json` 展开后**内存传递**；缺失 → 该 server 跳过 + 告警、**不 spawn**（fail-closed）；`${HENIRA_PLUGIN_ROOT}` / `${HENIRA_PROJECT_DIR}` 与生态别名（plugins.md §4 模板变量）在 command / args / env / url / headers 展开；command 为含路径分隔符的相对路径时相对插件版本目录解析，裸命令名走 PATH；
+- **stdio 环境**：父环境清洗（剔名称匹配 `KEY|PASSWORD|SECRET|TOKEN` 与 `HENIRA_*` 的变量）后合并声明 env（防环境侧信道，声明 env 显式项总赢）；
+- **密钥不出服务**：plugin-mcp 不接触 credentials.json，不回显任何密钥；`type: "sse"` 声明 → 跳过 + 告警（挂账）。
 
 ## server —— HTTP + SSE 宿主（正式宿主，D-035；定稿 2026-11-17）
 
@@ -521,6 +548,8 @@ POST /api/plugins/:id/confirm               { version }  → { ok: true }    // 
 PUT  /api/plugins/:id/enabled               { enabled }  → { ok: true }    // 启停（settings.plugins.<id>.enabled；缺 key = 启用；官方五件拒绝 404）
 PUT  /api/plugins/:id/version               { version }  → { ok: true }    // 版本钉（盘上须存在；官方件拒绝；新会话生效）
 DELETE /api/plugins/:id                                  → { ok: true }    // 卸载（删 plugins/<id> 整目录；plugins-data 保留；官方件 403；不存在 404）
+POST /api/plugins/:id/confirm-mcp                        → { ok: true }    // C5：MCP 变更确认放行（D-030：首次连接或 mcp/*.json 变更后须确认；写 settings.plugins.<id>.mcpFingerprint；未确认 = 不 spawn、工具不进注册表）
+POST /api/sessions/:id/resource             { pluginId, address } → ResourceReply // C5：useResource 数据泵单跳（address = henira-data://<pluginId>/<server>/<tool>?args=<URL 编码 JSON>；所有权闸：pluginId 与声明双校验，越权 403；30s 超时、200KB 截断；失败保上次数据由宿主泵负责——plugins.md §4）
 GET  /api/ui-state                                       → GlobalUiState   // 全局"上次选中"（backing state/ui.json；启动还原：在列表则选中，否则回落最新更新 / 新建；D-063，✓ 界面持久化批）
 PUT  /api/ui-state                           { doc }     → { ok: true }    // 选中变化时写（D-063）
 GET  /api/events                                        → SSE 帧流        // 唯一订阅端点（帧序/心跳/有界队列见下「SSE 传输形状」）
@@ -944,6 +973,14 @@ interface ResourceSnapshot {
   updatedAt?: number;
 }
 
+// POST /api/sessions/:id/resource 回复（useResource 泵单跳；C5）
+interface ResourceReply {
+  ok: boolean;
+  text?: string; // 工具返回文本（≤200KB，出口限量已应用）
+  error?: string; // ok = false 时的可行动提示（未确认 / 未连接 / 越权 403 由状态码区分）
+  updatedAt: number;
+}
+
 interface PluginInfo {
   id: string;
   name: string;
@@ -963,7 +1000,7 @@ interface PluginDetail extends PluginInfo {
   dataSize?: number; // plugins-data/<id>/ 占用
   uiSlots?: string[]; // ui.slots 声明（D-031）；运行时注册仍是权威
   hooks?: { name: string; event: string; command: string }[];
-  mcp?: { name: string; target: string }[]; // command 或 url 的展示串
+  mcp?: { name: string; target: string; confirmed: boolean }[]; // command 或 url 的展示串 + D-030 确认态（C5）
 }
 
 interface DirEntry {

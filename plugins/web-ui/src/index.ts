@@ -20,6 +20,7 @@ export type {
   LayoutOption,
   PluginInfo,
   PluginUiHost,
+  ResourceSnapshot,
   RowStoreLike,
   SettingsSection,
   SlotPart,

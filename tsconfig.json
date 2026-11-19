@@ -44,6 +44,9 @@
       "path": "plugins/loop"
     },
     {
+      "path": "plugins/mcp"
+    },
+    {
       "path": "plugins/web-ui"
     }
   ]

@@ -16,6 +16,8 @@ export interface SettingsFile {
       version?: string;
       /** 确认卡记录（批 C：engine 件首次生效 / 版本升级需用户确认，未确认 = 不装载） */
       confirmedVersion?: string;
+      /** MCP 变更确认记录（D-030/D-064：mcp/*.json 内容指纹，不符 = 不 spawn） */
+      mcpFingerprint?: string;
       options?: Record<string, unknown>;
     }
   >;
@@ -53,7 +55,7 @@ export async function writeSettings(
   return next;
 }
 
-/** 深合并单个插件设置（enabled/version/confirmedVersion）——管理面与确认卡写入口 */
+/** 深合并单个插件设置（enabled/version/confirmedVersion/mcpFingerprint）——管理面与确认卡写入口 */
 export async function setPluginSetting(
   globalDir: string,
   id: string,
@@ -61,6 +63,7 @@ export async function setPluginSetting(
     enabled?: boolean;
     version?: string;
     confirmedVersion?: string;
+    mcpFingerprint?: string;
     options?: Record<string, unknown>;
   },
 ): Promise<SettingsFile> {
@@ -95,6 +98,19 @@ export async function listCredentialProviders(globalDir: string): Promise<string
     return Object.keys(file.providers ?? {});
   } catch {
     return [];
+  }
+}
+
+/** 凭据值表（进程内消费：MCP 声明 `${credential:名}` 展开的唯一来源，D-064）。
+ *  D-030：返回值只进内存、只进 spawn env / 远程 headers——永不进日志 / 响应体 / 账本。 */
+export async function readCredentialValues(globalDir: string): Promise<Record<string, string>> {
+  try {
+    const file = JSON.parse(
+      await fs.readFile(path.join(globalDir, "credentials.json"), "utf8"),
+    ) as { providers?: Record<string, string> };
+    return { ...(file.providers ?? {}) };
+  } catch {
+    return {};
   }
 }
 

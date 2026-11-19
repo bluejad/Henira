@@ -857,7 +857,9 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
         <div className="henira-field-empty">{ctx.t("settings.plugins.empty")}</div>
       ) : null}
       {rows?.map((row) => {
-        const official = OFFICIAL_PLUGIN_IDS.has(row.id);
+        const officialCore = OFFICIAL_PLUGIN_IDS.has(row.id);
+        // plugin-mcp 是外圈官方件：可停用（不给卸载、版本钉）
+        const builtin = officialCore || row.id === "plugin-mcp";
         const stateKey = pluginStateKey(row.state);
         return (
           <div
@@ -872,7 +874,7 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
                 <span className="henira-plugin-badge" data-state={stateKey}>
                   {ctx.t(`settings.plugins.state.${stateKey}`)}
                 </span>
-                {official ? (
+                {builtin ? (
                   <span className="henira-plugin-badge" data-state="official">
                     {ctx.t("settings.plugins.official")}
                   </span>
@@ -883,6 +885,45 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
               </span>
               {row.reason !== undefined ? (
                 <span className="henira-form-error">{row.reason}</span>
+              ) : null}
+              {row.mcp !== undefined && row.mcp.length > 0 ? (
+                <div className="henira-plugin-mcp">
+                  {row.mcp.map((server) => (
+                    <div
+                      key={server.name}
+                      className="henira-plugin-mcp-row"
+                      data-server={server.name}
+                    >
+                      <code>{server.name}</code>
+                      <span className="henira-field-hint">{server.target}</span>
+                      <span
+                        className="henira-plugin-badge"
+                        data-state={server.confirmed ? "loaded" : "confirm"}
+                      >
+                        {ctx.t(
+                          server.confirmed
+                            ? "settings.plugins.mcpConfirmed"
+                            : "settings.plugins.mcpAwaiting",
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  {!row.mcp.every((server) => server.confirmed) &&
+                  ctx.client.confirmPluginMcp !== undefined ? (
+                    <button
+                      type="button"
+                      className="henira-ghost"
+                      disabled={busy === row.id}
+                      onClick={() => {
+                        const confirm = ctx.client.confirmPluginMcp;
+                        if (confirm !== undefined) void act(row.id, () => confirm(row.id));
+                      }}
+                    >
+                      {ctx.t("settings.plugins.mcpConfirm")}
+                    </button>
+                  ) : null}
+                  <span className="henira-field-hint">{ctx.t("settings.plugins.mcpHint")}</span>
+                </div>
               ) : null}
             </div>
             {row.state === "awaiting-confirm" && ctx.client.confirmPlugin !== undefined ? (
@@ -898,7 +939,7 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
                 {ctx.t("settings.plugins.confirm")}
               </button>
             ) : null}
-            {!official ? (
+            {!officialCore ? (
               <label className="henira-plugin-toggle">
                 <input
                   type="checkbox"
@@ -914,7 +955,7 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
                 {ctx.t("settings.plugins.enabled")}
               </label>
             ) : null}
-            {!official && ctx.client.removePlugin !== undefined ? (
+            {!builtin && ctx.client.removePlugin !== undefined ? (
               <button
                 type="button"
                 className="henira-ghost"

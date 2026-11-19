@@ -1507,6 +1507,7 @@ button:focus-visible > .henira-row-caret {
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid var(--henira-border-strong);
+  white-space: nowrap; /* 徽章窄列不折行（「待确认」曾被挤成两行） */
 }
 .henira-plugin-badge[data-state="loaded"] {
   color: var(--henira-ok-text);
@@ -1523,6 +1524,28 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-info-bg);
   border-color: transparent;
 }
+.henira-plugin-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--henira-border);
+  border-radius: 6px;
+}
+
+.henira-plugin-mcp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--henira-fs-sm);
+}
+
+.henira-plugin-mcp .henira-plugin-mcp-row code {
+  font-family: var(--henira-mono, monospace);
+  font-size: var(--henira-fs-sm);
+}
+
 .henira-plugin-toggle {
   display: flex;
   align-items: center;

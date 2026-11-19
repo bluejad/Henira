@@ -51,3 +51,34 @@ export interface SessionService {
   /** 把日志重放给消费者（UI 回放、调试、未来的评测输入） */
   replay(visitor: (e: SessionEvent) => void | Promise<void>): Promise<void>;
 }
+
+/** MCP server 声明（interfaces.md §mcp 契约小节，D-064）：宿主扫描 mcp/*.json 后喂 plugin-mcp，
+ *  模板变量与 `${credential:}` 已展开——本形状里不含密钥引用，只含解析后的值 */
+export interface McpServerSpec {
+  pluginId: string;
+  /** server 名（mcp/<名>.json 文件名去 .json；跨插件 D-032 去重后的唯一名） */
+  server: string;
+  kind: "stdio" | "remote";
+  command?: string;
+  args?: readonly string[];
+  env?: Readonly<Record<string, string>>;
+  url?: string;
+  headers?: Readonly<Record<string, string>>;
+}
+
+/** McpService.call 的结果：text join（非文本项占位行）+ isError 透传（D-064） */
+export interface McpCallResult {
+  content: string;
+  isError?: boolean;
+}
+
+/** mcp 槽位契约（interfaces.md §mcp 契约小节，D-064）：最小面——useResource 数据泵与
+ *  未来消费者的唯一通道；工具转接进 tools 注册表不经本服务 */
+export interface McpService {
+  /** 调一个已连接 server 的工具；server 未声明 / 未连接 → 抛错 */
+  call(
+    target: { pluginId: string; server: string; tool: string },
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpCallResult>;
+}

@@ -24,12 +24,14 @@
     "@henira/plugin-approval": "workspace:*",
     "@henira/plugin-llm": "workspace:*",
     "@henira/plugin-loop": "workspace:*",
+    "@henira/plugin-mcp": "workspace:*",
     "@henira/plugin-session": "workspace:*",
     "@henira/plugin-tools": "workspace:*",
     "@henira/protocol": "workspace:*"
   },
   "devDependencies": {
     "@henira/llm-mock": "workspace:*",
-    "@henira/server": "workspace:*"
+    "@henira/server": "workspace:*",
+    "@types/node": "^24.0.0"
   }
 }

@@ -14,6 +14,7 @@ import {
   type LayoutOption,
   makeT,
   type PluginUiHost,
+  type ResourceSnapshot,
   type SettingsSection,
   type SlotPart,
   type UiModuleContext,
@@ -25,6 +26,7 @@ import {
 import type { GlobalUiState, ServerFrame, SessionSummary, SessionUiState } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
+import { createResourcePump } from "./resource-pump.js";
 import { RowStore } from "./store.js";
 
 /** 整页布局选项（形状真源在 plugin-web-ui types.LayoutOption；API 兼容别名） */
@@ -166,7 +168,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   const uiWarnings: string[] = [];
   let moduleCtx: UiModuleContext | undefined;
 
-  function makeModuleContext(): UiModuleContext {
+  function makeModuleContext(callerPluginId: string): UiModuleContext {
     return {
       registerSlot: (name, part, registerOpts) => {
         if (!slotAccepted(name)) {
@@ -200,7 +202,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         slots.set(name, [part]);
         return () => {};
       },
-      host: hostFacade,
+      host: hostFor(callerPluginId),
     };
   }
 
@@ -213,7 +215,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         slots.set(name, [part]);
       }
     } else {
-      moduleCtx = makeModuleContext();
+      moduleCtx = makeModuleContext("plugin-web-ui");
       moduleDispose = webUiModule(moduleCtx);
       void syncThirdPartyUi();
     }
@@ -243,6 +245,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       uiPollTimer = undefined;
     }
     lastFingerprint = "";
+    // 数据泵随件退订清场（重装后由新件的 effect 重新首拉）
+    resourcePump.clearAll();
   }
 
   async function syncThirdPartyUi(): Promise<void> {
@@ -297,7 +301,9 @@ export function createWebApp(opts: WebAppOptions): WebApp {
                 ? (mod.default as (ctx: UiModuleContext) => unknown)
                 : undefined;
         if (candidate === undefined) throw new Error("module does not export apply(ctx)");
-        const dispose = await (candidate as (ctx: UiModuleContext) => unknown)(moduleCtx);
+        // per-module ctx：host 绑定该插件 id（useResource 所有权闸按插件隔离）
+        const moduleUiCtx: UiModuleContext = { ...moduleCtx, host: hostFor(plugin.id) };
+        const dispose = await (candidate as (ctx: UiModuleContext) => unknown)(moduleUiCtx);
         thirdParty.set(plugin.id, {
           version: plugin.version,
           dispose: typeof dispose === "function" ? (dispose as () => void) : undefined,
@@ -311,7 +317,65 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     render();
   }
 
-  // ── PluginUiHost 门面（M3 实装子集；useResource / listPlugins 为 M4 占位）──
+  // ── useResource 数据泵（plugins.md §4 / D-064）：实现在 resource-pump.ts（可单测）；
+  //    所有权闸在此——绑定 pluginId 必须 = 地址 pluginId（hostFacade 共享，第三方件拿
+  //    per-module 绑定 host）──
+  const resourcePump = createResourcePump({
+    execute: (sid, pluginId, address) => {
+      const execute = opts.client.executeResource;
+      if (execute === undefined) {
+        return Promise.resolve({
+          ok: false,
+          error: "resource endpoint not available",
+          updatedAt: Date.now(),
+        });
+      }
+      return execute(sid, pluginId, address);
+    },
+    getSessionId: () => sessionId,
+  });
+
+  function parseAddressPluginId(address: string): string | undefined {
+    const m = /^henira-data:\/\/([^/?#]+)\//.exec(address);
+    if (m === null) return undefined;
+    try {
+      return decodeURIComponent(m[1] ?? "");
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** per-module 绑定的 useResource（React hook 语义——只被 UI 件的 render 期调用，plugins.md §4；
+   *  biome 的 hook 规则看不见跨模块调用约定，两处调用行具名豁免） */
+  function resourceSnapshotFor(callerPluginId: string, address: string): ResourceSnapshot {
+    const owned = parseAddressPluginId(address) === callerPluginId;
+    // biome-ignore lint/correctness/useHookAtTopLevel: 仅在 UI 件组件 render 期调用（门面契约）
+    const [snapshot, setSnapshot] = React.useState<ResourceSnapshot>(() =>
+      owned ? (resourcePump.snapshotOf(address) ?? { status: "loading" }) : { status: "loading" },
+    );
+    // biome-ignore lint/correctness/useHookAtTopLevel: 同上
+    React.useEffect(() => {
+      if (!owned) return; // 越权地址：不订阅不拉取（failed 语义在下方快照呈现）
+      return resourcePump.subscribe(address, callerPluginId, setSnapshot);
+    }, [address, owned, callerPluginId]);
+    if (!owned) {
+      return {
+        status: "failed",
+        error: "resource ownership violated (address plugin mismatch)",
+      };
+    }
+    return snapshot;
+  }
+
+  /** per-module host 绑定：官方件 = plugin-web-ui；第三方件 = 各自插件 id（useResource 所有权闸） */
+  function hostFor(pluginId: string): PluginUiHost {
+    return {
+      ...hostFacade,
+      useResource: (address: string) => resourceSnapshotFor(pluginId, address),
+    };
+  }
+
+  // ── PluginUiHost 门面（官方件共享基座；第三方件经 hostFor(pluginId) 拿绑定副本）──
   const hostFacade: PluginUiHost = {
     async sendPrompt(text: string) {
       if (sessionId === null) throw new Error("no active session");
@@ -359,10 +423,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         .filter((s) => s.cwd === cwd)
         .map((s) => ({ id: s.id, cwd: s.cwd, updatedAt: s.updatedAt }));
     },
-    useResource: () => ({
-      status: "failed" as const,
-      error: "useResource lands with plugin-mcp (M4)",
-    }),
+    useResource: (address: string) => resourceSnapshotFor("plugin-web-ui", address),
     async listPlugins() {
       const snapshot = await opts.client.listPlugins();
       return snapshot.plugins

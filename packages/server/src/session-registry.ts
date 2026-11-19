@@ -13,17 +13,21 @@ import { fileURLToPath } from "node:url";
 import {
   createConfigService,
   defaultPreset,
+  expandMcpServers,
   type PluginEntry,
   type PluginSettingsEntry,
   type PluginState,
   type PrepareResult,
+  parseResourceAddress,
   preparePlugins,
+  scrubSpawnEnv,
 } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
+import { mcpPlugin } from "@henira/plugin-mcp";
 import {
   projectKey,
   SESSION_LOG_FILE,
@@ -31,7 +35,7 @@ import {
   sessionPlugin,
 } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
-import type { LlmService } from "@henira/protocol";
+import type { LlmService, McpServerSpec, McpService } from "@henira/protocol";
 import {
   asHeniraContext,
   type LoopEvent,
@@ -46,6 +50,7 @@ import type { Fanout } from "./fanout.js";
 import { ServerInteraction } from "./interaction-service.js";
 import {
   isPluginEnabled,
+  readCredentialValues,
   readSettings,
   setPluginSetting,
   writeSettings,
@@ -118,7 +123,11 @@ const CORE_SLOT_NAMES = new Set([
   "loop",
   "interaction",
   "config",
+  "mcp",
 ]);
+
+/** useResource 数据泵单跳的截断上限（plugins.md §4：200KB） */
+const RESOURCE_MAX_CHARS = 200 * 1024;
 
 export class SessionRegistry {
   readonly #entries = new Map<string, SessionEntry>();
@@ -152,18 +161,23 @@ export class SessionRegistry {
   /** 管理面读面（GET /api/plugins）：最近一次装配前置的状态 + 指纹（前端轮询用） */
   async pluginSnapshot(): Promise<{ plugins: PluginState[]; fingerprint: string }> {
     // 每次现场发现（轮询语义：目录新增版本 / 开关变化即反映；引擎装载走模块缓存）
+    const settings = await readSettings(this.#opts.globalDir);
     const prepared = await this.#prepare();
-    // 官方五件 = 清单来源（source official，不可卸载；状态跟装载走）
-    const official: PluginState[] = defaultPreset.map((entry) => ({
-      id: entry.id,
-      version: serverVersion(),
-      name: entry.id,
-      forms: ["engine"],
-      enabled: true,
-      state: "loaded",
-      inject: [],
-      warnings: [],
-    }));
+    // 官方件 = 清单来源（source official，不可卸载；内圈五件恒启用；plugin-mcp 外圈可停用——
+    // 停用后快照照列（管理面可见），装配侧 create 跳过）
+    const official: PluginState[] = defaultPreset.map((entry) => {
+      const enabled = isPluginEnabled(settings, entry.id);
+      return {
+        id: entry.id,
+        version: serverVersion(),
+        name: entry.id,
+        forms: ["engine"],
+        enabled,
+        state: enabled ? "loaded" : "disabled",
+        inject: [],
+        warnings: [],
+      };
+    });
     const plugins = [...official, ...prepared.states];
     const fingerprint = createHash("sha1")
       .update(JSON.stringify(plugins.map((p) => [p.id, p.version, p.state, p.enabled])))
@@ -182,9 +196,32 @@ export class SessionRegistry {
     return true;
   }
 
-  /** 启停（§6.4：写 settings.plugins.<id>.enabled；缺 key = 启用）。官方件不给关（§5 :222） */
+  /** MCP 变更确认放行（D-030/D-064）：写 settings.plugins.<id>.mcpFingerprint，新会话生效；
+   *  只对带 mcp 槽的插件生效（官方五件无版本目录、无 mcp 槽 = false） */
+  async confirmPluginMcp(id: string): Promise<boolean> {
+    const prepared = this.#prepared ?? (await this.#prepare());
+    const target = prepared.states.find((p) => p.id === id);
+    if (
+      target === undefined ||
+      target.mcp === undefined ||
+      target.mcp.length === 0 ||
+      target.mcpFingerprint === undefined
+    ) {
+      return false;
+    }
+    await setPluginSetting(this.#opts.globalDir, id, { mcpFingerprint: target.mcpFingerprint });
+    this.#prepared = undefined; // 确认后状态要重算（snapshot/下一会话读到可连接）
+    return true;
+  }
+
+  /** 启停（§6.4：写 settings.plugins.<id>.enabled；缺 key = 启用）。官方件不给关（§5 :222）；
+   *  外圈官方件（plugin-mcp，D-064）可停用——不占内圈槽位，停用后新会话不装配 */
   async setPluginEnabled(id: string, enabled: boolean): Promise<boolean> {
     if (OFFICIAL_PLUGIN_IDS.has(id)) return false; // 官方五件不给关
+    if (id === "plugin-mcp") {
+      await setPluginSetting(this.#opts.globalDir, id, { enabled });
+      return true;
+    }
     const prepared = await this.#prepare();
     if (!prepared.states.some((p) => p.id === id)) return false;
     await setPluginSetting(this.#opts.globalDir, id, { enabled });
@@ -228,6 +265,8 @@ export class SessionRegistry {
     cwd: string;
     directory: string;
     onAppend: (event: SessionEvent) => void;
+    /** 已确认且凭据已展开的 MCP server 声明（plugin-mcp 工厂入参；D-064） */
+    mcpServers: McpServerSpec[];
   }): ServiceDefinition<unknown>[] {
     const entries =
       this.#opts.plugins !== undefined && this.#opts.plugins.length > 0
@@ -264,12 +303,114 @@ export class SessionRegistry {
         case "plugin-loop":
           out.push(entry.definition ?? loopPlugin());
           break;
+        case "plugin-mcp":
+          // 外圈读者（D-064）：servers 空时也装配（McpService 恒在场，useResource 报"未声明"
+          // 而非"服务缺失"）；opts.plugins 显式替换 = 听它的
+          out.push(
+            entry.definition ??
+              mcpPlugin({
+                servers: ctx.mcpServers,
+                spawnEnv: scrubSpawnEnv(),
+                warn: (message) => console.warn(`[server] MCP：${message}`),
+              }),
+          );
+          break;
         default:
           if (entry.definition !== undefined) out.push(entry.definition);
           else console.warn(`[server] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
       }
     }
     return out;
+  }
+
+  /** MCP 声明 → plugin-mcp 工厂入参（D-064）：模板变量与 `${credential:名}` 在宿主侧展开
+   *  （config-loader 共享实现，sdk 同函数同语义）；凭据缺失 = 该 server 跳过 + 告警（fail-closed） */
+  async #mcpSpecs(prepared: PrepareResult, cwd: string): Promise<McpServerSpec[]> {
+    if (prepared.mcpServers.length === 0) return [];
+    const credentials = await readCredentialValues(this.#opts.globalDir);
+    return expandMcpServers({
+      decls: prepared.mcpServers,
+      cwd,
+      credentials,
+      warn: (message) => console.warn(`[server] MCP：${message}`),
+    });
+  }
+
+  /** useResource 数据泵单跳（plugins.md §4 / D-064）：地址解析 → 所有权闸 → McpService.call
+   *  → 200KB 截断。执行失败走 200 + {ok:false}（泵语义：失败保旧数据由宿主负责）；越权 403。 */
+  async callResource(
+    sessionId: string,
+    callerPluginId: string,
+    address: string,
+  ): Promise<{
+    status: number;
+    body: { ok: boolean; text?: string; error?: string; updatedAt: number };
+  }> {
+    const now = Date.now();
+    const parsed = parseResourceAddress(address);
+    if (parsed === undefined) {
+      return {
+        status: 400,
+        body: { ok: false, error: "invalid resource address", updatedAt: now },
+      };
+    }
+    if (parsed.pluginId !== callerPluginId) {
+      return {
+        status: 403,
+        body: { ok: false, error: "resource ownership violated", updatedAt: now },
+      };
+    }
+    const prepared = await this.#prepare();
+    const declared = prepared.mcpServers.some(
+      (d) => d.pluginId === parsed.pluginId && d.server === parsed.server,
+    );
+    if (!declared) {
+      return {
+        status: 403,
+        body: { ok: false, error: "server not declared by this plugin", updatedAt: now },
+      };
+    }
+    const entry = this.#entries.get(sessionId) ?? (await this.attach(sessionId));
+    if (entry === undefined) {
+      return { status: 404, body: { ok: false, error: "session not found", updatedAt: now } };
+    }
+    let mcp: McpService;
+    try {
+      mcp = entry.ctx.get("mcp");
+    } catch {
+      return {
+        status: 503,
+        body: { ok: false, error: "mcp service not assembled", updatedAt: now },
+      };
+    }
+    try {
+      const result = await mcp.call(
+        { pluginId: parsed.pluginId, server: parsed.server, tool: parsed.tool },
+        parsed.args,
+        AbortSignal.timeout(30_000),
+      );
+      const text =
+        result.content.length > RESOURCE_MAX_CHARS
+          ? result.content.slice(0, RESOURCE_MAX_CHARS)
+          : result.content;
+      return { status: 200, body: { ok: true, text, updatedAt: Date.now() } };
+    } catch (err) {
+      const aborted =
+        err instanceof Error &&
+        (err.name === "TimeoutError" || err.name === "AbortError" || err.name === "CanceledError");
+      return {
+        status: 200,
+        body: {
+          ok: false,
+          error: aborted
+            ? "resource fetch timed out (30s)"
+            : err instanceof Error
+              ? err.message
+              : String(err),
+          updatedAt: Date.now(),
+        },
+      };
+    }
   }
 
   /** 在订会话（本进程装配的） */
@@ -425,8 +566,9 @@ export class SessionRegistry {
 
     // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
     const prepared = await this.#prepare();
+    const mcpServers = await this.#mcpSpecs(prepared, cwd);
     const harness = createHarness();
-    for (const definition of this.#baseDefinitions({ id, cwd, directory, onAppend })) {
+    for (const definition of this.#baseDefinitions({ id, cwd, directory, onAppend, mcpServers })) {
       harness.use(definition);
     }
     harness.use({ name: "interaction", start: () => interaction });

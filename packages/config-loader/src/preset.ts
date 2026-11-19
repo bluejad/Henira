@@ -19,6 +19,9 @@ export const defaultPreset: PluginEntry[] = [
   { id: "plugin-tools" },
   { id: "plugin-approval" },
   { id: "plugin-loop" },
+  // MCP 读者（D-064，C5）：外圈官方件——可停用（settings.plugins["plugin-mcp"].enabled:false），
+  // 不可卸载（官方 npm 包无盘上目录，卸载端点天然 404）；无 mcp 槽位时零开销
+  { id: "plugin-mcp" },
 ];
 
 /** 官方随包技能目录清单（D-026；官方技能随 M6 plugin-skills 落地，此前为空） */

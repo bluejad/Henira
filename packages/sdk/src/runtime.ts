@@ -12,19 +12,23 @@ import {
   createConfigService,
   Dictionary,
   defaultPreset,
+  expandMcpServers,
   type PluginEntry,
   type PluginSettingsEntry,
   type PluginState,
   type PrepareResult,
+  parseResourceAddress,
   preparePlugins,
   SNAPSHOT,
   scanUiAssets,
+  scrubSpawnEnv,
 } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
+import { mcpPlugin } from "@henira/plugin-mcp";
 import {
   atomicWriteFile,
   browseDirectories,
@@ -45,6 +49,7 @@ import {
   type LlmService,
   type LoopEvent,
   Projection,
+  type ResourceReply,
   reasoningCapability,
   type ServerFrame,
   type SessionEvent,
@@ -63,6 +68,7 @@ import {
   isPluginEnabled,
   listCredentialProviders,
   type ModelsFile,
+  readCredentialValues,
   readModelsFile,
   readSettings,
   removeCredential,
@@ -105,7 +111,27 @@ const CORE_SLOT_NAMES = new Set([
   "loop",
   "interaction",
   "config",
+  "mcp",
 ]);
+
+/** useResource 数据泵单跳的截断上限（plugins.md §4：200KB；与 server 同值） */
+const RESOURCE_MAX_CHARS = 200 * 1024;
+
+/** MCP 声明 → 工厂入参（config-loader 共享展开；凭据值表进程内读——D-030 值只进内存） */
+async function prepareMcpSpecs(
+  prepared: PrepareResult,
+  cwd: string,
+  globalDir: string,
+): Promise<import("@henira/protocol").McpServerSpec[]> {
+  if (prepared.mcpServers.length === 0) return [];
+  const credentials = await readCredentialValues(globalDir);
+  return expandMcpServers({
+    decls: prepared.mcpServers,
+    cwd,
+    credentials,
+    warn: (message) => console.warn(`[sdk] MCP：${message}`),
+  });
+}
 
 /** 包入口解析（import 条件——@henira/* 的 exports 只声明 import）：优先 import.meta.resolve，
  *  兜底按 monorepo 相对布局（src 与 dist 两种运行位置的层级一致） */
@@ -239,6 +265,8 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     cwd: string;
     directory: string;
     onAppend: (event: SessionEvent) => void;
+    /** 已确认且凭据已展开的 MCP server 声明（plugin-mcp 工厂入参；D-064） */
+    mcpServers: import("@henira/protocol").McpServerSpec[];
   }): ServiceDefinition<unknown>[] => {
     const entries =
       opts.plugins !== undefined && opts.plugins.length > 0 ? opts.plugins : defaultPreset;
@@ -272,6 +300,17 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
           break;
         case "plugin-loop":
           out.push(entry.definition ?? loopPlugin());
+          break;
+        case "plugin-mcp":
+          // 外圈读者（D-064）：与 server 同构——servers 空也装配（McpService 恒在场）
+          out.push(
+            entry.definition ??
+              mcpPlugin({
+                servers: ctx.mcpServers,
+                spawnEnv: scrubSpawnEnv(),
+                warn: (message) => console.warn(`[sdk] MCP：${message}`),
+              }),
+          );
           break;
         default:
           if (entry.definition !== undefined) out.push(entry.definition);
@@ -326,8 +365,9 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       };
       // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
       const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
+      const mcpServers = await prepareMcpSpecs(preparedNow, cwd, globalDir);
       const harness = createHarness();
-      for (const definition of baseDefinitions({ id, cwd, directory, onAppend })) {
+      for (const definition of baseDefinitions({ id, cwd, directory, onAppend, mcpServers })) {
         harness.use(definition);
       }
       harness.use(opts.interaction ?? autoRejectInteraction());
@@ -573,16 +613,20 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     async listPlugins() {
       // 每次现场发现（与 server 同语义：目录/开关变化即反映；装载走模块缓存）
       const current = await prepareRuntimePlugins(dataDir, globalDir);
-      const official: PluginState[] = defaultPreset.map((entry) => ({
-        id: entry.id,
-        version: sdkVersion(),
-        name: entry.id,
-        forms: ["engine"],
-        enabled: true,
-        state: "loaded",
-        inject: [],
-        warnings: [],
-      }));
+      const settings = await readSettings(globalDir);
+      const official: PluginState[] = defaultPreset.map((entry) => {
+        const enabled = isPluginEnabled(settings, entry.id);
+        return {
+          id: entry.id,
+          version: sdkVersion(),
+          name: entry.id,
+          forms: ["engine"],
+          enabled,
+          state: enabled ? "loaded" : "disabled",
+          inject: [],
+          warnings: [],
+        };
+      });
       const plugins = [...official, ...current.states];
       const fingerprint = createHash("sha1")
         .update(JSON.stringify(plugins.map((p) => [p.id, p.version, p.state, p.enabled])))
@@ -595,8 +639,57 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       await setPluginSetting(globalDir, id, { confirmedVersion: version });
     },
 
+    async confirmPluginMcp(id) {
+      const current = await prepareRuntimePlugins(dataDir, globalDir);
+      const target = current.states.find((p) => p.id === id);
+      if (
+        target === undefined ||
+        target.mcp === undefined ||
+        target.mcp.length === 0 ||
+        target.mcpFingerprint === undefined
+      ) {
+        throw new Error("plugin not found or has no mcp servers");
+      }
+      await setPluginSetting(globalDir, id, { mcpFingerprint: target.mcpFingerprint });
+    },
+
+    async executeResource(sessionId, pluginId, address): Promise<ResourceReply> {
+      const now = Date.now();
+      const parsed = parseResourceAddress(address);
+      if (parsed === undefined) {
+        return { ok: false, error: "invalid resource address", updatedAt: now };
+      }
+      if (parsed.pluginId !== pluginId) {
+        throw new Error("resource ownership violated"); // 越权 403 同语义（facade 抛错形态）
+      }
+      const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
+      const declared = preparedNow.mcpServers.some(
+        (d) => d.pluginId === parsed.pluginId && d.server === parsed.server,
+      );
+      if (!declared) {
+        throw new Error("server not declared by this plugin");
+      }
+      const session = requireSession(sessions, sessionId);
+      const mcp = session.ctx.get("mcp");
+      const result = await mcp.call(
+        { pluginId: parsed.pluginId, server: parsed.server, tool: parsed.tool },
+        parsed.args,
+        AbortSignal.timeout(30_000),
+      );
+      const text =
+        result.content.length > RESOURCE_MAX_CHARS
+          ? result.content.slice(0, RESOURCE_MAX_CHARS)
+          : result.content;
+      return { ok: true, text, updatedAt: Date.now() };
+    },
+
     async setPluginEnabled(id, enabled) {
       if (OFFICIAL_PLUGIN_IDS.has(id)) throw new Error("official plugin is not toggleable");
+      if (id === "plugin-mcp") {
+        // 外圈官方件可停用（D-064，与 server 同语义）
+        await setPluginSetting(globalDir, id, { enabled });
+        return;
+      }
       if (!existsSync(path.join(dataDir, "plugins", id))) throw new Error("plugin not found");
       await setPluginSetting(globalDir, id, { enabled });
     },

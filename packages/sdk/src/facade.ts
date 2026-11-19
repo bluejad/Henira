@@ -12,6 +12,7 @@ import type {
   ReasoningCapability,
   ReasoningOption,
   RegisteredDir,
+  ResourceReply,
   RowsPage,
   ServerFrame,
   SessionSnapshot,
@@ -139,6 +140,11 @@ export interface HeniraFacade {
   setPluginVersion(id: string, version: string): Promise<void>;
   /** 卸载插件（删 plugins/<id> 整目录；plugins-data 默认保留；官方件拒绝） */
   removePlugin(id: string): Promise<void>;
+  /** MCP 变更确认放行（D-030/D-064：写 settings.plugins.<id>.mcpFingerprint，新会话 spawn） */
+  confirmPluginMcp(id: string): Promise<void>;
+  /** useResource 数据泵单跳（plugins.md §4：地址 = henira-data://<pluginId>/<server>/<tool>?args=…；
+   *  所有权闸越权 403、30s 超时、200KB 截断；执行失败 200 + {ok:false}——失败保旧数据由宿主泵负责） */
+  executeResource(sessionId: string, pluginId: string, address: string): Promise<ResourceReply>;
   /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;
   /** 登记工作目录列表（data-directory §4 projects.json——权威工作区列表，含自愈） */

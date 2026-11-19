@@ -67,6 +67,8 @@ function controlledInteraction(): ServiceDefinition<InteractionService> {
 
 interface FormHandle {
   facade: import("./facade.js").HeniraFacade;
+  /** 运行数据目录（MCP 用例写插件包用；D-064） */
+  dataDir: string;
   /** 宿主组合面：注册工具（审批测试需要非并发安全工具） */
   registerTool(sessionId: string): Promise<void>;
   /** mock Llm 收到的请求（prompt opts 到引擎侧的双形态观测口） */
@@ -102,7 +104,7 @@ const forms: {
         await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
       });
       // 工具已经 opts.tools 进每个新会话
-      return { facade, registerTool: async () => {}, mockRequests: () => mock.requests };
+      return { facade, dataDir, registerTool: async () => {}, mockRequests: () => mock.requests };
     },
   },
   {
@@ -121,6 +123,7 @@ const forms: {
       });
       return {
         facade,
+        dataDir,
         registerTool: async (sessionId) => {
           server.registry
             .get(sessionId)
@@ -533,3 +536,79 @@ describe("runtime 独有：缺省 fail-closed", () => {
     expect(snapshot.state.busy).toBe(false);
   });
 });
+
+describe.each(forms.map((f) => [f.name, f] as const))(
+  "MCP 读者（D-064）双形态：%s",
+  (_name, form) => {
+    it("confirm-mcp → executeResource 全链；未确认/越权拒绝", async () => {
+      const handle = await form.make([]);
+      const { facade, dataDir } = handle;
+      // 写一个带 mcp 槽的纯内容包（stdio echo 桩——手写 JSON-RPC，零 SDK）
+      const v = path.join(dataDir, "plugins", "echo-mcp", "1.0.0");
+      await fs.mkdir(path.join(v, "mcp"), { recursive: true });
+      await fs.writeFile(
+        path.join(v, "stub.js"),
+        `let buf = "";
+process.stdin.on("data", (c) => {
+  buf += c;
+  let idx;
+  while ((idx = buf.indexOf("\\n")) >= 0) {
+    const line = buf.slice(0, idx).trim();
+    buf = buf.slice(idx + 1);
+    if (line === "") continue;
+    const msg = JSON.parse(line);
+    if (msg.method === "initialize") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: msg.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "e", version: "1" } } }) + "\\n");
+    } else if (msg.method === "tools/list") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "echo", description: "echo", inputSchema: { type: "object", properties: { text: { type: "string" } } } }] } }) + "\\n");
+    } else if (msg.method === "tools/call") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: JSON.stringify({ echo: msg.params.arguments?.text ?? null }) }] } }) + "\\n");
+    }
+  }
+});
+process.stdin.on("end", () => process.exit(0));
+`,
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(v, "plugin.json"),
+        JSON.stringify({ name: "echo-mcp", version: "1.0.0" }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(v, "mcp", "echo.json"),
+        JSON.stringify({ command: process.execPath, args: [path.join(v, "stub.js")] }),
+        "utf8",
+      );
+
+      // 未确认：清单可见待确认态；executeResource 拒绝（未确认 = 不连接）
+      const snapshot = await facade.listPlugins();
+      const row = snapshot.plugins.find((p) => p.id === "echo-mcp");
+      expect(row?.mcp?.[0]?.confirmed).toBe(false);
+      const session = await facade.createSession({ cwd: dataDir });
+      await expect(
+        facade.executeResource(session.id, "echo-mcp", "henira-data://echo-mcp/echo/echo"),
+      ).rejects.toThrow();
+
+      // 确认 → 新会话 → executeResource happy（连接异步——waitFor 轮询）
+      await facade.confirmPluginMcp("echo-mcp");
+      const confirmed = (await facade.listPlugins()).plugins.find((p) => p.id === "echo-mcp");
+      expect(confirmed?.mcp?.[0]?.confirmed).toBe(true);
+      const session2 = await facade.createSession({ cwd: dataDir });
+      const address = `henira-data://echo-mcp/echo/echo?args=${encodeURIComponent(
+        JSON.stringify({ text: "pong" }),
+      )}`;
+      const reply = await waitFor(async () => {
+        try {
+          const r = await facade.executeResource(session2.id, "echo-mcp", address);
+          return r.ok ? r : undefined;
+        } catch {
+          return undefined; // 连接未就绪——继续轮询
+        }
+      });
+      expect(JSON.parse(reply.text ?? "{}")).toEqual({ echo: "pong" });
+      // 所有权闸（双形态同语义）：调用方 pluginId ≠ 地址 pluginId → 拒
+      await expect(facade.executeResource(session2.id, "other-pack", address)).rejects.toThrow();
+    });
+  },
+);

@@ -770,3 +770,19 @@
   5. **REST 面两对端点**：`GET/PUT /api/sessions/:id/ui-state`（每会话）＋ `GET/PUT /api/ui-state`（全局，backing `state/ui.json`）。facade 四方法（getUiState / putUiState / getSessionUiState / putSessionUiState）随码落档。
 - **理由**：服务端存贴用户要求（重启 / 刷新 / 换浏览器都还原）；放会话目录 = 生命周期天然绑定，零新增机制（文件三模子全是既有先例：只追加流水 / 可改元数据整份重写 / 状态不进账本）；"上次选中"单列全局文件是因为它跨会话，塞进任一会话目录都错位；ZCode 路线在其单机单用户桌面形态下成立，我们是 server + web 多端形态，状态归服务端才有一致的还原语义。
 - **备注**：落点 = data-directory.md（全局树 / 会话目录树 / §2.1 表 / §5 写者表 / §7 删除范围 / projects.json 注）、interfaces.md（REST 面 + DTO + facade）、roadmap 批 C 行、50-open 账目行。落码验收随批 C 计划出：改宽度 / 草稿 → 重启 serve + 刷新浏览器全还原；换浏览器打开同一 server 同样还原；折叠为纯本地态，不参与还原（仅保证活跃组展开）。
+
+## D-064 plugin-mcp 读者：最小 MCP 通道（官方 SDK 连接 + 工具转接 + D-030 凭据注入 + 确认指纹）
+
+- **状态**：已定 · 2026-11-19 · C5 收尾小批；**✓ 同日已落码**（discovery 扫描/确认门、plugin-mcp 包、server+sdk 双形态、useResource 泵、管理面详情；e2e 真浏览器确认→新会话→泵 live 闭环；顺带修「＋新会话」只建不选）（销 50-open 挂账 ④⑥⑦：plugin-mcp + D-030 凭据注入 / 管理面 mcp 详情 / useResource 实装）
+- **背景**：批 C 闭环了插件装载（C1）/ 第三方 UI 通道（C2）/ 管理面（C3）；MCP 是「一切皆插件」生态闭环的最后一条外部通道——AI 创建内容包带 `mcp/*.json` 即接市面上现成 server（plugins.md §4 生态兼容既定：「标准 MCP 协议、兼容 .mcp.json 生态写法、坏服务器退避重连」）。取证四仓（dsh / opencode / ZCode / CC，行为层，D-004 / D-047）：**全部用官方 `@modelcontextprotocol` SDK**（零手写 JSON-RPC）；工具命名 `mcp__<server>__<tool>` 三家一致（opencode 用 `server_tool`）；MCP 工具调用一律走既有审批链、无规则命中默认 ask；连接 eager / 异步非 lazy；重连有界退避、耗尽注销工具不 crash-loop；**四家都没有「新增 / 变更须确认」的结构化卡点**（ZCode 项目级 workspace-trust digest 同精神；dsh 的 `!!js` 配置内求值密钥等价于配置内 eval，不采）。
+- **决定**：
+  1. **官方 SDK**（现行稳定版；Stdio + StreamableHTTP 两 transport；SSE-only 不做，声明 `type:"sse"` 即跳过 + 告警挂账）；
+  2. **命名**：`mcp__<server>__<tool>`；非法字符 → `_`、超 64 截断并追加短哈希防塌缩；server 名跨插件按 D-032 链去重（同层 id 字典序赢 + 告警）；
+  3. **D-030 确认门 = per-plugin 指纹**（`mcp/*.json` 内容 sha1 → `settings.plugins.<id>.mcpFingerprint`；不符 = 不 spawn + 工具不进注册表 + 状态待确认；`POST /api/plugins/:id/confirm-mcp` 放行）——比四家参照物都严，plugins.md §4/§5 既定语义的落形；
+  4. **凭据**：env / headers 值支持 `${credential:名}` 引用，宿主从 `credentials.json` 展开后内存传递，缺失 fail-closed 跳过不 spawn；stdio 父环境清洗（剔 `KEY|PASSWORD|SECRET|TOKEN` 与 `HENIRA_*` 名）再合并声明 env（防环境侧信道）；plugin-mcp 本体永不接触 credentials.json、不回显密钥；
+  5. **生命周期**：会话装配时异步连接（不阻塞开屏）；连上 → tools/list → 注册；`list_changed` → 重列、整代原子换注册（sync 单队列串行；失败保旧代）；有界退避（1s×2，3 次）耗尽 → 注销该 server 全部工具 + 告警，新会话重来；stdio 死亡不自动 respawn（新会话重连）；
+  6. **结果**：text 内容按序 join；image / audio 以占位行计入（blob 落盘挂账）；`isError` 原样透传；截断走 execute 出口既有限量（参照物里 opencode 漏接截断，是我们避开的坑）；
+  7. **形态（D-049）**：服务件占 `mcp` 槽（`McpService` 契约进 protocol：`call(target, args, signal)` 最小面）+ `inject:['tools']` 注册工具；server 声明由装配前置扫描（config-loader 纯文件读，复用批 C 骨架）喂工厂（opts 模式同 llm 特例）——插件不扫目录、不碰凭据文件；`defaultPreset` 一行（可停用；不可卸载靠「官方件无盘上目录」天然成立，不进 OFFICIAL 保护集）；useResource（plugins.md §4 数据泵规格：所有权闸 / 2s 共享泵 / 30s / 200KB / 失败保旧数据）经 `POST /api/sessions/:id/resource` → `McpService.call` 落地；
+  8. **范围外挂账**：OAuth、prompt templates / resources / elicitation / sampling、server instructions 注入、进程级连接池共享、管理面连接状态显示与重连钮、图像 / 音频 blob 落盘、MCP 工具描述长度上限、SSE-only transport。
+- **理由**：MCP 是行业标准（D-019「市面上现成的直接可用」），官方 SDK 是四家参照物的共同选择——自研传输层零收益；命名与审批语义跟着生态同形（模型与用户都无需学新约定）；确认指纹是我们已有的 D-030 语义（「MCP 定义变更要确认」），落形为内容指纹即可，不引入新机制；凭据引用替代配置内求值（dsh `!!js`）与配置内明文（CC headers），是我们凭据分离架构（D-030）的自然延伸——插件目录零 key 这条线从 M3 设置浮层起就没破过。
+- **备注**：落点 = interfaces.md（`## mcp` 契约小节 / REST 面 +2 / ResourceReply + PluginDetail.mcp confirmed / 能力服务表行）、plugins.md（落码状态 + §4 mcp 行注）、packages.md（plugin-mcp 行落码标注）、50-open（销 ④⑥⑦ + 新挂账行）、roadmap（批 C 闭环项销账）。验收随批：未确认不 spawn → confirm 后新会话工具进注册表 → mock llm 触达 → useResource 越权 403 / happy / 失败保旧 → e2e 真浏览器确认 → live → 停用全链。
