@@ -55,13 +55,18 @@ test("模型管理（BC 四视图）：自定义厂商连接 → 分组/开关 �
     await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
       timeout: 15_000,
     });
-    // 开设置 → 模型管理页（默认模型行 + 空态提示）
+    // 开设置 → 模型管理页（无全局默认模型入口——用户裁定 2026-11-19；空态提示在场）
     await page.getByRole("button", { name: zh["settings.open"] }).click();
     await page.getByRole("button", { name: zh["settings.section.models"] }).click();
-    await expect(page.getByText(zh["settings.models.current"])).toBeVisible();
+    await expect(page.getByText(zh["settings.models.current"])).toHaveCount(0);
 
-    // 厂商选择页：热门节 + DeepSeek（快照预设）+ 自定义入口
+    // 厂商选择页：返回在顶部工具行 + 自定义入口第一行 + DeepSeek（快照预设）
     await page.getByRole("button", { name: zh["settings.models.addProvider"] }).click();
+    await expect(page.locator(".henira-models-toolbar").getByText(zh["settings.models.back"]))
+      .toBeVisible();
+    await expect(
+      page.locator(".henira-provider-picker .henira-picker-item").first(),
+    ).toContainText(zh["settings.models.customEntry"]);
     await expect(page.getByText(zh["settings.models.hot"])).toBeVisible();
     await expect(page.getByText("DeepSeek").first()).toBeVisible();
 

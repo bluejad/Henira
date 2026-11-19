@@ -1,13 +1,14 @@
 // 设置弹窗（用户裁定 2026-11-18：左菜单右内容，只列现有三项——主题 / 语言 / 模型管理）。
 // BC SettingsPanel 行为层参照（分区导航 + 右侧内容），分区收敛为现有能力；模型管理页 =
-// 当前模型下拉（ModelSelect 共享件）+ 服务商密钥。开合状态归宿主（ctx.settingsSection /
+// 分组开关列表（无全局默认模型入口——用户裁定 2026-11-19：composer 会话级绑定即职责，
+// 全局兜底只读 settings.json 现值）。开合状态归宿主（ctx.settingsSection /
 // openSettings / closeSettings），本件只渲染当前分区。
 
 import type { ReasoningCapability } from "@henira/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SettingsSection, UiAssetLocale, UiAssetTheme, WebPartContext } from "../types.js";
 import { BrainGlyph, GearGlyph, XGlyph } from "./icons.js";
-import { fmtWindow, ModelSelect } from "./model-select.js";
+import { fmtWindow } from "./model-select.js";
 
 const SECTIONS: SettingsSection[] = ["theme", "locale", "models"];
 
@@ -183,7 +184,14 @@ interface ProviderGroup {
   name?: string;
   reasoning?: ReasoningCapability;
   connected: boolean;
-  models: Array<{ id: string; name?: string; contextWindow?: number; enabled: boolean }>;
+  models: Array<{
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    vision?: boolean;
+    reasoning?: boolean;
+    enabled: boolean;
+  }>;
 }
 
 interface ModelPreset {
@@ -198,8 +206,6 @@ const errMsg = (err: unknown): string => (err instanceof Error ? err.message : S
 function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
   const { ctx } = props;
   const [view, setView] = useState<ModelsView>("list");
-  const [model, setModel] = useState("");
-  const [saved, setSaved] = useState(false);
   const [groups, setGroups] = useState<ProviderGroup[]>([]);
   const [presets, setPresets] = useState<Record<string, ModelPreset>>({});
   const [target, setTarget] = useState<string | null>(null);
@@ -222,12 +228,6 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
   useEffect(() => {
     let alive = true;
     void ctx.client
-      .getSettings?.()
-      .then((s) => {
-        if (alive && s.model !== undefined) setModel(s.model);
-      })
-      .catch(() => {});
-    void ctx.client
       .listProviders?.()
       .then((r) => {
         if (alive) setGroups(r.providers);
@@ -243,18 +243,6 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
       alive = false;
     };
   }, [ctx.client]);
-
-  const ready = ctx.client.putSettings !== undefined;
-  const save = (): void => {
-    const patch: { model?: string } = {};
-    if (model.trim() !== "") patch.model = model.trim();
-    void props.ctx.client
-      .putSettings?.(patch)
-      .then(() => {
-        setSaved(true);
-      })
-      .catch(() => {});
-  };
 
   const toggle = async (group: ProviderGroup, modelId: string, enabled: boolean): Promise<void> => {
     setError(null);
@@ -304,23 +292,6 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
 
   const renderList = (): ReactNode => (
     <div className="henira-models-panel">
-      {ready ? (
-        <div className="henira-dialog-field">
-          <div className="henira-field-label">{ctx.t("settings.models.current")}</div>
-          <div className="henira-models-current">
-            <ModelSelect
-              ctx={ctx}
-              value={model}
-              onChange={setModel}
-              ariaLabel={ctx.t("settings.models.current")}
-            />
-            {saved ? <span className="henira-models-saved">{ctx.t("settings.saved")}</span> : null}
-            <button type="button" className="henira-primary" onClick={save} disabled={!ready}>
-              {ctx.t("settings.save")}
-            </button>
-          </div>
-        </div>
-      ) : null}
       {hasPanel ? (
         <>
           <div className="henira-models-toolbar">
@@ -375,7 +346,13 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
                       </span>
                       <span className="henira-model-meta">
                         {fmtWindow(m.contextWindow)}
-                        {group.reasoning !== undefined && group.reasoning !== "none" ? (
+                        {m.vision === true ? (
+                          <>
+                            {" · "}
+                            {ctx.t("settings.models.visionBadge")}
+                          </>
+                        ) : null}
+                        {m.reasoning === true ? (
                           <>
                             {" · "}
                             <BrainGlyph size={11} />
@@ -443,6 +420,15 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
     return (
       <div className="henira-models-panel">
         <div className="henira-models-toolbar">
+          <button
+            type="button"
+            className="henira-ghost"
+            onClick={() => {
+              setView("list");
+            }}
+          >
+            {ctx.t("settings.models.back")}
+          </button>
           <span className="henira-models-hint">
             {ctx.t("settings.models.pickHint")} {all.length} {ctx.t("settings.models.pickHintUnit")}
           </span>
@@ -467,6 +453,20 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
           }}
         />
         <div className="henira-provider-picker">
+          {/* 自定义入口第一行（用户拍板 2026-11-19：不用翻 324 行找入口） */}
+          <button
+            type="button"
+            className="henira-picker-item"
+            onClick={() => {
+              setError(null);
+              setView("custom");
+            }}
+          >
+            <span className="henira-picker-name">
+              <GearGlyph size={12} /> {ctx.t("settings.models.customEntry")}
+            </span>
+            <span className="henira-picker-tag">{ctx.t("settings.models.customTag")}</span>
+          </button>
           {hot.length > 0 ? (
             <>
               <div className="henira-provider-section">{ctx.t("settings.models.hot")}</div>
@@ -482,30 +482,8 @@ function ModelsPage(props: { ctx: WebPartContext }): ReactNode {
           {all.length === 0 ? (
             <div className="henira-models-hint">{ctx.t("composer.modelsEmpty")}</div>
           ) : null}
-          <button
-            type="button"
-            className="henira-picker-item"
-            onClick={() => {
-              setError(null);
-              setView("custom");
-            }}
-          >
-            <span className="henira-picker-name">
-              <GearGlyph size={12} /> {ctx.t("settings.models.customEntry")}
-            </span>
-            <span className="henira-picker-tag">{ctx.t("settings.models.customTag")}</span>
-          </button>
         </div>
         {error !== null ? <div className="henira-models-error">{error}</div> : null}
-        <button
-          type="button"
-          className="henira-ghost"
-          onClick={() => {
-            setView("list");
-          }}
-        >
-          {ctx.t("settings.models.back")}
-        </button>
       </div>
     );
   };

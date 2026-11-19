@@ -948,7 +948,7 @@ describe("右栏 tab 框架（D-062 sidebar.right 官方默认件）", () => {
 });
 
 describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
-  it("默认分区渲染主题页（select 列官方双主题）；点菜单切模型管理页（当前模型下拉 + 密钥 + 保存）", async () => {
+  it("默认分区渲染主题页（select 列官方双主题）；模型管理页无全局默认模型入口（用户裁定 2026-11-19）+ 行带视觉徽章", async () => {
     const putSettings = vi.fn().mockResolvedValue({ version: 1 });
     const onTheme = vi.fn();
     const ctx = fixtureCtx({
@@ -963,6 +963,25 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
             deepseek: { models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] },
           },
         }),
+        listProviders: async () => ({
+          providers: [
+            {
+              id: "deepseek",
+              name: "DeepSeek",
+              reasoning: "none",
+              connected: true,
+              models: [
+                {
+                  id: "deepseek-v4-flash",
+                  name: "DeepSeek V4 Flash",
+                  contextWindow: 1048576,
+                  vision: true,
+                  enabled: true,
+                },
+              ],
+            },
+          ],
+        }),
         putSettings,
         putCredential: async () => {},
       },
@@ -975,13 +994,17 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(themeSelect.value).toBe("dark");
     fireEvent.change(themeSelect, { target: { value: "light" } });
     expect(onTheme).toHaveBeenCalledWith("light", undefined);
-    // 切模型管理页
+    // 切模型管理页：无「当前模型」入口（收敛裁定）；行徽章带 1M + 视觉
     fireEvent.click(screen.getByRole("button", { name: t("settings.section.models") }));
-    await screen.findByText(t("settings.models.current"));
-    fireEvent.click(screen.getByRole("button", { name: t("settings.save") }));
-    await waitFor(() =>
-      expect(putSettings).toHaveBeenCalledWith({ model: "deepseek/deepseek-v4-flash" }),
-    );
+    await screen.findByText("DeepSeek V4 Flash");
+    expect(screen.queryByText(t("settings.models.current"))).toBeNull();
+    expect(screen.queryByRole("button", { name: t("settings.save") })).toBeNull();
+    const rowMeta = document.querySelector(".henira-model-meta")?.textContent ?? "";
+    expect(rowMeta).toContain("1M");
+    expect(rowMeta).toContain(t("settings.models.visionBadge"));
+    // putSettings 只被主题切换调过一次（ui.theme）；模型管理页不再写全局 model
+    expect(putSettings).toHaveBeenCalledTimes(1);
+    expect(putSettings).toHaveBeenCalledWith({ ui: { theme: "light" } });
   });
 
   it("语言页显示实际生效语言（宿主 ctx.locale）：包卸载 boot 回落官方后不读磁盘旧值漂移显示（审查 P3-b）", () => {
@@ -1061,9 +1084,13 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     await waitFor(() =>
       expect(setModelEnabled).toHaveBeenCalledWith("deepseek", "deepseek-reasoner", true),
     );
-    // 厂商选择页：热门节 + 预设名 + 自定义入口
+    // 厂商选择页：返回在顶部工具行 + 自定义入口第一行（用户拍板 2026-11-19）+ 热门节
     fireEvent.click(screen.getByRole("button", { name: t("settings.models.addProvider") }));
     await screen.findByText(t("settings.models.hot"));
+    const toolbar = document.querySelector(".henira-models-toolbar");
+    expect(toolbar?.textContent).toContain(t("settings.models.back"));
+    const firstItem = document.querySelector(".henira-provider-picker .henira-picker-item");
+    expect(firstItem?.textContent).toContain(t("settings.models.customEntry"));
     fireEvent.click(screen.getByText("Anthropic"));
     // 连接已知厂商：password 输入 + 提交回调
     const keyInput = await screen.findByPlaceholderText(t("settings.models.keyPlaceholder"));
