@@ -21,7 +21,8 @@
     { "path": "../../plugins/approval" },
     { "path": "../../plugins/llm" },
     { "path": "../../plugins/loop" },
-    { "path": "../../plugins/tools" }
+    { "path": "../../plugins/tools" },
+    { "path": "../../plugins/mcp" }
   ],
   "include": ["src"]
 }

@@ -37,6 +37,9 @@
     },
     {
       "path": "../../plugins/tools"
+    },
+    {
+      "path": "../../plugins/mcp"
     }
   ],
   "include": ["src"]
