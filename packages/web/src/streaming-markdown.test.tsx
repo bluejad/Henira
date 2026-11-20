@@ -142,17 +142,34 @@ describe("IncrementalMarkdown（流式臂组件）", () => {
     expect(view.container.querySelector("pre code")?.textContent).toContain("const a = 1;");
   });
 
-  it("流式臂与 settled 臂对同一完整文本渲染出相同 DOM（.henira-md 平铺块结构一致）", () => {
+  it("流式臂与 settled 臂对同一完整文本渲染出相同 DOM（单层 .henira-md + 直接子结构一致）", () => {
     const doc = "## 小标题\n\n正文一段。\n\n| a | b |\n|---|---|\n| 1 | 2 |";
     const streaming = render(streamingMarkdownNode(doc, { streaming: true }));
     const settled = render(markdownNode(doc));
-    expect(streaming.container.querySelector(".henira-md")).not.toBeNull();
-    expect(streaming.container.querySelector("h2")?.textContent).toBe(
-      settled.container.querySelector("h2")?.textContent,
+    // 单层容器（审查 P2-1 回归锁：双层嵌套让 .henira-md 直接子选择器语义漂移）
+    expect(streaming.container.querySelectorAll(".henira-md")).toHaveLength(1);
+    const childTags = (root: Element | null): string[] =>
+      root === null ? [] : [...root.children].map((c) => c.tagName.toLowerCase());
+    expect(childTags(streaming.container.querySelector(".henira-md"))).toEqual(
+      childTags(settled.container.querySelector(".henira-md")),
     );
-    expect(streaming.container.querySelectorAll("p,table")).toHaveLength(
-      settled.container.querySelectorAll("p,table").length,
-    );
+    expect(streaming.container.querySelector("h2")?.textContent).toBe("小标题");
     expect(streaming.container.querySelector("table")).not.toBeNull();
+  });
+
+  it("语言切换：冻结块复制钮文案跟随语言包（审查 P2-2；重建一次性成本，块内容完好）", () => {
+    const t1 = (key: string): string => (key === "common.copy" ? "复制A" : key);
+    const t2 = (key: string): string => (key === "common.copy" ? "复制B" : key);
+    // 3 块 → 代码块（第 1 块）被冻结，其 CopyButton 闭包持有当帧 t
+    const doc = "```js\nconst a = 1;\n```\n\n中段。\n\n收尾段。";
+    const view = render(createElement(IncrementalMarkdown, { text: doc, t: t1 }));
+    expect(view.container.textContent).toContain("复制A");
+
+    view.rerender(createElement(IncrementalMarkdown, { text: doc, t: t2 }));
+    // 文案跟随（契约本体）；子树重建（components.pre 内联函数类型标识随帧变——React 重挂
+    // 而非就地更新，选择器/选区语义与 settle 同级一次性损失，语言切换是罕见事件可接受）
+    expect(view.container.textContent).toContain("复制B");
+    expect(view.container.textContent).not.toContain("复制A");
+    expect(view.container.textContent).toContain("const a = 1;");
   });
 });

@@ -6,11 +6,13 @@
 // 围栏收口、表格续行）——留第二块做安全边际，冻结决策无需推理解析前沿。
 // 非前缀输入（换消息/编辑/历史跳转）整体重置按全量渲染。切点 = 上一冻结块 end.offset
 // （块间空行归入下一片：冻结片+尾片拼回 = 全文逐字不变）。流式全程不高亮（settle 后一次
-// 成型）。已知取舍：跨冻结边界的链接引用定义流式期渲染为字面文本、settled 自愈；settle
+// 成型）。语言切换（t 引用变化）= 冻结元素按原 key 重建，复制钮文案跟随语言包（行组件
+// memo 比较 ctx.t 的刷新链路不被增量臂截断；重建是一次性子树重渲——components.pre 内联
+// 函数类型标识随帧变，React 重挂而非就地更新，选区语义与 settle 同级，罕见事件可接受）。
+// 已知取舍：跨冻结边界的链接引用定义流式期渲染为字面文本、settled 自愈；settle
 // 时全文重渲一次（选区丢失一次）。正文渲染永远是官方实现（D-057：可插的是容器不是内容）。
 
-import type { ReactNode } from "react";
-import { createElement, useRef } from "react";
+import { createElement, Fragment, type ReactNode, useRef } from "react";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -66,9 +68,8 @@ export function splitTail(text: string, seam: number): TailSplit | undefined {
   }
   const newlyFrozen: FrozenBlock[] = [];
   let cursor = seam;
-  for (let i = 0; i < freezeCount; i += 1) {
-    const block = blocks[i];
-    if (block === undefined) return undefined;
+  // slice + for-of（freezeCount ≤ blocks.length，索引访问不可越界——无需防御分支）
+  for (const block of blocks.slice(0, freezeCount)) {
     newlyFrozen.push({ key: block.start, text: text.slice(cursor, block.end) });
     cursor = block.end;
   }
@@ -76,38 +77,63 @@ export function splitTail(text: string, seam: number): TailSplit | undefined {
 }
 
 interface StreamState {
-  /** 产生当前输出的全文（前缀校验基准；同文短路保幂等——StrictMode 双渲安全） */
+  /** 产生当前输出的全文（前缀校验基准；同文同 t 短路保幂等——StrictMode 双渲安全） */
   text: string;
   seam: number;
-  /** 已冻结块元素（引用跨帧复用 = React 跳过重渲的全部机制） */
+  /** 已冻结片源文本（key+text）——语言切换时按原 key 重建元素的原料 */
+  blocks: FrozenBlock[];
+  /** 已冻结块元素（引用跨帧复用 = React 跳过重渲的全部机制；t 变化按原 key 全量重建 =
+   * 文案跟随语言包，一次性子树重渲） */
   frozen: ReactNode[];
   tail: string;
+  /** 构建当前冻结元素所用 t（引用比对；opts.t 变化即重建，复制钮文案跟随语言包） */
+  t?: (key: string) => string;
 }
 
-const EMPTY: StreamState = { text: "", seam: 0, frozen: [], tail: "" };
+const EMPTY: StreamState = { text: "", seam: 0, blocks: [], frozen: [], tail: "" };
 
 function advance(prev: StreamState, text: string, opts: MarkdownOptions): StreamState {
-  if (text === prev.text) return prev;
+  if (text === prev.text && prev.t === opts.t) return prev;
   // 非前缀（换消息/编辑/历史跳转）：缝与冻结清零，本帧按全量渲染
   const base = text.startsWith(prev.text) ? prev : EMPTY;
   const split = splitTail(text, base.seam);
   if (split === undefined) {
-    // 本帧弃增量：缝与冻结原样，尾段按整片渲染（下一帧再试解析）
-    return { text, seam: base.seam, frozen: base.frozen, tail: text.slice(base.seam) };
+    // 本帧弃增量：缝与冻结原样（t 变则按原 key 重建元素），尾段按整片渲染（下一帧再试解析）
+    return {
+      text,
+      seam: base.seam,
+      blocks: base.blocks,
+      frozen:
+        opts.t === base.t
+          ? base.frozen
+          : base.blocks.map((block) => markdownChildren(block.text, opts, String(block.key))),
+      tail: text.slice(base.seam),
+      t: opts.t,
+    };
   }
-  const frozen =
-    split.newlyFrozen.length > 0
-      ? [
-          ...base.frozen,
-          ...split.newlyFrozen.map((block) =>
-            markdownChildren(block.text, opts, String(block.key)),
-          ),
-        ]
-      : base.frozen;
-  return { text, seam: split.seam, frozen, tail: split.tail };
+  const blocks = [...base.blocks, ...split.newlyFrozen];
+  return {
+    text,
+    seam: split.seam,
+    blocks,
+    // t 未变：老元素引用原样保留（新冻结只追加）；t 变了：全量按原 key 重建（一次性成本）
+    frozen:
+      opts.t === base.t
+        ? [
+            ...base.frozen,
+            ...split.newlyFrozen.map((block) =>
+              markdownChildren(block.text, opts, String(block.key)),
+            ),
+          ]
+        : blocks.map((block) => markdownChildren(block.text, opts, String(block.key))),
+    tail: split.tail,
+    t: opts.t,
+  };
 }
 
-/** 流式臂组件：实例随行组件驻留（RowView memo 层已保证同行同实例），ref 持缝与冻结元素 */
+/** 流式臂组件：实例随行组件驻留（RowView memo 层已保证同行同实例），ref 持缝与冻结元素。
+ * 返回 Fragment 平铺块——.henira-md 容器由 streamingMarkdownNode 供，两臂 DOM 同形
+ * （审查 P2-1：双层嵌套会让 .henira-md 直接子选择器语义漂移）；直用场景调用方自备容器。 */
 export function IncrementalMarkdown(props: {
   text: string;
   t?: (key: string) => string;
@@ -116,15 +142,10 @@ export function IncrementalMarkdown(props: {
   const opts: MarkdownOptions = { streaming: true, t: props.t };
   const state = advance(stateRef.current, props.text, opts);
   stateRef.current = state;
-  return createElement(
-    "div",
-    { className: "henira-md" },
-    ...state.frozen,
-    markdownChildren(state.tail, opts, "tail"),
-  );
+  return createElement(Fragment, null, ...state.frozen, markdownChildren(state.tail, opts, "tail"));
 }
 
-/** host.renderMarkdown 流式臂入口（外层容器与 settled 臂同形——.henira-md 挂点不变） */
+/** host.renderMarkdown 流式臂入口（容器 .henira-md 与 settled 臂同形） */
 export function streamingMarkdownNode(text: string, opts: MarkdownOptions): ReactNode {
   return createElement(
     "div",

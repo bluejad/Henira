@@ -498,4 +498,122 @@ describe("createWebApp", () => {
       el.remove();
     }
   });
+
+  // 审查 P3-2：renderMarkdown 路由分支全链断言——流式行必须落增量臂（settled 臂每帧
+  // 重建 DOM，冻结块跨帧不动是增量臂独有签名）；行落定（streaming:false）切 settled 臂照常渲染
+  it("renderMarkdown 路由分支：流式行走增量臂（冻结块 DOM 跨帧不动）→ 落定切 settled 臂", async () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    const row = {
+      kind: "assistant" as const,
+      rowId: "a:t-1:1",
+      rowSeq: 2,
+      turn: "t-1",
+      step: 1,
+      text: "第一段。\n\n第二段。",
+      streaming: true,
+    };
+    const userRow = {
+      kind: "user" as const,
+      rowId: "u:1",
+      rowSeq: 1,
+      turn: "t-1",
+      text: "问",
+      source: "send",
+    };
+    const gates: Array<() => void> = [];
+    const nextGate = (): Promise<void> => new Promise((resolve) => gates.push(resolve));
+    const client = fakeClient({
+      events: async function* () {
+        yield {
+          kind: "snapshot",
+          sessionId: "s-1",
+          snapshot: {
+            sessionId: "s-1",
+            seq: 2,
+            rows: [userRow, row],
+            state: { busy: true },
+            hasOlder: false,
+            totalRows: 2,
+          },
+        };
+        await nextGate();
+        yield {
+          kind: "delta",
+          sessionId: "s-1",
+          seq: 3,
+          delta: { op: "row.delta", rowId: "a:t-1:1", field: "text", text: "\n\n第三段。" },
+        };
+        await nextGate();
+        yield {
+          kind: "delta",
+          sessionId: "s-1",
+          seq: 4,
+          delta: { op: "row.delta", rowId: "a:t-1:1", field: "text", text: "\n\n第四段。" },
+        };
+        await nextGate();
+        yield {
+          kind: "delta",
+          sessionId: "s-1",
+          seq: 5,
+          delta: { op: "row.upserted", row: { ...row, streaming: false } },
+        };
+      },
+    });
+    const app = createWebApp({ client });
+    app.mount(el);
+    const release = (): void => gates.shift()?.();
+    try {
+      // 快照：2 块（尾段无冻结）
+      await vi.waitFor(
+        () => {
+          if (el.querySelectorAll(".henira-md p").length !== 2) {
+            throw new Error(
+              `snapshot rows not rendered; got ${el.querySelectorAll(".henira-md p").length}`,
+            );
+          }
+          return true;
+        },
+        { timeout: 5000 },
+      );
+      release(); // delta1：3 块 → 第 1 块冻结（冻结帧节点新建）
+      await vi.waitFor(
+        () => {
+          if (el.querySelectorAll(".henira-md p").length !== 3) {
+            throw new Error(
+              `delta1 not applied; got ${el.querySelectorAll(".henira-md p").length}`,
+            );
+          }
+          return true;
+        },
+        { timeout: 5000 },
+      );
+      const frozenP = el.querySelectorAll(".henira-md p")[0];
+      expect(frozenP?.textContent).toBe("第一段。");
+      release(); // delta2：4 块 → 冻结元素引用复用
+      await vi.waitFor(
+        () => {
+          if (el.querySelectorAll(".henira-md p").length !== 4) {
+            throw new Error(
+              `delta2 not applied; got ${el.querySelectorAll(".henira-md p").length}`,
+            );
+          }
+          return true;
+        },
+        { timeout: 5000 },
+      );
+      expect(el.querySelectorAll(".henira-md p")[0]).toBe(frozenP); // 增量臂签名：跨帧不动
+      expect(el.textContent).toContain("第四段。");
+      release(); // 落定：settled 臂接管，全文照常渲染
+      await vi.waitFor(() => {
+        if (!el.textContent?.includes("第一段。") || !el.textContent?.includes("第四段。")) {
+          throw new Error("settled arm lost text");
+        }
+        return true;
+      });
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
 });

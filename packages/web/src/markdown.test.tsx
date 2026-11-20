@@ -5,7 +5,7 @@
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { markdownNode } from "./markdown.js";
+import { markdownChildren, markdownNode } from "./markdown.js";
 
 afterEach(cleanup);
 
@@ -29,14 +29,14 @@ describe("markdownNode（host.renderMarkdown 实现体）", () => {
     expect(container.querySelector("code span[style]")).not.toBeNull();
   });
 
-  it("流式中代码块不高亮（纯文本降级，头部条仍在）", () => {
-    const { container } = render(markdownNode("```python\nprint(1)\n```", { streaming: true }));
+  it("streaming 标志抑制代码高亮（增量臂经 markdownChildren 消费的活机制；markdownNode 生产入口恒 settled——审查 P3-1）", () => {
+    const { container } = render(markdownChildren("```python\nprint(1)\n```", { streaming: true }));
     expect(container.querySelector(".henira-code-lang")?.textContent).toBe("python");
     expect(container.querySelector("code span[style]")).toBeNull();
     expect(container.querySelector("pre code")?.textContent).toContain("print(1)");
   });
 
-  it("流式中未闭合围栏 = 代码块渲染（settled grammar is the streaming one）", () => {
+  it("未闭合围栏 = 代码块渲染（settled 臂语法容错——settled grammar is the streaming one；流式臂同语义另有增量臂层覆盖）", () => {
     const { container } = render(markdownNode("先说话\n\n```js\nconsole.log(1);"));
     expect(container.querySelector("pre code")).not.toBeNull();
     expect(container.querySelector("p")?.textContent).toBe("先说话");
