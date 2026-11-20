@@ -73,6 +73,11 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       let current: TurnHandle | undefined;
       let currentController: AbortController | undefined;
 
+      /** 队列变更总线广播（排队卡 UI 的观察口，同 user/steer 模式）：载荷 = 当前条目快照 */
+      const broadcastQueue = (): void => {
+        cx.events.emit("queue/changed", { queue: queue.pending.map((e) => ({ ...e })) });
+      };
+
       const makeDeps = (): LoopDeps => ({
         ctx: cx,
         session: cx.get("session"),
@@ -114,12 +119,14 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         await settled;
         // 回合末冲刷：队列头部依次自动开新回合（D-045；条目自带的模型/思考覆盖随行）
         let next = await queue.drainNext();
+        broadcastQueue();
         while (next !== undefined) {
           yield* executeAndDrain(next.text, signal, {
             modelId: next.modelId,
             reasoningEffort: next.reasoningEffort,
           });
           next = await queue.drainNext();
+          broadcastQueue();
         }
       }
 
@@ -149,10 +156,12 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         async send(prompt, opts) {
           if (current !== undefined && !current.signal.aborted) {
             // 忙时入队（queue.json 持久化；模型/思考覆盖随条目持久化）
-            return queue.enqueue(prompt, opts?.steer === true, {
+            const entry = await queue.enqueue(prompt, opts?.steer === true, {
               modelId: opts?.modelId,
               reasoningEffort: opts?.reasoningEffort,
             });
+            broadcastQueue();
+            return entry;
           }
           // 闲时直开回合：后台跑，事件经总线 loop/event 观察（D-045：无第二种投递语义）
           const controller = new AbortController();
@@ -171,7 +180,19 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         },
 
         async steer(entryId) {
-          return queue.steer(entryId);
+          const ok = await queue.steer(entryId);
+          if (ok) broadcastQueue();
+          return ok;
+        },
+
+        pending() {
+          return queue.pending.map((e) => ({ ...e })); // 快照副本——调用方改动不回灌
+        },
+
+        async remove(entryId) {
+          const ok = await queue.remove(entryId);
+          if (ok) broadcastQueue();
+          return ok;
         },
 
         async interrupt() {

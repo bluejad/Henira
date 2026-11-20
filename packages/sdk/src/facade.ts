@@ -93,9 +93,16 @@ export interface HeniraFacade {
   stop(): Promise<void>;
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  /** D-045 单口：闲直跑 / 忙入队（id = 排队条目）；opts = 模型/思考按次覆盖（每次提问绑定） */
-  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>;
+  /** D-045 单口：闲直跑 / 忙入队（id = 排队条目）；opts = 模型/思考按次覆盖 +
+   *  steer=true 忙时直接以插话身份入队（下一 step 边界进场） */
+  prompt(
+    sessionId: string,
+    text: string,
+    opts?: PromptOptions & { steer?: boolean },
+  ): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
+  /** 删除排队条目（排队卡行级操作）；条目不存在返回 false */
+  removeQueueEntry(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   /** settle 幂等先答者赢；未知 requestId 返回 false */
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;

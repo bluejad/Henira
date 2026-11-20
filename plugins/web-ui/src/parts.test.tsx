@@ -11,6 +11,7 @@ import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSelect } from "./parts/model-select.js";
+import { QueuePanel } from "./parts/queue-panel.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import { SettingsModal } from "./parts/settings-modal.js";
@@ -38,6 +39,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     ],
     prompt: async () => ({ queued: false, id: null }),
     steer: async () => true,
+    removeQueueEntry: async () => true,
     interrupt: async () => {},
     settleApproval: async () => true,
     events: async function* () {
@@ -406,7 +408,7 @@ describe("Composer", () => {
     expect(screen.getByText(t("composer.steerHint"))).toBeDefined();
   });
 
-  it("ZCode 语义：忙+有草稿=发送钮（排队插话）而非停止——点击发送走 prompt", async () => {
+  it("ZCode 语义：忙+有草稿=发送钮（排队插话）而非停止——点击发送走 prompt（E1：忙时钮文案=排队发送）", async () => {
     const ctx = fixtureCtx();
     const promptSpy = vi.spyOn(ctx.client, "prompt");
     const busyRows: Row[] = [];
@@ -420,17 +422,102 @@ describe("Composer", () => {
     const { container } = render(<Composer {...busyCtx} />);
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "排队的话" } });
-    // 有草稿 → 停止钮不在场，发送钮点亮
+    // 有草稿 → 停止钮不在场，发送钮点亮（E1：忙时 aria-label=排队发送）
     expect(screen.queryByRole("button", { name: t("composer.stop") })).toBeNull();
-    const send = screen.getByRole("button", { name: t("composer.send") });
+    const send = screen.getByRole("button", { name: t("composer.queueSend") });
     expect((send as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(send);
     await waitFor(() =>
       expect(promptSpy).toHaveBeenCalledWith("s-1", "排队的话", {
+        steer: undefined,
         modelId: undefined,
         reasoningEffort: undefined,
       }),
     );
+  });
+
+  it("E1 发送模式：Ctrl+Enter=插话入队（prompt 携带 steer:true）；普通 Enter 照旧", async () => {
+    const ctx = fixtureCtx();
+    const promptSpy = vi.spyOn(ctx.client, "prompt");
+    const { container } = render(<Composer {...ctx} />);
+    const area = container.querySelector("textarea") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "插话的话" } });
+    fireEvent.keyDown(area, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(promptSpy).toHaveBeenCalledWith("s-1", "插话的话", {
+        steer: true,
+        modelId: undefined,
+        reasoningEffort: undefined,
+      }),
+    );
+    fireEvent.change(area, { target: { value: "普通的话" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() =>
+      expect(promptSpy).toHaveBeenCalledWith("s-1", "普通的话", {
+        steer: undefined,
+        modelId: undefined,
+        reasoningEffort: undefined,
+      }),
+    );
+  });
+
+  it("E1 排队卡：忙时队列可见（计数头+文本行），steer 条目带插话徽章；空队列不渲染", () => {
+    const queue = [
+      { id: "q1", text: "第一条排队", steer: false },
+      { id: "q2", text: "插话条目", steer: true },
+    ];
+    const queueCtx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: [] as Row[], state: { busy: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    const { container } = render(<QueuePanel ctx={queueCtx} />);
+    expect(screen.getByRole("list", { name: t("composer.queue.title") })).toBeDefined();
+    expect(screen.getByText("第一条排队")).toBeDefined();
+    expect(screen.getByText(t("composer.queue.badgeSteer"))).toBeDefined();
+    expect(container.querySelector(".henira-queue-count")?.textContent).toBe("2");
+    // 空队列 → null
+    const emptyCtx = fixtureCtx();
+    const empty = render(<QueuePanel ctx={emptyCtx} />);
+    expect(empty.container.querySelector(".henira-queue")).toBeNull();
+  });
+
+  it("E1 排队卡操作：插话钮调 steer（闲时禁用）；删除调 removeQueueEntry；编辑回填草稿并删条目", async () => {
+    const queue = [{ id: "q9", text: "被操作条目", steer: false }];
+    const ctx = fixtureCtx();
+    const steerSpy = vi.spyOn(ctx.client, "steer");
+    const removeSpy = vi.spyOn(ctx.client, "removeQueueEntry");
+    const onEdit = vi.fn();
+    const busyCtx = fixtureCtx({
+      ...ctx,
+      store: {
+        getSession: () => ({ rows: [], state: { busy: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    const first = render(<QueuePanel ctx={busyCtx} onEdit={onEdit} />);
+    fireEvent.click(screen.getByRole("button", { name: t("composer.queue.sendNow") }));
+    await waitFor(() => expect(steerSpy).toHaveBeenCalledWith("s-1", "q9"));
+    fireEvent.click(screen.getByRole("button", { name: t("composer.queue.edit") }));
+    await waitFor(() => expect(removeSpy).toHaveBeenCalledWith("s-1", "q9"));
+    expect(onEdit).toHaveBeenCalledWith("被操作条目");
+    fireEvent.click(screen.getByRole("button", { name: t("composer.queue.delete") }));
+    await waitFor(() => expect(removeSpy).toHaveBeenCalledTimes(2));
+    first.unmount();
+    // 闲时插话钮禁用
+    const idleCtx = fixtureCtx({
+      ...ctx,
+      store: {
+        getSession: () => ({ rows: [], state: { busy: false, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    render(<QueuePanel ctx={idleCtx} />);
+    expect(
+      (screen.getByRole("button", { name: t("composer.queue.sendNow") }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 
   it("prompt 失败不静默：草稿回填 + 行内错误提示", async () => {

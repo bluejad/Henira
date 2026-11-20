@@ -16,7 +16,7 @@ turn（用户回合）
 ```
 
 - **Phase**：`idle | running`，per-phase AbortController；取消原因闭合计入 `turn/end.reason`（[session.md](./session.md) §2.4）；
-- **inbox 唯一投递 = 排队（D-045）**：运行中 `send(prompt)` 进队列（闲时直接开新回合；回合结束后队列头部依次自动开新回合）；队列条目可**"立即发送"（插话）**——该条在**下一个 step 边界**进场（工具结果落定后、下一次模型请求前，不打断正在执行的工具），落 `user/message` 按同轮时间线记账，**不新增账本事件类型**（队列状态不进事件账本，P9-1）；每条插话落账后广播 bus 事件 `user/steer`（观察者据此重置回合内状态——D-065 插话重置的观察口）；排队条目持久化在会话目录 `queue.json`（tmp+rename 原子重写），重启恢复。
+- **inbox 唯一投递 = 排队（D-045）**：运行中 `send(prompt)` 进队列（闲时直接开新回合；回合结束后队列头部依次自动开新回合）；队列条目可**"立即发送"（插话）**——该条在**下一个 step 边界**进场（工具结果落定后、下一次模型请求前，不打断正在执行的工具），落 `user/message` 按同轮时间线记账，**不新增账本事件类型**（队列状态不进事件账本，P9-1）；每条插话落账后广播 bus 事件 `user/steer`（观察者据此重置回合内状态——D-065 插话重置的观察口）；排队条目持久化在会话目录 `queue.json`（tmp+rename 原子重写），重启恢复。**队列可见面（E1，2026-11-20）**：`LoopService.pending()/remove(entryId)` 读删两能力 + 每次队列变更（入队/升格/删除/claim/冲刷）广播 bus 事件 `queue/changed`（载荷 = 当前条目快照）——server/sdk 经既有 `state.updated` 帧并线 `SessionState.queue` 推排队卡 UI（投影态非账本事实，P9-1 不变）；REST 面 `DELETE /api/sessions/:id/queue/:entryId` 与 prompt `steer` 参数同批落码。
 
 ## 2. 中断纪律全家桶（已定，测试逐条锁定）
 

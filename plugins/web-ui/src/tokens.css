@@ -684,6 +684,85 @@ button:focus-visible > .henira-row-caret {
   font-size: var(--henira-fs-sm);
 }
 
+/* ── 排队卡（E1：忙时投递可见化——dsh QueueDock/ZCode ConversationQueuePanel 行为层同位）── */
+/* 面板位于审批卡之下、输入卡之上，同宽同轴；空队列不渲染（组件侧 null） */
+.henira-queue {
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-panel);
+  padding: var(--henira-space-1) var(--henira-space-2);
+  margin: 0 0 var(--henira-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-queue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 2px 4px;
+}
+.henira-queue-count {
+  background: var(--henira-border);
+  color: var(--henira-text);
+  border-radius: 9999px;
+  font-size: var(--henira-fs-sm);
+  padding: 0 7px;
+  font-variant-numeric: tabular-nums;
+}
+.henira-queue-row {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  padding: 2px 4px;
+  min-width: 0;
+}
+.henira-queue-badge {
+  flex-shrink: 0;
+  background: var(--henira-info-bg);
+  color: var(--henira-info-text);
+  border-radius: 9999px;
+  padding: 1px 8px;
+  font-size: var(--henira-fs-sm);
+}
+.henira-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-queue-actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 2px;
+}
+.henira-queue-btn {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  border-radius: var(--henira-radius);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.henira-queue-btn:hover:not(:disabled) {
+  background: var(--henira-border);
+  color: var(--henira-text);
+}
+.henira-queue-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
 .henira-sessions li button {
   background: transparent; /* 未选中透明（原内联 transparent 压死选中底色——真因已抓修） */
@@ -1551,4 +1630,12 @@ button:focus-visible > .henira-row-caret {
   align-items: center;
   gap: 4px;
   font-size: var(--henira-fs-sm);
+}
+.henira-queue-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }

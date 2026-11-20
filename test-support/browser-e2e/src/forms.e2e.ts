@@ -252,6 +252,60 @@ test("插话 steer：忙时投递升格 → step 边界进场带 steer 徽章", 
   await stop();
 });
 
+// ── 排队卡（E1：忙时投递可见化——面板/徽章/插话发送）────────────────────────
+
+test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽章 → 插话发送升格 → 冲刷后条目进流", async ({
+  page,
+}) => {
+  const slow: ToolDefinition = {
+    name: "slow-probe",
+    description: "slow readonly fixture",
+    inputSchema: { type: "object" },
+    isConcurrencySafe: true,
+    execute: async () => {
+      // 2.5s 工具窗：容纳 send+queue+steer 三次往返与面板交互（800ms 窗是两往返的实测下限）
+      await new Promise((r) => setTimeout(r, 2500));
+      return { content: "slow done" };
+    },
+  };
+  const { server, stop } = await startServer(
+    [
+      [mockToolCall("c1", "slow-probe", "{}"), mockUsage(USAGE), mockFinish("tool-calls")],
+      [mockText("Turn continued."), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("Drained turn ran."), mockUsage(USAGE), mockFinish("stop")],
+    ],
+    [slow],
+  );
+  await page.goto(server.url);
+  await send(page, "start working");
+  await expect(page.getByText("slow-probe")).toBeVisible(); // 工具执行窗内
+  const area = page.getByPlaceholder(zh["composer.placeholder"]);
+  // 忙时 Enter=排队 → 面板出现（标题 + 条目行；无插话徽章）
+  await area.fill("first-queued-message");
+  await area.press("Enter");
+  const panel = page.getByRole("list", { name: zh["composer.queue.title"] });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText("first-queued-message")).toBeVisible();
+  // Ctrl+Enter=插话 → 条目带插话徽章（面板内同件区分 queue/steer）
+  await area.fill("steered-while-busy");
+  await area.press("Control+Enter");
+  const steeredRow = panel.getByText("steered-while-busy");
+  await expect(steeredRow).toBeVisible();
+  await expect(panel.getByText(zh["composer.queue.badgeSteer"])).toBeVisible();
+  await shot(page, "17-queue-panel.png");
+  // 插话发送：普通排队条目升格为插话（busy 窗内可点）→ 面板出现第二枚徽章
+  await panel.getByRole("button", { name: zh["composer.queue.sendNow"] }).first().click();
+  await expect(panel.getByText(zh["composer.queue.badgeSteer"]).first()).toBeVisible();
+  // 工具窗收尾 → 插话条目进场（step 边界 claim 或回合末冲刷）→ 文本落流、面板排空
+  await expect(
+    page.getByText("Turn continued.").or(page.getByText("Drained turn ran.")),
+  ).toBeVisible();
+  await expect(page.getByText("steered-while-busy")).toBeVisible();
+  await expect(panel).toHaveCount(0); // 冲刷清空 → 面板不渲染
+  await shot(page, "18-queue-drained.png");
+  await stop();
+});
+
 // ── 输出截断（>50KB → 尾注 + truncated 徽章 + spill 落盘）────────────────
 
 test("输出截断：徽章 + 尾注 + spill 落盘会话 artifacts/", async ({ page }) => {

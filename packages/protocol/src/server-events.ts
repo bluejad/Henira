@@ -7,6 +7,7 @@
 
 import type { Decision } from "./approval.js";
 import type { ReasoningEffort, TokenUsage } from "./llm.js";
+import type { QueuedPrompt } from "./loop.js";
 
 /** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `e:{seq}` */
 export type RowId = string;
@@ -94,6 +95,8 @@ export interface SessionState {
   /** turn/start … turn/end 之间 */
   busy: boolean;
   lastTurnId?: string;
+  /** 当前排队条目快照（排队卡 UI 数据源；投影态非账本事实——P9-1 不变，queue.json 仍是唯一持久层） */
+  queue?: QueuedPrompt[];
 }
 
 export interface SessionSnapshot {

@@ -55,10 +55,12 @@ import {
   type LlmService,
   type LoopEvent,
   Projection,
+  type QueuedPrompt,
   type ResourceReply,
   reasoningCapability,
   type ServerFrame,
   type SessionEvent,
+  type SessionState,
   type SessionSummary,
   type SessionUiState,
   sliceRowsPage,
@@ -184,6 +186,31 @@ function builtinDefinition(
 
 /** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符；与 server 同值） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
+
+/** 投影态并入队列活态（排队卡数据源；与 server session-registry #stateWithQueue 同构）：
+ *  state.updated 键级整体替换语义要求发布/快照载荷都带全量队列，否则 busy 翻转抹掉客户端
+ *  queue 键。loop 不在册（自定义清单无 loop——get 缺槽抛 MissingSlotError）→ queue 键缺省 */
+function stateWithQueue(state: SessionState, ctx: unknown): SessionState {
+  let pending: QueuedPrompt[] | undefined;
+  try {
+    pending = (ctx as { get(slot: "loop"): { pending(): QueuedPrompt[] } } | undefined)
+      ?.get("loop")
+      .pending();
+  } catch {
+    pending = undefined; // 清单没列 loop = 听清单的（无队列面）
+  }
+  if (pending === undefined) return { ...state };
+  return {
+    ...state,
+    queue: pending.map(({ id, text, steer, modelId, reasoningEffort }) => ({
+      id,
+      text,
+      steer,
+      modelId,
+      reasoningEffort,
+    })),
+  };
+}
 
 /** MCP 声明 → 工厂入参（config-loader 共享展开；凭据值表进程内读——D-030 值只进内存） */
 async function prepareMcpSpecs(
@@ -416,7 +443,14 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         projection,
       };
       const onAppend = (event: SessionEvent): void => {
-        publish(id, projection.ingest(event));
+        const deltas = projection
+          .ingest(event)
+          .map((d): typeof d =>
+            d.op === "state.updated"
+              ? { op: "state.updated", state: stateWithQueue(d.state, session.ctx) }
+              : d,
+          );
+        publish(id, deltas);
       };
       // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
       const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
@@ -467,12 +501,24 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
           }),
         );
       });
+      // 队列变更（入队/升格/删除/claim/冲刷）→ state.updated 推排队卡数据（非账本通道）
+      session.ctx.events.on("queue/changed", () => {
+        publish(id, [
+          {
+            op: "state.updated",
+            state: stateWithQueue(projection.state, session.ctx),
+          },
+        ]);
+      });
       sessions.set(id, session);
       await dirs.upsert(cwd, id); // 带目录建会话 = 自动登记（与 server 同一语义）
       deliver({
         kind: "snapshot",
         sessionId: id,
-        snapshot: projection.snapshot(id, currentSeq(id)),
+        snapshot: {
+          ...projection.snapshot(id, currentSeq(id)),
+          state: stateWithQueue(projection.state, session.ctx),
+        },
       });
       return { ...session.summary };
     },
@@ -484,12 +530,20 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     async prompt(sessionId, text, opts) {
       const receipt = await requireSession(sessions, sessionId)
         .ctx.get("loop")
-        .send(text, { modelId: opts?.modelId, reasoningEffort: opts?.reasoningEffort });
+        .send(text, {
+          steer: (opts as { steer?: boolean } | undefined)?.steer,
+          modelId: opts?.modelId,
+          reasoningEffort: opts?.reasoningEffort,
+        });
       return { queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id };
     },
 
     async steer(sessionId, entryId) {
       return requireSession(sessions, sessionId).ctx.get("loop").steer(entryId);
+    },
+
+    async removeQueueEntry(sessionId, entryId) {
+      return requireSession(sessions, sessionId).ctx.get("loop").remove(entryId);
     },
 
     async interrupt(sessionId) {
@@ -803,7 +857,8 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     async snapshot(sessionId) {
       const session = requireSession(sessions, sessionId);
       // 尾窗 60（与 server 快照端点同档——双形态一致：长会话只回尾部窗口，历史经 sessionRows 翻页）
-      return session.projection.snapshot(sessionId, currentSeq(sessionId), { tailRows: 60 });
+      const snap = session.projection.snapshot(sessionId, currentSeq(sessionId), { tailRows: 60 });
+      return { ...snap, state: stateWithQueue(snap.state, session.ctx) };
     },
 
     async sessionRows(sessionId, opts) {
@@ -896,7 +951,10 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
           yield {
             kind: "snapshot",
             sessionId: session.id,
-            snapshot: session.projection.snapshot(session.id, currentSeq(session.id)),
+            snapshot: {
+              ...session.projection.snapshot(session.id, currentSeq(session.id)),
+              state: stateWithQueue(session.projection.state, session.ctx),
+            },
           };
         }
         yield* queue.stream();

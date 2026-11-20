@@ -74,6 +74,15 @@ export class PromptQueue {
     return true;
   }
 
+  /** 删除排队条目（排队卡 UI 的行级删除）；条目不存在返回 false */
+  async remove(entryId: string): Promise<boolean> {
+    const before = this.#entries.length;
+    this.#entries = this.#entries.filter((e) => e.id !== entryId);
+    if (this.#entries.length === before) return false;
+    await this.#save();
+    return true;
+  }
+
   /** claim：取走全部插话条目（step 边界进场，[zcode] turn-guide-drain.ts:9-31 同槽位） */
   async claimSteers(): Promise<QueueEntry[]> {
     const steers = this.#entries.filter((e) => e.steer);

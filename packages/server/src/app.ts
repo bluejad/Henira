@@ -159,9 +159,7 @@ export function createApp(deps: AppDeps): Hono {
     const id = c.req.param("id");
     const entry = deps.registry.get(id);
     if (entry !== undefined) {
-      return c.json(
-        entry.projection.snapshot(id, deps.fanout.currentSeq(id), { tailRows: SNAPSHOT_TAIL_ROWS }),
-      );
+      return c.json(deps.registry.snapshotOf(entry, SNAPSHOT_TAIL_ROWS));
     }
     // 磁盘历史会话（本进程未装配）：从账本重建快照（真相兜底）
     const events = await deps.registry.ledgerEvents(id);
@@ -199,16 +197,26 @@ export function createApp(deps: AppDeps): Hono {
     const parsed = z
       .object({
         text: z.string().min(1),
+        steer: z.boolean().optional(),
         modelId: z.string().min(1).optional(),
         reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "text required" }, 400);
     const receipt = await entry.ctx.get("loop").send(parsed.data.text, {
+      steer: parsed.data.steer,
       modelId: parsed.data.modelId,
       reasoningEffort: parsed.data.reasoningEffort,
     });
     return c.json({ queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id });
+  });
+
+  // 排队条目删除（排队卡行级操作）；条目不存在 404
+  app.delete("/api/sessions/:id/queue/:entryId", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const ok = await entry.ctx.get("loop").remove(c.req.param("entryId"));
+    return c.json(ok ? { ok: true } : { error: "entry not found" }, ok ? 200 : 404);
   });
 
   app.post("/api/sessions/:id/steer", async (c) => {
@@ -891,9 +899,7 @@ export function createApp(deps: AppDeps): Hono {
               sessionId: entry.id,
               // 连接快照帧与 GET /snapshot 同窗口化（60）——不一致则 store 里 hasOlder 派生
               // 恒 false（64 行全量 → totalRows==rows.length），翻页永不触发（真浏览器实证）
-              snapshot: entry.projection.snapshot(entry.id, deps.fanout.currentSeq(entry.id), {
-                tailRows: SNAPSHOT_TAIL_ROWS,
-              }),
+              snapshot: deps.registry.snapshotOf(entry, SNAPSHOT_TAIL_ROWS),
             } satisfies ServerFrame),
           });
         }

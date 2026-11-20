@@ -25,13 +25,15 @@ import type { ReactNode } from "react";
 export interface HeniraClientLike {
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  /** opts = 模型/思考按次覆盖（每次提问绑定；缺省回落全局默认） */
+  /** opts = 模型/思考按次覆盖（每次提问绑定；缺省回落全局默认）+ steer=true 忙时插话入队 */
   prompt(
     sessionId: string,
     text: string,
-    opts?: { modelId?: string; reasoningEffort?: ReasoningEffort },
+    opts?: { steer?: boolean; modelId?: string; reasoningEffort?: ReasoningEffort },
   ): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
+  /** 删除排队条目（排队卡行级操作；可选——旧嵌入方缺省时面板删除钮禁用） */
+  removeQueueEntry?(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   events(): AsyncIterable<ServerFrame>;

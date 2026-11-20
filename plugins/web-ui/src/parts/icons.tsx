@@ -2,6 +2,7 @@
 // phosphor 子路径导入（包根星号图在 2.1.1 不出 *Icon 主名）；显式组件清单——不用动态注册表，
 // 组件名避开 phosphor 导出的 Icon 类型名。换图标集 = 重写本文件的小函数。
 
+import { ArrowLineUpIcon } from "@phosphor-icons/react/dist/csr/ArrowLineUp";
 import { ArrowsInIcon } from "@phosphor-icons/react/dist/csr/ArrowsIn";
 import { ArrowsOutIcon } from "@phosphor-icons/react/dist/csr/ArrowsOut";
 import { ArrowUpIcon } from "@phosphor-icons/react/dist/csr/ArrowUp";
@@ -13,6 +14,7 @@ import { CircleNotchIcon } from "@phosphor-icons/react/dist/csr/CircleNotch";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { HorseIcon } from "@phosphor-icons/react/dist/csr/Horse";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
+import { PencilIcon } from "@phosphor-icons/react/dist/csr/Pencil";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 import { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning";
@@ -79,4 +81,12 @@ export function SendGlyph(props: Props) {
 
 export function StopGlyph(props: Props) {
   return <StopIcon size={props.size ?? 14} color={props.color} weight="fill" />;
+}
+
+export function SendNowGlyph(props: Props) {
+  return <ArrowLineUpIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+export function PencilGlyph(props: Props) {
+  return <PencilIcon size={props.size ?? 14} color={props.color} />;
 }

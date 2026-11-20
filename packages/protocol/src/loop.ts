@@ -53,8 +53,12 @@ export interface LoopService {
    * 忙时入队（queue.json 持久化，D-045，模型/思考覆盖随条目持久化）
    */
   send(prompt: string, opts?: { steer?: boolean } & PromptOptions): Promise<QueuedPrompt>;
+  /** 当前排队条目快照（排队卡 UI 数据源；投影态——非账本事实，P9-1 不变） */
+  pending(): QueuedPrompt[];
   /** 队列条目"立即发送" = 插话升格；条目不存在返回 false */
   steer(entryId: string): Promise<boolean>;
+  /** 删除排队条目；条目不存在返回 false */
+  remove(entryId: string): Promise<boolean>;
   /** 中止当前回合（turn/end{aborted, cause:'user'}） */
   interrupt(signal?: AbortSignal): Promise<void>;
 }

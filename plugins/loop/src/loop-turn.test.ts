@@ -259,6 +259,81 @@ describe("turn/step 状态机（loop.md §1）", () => {
     await harness.dispose();
   });
 
+  it("E1 排队面：pending()/remove() 读写队列；queue/changed 随变更广播（enqueue/升格/remove/冲刷）", async () => {
+    const { harness, ctx, loop } = await startedLoop([
+      (req) => {
+        void req;
+        return new Promise((resolve) => {
+          setTimeout(() => resolve([mockText("一"), mockUsage(USAGE), mockFinish("stop")]), 60);
+        });
+      },
+      [mockText("二"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("三"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const changes: number[] = [];
+    ctx.events.on("queue/changed", (p) =>
+      changes.push((p as { queue: { id: string }[] }).queue.length),
+    );
+    const turnStarted = new Promise<void>((resolve) => {
+      ctx.events.on("turn/start", () => resolve());
+    });
+    const consuming = (async () => {
+      for await (const event of loop.run("第一")) void event;
+    })();
+    await turnStarted;
+    const q1 = await loop.send("排队一");
+    const q2 = await loop.send("排队二");
+    expect(loop.pending().map((e) => e.id)).toEqual([q1.id, q2.id]); // 快照读取
+    await loop.steer(q1.id); // 升格 → 广播（条数不变仍广播）
+    expect(await loop.remove(q2.id)).toBe(true);
+    expect(await loop.remove("q不存在")).toBe(false);
+    expect(loop.pending().map((e) => e.id)).toEqual([q1.id]); // 删除生效
+    await consuming;
+    expect(loop.pending()).toHaveLength(0); // 回合末冲刷清空（升格条目作新回合跑掉）
+    expect(changes).toContain(2);
+    expect(changes).toContain(1);
+    expect(changes.at(-1)).toBe(0);
+    await harness.dispose();
+  });
+
+  it("E1 插话入队：send(prompt,{steer:true}) 忙时直接以插话身份入队（REST/facade 通道引擎底座）", async () => {
+    let _toolStarted = false;
+    const slowRead: ToolDefinition = {
+      ...readTool,
+      execute: async () => {
+        _toolStarted = true;
+        await new Promise((r) => setTimeout(r, 80));
+        return { content: "file body" };
+      },
+    };
+    const { harness, ctx, loop, session } = await startedLoop(
+      [
+        [mockToolCall("c1", "read", "{}"), mockUsage(USAGE), mockFinish("tool-calls")],
+        [mockText("收到直插后收尾"), mockUsage(USAGE), mockFinish("stop")],
+      ],
+      undefined,
+      slowRead,
+    );
+    const steers: unknown[] = [];
+    ctx.events.on("user/steer", (p) => steers.push(p));
+    const consuming = (async () => {
+      for await (const event of loop.run("干活")) void event;
+    })();
+    while (!_toolStarted) await new Promise((r) => setTimeout(r, 1));
+    const queued = await loop.send("直插的话", { steer: true });
+    expect(queued.id).not.toBe("");
+    expect(queued.steer).toBe(true); // 入队即插话身份（一步到位，无需二跳升格）
+    await consuming;
+    const steerMsg = session
+      .events()
+      .find((e) => e.type === "user/message" && (e.data as { source?: string }).source === "steer");
+    expect(
+      steerMsg === undefined ? undefined : (steerMsg.data as { content: string }).content,
+    ).toBe("直插的话");
+    expect(steers).toHaveLength(1);
+    await harness.dispose();
+  });
+
   it("插话：step 边界进场（不打断工具）——steer 条目落 user/message{source:steer} 并进本回合", async () => {
     let _toolStarted = false;
     const slowRead: ToolDefinition = {

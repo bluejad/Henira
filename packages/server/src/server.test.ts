@@ -360,6 +360,101 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
   });
 });
 
+describe("排队卡全链（E1：queue 上投影态）", () => {
+  it("忙时 prompt 入队 → SSE state.updated 携带 queue（键级整体替换语义锁）→ snapshot 带队列 → steer 直插入队 → DELETE 摘除（不存在 404）→ 冲刷清空", async () => {
+    const slow = async function* () {
+      await new Promise((r) => setTimeout(r, 150));
+      yield mockText("慢回合");
+      yield mockUsage({ inputTokens: 1, outputTokens: 1 });
+      yield mockFinish("stop");
+    };
+    const { base, cleanup } = await makeServer([
+      slow,
+      [mockText("冲刷回合"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+      [mockText("冲刷二"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    try {
+      const id = await createSession(base);
+      subscribe(base, sink);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "第一问" }),
+      });
+      // 等 busy=true（回合开跑）再忙时投递——确定性信号非 sleep
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        return frames.some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === true,
+        )
+          ? true
+          : undefined;
+      });
+      const res = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "排队的话" }),
+      });
+      const receipt = (await res.json()) as { queued: boolean; id: string | null };
+      expect(receipt.queued).toBe(true);
+      expect(receipt.id).not.toBeNull();
+      const entryId = receipt.id as string;
+      // 语义锁：state.updated 载荷携带 queue（否则键级整体替换会在 busy 翻转时抹掉客户端队列）
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        return frames.some(
+          (f) =>
+            f.kind === "delta" &&
+            f.delta.op === "state.updated" &&
+            Array.isArray(f.delta.state.queue) &&
+            f.delta.state.queue.some((e) => e.id === entryId),
+        )
+          ? true
+          : undefined;
+      });
+      // 快照携带队列
+      const snapJson = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        state: { queue?: { id: string; steer: boolean }[] };
+      };
+      expect(snapJson.state.queue?.some((e) => e.id === entryId)).toBe(true);
+      // steer:true 直插入队（REST 通道透传——引擎 send({steer}) 底座的传输面半边）
+      const resSteer = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "直插的话", steer: true }),
+      });
+      const receiptSteer = (await resSteer.json()) as { queued: boolean; id: string | null };
+      expect(receiptSteer.queued).toBe(true);
+      const snapSteer = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        state: { queue?: { id: string; steer: boolean }[] };
+      };
+      const steerEntry = snapSteer.state.queue?.find((e) => e.id === receiptSteer.id);
+      expect(steerEntry?.steer).toBe(true);
+      // DELETE 摘除；不存在 404
+      expect(
+        (await fetch(`${base}/api/sessions/${id}/queue/${entryId}`, { method: "DELETE" })).status,
+      ).toBe(200);
+      expect(
+        (await fetch(`${base}/api/sessions/${id}/queue/q-none`, { method: "DELETE" })).status,
+      ).toBe(404);
+      // 冲刷收尾：队列条目跑完后最终 state busy=false 且 queue 空
+      await waitFor(() => {
+        const states = framesFor(sink, id).flatMap((f) =>
+          f.kind === "delta" && f.delta.op === "state.updated" ? [f.delta.state] : [],
+        );
+        const last = states.at(-1);
+        return last !== undefined && last.busy === false && (last.queue ?? []).length === 0
+          ? true
+          : undefined;
+      });
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe("REST 面与设置", () => {
   it("设置读写 / 凭据只写不读（D-030）", async () => {
     const { base, cleanup } = await makeServer([]);

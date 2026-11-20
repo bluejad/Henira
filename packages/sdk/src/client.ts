@@ -77,6 +77,7 @@ export function createClient(opts: ClientOptions): HeniraFacade {
         method: "POST",
         body: JSON.stringify({
           text,
+          steer: (opts as { steer?: boolean } | undefined)?.steer,
           modelId: opts?.modelId,
           reasoningEffort: opts?.reasoningEffort,
         }),
@@ -88,6 +89,14 @@ export function createClient(opts: ClientOptions): HeniraFacade {
         method: "POST",
         body: JSON.stringify({ entryId }),
       });
+      return res.ok;
+    },
+
+    async removeQueueEntry(sessionId, entryId) {
+      const res = await requestJson<{ ok: boolean }>(
+        `/api/sessions/${sessionId}/queue/${encodeURIComponent(entryId)}`,
+        { method: "DELETE" },
+      ).catch(() => ({ ok: false }) as { ok: boolean });
       return res.ok;
     },
 

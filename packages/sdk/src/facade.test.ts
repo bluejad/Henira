@@ -713,3 +713,52 @@ describe.each(forms.map((f) => [f.name, f] as const))(
     });
   },
 );
+
+// ── 排队卡全链（E1）：queue 上投影态——双形态同语义 ─────────────────────────────
+describe.each(forms.map((f) => [f.name, f] as const))("排队卡（E1）双形态：%s", (_name, form) => {
+  // 30s 裕量：client 形态走真 SSE + 磁盘落账（同 sessionRows 先例）
+  it("忙时 prompt 入队 → snapshot.state.queue 可见 → steer 直插带徽章字段 → removeQueueEntry 摘除（不存在 false）→ 冲刷清空", {
+    timeout: 30_000,
+  }, async () => {
+    const slow = async function* () {
+      await new Promise((r) => setTimeout(r, 150));
+      yield mockText("慢回合");
+      yield mockUsage({ inputTokens: 1, outputTokens: 1 });
+      yield mockFinish("stop");
+    };
+    const { facade } = await form.make([
+      slow,
+      [mockText("冲刷回合"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+      [mockText("冲刷二"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const session = await facade.createSession();
+    await facade.prompt(session.id, "第一问");
+    // 等 busy=true（确定性信号：listSessions busy 位）
+    await waitFor(async () => {
+      const hit = (await facade.listSessions()).find((s) => s.id === session.id);
+      return hit?.busy === true ? true : undefined;
+    });
+    const receipt = await facade.prompt(session.id, "排队的话");
+    expect(receipt.queued).toBe(true);
+    expect(receipt.id).not.toBeNull();
+    const entryId = receipt.id as string;
+    // 快照携带队列（投影态并线）
+    const snap = await facade.snapshot(session.id);
+    expect(snap.state.queue?.some((e) => e.id === entryId)).toBe(true);
+    // steer:true 直插入队
+    const steerReceipt = await facade.prompt(session.id, "直插的话", { steer: true });
+    expect(steerReceipt.queued).toBe(true);
+    const snapSteer = await facade.snapshot(session.id);
+    expect(snapSteer.state.queue?.find((e) => e.id === steerReceipt.id)?.steer).toBe(true);
+    // 删除：存在 true / 不存在 false；摘除后快照不可见
+    expect(await facade.removeQueueEntry(session.id, entryId)).toBe(true);
+    expect(await facade.removeQueueEntry(session.id, "q-none")).toBe(false);
+    const snapAfter = await facade.snapshot(session.id);
+    expect(snapAfter.state.queue?.some((e) => e.id === entryId)).toBe(false);
+    // 冲刷收尾：busy=false 且 queue 空
+    await waitFor(async () => {
+      const end = await facade.snapshot(session.id);
+      return end.state.busy === false && (end.state.queue ?? []).length === 0 ? true : undefined;
+    }, 15_000);
+  });
+});

@@ -41,7 +41,7 @@ import {
 import { shellPlugin } from "@henira/plugin-shell";
 import { shellToolsPlugin } from "@henira/plugin-shell-tools";
 import { toolsPlugin } from "@henira/plugin-tools";
-import type { LlmService, McpServerSpec, McpService } from "@henira/protocol";
+import type { LlmService, McpServerSpec, McpService, QueuedPrompt } from "@henira/protocol";
 import {
   asHeniraContext,
   type LoopEvent,
@@ -49,6 +49,7 @@ import {
   type Row,
   rebuildProjection,
   type SessionEvent,
+  type SessionState,
   type SessionSummary,
   sliceRowsPage,
 } from "@henira/protocol";
@@ -616,7 +617,15 @@ export class SessionRegistry {
     };
 
     const onAppend = (event: SessionEvent): void => {
-      const deltas = projection.ingest(event);
+      // state.updated 键级整体替换语义：每个载荷必须带全量队列（否则 busy 翻转会把
+      // 客户端 queue 键抹掉）——发布口统一并线 loop 服务活态
+      const deltas = projection
+        .ingest(event)
+        .map((d): typeof d =>
+          d.op === "state.updated"
+            ? { op: "state.updated", state: this.#stateWithQueue(entry, d.state) }
+            : d,
+        );
       this.#opts.fanout.publish(id, deltas);
     };
 
@@ -669,7 +678,47 @@ export class SessionRegistry {
       this.#opts.fanout.publish(id, deltas);
     });
 
+    // 队列变更（入队/升格/删除/claim/冲刷）→ state.updated 推排队卡数据（非账本通道，
+    // 同流式碎片模式；载荷取 loop.pending() 权威快照，事件只当触发信号）
+    entry.ctx.events.on("queue/changed", () => {
+      this.#opts.fanout.publish(id, [
+        { op: "state.updated", state: this.#stateWithQueue(entry, projection.state) },
+      ]);
+    });
+
     return entry;
+  }
+
+  /** 投影态并入队列活态（排队卡数据源）：loop 服务在册才并线；无 loop（自定义清单——
+   *  get 缺槽抛 MissingSlotError）或未挂载（磁盘历史会话）时 queue 键缺省 = 无队列语义 */
+  #stateWithQueue(entry: SessionEntry, base: SessionState): SessionState {
+    let pending: QueuedPrompt[] | undefined;
+    try {
+      pending = entry.ctx?.get("loop").pending();
+    } catch {
+      pending = undefined; // 清单没列 loop = 听清单的（无队列面）
+    }
+    if (pending === undefined) return { ...base };
+    return {
+      ...base,
+      queue: pending.map(({ id, text, steer, modelId, reasoningEffort }) => ({
+        id,
+        text,
+        steer,
+        modelId,
+        reasoningEffort,
+      })),
+    };
+  }
+
+  /** 快照（并线队列活态）：初始渲染 / SSE 订阅帧 / 断档重拉共用 */
+  snapshotOf(entry: SessionEntry, tailRows?: number) {
+    const snap = entry.projection.snapshot(
+      entry.id,
+      this.#opts.fanout.currentSeq(entry.id),
+      tailRows === undefined ? undefined : { tailRows },
+    );
+    return { ...snap, state: this.#stateWithQueue(entry, snap.state) };
   }
 
   /** 磁盘会话账本读取（历史会话快照重建用）；找不到 / 读不了返回 undefined */
@@ -783,10 +832,7 @@ export class SessionRegistry {
 
   /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号） */
   #announce(entry: SessionEntry): void {
-    this.#opts.fanout.deliverSnapshot(
-      entry.id,
-      entry.projection.snapshot(entry.id, this.#opts.fanout.currentSeq(entry.id)),
-    );
+    this.#opts.fanout.deliverSnapshot(entry.id, this.snapshotOf(entry));
   }
 }
 

@@ -21,6 +21,7 @@ import type { SettingsSection, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
 import { BrainGlyph, CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
 import { ModelSelect, type PickerProviders } from "./model-select.js";
+import { QueuePanel } from "./queue-panel.js";
 
 const TEXTAREA_MAX_HEIGHT = 200;
 const EMPTY_ROWS: readonly Row[] = [];
@@ -144,7 +145,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     if (el !== null && draft === "") el.style.height = "";
   }, [draft]);
 
-  const submit = (): void => {
+  const submit = (steer = false): void => {
     const text = draft.trim();
     if (text === "" || ctx.sessionId === null) return;
     if (pendingApprovals.length > 0) return; // 审批接管中：Enter 已被审批卡消费
@@ -153,6 +154,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
     setSendFailed(false);
     void ctx.client
       .prompt(ctx.sessionId, text, {
+        steer: steer || undefined, // E1：忙时 Ctrl+Enter = 插话入队（下一 step 边界进场）
         modelId: model !== "" ? model : undefined,
         reasoningEffort: effort ?? undefined,
       })
@@ -191,6 +193,18 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
 
   const hasDraft = draft.trim() !== "";
   const showStop = busy && !hasDraft; // ZCode 语义：流式中空草稿才是停止；有草稿恒为发送（排队）
+  // 忙+有草稿：发送=排队、Ctrl+Enter=插话（E1 发送模式 UI——按钮文案与 hint 同步切换）
+  const sendLabel = busy ? ctx.t("composer.queueSend") : ctx.t("composer.send");
+
+  // 排队卡编辑回填：条目文本进草稿（覆盖语义；跨窗口冻结锁挂账 50-open）
+  const editQueued = useCallback(
+    (text: string): void => {
+      setDraft(text);
+      ctx.updateUiState?.({ draft: text });
+      areaRef.current?.focus();
+    },
+    [ctx],
+  );
 
   return (
     <div className="henira-composer">
@@ -202,6 +216,7 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
       {pendingApprovals.map((row) => (
         <ApprovalCard key={row.rowId} row={row} ctx={ctx} />
       ))}
+      <QueuePanel ctx={ctx} onEdit={editQueued} />
       <div className="henira-composer-card">
         <textarea
           ref={areaRef}
@@ -214,9 +229,9 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
             autoGrow(e.target);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              submit();
+              submit(e.ctrlKey || e.metaKey); // Enter=排队 / Ctrl+Enter=插话（E1 发送模式）
             }
           }}
         />
@@ -287,9 +302,9 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
             <button
               type="button"
               className="henira-icon-round henira-primary"
-              aria-label={ctx.t("composer.send")}
-              title={ctx.t("composer.send")}
-              onClick={submit}
+              aria-label={sendLabel}
+              title={busy ? ctx.t("composer.sendHint") : sendLabel}
+              onClick={() => submit(false)}
               disabled={!hasDraft || ctx.sessionId === null}
             >
               <SendGlyph size={16} />

@@ -111,6 +111,12 @@ export async function runTurnCore(
 
       // ── step 边界：插话进场（D-045：工具结果落定后、模型请求前）────────
       const steers = await deps.queue.claimSteers();
+      if (steers.length > 0) {
+        // 队列变更广播（排队卡观察口——service 侧 broadcastQueue 同形载荷）
+        ctx.events.emit("queue/changed", {
+          queue: deps.queue.pending.map((e) => ({ ...e })),
+        });
+      }
       for (const s of steers) {
         await session.append({
           type: "user/message",
