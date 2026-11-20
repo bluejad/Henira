@@ -28,6 +28,7 @@ import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
 import { createResourcePump } from "./resource-pump.js";
 import { RowStore } from "./store.js";
+import { streamingMarkdownNode } from "./streaming-markdown.js";
 
 /** 整页布局选项（形状真源在 plugin-web-ui types.LayoutOption；API 兼容别名） */
 export type Layout = LayoutOption;
@@ -401,9 +402,12 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     },
     prefill(_input: { text: string }) {}, // M3：官方输入框自管草稿；prefill 随命令进输入框批接线
     renderMarkdown(text: string, opts?: { streaming?: boolean }) {
-      // markdown 落地（M4 批 A）：实现体在 markdown.ts（GFM；raw HTML 不渲染）。
-      // t 由宿主注入（代码块复制钮文案跟随语言包）；streaming 透传（流式中不高亮）。
-      return markdownNode(text, { streaming: opts?.streaming, t });
+      // markdown 落地（M4 批 A；E2 增量管线）：settled 臂在 markdown.ts（GFM；raw HTML
+      // 不渲染），流式臂在 streaming-markdown.ts（冻结已完成块、每帧只重渲尾段）。
+      // t 由宿主注入（代码块复制钮文案跟随语言包）。
+      return opts?.streaming === true
+        ? streamingMarkdownNode(text, { t })
+        : markdownNode(text, { t });
     },
     getSession() {
       return sessionId === null ? null : { sessionId, cwd: sessionCwd };

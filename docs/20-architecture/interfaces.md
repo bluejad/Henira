@@ -1027,7 +1027,7 @@ interface PluginUiHost {
   //   M3 实装 = 简版：会话 busy 沿（true→false）即通知、恒 {ok:true}、无 own-receipt 过滤——
   //   receipt 形（恰一次/终局映射 interrupted|error|submit_failed）随插件批升级（现无消费者）
   prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送（web 宿主现空实现——官方输入框自管草稿，接线随命令进输入框批）
-  renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——opts.streaming 透传，delta 高频重渲下高亮留到回合完成）
+  renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——delta 高频重渲下高亮留到回合完成）；E2 起 streaming=true 走增量臂（streaming-markdown：冻结已完成顶层块——元素按源偏移 key 只建一次引用复用、每帧只解析重渲尾段 2 块；非前缀输入整体重置），settled 全文单实例一次成型；已知取舍 = 跨冻结边界的链接引用定义流式期渲染为字面文本、settled 自愈，settle 时全文重渲一次（选区丢失一次）
 
   // 数据
   useResource(address: string): ResourceSnapshot; // ✓ C5（plugin-mcp 数据泵：2s 共享轮询 / 越权地址返回 failed 快照、不订阅）；React hook 语义：仅 render 期调用

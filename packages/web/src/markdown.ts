@@ -1,5 +1,6 @@
-// markdown→React（host.renderMarkdown 的唯一实现体，D-057 边界：正文不可插——正文渲染永远
-// 是官方实现，可插的是容器不是内容）。GFM（表格/删除线/任务列表）；raw HTML 不渲染（react-markdown
+// markdown→React（host.renderMarkdown 的实现体：settled 臂在本文件，流式增量臂在
+// streaming-markdown.ts——路由在 host.ts，D-057 边界：正文不可插——正文渲染永远是官方实现，
+// 可插的是容器不是内容）。GFM（表格/删除线/任务列表）；raw HTML 不渲染（react-markdown
 // 默认跳过 = 消毒）。样式 = tokens.css .henira-md / .henira-code 类族（嵌入方零样式依赖不变）。
 // 行为取舍（dsh MarkdownText 行为层参照 2026-11-17）：流式中未闭合代码围栏 = 代码块渲染
 // （settled grammar is the streaming one，remark 天然如此）；宽表格自然宽度 + 容器横向滚动。
@@ -134,19 +135,29 @@ function codeBlock(children: React.ReactNode, opts: MarkdownOptions): React.Reac
   );
 }
 
-export function markdownNode(text: string, opts: MarkdownOptions = {}): React.ReactNode {
+// 模块常量（数组字面量每次内联会触发 react-markdown 无谓的管线重建）
+const REMARK_PLUGINS = [remarkGfm];
+
+/** 单实例 markdown 子元素（markdownNode 与流式增量臂 streaming-markdown.ts 共用的渲染体）；
+ * key 供流式臂的多块平铺用（省去 cloneElement） */
+export function markdownChildren(
+  text: string,
+  opts: MarkdownOptions,
+  key?: string,
+): React.ReactNode {
   return createElement(
-    "div",
-    { className: "henira-md" },
-    createElement(
-      ReactMarkdown,
-      {
-        remarkPlugins: [remarkGfm],
-        components: {
-          pre: ({ children }) => codeBlock(children, opts),
-        },
+    ReactMarkdown,
+    {
+      key,
+      remarkPlugins: REMARK_PLUGINS,
+      components: {
+        pre: ({ children }) => codeBlock(children, opts),
       },
-      text,
-    ),
+    },
+    text,
   );
+}
+
+export function markdownNode(text: string, opts: MarkdownOptions = {}): React.ReactNode {
+  return createElement("div", { className: "henira-md" }, markdownChildren(text, opts));
 }
