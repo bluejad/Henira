@@ -708,13 +708,13 @@ function CustomProviderForm(props: {
           />
           <button
             type="button"
-            className="henira-ghost"
+            className="henira-iconbtn"
             title={ctx.t("settings.models.removeModel")}
             onClick={() => {
               setRows(rows.length > 1 ? rows.filter((_, j) => j !== i) : rows);
             }}
           >
-            <XGlyph size={12} />
+            <XGlyph size={14} />
           </button>
         </div>
       ))}

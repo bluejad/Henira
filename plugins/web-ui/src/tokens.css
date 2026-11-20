@@ -424,10 +424,16 @@ button:focus-visible > .henira-row-caret {
   cursor: default;
 }
 
-/* 输入族焦点环（与 button 同一语言：info 色双像素外环） */
+/* 输入族焦点 = 边框变色（对话输入卡 focus-within 同语言）。外描环退场：
+   outline 方角外扩悬空于圆角框四角（2026-11-20 用户实拍裁定）。弹层搜索框
+   （henira-model-search）无边框且方角——单独保留外环，贴合不悬空 */
 .henira-app input:focus-visible,
 .henira-app textarea:focus-visible,
 .henira-app select:focus-visible {
+  outline: none;
+  border-color: var(--henira-info-text);
+}
+.henira-app input.henira-model-search:focus-visible {
   outline: 2px solid var(--henira-info-text);
   outline-offset: 1px;
 }
@@ -1504,7 +1510,6 @@ button:focus-visible > .henira-row-caret {
   border-radius: var(--henira-radius);
   color: var(--henira-text);
   font: inherit;
-  font-size: var(--henira-fs-sm);
   padding: 4px 10px;
   cursor: pointer;
   align-self: flex-start;
