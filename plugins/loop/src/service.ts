@@ -75,12 +75,22 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
 
       let current: TurnHandle | undefined;
       let currentController: AbortController | undefined;
+      // 冲刷链在跑标志：链 = 一个后台 drainQuietly 驱动的 executeAndDrain 递归生成器
+      // （首回合 + 回合末依次冲刷）。回合间存在空窗：上一回合已结算、current 尚未清
+      // （清点在链尾 finally），旧链挂在 drainNext 上等新条目——纯回合判定会把空窗
+      // 当全闲，第二条链穿透起跑 = 双链并跑、队列互相踩（CI promote 全链两次实锤）。
+      // 忙判定（send 入队 / run·resume 拒绝）与 promote 的收尾等待一律以此为准。
+      let drainChainAlive = false;
+      // promote 武装标志：守卫据此跳过冻结置位。不用 signal.reason 判读——回合收尾
+      // 路径的兜底 abort()（无 reason）会覆盖 PROMOTE 标记，慢机上守卫读到被覆盖的
+      // reason 就误置冻结（CI 第二次实锤同款时序）。
+      let promoteArmed = false;
       // 中断冻结标志（投影源：LoopService.paused()；UI 暂停横幅判据）。只在「中断且队列
       // 非空」时置位；resume()/冲刷成功/send 闲时开跑三处清除——不能由 !busy 推导
       // （回合末 busy 翻 false 与冲刷广播之间有真实窗口，推导会让横幅每对回合间闪烁）。
       let queuePaused = false;
-      /** promote 抢占的 abort 标记（守卫据此跳过冻结置位——抢占不产生暂停横幅，
-       * 照参照物 preserveQueueAutoDrainOnCancel 语义；普通 interrupt 无 reason 照常冻结） */
+      /** promote 抢占的 abort 标记（标记位见 promoteArmed——reason 会被收尾兜底 abort
+       * 覆盖不可作判据；常量保留给 abort 调用本身，语义自文档） */
       const PROMOTE_ABORT_REASON = "queue-promote";
 
       /** 队列变更总线广播（排队卡 UI 的观察口，同 user/steer 模式）：载荷 = 当前条目快照 */
@@ -138,7 +148,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         // 留守，等 resume() 显式恢复；队列空则无事可冻。promote 抢占的 abort 不置冻结
         // （剩余队列在其新回合结束后照常自动续冲）
         if (signal.aborted) {
-          if (queue.pending.length > 0 && signal.reason !== PROMOTE_ABORT_REASON) {
+          if (queue.pending.length > 0 && !promoteArmed) {
             queuePaused = true;
             broadcastQueue();
           }
@@ -149,6 +159,16 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         queuePaused = false; // 自动续冲 = 冻结态解除（广播由下方统一发）
         broadcastQueue();
         while (next !== undefined) {
+          // 链取消落在「回合已结算、下一条已摘」的空隙：已摘条目塞回队头（不丢不乱序），
+          // 手动停止在此路径也走守卫同款冻结（promote 武装期间跳过）
+          if (signal.aborted) {
+            await queue.pushBack(next);
+            if (queue.pending.length > 0 && !promoteArmed) {
+              queuePaused = true;
+            }
+            broadcastQueue();
+            return;
+          }
           yield* executeAndDrain(next.text, signal, {
             modelId: next.modelId,
             reasoningEffort: next.reasoningEffort,
@@ -167,24 +187,42 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         void count;
       }
 
+      /** 起后台冲刷链的唯一入口（send / promote / resume 三路共用）：链活标志在此置/清 */
+      const startChain = (prompt: string, opts?: PromptOptions): void => {
+        drainChainAlive = true;
+        const controller = new AbortController();
+        currentController = controller;
+        const gen = executeAndDrain(prompt, controller.signal, opts);
+        void drainQuietly(gen)
+          .finally(() => {
+            drainChainAlive = false;
+            current = undefined;
+            currentController = undefined;
+          })
+          .catch(() => {});
+      };
+
       const service: LoopService = {
         async *run(prompt, signal, opts) {
-          if (current !== undefined && !current.signal.aborted) throw new LoopBusyError();
+          if (drainChainAlive) throw new LoopBusyError();
           clearPause(); // 显式开新回合 = 重新上路
           const controller = new AbortController();
           currentController = controller;
           signal?.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+          drainChainAlive = true;
           try {
             yield* executeAndDrain(prompt, controller.signal, opts);
           } finally {
+            drainChainAlive = false;
             current = undefined;
             currentController = undefined;
           }
         },
 
         async send(prompt, opts) {
-          if (current !== undefined && !current.signal.aborted) {
-            // 忙时入队（queue.json 持久化；模型/思考覆盖随条目持久化）
+          if (drainChainAlive) {
+            // 链活一律入队（queue.json 持久化；模型/思考覆盖随条目持久化）——回合间
+            // 空窗（current 已清、链仍挂 drainNext）也被此判定覆盖，不再穿透起第二链
             const entry = await queue.enqueue(prompt, opts?.steer === true, {
               modelId: opts?.modelId,
               reasoningEffort: opts?.reasoningEffort,
@@ -194,18 +232,10 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           }
           // 闲时直开回合：后台跑，事件经总线 loop/event 观察（D-045：无第二种投递语义）
           clearPause(); // 用户主动发新消息 = 重新上路（回合末队列照常自动续冲）
-          const controller = new AbortController();
-          currentController = controller;
-          const gen = executeAndDrain(prompt, controller.signal, {
+          startChain(prompt, {
             modelId: opts?.modelId,
             reasoningEffort: opts?.reasoningEffort,
           });
-          void drainQuietly(gen)
-            .finally(() => {
-              current = undefined;
-              currentController = undefined;
-            })
-            .catch(() => {});
           return { id: "", text: prompt, steer: false }; // id 空 = 未排队（直接开跑）
         },
 
@@ -220,32 +250,37 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           // 二次点击/重复 promote 误杀）
           const entry = queue.pending.find((e) => e.id === entryId);
           if (entry === undefined) return false;
-          // 抢占式立即发送：abort 当前 → 等旧链完全收尾（照参照物 stop-barrier——
-          // 立刻重发会撞忙判定）→ 摘条目 → 开新回合。此刻才摘条目：等收尾失败
-          // （超时）则条目原位不动，无半完成态
-          if (current !== undefined) {
+          if (drainChainAlive) {
+            if (current === undefined) {
+              // 链活在首回合尚未起跑的微窗（startChain 到 onTurnStart 之间）：没有回合
+              // 可打断——条目移到队头，链的下一拍消费它（等效立即发送，零竞态）
+              await queue.moveToFront(entryId);
+              clearPause();
+              broadcastQueue();
+              return true;
+            }
+            // 抢占式立即发送：abort 当前回合 → 等整条链死（不是等 current 清——current
+            // 的清点在链尾 finally，链在回合间空窗时 current 仍在册）→ 摘条目 → 开新回合。
+            // 此刻才摘条目：等收尾失败（超时）则条目原位不动，无半完成态
+            promoteArmed = true;
             currentController?.abort(PROMOTE_ABORT_REASON);
             const deadline = Date.now() + 10_000;
-            while (current !== undefined) {
-              if (Date.now() > deadline) return false;
+            while (drainChainAlive) {
+              if (Date.now() > deadline) {
+                promoteArmed = false;
+                return false;
+              }
               await new Promise((r) => setTimeout(r, 25));
             }
           }
+          promoteArmed = false;
           await queue.remove(entryId);
           clearPause(); // 抢占不产生冻结态；原本已冻结则解冻（回合末队列照常自动续冲）
           broadcastQueue();
-          const controller = new AbortController();
-          currentController = controller;
-          const gen = executeAndDrain(entry.text, controller.signal, {
+          startChain(entry.text, {
             modelId: entry.modelId,
             reasoningEffort: entry.reasoningEffort,
           });
-          void drainQuietly(gen)
-            .finally(() => {
-              current = undefined;
-              currentController = undefined;
-            })
-            .catch(() => {});
           return true;
         },
 
@@ -264,26 +299,18 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         },
 
         async resume() {
-          // 忙时判定从严：旧中断链的 finally 清 current 是异步的，!aborted 放行会有
-          // 双链并跑竞态——current 在册一律拒绝（冻结态下 UI 横幅在场，点击间隔够不着该窗口）
-          if (current !== undefined) return false;
+          // 忙时判定从严：链在跑（含回合间空窗）一律拒绝——冻结态下 UI 横幅在场，
+          // 点击间隔够不着该窗口；链彻底死透才允许显式恢复
+          if (drainChainAlive) return false;
           const next = await queue.drainNext();
           queuePaused = false;
           broadcastQueue();
           if (next === undefined) return false;
           // 开新回合（fresh signal——冻结态本身就是旧 signal 已废的结果）
-          const controller = new AbortController();
-          currentController = controller;
-          const gen = executeAndDrain(next.text, controller.signal, {
+          startChain(next.text, {
             modelId: next.modelId,
             reasoningEffort: next.reasoningEffort,
           });
-          void drainQuietly(gen)
-            .finally(() => {
-              current = undefined;
-              currentController = undefined;
-            })
-            .catch(() => {});
           return true;
         },
 

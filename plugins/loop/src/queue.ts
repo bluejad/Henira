@@ -100,6 +100,23 @@ export class PromptQueue {
     return next;
   }
 
+  /** 已摘条目回队头：冲刷链被取消（promote 武装 / 手动停止）落在「下一条已摘、
+   * 未进回合」的空隙时回收——条目不丢、顺序保持（链取消回收，2026-11-20） */
+  async pushBack(entry: QueueEntry): Promise<void> {
+    this.#entries.unshift(entry);
+    await this.#save();
+  }
+
+  /** 条目移到队头：promote 在链空窗（无回合可打断）时的等效插队——旧链下一拍消费 */
+  async moveToFront(entryId: string): Promise<boolean> {
+    const idx = this.#entries.findIndex((e) => e.id === entryId);
+    if (idx < 0) return false;
+    const [entry] = this.#entries.splice(idx, 1);
+    this.#entries.unshift(entry);
+    await this.#save();
+    return true;
+  }
+
   async #save(): Promise<void> {
     await atomicWrite(this.#file, JSON.stringify({ version: 1, entries: this.#entries }, null, 2));
   }
