@@ -119,6 +119,17 @@ export function breakerPlugin(options?: BreakerOptions): ServiceDefinition {
         s.currentStep = step;
       });
 
+      // 用户插话重置（D-065 决定 6）：连续计数与提醒额清零——用户已介入，给模型重开一次机会；
+      // maxStreak（回合尾否决依据）与 steps（回合总预算）保留——插话不洗掉已经跑飞的事实。
+      cx.events.on("user/steer", (payload) => {
+        const { turn } = payload as { turn: string };
+        const s = turns.get(turn);
+        if (s === undefined) return;
+        s.lastSig = null;
+        s.streak = 0;
+        s.reminders = 0;
+      });
+
       cx.events.onWaterfall("tools/pre-execute", (value, next) => {
         const v = value as { tool: string; args: unknown; verdict?: string };
         if (activeTurn !== null) {

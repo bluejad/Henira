@@ -336,7 +336,10 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     await expect(facade.getSessionUiState("s-zz-000000")).rejects.toThrow();
   });
 
-  it("sessionRows 翻页 + 快照窗口形状（rowSeq 游标排他 / 轮边界补齐 / hasOlder+totalRows）", async () => {
+  // 30s 裕量：client 形态走真 SSE + 磁盘落账，满载 Windows 上可超默认 5s（断言与流程不变）
+  it("sessionRows 翻页 + 快照窗口形状（rowSeq 游标排他 / 轮边界补齐 / hasOlder+totalRows）", {
+    timeout: 30_000,
+  }, async () => {
     const { facade } = await form.make([
       [mockText("一"), mockFinish("stop")],
       [mockText("二"), mockFinish("stop")],

@@ -99,7 +99,11 @@ const relPosix = (base: string, full: string): string =>
   path.relative(base, full).replaceAll("\\", "/");
 
 export function createSearch({ fence }: { fence: Fence }) {
-  async function resolveBase(base: string | undefined, gate: FsGate): Promise<string> {
+  /** 解析搜索根：区外先走 floor ask；单文件路径同样受理（grep 的 path 允许指向文件） */
+  async function resolveBase(
+    base: string | undefined,
+    gate: FsGate,
+  ): Promise<{ absolute: string; isFile: boolean }> {
     const { absolute, inside } = fence.resolve(base ?? ".");
     await fence.ensureAccess({
       absolute,
@@ -115,10 +119,7 @@ export function createSearch({ fence }: { fence: Fence }) {
     } catch {
       throw new FsError("not_found", `search path does not exist: "${absolute}"`);
     }
-    if (!st.isDirectory()) {
-      throw new FsError("not_directory", `search path is not a directory: "${absolute}"`);
-    }
-    return absolute;
+    return { absolute, isFile: st.isFile() };
   }
 
   return {
@@ -127,13 +128,16 @@ export function createSearch({ fence }: { fence: Fence }) {
         throw new FsError("invalid_args", "pattern must be a non-empty string");
       }
       const base = await resolveBase(opts?.path, gate);
+      if (base.isFile) {
+        throw new FsError("not_directory", `glob path must be a directory: "${base.absolute}"`);
+      }
       const re = globToRegExp(pattern);
       const candidates: { file: string; mtimeMs: number }[] = [];
       await walkFiles(
-        base,
+        base.absolute,
         async (file) => {
           if (candidates.length >= GLOB_MAX_CANDIDATES) return;
-          if (!re.test(relPosix(base, file))) return;
+          if (!re.test(relPosix(base.absolute, file))) return;
           try {
             const st = await fsp.stat(file);
             candidates.push({ file, mtimeMs: st.mtimeMs });
@@ -172,54 +176,57 @@ export function createSearch({ fence }: { fence: Fence }) {
       let totalSeen = 0;
       let seq = 0;
 
-      await walkFiles(
-        base,
-        async (file) => {
-          if (includeRe !== undefined && !includeRe.test(path.basename(file))) return;
-          const st = await fsp.stat(file).catch(() => null);
-          if (st === null || st.size > GREP_MAX_FILE_BYTES) return;
-          const buf = await fsp.readFile(file).catch(() => null);
-          if (buf === null) return;
-          if (buf.subarray(0, Math.min(buf.length, BINARY_SNIFF_BYTES)).includes(0)) return;
-          const text = buf.toString("utf8");
-          const lines = text.split("\n");
-          const matchedIdx: number[] = [];
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i] as string;
-            if (!re.test(line)) continue;
-            matchedIdx.push(i);
-            totalSeen++;
-          }
-          if (matchedIdx.length === 0) return;
-          seq++;
-          fileSet.set(file, { mtimeMs: st.mtimeMs, count: matchedIdx.length, firstSeq: seq });
+      const processFile = async (file: string): Promise<void> => {
+        if (includeRe !== undefined && !includeRe.test(path.basename(file))) return;
+        const st = await fsp.stat(file).catch(() => null);
+        if (st === null || st.size > GREP_MAX_FILE_BYTES) return;
+        const buf = await fsp.readFile(file).catch(() => null);
+        if (buf === null) return;
+        if (buf.subarray(0, Math.min(buf.length, BINARY_SNIFF_BYTES)).includes(0)) return;
+        const text = buf.toString("utf8");
+        const lines = text.split("\n");
+        const matchedIdx: number[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i] as string;
+          if (!re.test(line)) continue;
+          matchedIdx.push(i);
+          totalSeen++;
+        }
+        if (matchedIdx.length === 0) return;
+        seq++;
+        fileSet.set(file, { mtimeMs: st.mtimeMs, count: matchedIdx.length, firstSeq: seq });
 
-          if (mode === "content") {
-            const emitted = new Set<number>();
-            for (const idx of matchedIdx) {
-              for (
-                let j = Math.max(0, idx - context);
-                j <= Math.min(lines.length - 1, idx + context);
-                j++
-              ) {
-                if (!emitted.has(j)) {
-                  emitted.add(j);
-                  const raw = (lines[j] as string).endsWith("\r")
-                    ? (lines[j] as string).slice(0, -1)
-                    : (lines[j] as string);
-                  matches.push({
-                    file,
-                    line: j + 1,
-                    text: raw.slice(0, GREP_MAX_LINE_CHARS),
-                  });
-                }
+        if (mode === "content") {
+          const emitted = new Set<number>();
+          for (const idx of matchedIdx) {
+            for (
+              let j = Math.max(0, idx - context);
+              j <= Math.min(lines.length - 1, idx + context);
+              j++
+            ) {
+              if (!emitted.has(j)) {
+                emitted.add(j);
+                const raw = (lines[j] as string).endsWith("\r")
+                  ? (lines[j] as string).slice(0, -1)
+                  : (lines[j] as string);
+                matches.push({
+                  file,
+                  line: j + 1,
+                  text: raw.slice(0, GREP_MAX_LINE_CHARS),
+                });
               }
-              if (matches.length >= headLimit) return;
             }
+            if (matches.length >= headLimit) return;
           }
-        },
-        gate.signal,
-      );
+        }
+      };
+
+      if (base.isFile) {
+        // path 指向单文件（与目录同语义：include 过滤按 basename 判）
+        await processFile(base.absolute);
+      } else {
+        await walkFiles(base.absolute, processFile, gate.signal);
+      }
 
       // 文件序：mtime 降序（Claude Code files_with_matches 同款）；content 模式保持行走序
       const filesSorted = [...fileSet.entries()]
@@ -227,15 +234,20 @@ export function createSearch({ fence }: { fence: Fence }) {
         .map(([f]) => f);
 
       if (mode === "files_with_matches") {
-        return { matches: [], files: filesSorted.slice(0, headLimit), totalSeen };
+        return {
+          matches: [],
+          files: filesSorted.slice(0, headLimit),
+          totalSeen,
+          totalFiles: fileSet.size,
+        };
       }
       if (mode === "count") {
         const counts = filesSorted
           .slice(0, headLimit)
           .map((f) => ({ file: f, count: fileSet.get(f)?.count ?? 0 }));
-        return { matches: [], counts, totalSeen };
+        return { matches: [], counts, totalSeen, totalFiles: fileSet.size };
       }
-      return { matches: matches.slice(0, headLimit), totalSeen };
+      return { matches: matches.slice(0, headLimit), totalSeen, totalFiles: fileSet.size };
     },
   };
 }

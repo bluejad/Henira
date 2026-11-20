@@ -269,7 +269,7 @@ describe("turn/step 状态机（loop.md §1）", () => {
         return { content: "file body" };
       },
     };
-    const { harness, loop, session } = await startedLoop(
+    const { harness, ctx, loop, session } = await startedLoop(
       [
         [mockToolCall("c1", "read", "{}"), mockUsage(USAGE), mockFinish("tool-calls")],
         [mockText("收到插话后收尾"), mockUsage(USAGE), mockFinish("stop")],
@@ -277,6 +277,9 @@ describe("turn/step 状态机（loop.md §1）", () => {
       undefined,
       slowRead,
     );
+    // 插话广播（D-065 插话重置的观察口）：每条 steer 落账后一条 user/steer
+    const steers: { turn: string; step: number }[] = [];
+    ctx.events.on("user/steer", (p) => steers.push(p as { turn: string; step: number }));
     const events: { type: string }[] = [];
     const consuming = (async () => {
       for await (const event of loop.run("干活")) events.push(event);
@@ -295,6 +298,10 @@ describe("turn/step 状态机（loop.md §1）", () => {
     expect(
       steerMsg === undefined ? undefined : (steerMsg.data as { content: string }).content,
     ).toBe("优先看这个");
+    // 广播事实与账本一致：恰好一条，带 turn + step
+    expect(steers).toHaveLength(1);
+    expect(steers[0]?.turn).toBe((steerMsg?.data as { turn?: string } | undefined)?.turn);
+    expect(typeof steers[0]?.step).toBe("number");
     void events;
     await harness.dispose();
   });

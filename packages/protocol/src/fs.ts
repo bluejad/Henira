@@ -63,6 +63,8 @@ export interface FsGrepResult {
   counts?: { file: string; count: number }[];
   /** 扫描看到的命中总数（可能 > 返回条数——head_limit 截断） */
   totalSeen: number;
+  /** 扫描命中的文件总数（files_with_matches / count 模式的截断注记按它判——totalSeen 是行数） */
+  totalFiles?: number;
 }
 
 /** fs 槽位契约（interfaces.md §fs，D-065）：六能力 + 会话级读态（read-before-mutate 守卫）。

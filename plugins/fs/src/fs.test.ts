@@ -8,7 +8,7 @@ import os, { tmpdir } from "node:os";
 import path from "node:path";
 import type { FsGate } from "@henira/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCapabilities, ReadState } from "./capabilities.js";
+import { createCapabilities, MAX_SCAN_BYTES, ReadState } from "./capabilities.js";
 import { createFence, FsError } from "./fence.js";
 
 async function tmpWorkdir(): Promise<string> {
@@ -147,6 +147,18 @@ describe("read / write / edit（读态守卫住服务层）", () => {
     expect(capped.truncatedByBytes).toBe(true);
     expect(capped.endLine).toBeLessThan(400);
     expect(Buffer.byteLength(capped.content, "utf8")).toBeLessThanOrEqual(50 * 1024);
+  });
+
+  it("read：>50MB 文件先帽后读直接拒（稀疏文件，分页也不放行——整文件读）", async () => {
+    const dir = await tmpWorkdir();
+    const caps = createCapabilities({ fence: createFence(dir), readState: new ReadState() });
+    const huge = path.join(dir, "huge.log");
+    await fsp.writeFile(huge, "");
+    await fsp.truncate(huge, MAX_SCAN_BYTES + 1); // 稀疏文件：stat 报 size、不占盘不读内容
+    await expect(caps.read("huge.log", gate())).rejects.toThrow(/too large to read/);
+    await expect(caps.read("huge.log", gate(), { offset: 1, limit: 10 })).rejects.toThrow(
+      /too large/,
+    );
   });
 
   it("write：新建免读；外部已存在的文件未读拒；读过放行并刷新读态（无需回读；连写两轮合法）", async () => {

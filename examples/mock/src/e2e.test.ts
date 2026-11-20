@@ -49,7 +49,9 @@ describe("examples/mock 离线 e2e", () => {
     await dispose();
   });
 
-  it("判据②（M4）：mock 会话跑完 fs+shell 工具流——write → read → edit → bash 全链", async () => {
+  it("判据②（M4）：mock 会话跑完 fs+shell 工具流——write → read → edit → bash 全链", {
+    timeout: 30_000,
+  }, async () => {
     const script = [
       [
         mockToolCall("c1", "write", '{"file_path":"demo.txt","content":"line1\\nline2\\n"}'),

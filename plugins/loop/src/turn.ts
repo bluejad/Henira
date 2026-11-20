@@ -116,6 +116,8 @@ export async function runTurnCore(
           type: "user/message",
           data: { turn, step, content: s.text, source: "steer" },
         });
+        // 总线广播（D-065 插话重置的观察口）：观察者据此重置回合内累积状态
+        ctx.events.emit("user/steer", { turn, step });
       }
 
       const outcome = await runStep({ turn, step, deps, batcher, signal, opts });

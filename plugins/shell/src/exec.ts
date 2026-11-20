@@ -125,6 +125,10 @@ export function execCommand(opts: ExecOptions): Promise<ShellRunResult> {
       if (settled || child.pid === undefined) return;
       timedOut = false;
       treeKill(child.pid);
+      // 与超时路径同款升级：吞 SIGTERM 的进程 3s 后强杀（否则中断后 promise 永不 resolve）
+      killTimer = setTimeout(() => {
+        if (!settled && child.pid !== undefined) treeKill(child.pid, true);
+      }, KILL_GRACE_MS);
     };
     opts.signal?.addEventListener("abort", onAbort, { once: true });
 

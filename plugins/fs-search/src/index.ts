@@ -8,6 +8,7 @@ import {
   asHeniraContext,
   type FsGate,
   type FsGrepOptions,
+  type FsGrepResult,
   type ToolDefinition,
 } from "@henira/protocol";
 
@@ -29,6 +30,44 @@ function displayPath(cwd: string, file: string): string {
   const rel = path.relative(cwd, file);
   if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return file;
   return rel;
+}
+
+/** grep 三模式渲染——截断注记判据分开：files 模式按文件数（totalFiles），
+ *  count / content 按命中行数（totalSeen）；单测在 index.test.ts */
+export function formatGrepResult(
+  r: FsGrepResult,
+  opts: FsGrepOptions,
+  display: (file: string) => string = (f) => f,
+): string {
+  if (r.totalSeen === 0) return "No matches found";
+  const mode = opts.outputMode ?? "files_with_matches";
+  const headLimit = opts.headLimit ?? 250;
+  const filesLabel = (n: number): string => (n === 1 ? "1 file" : `${n} files`);
+  if (mode === "files_with_matches") {
+    const files = r.files ?? [];
+    const totalFiles = r.totalFiles ?? files.length;
+    const out = `Found ${filesLabel(files.length)}\n${files.map(display).join("\n")}`;
+    if (totalFiles > files.length) {
+      return `${out}\n(Truncated at head_limit=${headLimit}; ${totalFiles} matching files in total. Raise head_limit or refine the pattern.)`;
+    }
+    return out;
+  }
+  if (mode === "count") {
+    const counts = r.counts ?? [];
+    const rows = counts.map((c) => `${display(c.file)}:${c.count}`);
+    const total = counts.reduce((s, c) => s + c.count, 0);
+    const lines = total === 1 ? "line" : "lines";
+    const out = `${rows.join("\n")}\nFound ${total} total matching ${lines} across ${filesLabel(counts.length)}.`;
+    if (r.totalSeen > total) {
+      return `${out}\n(Truncated at head_limit=${headLimit}; ${r.totalSeen} matching lines seen in total.)`;
+    }
+    return out;
+  }
+  const out = r.matches.map((m) => `${display(m.file)}:${m.line}:${m.text}`).join("\n");
+  if (r.totalSeen > r.matches.length) {
+    return `${out}\n(Truncated at head_limit=${headLimit}; ${r.totalSeen} matching lines seen in total. Refine the pattern or raise head_limit.)`;
+  }
+  return out;
 }
 
 /** 官方 glob/grep 工具件（不占槽位；inject tools + fs——D-049 工具件形状） */
@@ -129,33 +168,7 @@ export function fsSearchPlugin(): ServiceDefinition {
             headLimit: typeof a.head_limit === "number" ? a.head_limit : undefined,
           };
           const r = await fs.grep(String(a.pattern), gateFor(ctx, "grep", args), opts);
-          if (r.totalSeen === 0) return { content: "No matches found" };
-          const rel = (f: string) => displayPath(cwd, f);
-          if (opts.outputMode === "files_with_matches") {
-            const out = `Found ${r.files?.length ?? 0} files\n${(r.files ?? []).map(rel).join("\n")}`;
-            if (r.totalSeen > (r.files?.length ?? 0)) {
-              return {
-                content: `${out}\n(Truncated at head_limit=${opts.headLimit ?? 250}; ${r.totalSeen} files seen in total. Raise head_limit or refine the pattern.)`,
-              };
-            }
-            return { content: out };
-          }
-          if (opts.outputMode === "count") {
-            const rows = (r.counts ?? []).map((c) => `${rel(c.file)}:${c.count}`);
-            const total = (r.counts ?? []).reduce((s, c) => s + c.count, 0);
-            const out = `${rows.join("\n")}\nFound ${total} total matching lines across ${(r.counts ?? []).length} files.`;
-            if (r.totalSeen > total) {
-              return {
-                content: `${out}\n(Truncated at head_limit=${opts.headLimit ?? 250}; ${r.totalSeen} matching lines seen in total.)`,
-              };
-            }
-            return { content: out };
-          }
-          let out = r.matches.map((m) => `${rel(m.file)}:${m.line}:${m.text}`).join("\n");
-          if (r.totalSeen > r.matches.length) {
-            out += `\n(Truncated at head_limit=${opts.headLimit ?? 250}; ${r.totalSeen} matching lines seen in total. Refine the pattern or raise head_limit.)`;
-          }
-          return { content: out };
+          return { content: formatGrepResult(r, opts, (f) => displayPath(cwd, f)) };
         },
       };
 

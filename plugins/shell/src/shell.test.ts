@@ -31,7 +31,9 @@ function gate(signal?: AbortSignal) {
 }
 
 describe("shell 服务（真实 spawn）", () => {
-  it("bash：node 命令跑通——stdout 捕获、exit 0、durationMs 有值", async () => {
+  // 真实 spawn 用例统一 20s 裕量：Windows 上进程创建受并行负载 / 安全软件扫描影响，
+  // 满载时可超 vitest 默认 5s（断言逻辑不变，单跑 300–600ms）
+  it("bash：node 命令跑通——stdout 捕获、exit 0、durationMs 有值", { timeout: 20_000 }, async () => {
     const dir = await tmpWorkdir();
     const shell = await serviceWithCwd(dir);
     const r = await shell.run(
@@ -45,7 +47,7 @@ describe("shell 服务（真实 spawn）", () => {
     expect(r.timedOut).toBeUndefined();
   });
 
-  it("非零退出码不是错误：exitCode 原样返回，stderr 分流捕获", async () => {
+  it("非零退出码不是错误：exitCode 原样返回，stderr 分流捕获", { timeout: 20_000 }, async () => {
     const dir = await tmpWorkdir();
     const shell = await serviceWithCwd(dir);
     const r = await shell.run(
@@ -57,7 +59,7 @@ describe("shell 服务（真实 spawn）", () => {
     expect(r.timedOut).toBeUndefined();
   });
 
-  it("超时杀进程树：timedOut true、部分输出照返", async () => {
+  it("超时杀进程树：timedOut true、部分输出照返", { timeout: 20_000 }, async () => {
     const dir = await tmpWorkdir();
     const shell = await serviceWithCwd(dir);
     const r = await shell.run(
@@ -72,7 +74,9 @@ describe("shell 服务（真实 spawn）", () => {
     expect(r.stdout).toContain("partial");
   });
 
-  it("env：NO_COLOR/TERM 等净化覆盖在场，HENIRA_PROJECT_DIR = 会话 cwd", async () => {
+  it("env：NO_COLOR/TERM 等净化覆盖在场，HENIRA_PROJECT_DIR = 会话 cwd", {
+    timeout: 20_000,
+  }, async () => {
     const dir = await tmpWorkdir();
     const shell = await serviceWithCwd(dir);
     const r = await shell.run(
@@ -85,7 +89,7 @@ describe("shell 服务（真实 spawn）", () => {
     expect(r.stdout.trim()).toBe("1 dumb true");
   });
 
-  it("spec.cwd：相对路径按会话 cwd 解析；不存在的目录抛错", async () => {
+  it("spec.cwd：相对路径按会话 cwd 解析；不存在的目录抛错", { timeout: 20_000 }, async () => {
     const dir = await tmpWorkdir();
     await fsp.mkdir(path.join(dir, "sub"));
     const shell = await serviceWithCwd(dir);
@@ -103,7 +107,7 @@ describe("shell 服务（真实 spawn）", () => {
     ).rejects.toThrow(/does not exist/);
   });
 
-  it("abort：信号触发杀树，已产出的输出照返", async () => {
+  it("abort：信号触发杀树，已产出的输出照返", { timeout: 20_000 }, async () => {
     const dir = await tmpWorkdir();
     const shell = await serviceWithCwd(dir);
     const controller = new AbortController();
@@ -119,6 +123,30 @@ describe("shell 服务（真实 spawn）", () => {
     expect(r.stdout).toContain("started");
     expect(r.exitCode).not.toBe(0);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "abort：吞 SIGTERM 的进程 3s 后强杀（KILL 升级），promise 照常 resolve",
+    { timeout: 15_000 },
+    async () => {
+      const dir = await tmpWorkdir();
+      const shell = await serviceWithCwd(dir);
+      const controller = new AbortController();
+      const started = Date.now();
+      const runPromise = shell.run(
+        {
+          command: `node -e "process.on('SIGTERM',()=>{}); console.log('up'); setInterval(()=>{},1000)"`,
+          shell: "bash",
+        },
+        gate(controller.signal),
+      );
+      await new Promise((r) => setTimeout(r, 800)); // 进程起、handler 注册、'up' 已产出
+      controller.abort();
+      const r = await runPromise; // 若 KILL 升级缺失，这里永不 resolve
+      expect(r.stdout).toContain("up");
+      expect(r.exitCode).not.toBe(0);
+      expect(Date.now() - started).toBeLessThan(10_000);
+    },
+  );
 
   it.skipIf(process.platform !== "win32")(
     "powershell 组（win32 门控）：Write-Output 跑通 + UTF-8 中文不乱码",

@@ -88,6 +88,28 @@ describe("plugin-breaker 双机制", () => {
     expect(appended).toHaveLength(0);
   });
 
+  it("① 用户插话重置：streak 与提醒额清零，maxStreak 保留作回合尾否决依据", async () => {
+    const { ctx, appended } = await mount();
+    ctx.events.emit("turn/start", { turn: "t1" });
+    ctx.events.emit("step/start", { turn: "t1", step: 1 });
+    await callSame(ctx, 3); // streak 3 → 提醒 1
+    await callSame(ctx, 3); // streak 6 → 提醒 2（封顶）
+    expect(appended).toHaveLength(2);
+
+    // 用户插话（loop 在 step 边界广播 user/steer）→ streak / 提醒额清零
+    ctx.events.emit("user/steer", { turn: "t1", step: 2 });
+    await callSame(ctx, 2); // 重置后 streak 1、2——若未重置会是 8、9（提醒已封顶，无新行）
+    expect(appended).toHaveLength(2);
+
+    await callSame(ctx, 1); // streak 3 → 提醒额已随插话重置 → 第 3 条
+    expect(appended).toHaveLength(3);
+    expect(String(appended[2]?.data.content)).toContain("3 times in a row");
+
+    // maxStreak（6）不因插话抹掉：回合尾照样否决（fail-closed 依据保留）
+    const veto = await ctx.events.bail("loop/turn-stopping", { turn: "t1", reason: "completed" });
+    expect(veto?.reason).toContain("repeated 6 times");
+  });
+
   it("② 回合尾否决：同形超限 → bail 返回 Veto（by/reason/resume），且每回合至多一次", async () => {
     const { ctx } = await mount();
     ctx.events.emit("turn/start", { turn: "t1" });

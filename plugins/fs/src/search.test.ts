@@ -76,6 +76,11 @@ describe("glob", () => {
     const srcOnly = await search.glob("*.ts", gate(), { path: "src" });
     expect(srcOnly.files).toHaveLength(1);
 
+    // glob 的 path 语义是基目录：指向文件直接报错（grep 才收单文件）
+    await expect(search.glob("*.ts", gate(), { path: "root.ts" })).rejects.toThrow(
+      /must be a directory/,
+    );
+
     const outside = await fsp.mkdtemp(path.join(tmpdir(), "henira-search-out-"));
     const g = gate();
     await search.glob("**/*", g, { path: outside });
@@ -121,6 +126,24 @@ describe("grep", () => {
     expect(limited.totalSeen).toBe(2);
 
     await expect(search.grep("([unclosed", gate())).rejects.toThrow(/Invalid regex/);
+  });
+
+  it("path 指向单文件：只扫该文件（include 按 basename 判）；totalFiles 反映文件数", async () => {
+    const base = await tmpTree();
+    const search = createSearch({ fence: createFence(base) });
+
+    const single = await search.grep("hello", gate(), { path: "src/a.ts" });
+    expect(single.totalFiles).toBe(1);
+    expect(single.totalSeen).toBe(1);
+    expect(single.files?.[0]?.endsWith("a.ts")).toBe(true);
+
+    const filtered = await search.grep("hello", gate(), { path: "src/a.ts", include: "*.md" });
+    expect(filtered.totalSeen).toBe(0);
+    expect(filtered.totalFiles).toBe(0);
+
+    await expect(search.grep("x", gate(), { path: "no-such-file.ts" })).rejects.toThrow(
+      /does not exist/,
+    );
   });
 
   it("跳二进制文件；二进制探测窗口内含 NUL 即不产出", async () => {

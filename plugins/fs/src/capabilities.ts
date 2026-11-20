@@ -151,6 +151,13 @@ export function createCapabilities({ fence, readState }: CapabilityDeps) {
       if (stat === null) {
         throw new FsError("not_found", `cannot read "${absolute}": not found`);
       }
+      if (stat.sizeBytes > MAX_SCAN_BYTES) {
+        // 先帽后读：read 走整文件读（流式扫描挂账），>50MB 直接拒——不把大文件拉进内存
+        throw new FsError(
+          "too_large",
+          `file too large to read (>${MAX_SCAN_BYTES} bytes): "${absolute}"`,
+        );
+      }
       const text = await readTextFile(absolute);
       // split 后末元素恒为空串（文件以 \n 结尾）或残行；统一去掉
       const rawLines = text.split("\n");
