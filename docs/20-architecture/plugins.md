@@ -145,7 +145,7 @@
 - **允许 import**：`react`（import map 指到宿主同一份）、同目录相对路径；第三方实现库必须自带（随模块打包），宿主不解析 `node_modules`；
 - **源码随包走**：需要构建的界面件，源码可住在 `ui/src/`（自由区：TS 源文件、package.json、开发用 node_modules、构建配置），AI 写完在原地构建、产物进 `ui/` 根；**宿主只加载 `ui.entry` 产物**，源码与开发依赖不加载、不解析；更新写新版本目录时源码随版本一起拷——源码与产物永远同版本（D-024），不漂移；分发 / 备份不带 node_modules（开发脚手架，到场要改时 AI `pnpm install` 重装即可）；
 - **禁止**：Node API、自带 React、改写应用根节点 / `document.body`、读别的插件的 DOM / 样式；
-- **ctx 门面**：`registerSlot(name, component, { order? }) → disposer` + **`host: PluginUiHost`**（13 方法，见下）；样式 / 监听 / 定时器在 `apply` 内注册，随页面卸载撤销；
+- **ctx 门面**：`registerSlot(name, component, { order? }) → disposer` ＋ `replaceSlot(name, component) → disposer`（顶替官方默认件 / 自家重入；同 key 已有**其他第三方件**才报错不装载 ＋ 告警——占用语义见下）＋ **`host: PluginUiHost`**（13 方法，见下）；样式 / 监听 / 定时器在 `apply` 内注册，随页面卸载撤销；
 - **挂载点 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：
   - **结构性一个**：`layout`——**整页框架槽**；官方框架件（左中右框架本体，现 web Shell 拆出）默认占用，并在占槽的同一注册里声明子槽（**槽套槽**：声明 = 独占渲染权，dsh AppFrame 理念行为层）；`replaceSlot("layout")` = **整页重排**（风险标注同 dsh root 槽：影子化官方 UI——官方区域槽声明随框架件消失；安全模式回落官方框架）；
   - **区域级四个**：`sidebar`（左栏）· `conversation`（中柱）· `composer`（输入区）· `sidebar.right`（右栏；官方默认件 = tab 框架，见下行）；D-062 起三名正名与宿主代码一致（原 D-033 名 `session.top` / `composer.above` / `sidebar.right` 作废——按文档写插件从"静默忽略"变"直接生效"）；

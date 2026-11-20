@@ -230,7 +230,7 @@ interface ToolContext {
 interface ToolResult {
   content: string; // 模型可见文本（出口限量已应用，tools-approval §1.1）
   isError?: boolean;
-  __meta?: Record<string, unknown>; // 带外通道（P4）：检查点/引用/图片元数据，loop 分流，不进模型上下文
+  __meta?: Record<string, unknown>; // 带外通道（P4）：检查点/引用/图片元数据，loop 分流，不进模型上下文；E5 起工具件亦经此带 per-tool 卡 UI 元数据（kind 开放集 → 账本 tool/result.meta → ToolRowOutput.meta；出口尺寸闸 256KB）
 }
 
 interface ToolOutcome {
@@ -439,7 +439,7 @@ applyConfig(harness: Harness, cfg: HeniraConfig): void;   // 翻译成 .use() �
 - **定稿形状全部在 protocol 段**（2026-11-16）：ToolDefinition / ToolContext / ToolResult / ToolOutcome / PermissionRequest / Decision / PermissionRule / GateVerdict（`tools/pre-execute` waterfall 值 + mergeGateVerdict 单调合并）/ PostExecuteValue（`tools/post-execute` waterfall 值）；
 - `defineTool(def): ToolDefinition` —— 类型推断辅助，住 `@henira/plugin-tools` 出口（不进 protocol，D-013③）；
 - 官方插件直写 JSON Schema（dsh 同款），不建转换糖；execute 入参不靠 schema 推导 TS 类型（松散 args + 引擎校验 + 工具测试钉）；装载期校验非法 schema → 插件跳过 + 告警（接 D-029）；
-- ToolResult 带 `__` 前缀带外通道（P4）：`__meta` 等由 loop 路由，不进模型上下文。
+- ToolResult 带 `__` 前缀带外通道（P4）：`__meta` 等由 loop 路由，不进模型上下文；E5 起工具件亦经此带 per-tool 卡 UI 元数据（kind 开放集，账本 tool/result.meta → ToolRowOutput.meta，出口尺寸闸 256KB）。
 
 ## 能力服务与注入装载（D-049）
 

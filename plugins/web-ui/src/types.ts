@@ -248,7 +248,8 @@ export type LayoutOption =
 export interface UiModuleContext {
   /** 追挂（append）到该槽位；name 按宿主词表校验（D-033 区域词表 + D-057 keyed 前缀词表） */
   registerSlot(name: string, part: SlotPart, opts?: { order?: number }): Disposable;
-  /** 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 冲突报错（D-022 同款） */
+  /** 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 已有**其他第三方件**才报错
+   * 不装载 ＋ 告警（D-022 同款）——官方默认件可顶替、卸载按登记回落官方 */
   replaceSlot(name: string, part: SlotPart): Disposable;
   host: PluginUiHost;
 }

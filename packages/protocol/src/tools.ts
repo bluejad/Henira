@@ -40,7 +40,9 @@ export interface ToolResult {
   /** 模型可见文本（出口限量已应用，tools-approval §1.1） */
   content: string;
   isError?: boolean;
-  /** 带外通道（P4）：检查点/引用/图片元数据，loop 分流，不进模型上下文 */
+  /** 带外通道（P4）：检查点/引用/图片元数据，loop 分流，不进模型上下文；E5 起工具件亦经此
+   * 带 per-tool 卡 UI 元数据（kind 开放集 → 账本 tool/result.meta → ToolRowOutput.meta；
+   * 出口尺寸闸 256KB——tools 管线超限整体丢弃） */
   __meta?: Record<string, unknown>;
 }
 
