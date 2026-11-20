@@ -26,7 +26,7 @@ D:\proj\src\a.ts
 
 ## 截断行为
 
-- 上限 100 条（mtime 降序取头部）；候选收集帽 2000（超过即停走，total 反映截断事实）；
+- 结果上限 100 条（mtime 降序取头部）；`total` 恒为**命中全量**（候选收集帽 2000 只限制 mtime 排序的取样范围，计数不受影响）；
 - 目录行走跳 `.git` / `.hg` / `.svn` / `node_modules` 与 symlink（防环）。
 
 ## 错误情形（isError）

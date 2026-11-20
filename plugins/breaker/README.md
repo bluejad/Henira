@@ -2,7 +2,7 @@
 
 熔断件（D-058 / D-065）：死循环兜底，`loop/turn-stopping`（bail）缝的**首个生产消费者**。
 无名件（不占槽位）、inject `["session", "config"]`、进 defaultPreset（v0.1.0 默认装配）、可停用
-（不在内圈保护集）。**双机制**：
+（不在内圈保护集）。**双机制（+ 用户插话重置）**：
 
 1. **回合内提醒**：观测 `tools/pre-execute`（waterfall 透传 `next(value)`，不否决不截流），
    签名 = 工具名 + 稳定序 JSON args；连续同形 ≥ 阈值 → 追加一条
@@ -10,7 +10,10 @@
    条/回合，`2×` 阈值档位可再提一条；
 2. **回合尾否决**：计步（bus `step/start`）+ 记忆本回合重复；`onBail("loop/turn-stopping")`
    触发且超限 → `Veto{by:"plugin-breaker", reason, resume:{prompt}}`——loop 注入续跑提示并
-   多跑一步。内核每回合只查一次缝 = 每回合至多一次否决干预。
+   多跑一步。内核每回合只查一次缝 = 每回合至多一次否决干预；
+3. **用户插话重置**（D-065 决定 6）：订阅 bus `user/steer`（loop 在 step 边界广播）——连续计数
+   `streak` 与提醒额 `reminders` 清零（用户已介入，给模型重开一次机会）；`maxStreak` 与步数
+   **保留**（回合尾否决的历史依据不因插话抹掉，fail-closed）。
 
 - 契约出处：[loop.md](../../docs/20-architecture/loop.md) §4（turn-stopping 缝 / Veto 形状）
 - 设计决定：[10-decisions.md](../../docs/10-decisions.md) D-058（批次归属）/ D-065（双机制落形）
@@ -38,6 +41,6 @@
 | -------- | ------------------------------------------------------- | -------------------------- |
 | index.ts | 双机制 + 阈值合并（默认 / 工厂 / settings）+ 回合状态机 | D-058 / D-065 / loop.md §4 |
 
-判据 ↔ 测试：`breaker.test.ts`（提醒档位 / 封顶 / 不同形重置 / veto 一次 / 阈值可配 / 回合重置 6 例）
+判据 ↔ 测试：`breaker.test.ts`（提醒档位 / 封顶 / 不同形重置 / 插话重置 / veto 一次 / 阈值可配 / 回合重置 7 例）
 
 - examples/mock e2e「熔断件」（mock 连续同形 → 提醒行 + 回合尾 veto + resume 续跑一步，真 loop 全链）。

@@ -34,7 +34,7 @@ export interface FsGlobResult {
 }
 
 export interface FsGrepOptions {
-  /** 相对 cwd 或绝对；缺省 = 会话 cwd */
+  /** 相对 cwd 或绝对；目录或单个文件（单文件 = 只扫该文件）；缺省 = 会话 cwd */
   path?: string;
   /** 文件名 glob 过滤（如 "*.ts"；只收一个正向 glob） */
   include?: string;
@@ -93,6 +93,6 @@ export interface FsService {
   ): Promise<{ replacements: number; path: string }>;
   /** 跳 .git/.hg/.svn/node_modules；上限 100、mtime 降序、绝对路径返回 */
   glob(pattern: string, gate: FsGate, opts?: { path?: string }): Promise<FsGlobResult>;
-  /** JS 引擎（零外部二进制）；跳二进制与 >10MB 文件；单行预览 2000 字符 */
+  /** JS 引擎（零外部二进制）；path 可为目录或单文件；跳二进制与 >10MB 文件；单行预览 2000 字符 */
   grep(pattern: string, gate: FsGate, opts?: FsGrepOptions): Promise<FsGrepResult>;
 }

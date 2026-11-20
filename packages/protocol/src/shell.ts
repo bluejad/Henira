@@ -29,7 +29,7 @@ export interface ShellRunResult {
 }
 
 /** shell 槽位契约（interfaces.md §shell，D-065）：每次新 spawn（无持久会话）；
- *  stdout / stderr 分开捕获；超时杀进程树；非零退出码不是错误（内容计入，模型判读） */
+ *  stdout / stderr 分开捕获；超时与中断（abort）都杀进程树；非零退出码不是错误（内容计入，模型判读） */
 export interface ShellService {
   run(spec: ShellRunSpec, gate: FsGate): Promise<ShellRunResult>;
 }
