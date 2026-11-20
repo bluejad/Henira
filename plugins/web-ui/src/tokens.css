@@ -731,6 +731,7 @@ button:focus-visible > .henira-row-caret {
 }
 .henira-select--input {
   width: 100%;
+  max-width: 280px; /* 全宽字段 = 两字横贯 900px 的荒诞比例（用户实拍裁定收口） */
 }
 .henira-app .henira-select--input button.henira-select-trigger {
   border: 1px solid var(--henira-border);
@@ -745,6 +746,7 @@ button:focus-visible > .henira-row-caret {
   flex: 1;
 }
 .henira-pop {
+  box-sizing: border-box;
   background: var(--henira-panel);
   border: 1px solid var(--henira-border-strong);
   border-radius: var(--henira-radius);
