@@ -161,7 +161,7 @@ test("中断：停止 → 部分文本定格 + 已中断徽章", async ({ page }
   const { server, stop } = await startServer([partialThenHang]);
   await page.goto(server.url);
   await send(page, "start and then stop me");
-  const stopButton = page.getByRole("button", { name: zh["composer.stop"] });
+  const stopButton = page.getByRole("button", { name: zh["composer.stop"], exact: true });
   await expect(stopButton).toBeVisible();
   await expect(page.getByText("half written...")).toBeVisible(); // 流式行在
   await stopButton.click();
@@ -252,33 +252,31 @@ test("插话 steer：忙时投递升格 → step 边界进场带 steer 徽章", 
   await stop();
 });
 
-// ── 排队卡（E1：忙时投递可见化——面板/徽章/插话发送）────────────────────────
+// ── 排队卡（E1：忙时投递可见化——面板/徽章/插话）+ 立即发送抢占 ─────────────
 
-test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽章 → 插话发送升格 → 冲刷后条目进流", async ({
+test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽章 → 立即发送抢占（停当前发该条）→ 剩余条目自动续冲", async ({
   page,
 }) => {
-  const slow: ToolDefinition = {
-    name: "slow-probe",
-    description: "slow readonly fixture",
-    inputSchema: { type: "object" },
-    isConcurrencySafe: true,
-    execute: async () => {
-      // 2.5s 工具窗：容纳 send+queue+steer 三次往返与面板交互（800ms 窗是两往返的实测下限）
-      await new Promise((r) => setTimeout(r, 2500));
-      return { content: "slow done" };
-    },
-  };
-  const { server, stop } = await startServer(
-    [
-      [mockToolCall("c1", "slow-probe", "{}"), mockUsage(USAGE), mockFinish("tool-calls")],
-      [mockText("Turn continued."), mockUsage(USAGE), mockFinish("stop")],
-      [mockText("Drained turn ran."), mockUsage(USAGE), mockFinish("stop")],
-    ],
-    [slow],
-  );
+  // 半截文本后挂起：流式行在场（中断徽章可标）+ 无限窗排两条
+  const partialThenHang = ((_req: unknown, signal: AbortSignal) =>
+    (async function* () {
+      yield { type: "text-delta", text: "half written..." } as StreamEvent;
+      await new Promise<never>((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new LlmError("ABORTED", "hung until aborted")),
+          { once: true },
+        );
+      });
+    })()) as Parameters<typeof mockLlm>[0][number];
+  const { server, stop } = await startServer([
+    partialThenHang,
+    [mockText("Promoted reply."), mockUsage(USAGE), mockFinish("stop")],
+    [mockText("Post-steer reply."), mockUsage(USAGE), mockFinish("stop")],
+  ]);
   await page.goto(server.url);
   await send(page, "start working");
-  await expect(page.getByText("slow-probe")).toBeVisible(); // 工具执行窗内
+  await expect(page.getByText("half written...")).toBeVisible(); // 挂起回合流式行在场
   const area = page.getByPlaceholder(zh["composer.placeholder"]);
   // 忙时 Enter=排队 → 面板出现（标题 + 条目行；无插话徽章）
   await area.fill("first-queued-message");
@@ -293,15 +291,21 @@ test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽�
   await expect(steeredRow).toBeVisible();
   await expect(panel.getByText(zh["composer.queue.badgeSteer"])).toBeVisible();
   await shot(page, "17-queue-panel.png");
-  // 插话发送：普通排队条目升格为插话（busy 窗内可点）→ 面板出现第二枚徽章
-  await panel.getByRole("button", { name: zh["composer.queue.sendNow"] }).first().click();
-  await expect(panel.getByText(zh["composer.queue.badgeSteer"]).first()).toBeVisible();
-  // 工具窗收尾 → 插话条目进场（step 边界 claim 或回合末冲刷）→ 文本落流、面板排空
-  await expect(
-    page.getByText("Turn continued.").or(page.getByText("Drained turn ran.")),
-  ).toBeVisible();
+  // 立即发送（抢占式）：停当前回合 + 以第一条开新回合（steer 徽章条目照常留守）
+  await panel
+    .getByText("first-queued-message")
+    .locator("..")
+    .getByRole("button", { name: zh["composer.queue.sendNow"] })
+    .click();
+  // 被抢占回合的流式行标已中断；提升条目回复先落
+  await expect(page.getByText(zh["row.interrupted"])).toBeVisible();
+  await expect(page.getByText("Promoted reply.")).toBeVisible();
+  // steer 徽章条目按 D-045 插话语义在提升回合的 step 边界进场（带徽章落流），
+  // 队列自此清空 → 面板退场；全程无暂停横幅（抢占不产生冻结态）
   await expect(page.getByText("steered-while-busy")).toBeVisible();
-  await expect(panel).toHaveCount(0); // 冲刷清空 → 面板不渲染
+  await expect(page.getByText("steer", { exact: true })).toBeVisible(); // 流内插话徽章
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByText(zh["composer.queue.pausedTitle"])).toHaveCount(0);
   await shot(page, "18-queue-drained.png");
   await stop();
 });
@@ -328,7 +332,7 @@ test("中断冻结：停止 → 队列留守 + 暂停横幅 → 继续发送 →
   ]);
   await page.goto(server.url);
   await send(page, "start and then stop me");
-  const stopButton = page.getByRole("button", { name: zh["composer.stop"] });
+  const stopButton = page.getByRole("button", { name: zh["composer.stop"], exact: true });
   await expect(stopButton).toBeVisible();
   const area = page.getByPlaceholder(zh["composer.placeholder"]);
   const panel = page.getByRole("list", { name: zh["composer.queue.title"] });

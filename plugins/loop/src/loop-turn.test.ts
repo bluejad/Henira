@@ -334,6 +334,48 @@ describe("turn/step 状态机（loop.md §1）", () => {
     await harness.dispose();
   });
 
+  it("E1 立即发送抢占：promote 排队中间条目 = abort 当前 + 该条先跑 + 前面条目留守 + 回合末自动续冲", async () => {
+    const { harness, loop, session } = await startedLoop([
+      "hang", // 首回合挂住 → 被 promote 打断
+      [mockText("中间条目回复"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("队首条目回复"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const consuming = (async () => {
+      for await (const _ of loop.run("首回合挂住")) void _;
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await loop.send("队首条目");
+    const q2 = await loop.send("中间条目");
+    const promoted = await loop.promote(q2.id);
+    expect(promoted).toBe(true);
+    await consuming; // 被抢占回合 aborted 收尾
+    expect(await loop.promote("q不存在")).toBe(false); // 不存在：不 abort 在跑的回合
+    // 完成判据 = 两条回复都在场（提升回合 + 续冲回合；mock 秒完成，turn/end 计数有竞态）
+    const getContents = () =>
+      session
+        .events()
+        .filter((e) => e.type === "assistant/message")
+        .map((e) => (e.data as { content: string }).content);
+    while (!getContents().includes("中间条目回复") || !getContents().includes("队首条目回复")) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    // user 行次序实锤插队：首回合提问 → 被提升的中间条目 → 留守的队首条目
+    const userTexts = session
+      .events()
+      .filter((e) => e.type === "user/message")
+      .map((e) => (e.data as { content: string }).content);
+    expect(userTexts).toEqual(["首回合挂住", "中间条目", "队首条目"]);
+    const contents = session
+      .events()
+      .filter((e) => e.type === "assistant/message")
+      .map((e) => (e.data as { content: string }).content);
+    expect(contents).toContain("中间条目回复");
+    expect(contents).toContain("队首条目回复");
+    expect(loop.pending()).toHaveLength(0);
+    expect(loop.paused()).toBe(false); // 抢占不产生冻结态（瞬态置位已被 clearPause 收掉）
+    await harness.dispose();
+  });
+
   it("插话：step 边界进场（不打断工具）——steer 条目落 user/message{source:steer} 并进本回合", async () => {
     let _toolStarted = false;
     const slowRead: ToolDefinition = {

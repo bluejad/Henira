@@ -1,7 +1,8 @@
 // plugin-loop 服务件（packages.md：turn/step 状态机、inbox、中断纪律、16ms 合并、bail 缝）。
 // run() = 开新回合（生成器流 LoopEvent；忙时抛 LoopBusyError——忙时投递唯一 = 排队，D-045）；
 // send() = 闲时直开回合（后台跑，事件走总线 loop/event）/ 忙时入队持久化；
-// steer() = 条目"立即发送"升格；interrupt() = 中止当前回合（中断纪律全家桶在 turn.ts）。
+// steer() = 条目"插话"升格（不打断当前，step 边界进场）；promote() = 抢占式"立即发送"
+// （abort 当前 + 等收尾 + 该条开新回合）；interrupt() = 中止当前回合（中断纪律全家桶在 turn.ts）。
 // 中断×队列：队列非空时中断 = 冻结不冲刷（paused 标志 + resume() 显式恢复），不把 abort
 // 信号传进冲刷循环（否则条目「生而为 abort」——user 行落账、无回复）。
 // 会话目录（queue.json 住处）从 session 槽取（SessionService.directory，protocol 定稿字段）。
@@ -78,6 +79,9 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       // 非空」时置位；resume()/冲刷成功/send 闲时开跑三处清除——不能由 !busy 推导
       // （回合末 busy 翻 false 与冲刷广播之间有真实窗口，推导会让横幅每对回合间闪烁）。
       let queuePaused = false;
+      /** promote 抢占的 abort 标记（守卫据此跳过冻结置位——抢占不产生暂停横幅，
+       * 照参照物 preserveQueueAutoDrainOnCancel 语义；普通 interrupt 无 reason 照常冻结） */
+      const PROMOTE_ABORT_REASON = "queue-promote";
 
       /** 队列变更总线广播（排队卡 UI 的观察口，同 user/steer 模式）：载荷 = 当前条目快照 */
       const broadcastQueue = (): void => {
@@ -131,9 +135,10 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         yield* channel.stream();
         await settled;
         // 中断冻结：abort 后不冲刷（信号已废，冲出的条目只会生而为 abort）——队列原地
-        // 留守，等 resume() 显式恢复；队列空则无事可冻
+        // 留守，等 resume() 显式恢复；队列空则无事可冻。promote 抢占的 abort 不置冻结
+        // （剩余队列在其新回合结束后照常自动续冲）
         if (signal.aborted) {
-          if (queue.pending.length > 0) {
+          if (queue.pending.length > 0 && signal.reason !== PROMOTE_ABORT_REASON) {
             queuePaused = true;
             broadcastQueue();
           }
@@ -208,6 +213,40 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           const ok = await queue.steer(entryId);
           if (ok) broadcastQueue();
           return ok;
+        },
+
+        async promote(entryId) {
+          // 先查条目：不存在直接 false（不 abort 任何东西——否则运行中的提升回合会被
+          // 二次点击/重复 promote 误杀）
+          const entry = queue.pending.find((e) => e.id === entryId);
+          if (entry === undefined) return false;
+          // 抢占式立即发送：abort 当前 → 等旧链完全收尾（照参照物 stop-barrier——
+          // 立刻重发会撞忙判定）→ 摘条目 → 开新回合。此刻才摘条目：等收尾失败
+          // （超时）则条目原位不动，无半完成态
+          if (current !== undefined) {
+            currentController?.abort(PROMOTE_ABORT_REASON);
+            const deadline = Date.now() + 10_000;
+            while (current !== undefined) {
+              if (Date.now() > deadline) return false;
+              await new Promise((r) => setTimeout(r, 25));
+            }
+          }
+          await queue.remove(entryId);
+          clearPause(); // 抢占不产生冻结态；原本已冻结则解冻（回合末队列照常自动续冲）
+          broadcastQueue();
+          const controller = new AbortController();
+          currentController = controller;
+          const gen = executeAndDrain(entry.text, controller.signal, {
+            modelId: entry.modelId,
+            reasoningEffort: entry.reasoningEffort,
+          });
+          void drainQuietly(gen)
+            .finally(() => {
+              current = undefined;
+              currentController = undefined;
+            })
+            .catch(() => {});
+          return true;
         },
 
         pending() {

@@ -57,6 +57,13 @@ export interface LoopService {
   pending(): QueuedPrompt[];
   /** 队列条目"立即发送" = 插话升格；条目不存在返回 false */
   steer(entryId: string): Promise<boolean>;
+  /**
+   * 立即发送（抢占式升格）：中止当前回合并等待其收尾，然后以该条原文（模型/思考覆盖随行）
+   * 开新回合，此刻才从队列摘除（条目不存在返回 false）。剩余条目原位不动、原序保留，
+   * 提升回合结束后照常自动续冲；本动作不产生冻结态。与 steer() 分工：steer = 不打断当前、
+   * step 边界插话；promote = 打断 + 立即独占新回合
+   */
+  promote(entryId: string): Promise<boolean>;
   /** 删除排队条目；条目不存在返回 false */
   remove(entryId: string): Promise<boolean>;
   /** 队列是否处于「中断冻结」态（中断后不自动冲刷，等显式恢复；UI 暂停横幅判据） */

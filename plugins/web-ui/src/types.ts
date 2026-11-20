@@ -32,6 +32,8 @@ export interface HeniraClientLike {
     opts?: { steer?: boolean; modelId?: string; reasoningEffort?: ReasoningEffort },
   ): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
+  /** 立即发送（抢占式：停止当前回合并以该条开新回合；可选——旧嵌入方缺省时面板立即发送钮禁用） */
+  promoteQueueEntry?(sessionId: string, entryId: string): Promise<boolean>;
   /** 删除排队条目（排队卡行级操作；可选——旧嵌入方缺省时面板删除钮禁用） */
   removeQueueEntry?(sessionId: string, entryId: string): Promise<boolean>;
   /** 恢复中断冻结的队列冲刷（可选——旧嵌入方缺省时「继续发送」钮禁用） */

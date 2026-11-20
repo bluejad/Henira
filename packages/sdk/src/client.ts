@@ -92,6 +92,14 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       return res.ok;
     },
 
+    async promoteQueueEntry(sessionId, entryId) {
+      const res = await requestJson<{ ok: boolean }>(
+        `/api/sessions/${sessionId}/queue/${encodeURIComponent(entryId)}/promote`,
+        { method: "POST" },
+      ).catch(() => ({ ok: false }) as { ok: boolean });
+      return res.ok;
+    },
+
     async removeQueueEntry(sessionId, entryId) {
       const res = await requestJson<{ ok: boolean }>(
         `/api/sessions/${sessionId}/queue/${encodeURIComponent(entryId)}`,

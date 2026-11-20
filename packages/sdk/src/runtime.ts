@@ -546,6 +546,10 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       return requireSession(sessions, sessionId).ctx.get("loop").steer(entryId);
     },
 
+    async promoteQueueEntry(sessionId, entryId) {
+      return requireSession(sessions, sessionId).ctx.get("loop").promote(entryId);
+    },
+
     async removeQueueEntry(sessionId, entryId) {
       return requireSession(sessions, sessionId).ctx.get("loop").remove(entryId);
     },

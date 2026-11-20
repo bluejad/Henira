@@ -1,8 +1,9 @@
 // 官方件：排队卡（E1 2026-11-20）。数据源 = store 快照 state.queue（SessionState 投影态，
 // server/sdk 经 queue/changed → state.updated 同通道推送；快照携带 → 断线重连自洽）。
 // 队列与插话待进场条目同面板呈现、徽章区分（流内 pending 气泡本地回显挂账 50-open）。
-// 行操作：插话发送 = steer 升格（仅 busy 时可点——闲时条目随回合末冲刷，dsh 同语义）；
-// 编辑 = 文本回填 composer 草稿 + 条目删除（跨窗口冻结锁挂账）；删除 = removeQueueEntry。
+// 行操作：立即发送 = promote 抢占式升格（停止当前回合并以该条开新回合；忙/闲/冻结三态
+// 都可点——闲时 preempt 变 no-op 直接发这条）；编辑 = 文本回填 composer 草稿 + 条目删除
+// （跨窗口冻结锁挂账）；删除 = removeQueueEntry。
 // 中断冻结：队列非空时中断不冲刷——queuePaused 态头部切「队列已暂停」+「继续发送」
 // （resumeQueue 恢复冲刷）。渲染条件 = 队列非空且（busy 或冻结）：回合末 busy 翻 false
 // 与冲刷广播之间有瞬态窗口，两侧都不满足时隐藏（防每对回合间面板闪现）。
@@ -41,6 +42,7 @@ export function QueuePanel({
   if (ctx.sessionId === null || queue.length === 0 || !(busy || paused)) return null;
   const canRemove = ctx.client.removeQueueEntry !== undefined;
   const canResume = ctx.client.resumeQueue !== undefined;
+  const canPromote = ctx.client.promoteQueueEntry !== undefined;
 
   const remove = (entryId: string): void => {
     void ctx.client.removeQueueEntry?.(ctx.sessionId as string, entryId).catch(() => {});
@@ -82,10 +84,10 @@ export function QueuePanel({
                 type="button"
                 className="henira-queue-btn"
                 aria-label={ctx.t("composer.queue.sendNow")}
-                title={busy ? ctx.t("composer.queue.sendNow") : ctx.t("composer.queue.sendNowIdle")}
-                disabled={!busy}
+                title={ctx.t("composer.queue.sendNow")}
+                disabled={!canPromote}
                 onClick={() => {
-                  void ctx.client.steer(ctx.sessionId as string, entry.id);
+                  void ctx.client.promoteQueueEntry?.(ctx.sessionId as string, entry.id);
                 }}
               >
                 <SendNowGlyph size={13} />

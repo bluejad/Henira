@@ -226,6 +226,14 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: await entry.ctx.get("loop").resume() });
   });
 
+  // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）；条目不存在 404
+  app.post("/api/sessions/:id/queue/:entryId/promote", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const ok = await entry.ctx.get("loop").promote(c.req.param("entryId"));
+    return c.json(ok ? { ok: true } : { error: "entry not found" }, ok ? 200 : 404);
+  });
+
   app.post("/api/sessions/:id/steer", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);

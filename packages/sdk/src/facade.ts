@@ -101,6 +101,8 @@ export interface HeniraFacade {
     opts?: PromptOptions & { steer?: boolean },
   ): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
+  /** 立即发送（抢占式）：停止当前回合并以该条开新回合；条目不存在返回 false */
+  promoteQueueEntry(sessionId: string, entryId: string): Promise<boolean>;
   /** 删除排队条目（排队卡行级操作）；条目不存在返回 false */
   removeQueueEntry(sessionId: string, entryId: string): Promise<boolean>;
   /** 恢复中断冻结的队列冲刷（取队头开新回合）；无冻结/无条目/忙时返回 false */

@@ -795,4 +795,36 @@ describe.each(forms.map((f) => [f.name, f] as const))("排队卡（E1）双形�
         : undefined;
     }, 15_000);
   });
+
+  it("立即发送抢占双形态：promote 中间条目 → 当前回合中断 + 该条先回复 + 首条留守续冲", {
+    timeout: 30_000,
+  }, async () => {
+    const { facade } = await form.make([
+      "hang", // 首回合挂住 → 被 promote 打断
+      [mockText("被提升回复"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+      [mockText("留守回复"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const session = await facade.createSession();
+    await facade.prompt(session.id, "第一问");
+    await waitFor(async () => {
+      const hit = (await facade.listSessions()).find((s) => s.id === session.id);
+      return hit?.busy === true ? true : undefined;
+    });
+    const kept = await facade.prompt(session.id, "留守条目");
+    const promoted = await facade.prompt(session.id, "被提升条目");
+    expect(await facade.promoteQueueEntry(session.id, promoted.id as string)).toBe(true);
+    expect(await facade.promoteQueueEntry(session.id, "q-none")).toBe(false);
+    // 完成判据 = 两条回复都在场（提升回合 + 续冲回合）
+    await waitFor(async () => {
+      const snap = await facade.snapshot(session.id);
+      const texts = snap.rows.filter((r) => r.kind === "assistant").map((r) => r.text);
+      return texts.includes("被提升回复") && texts.includes("留守回复") ? true : undefined;
+    }, 15_000);
+    const done = await facade.snapshot(session.id);
+    const userTexts = done.rows.filter((r) => r.kind === "user").map((r) => r.text);
+    expect(userTexts).toEqual(["第一问", "被提升条目", "留守条目"]); // 插队实锤
+    expect(done.state.queue ?? []).toHaveLength(0);
+    expect(done.state.busy).toBe(false);
+    void kept;
+  });
 });

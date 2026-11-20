@@ -306,4 +306,35 @@ describe("中断×队列（队列非空中断 = 冻结不冲刷，resume 显式�
     expect(await loop.resume()).toBe(false);
     await harness.dispose();
   });
+
+  it("冻结态 promote = 直接发该条（无当前回合可停），回合末剩余条目自动续冲", async () => {
+    const { harness, loop, session } = await startedLoop([
+      "hang",
+      [mockText("被提升条目回复"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("留守条目回复"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const consuming = (async () => {
+      for await (const _ of loop.run("首回合挂住")) void _;
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await loop.send("留守条目");
+    const q2 = await loop.send("被提升条目");
+    await loop.interrupt();
+    await consuming;
+    expect(loop.paused()).toBe(true);
+    // 冻结中提升 q2：闲时 preempt = no-op，直接以该条开新回合
+    expect(await loop.promote(q2.id)).toBe(true);
+    expect(loop.paused()).toBe(false); // 解冻即时生效
+    // 完成判据 = 两条回复都在场（提升回合 + 续冲回合；mock 秒完成，计数器注册有竞态）
+    const getContents = () =>
+      session
+        .events()
+        .filter((e) => e.type === "assistant/message")
+        .map((e) => (e.data as { content: string }).content);
+    while (!getContents().includes("被提升条目回复") || !getContents().includes("留守条目回复")) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(loop.pending()).toHaveLength(0);
+    await harness.dispose();
+  });
 });

@@ -354,7 +354,8 @@ interface LoopService {
   //   闲时 = 直接开新回合（事件照常落账本；无返回 iterable——消费者经总线 / 会话事件观察）；
   //   忙时入队（queue.json 持久化，重启恢复，D-045）；steer=true 忙时直接以插话身份入队
   pending(): QueuedPrompt[]; // 当前排队条目快照（排队卡 UI 数据源；投影态非账本事实）
-  steer(entryId: string): Promise<boolean>; // 队列条目"立即发送" = 插话升格
+  steer(entryId: string): Promise<boolean>; // 队列条目"插话"升格（不打断当前，下一 step 边界进场）
+  promote(entryId: string): Promise<boolean>; // 立即发送（抢占式）：停止当前回合 + 以该条开新回合（模型/思考随行）；剩余条目原位留守、回合末自动续冲、不产生冻结态；不存在 false
   remove(entryId: string): Promise<boolean>; // 删除排队条目（排队卡行级操作）；不存在 false
   paused(): boolean; // 队列是否处于「中断冻结」态（UI 暂停横幅判据；投影态非账本事实）
   resume(): Promise<boolean>; // 恢复冻结队列冲刷：取队头开新回合；闲时才可，无事可做 false
@@ -593,6 +594,7 @@ POST /api/sessions/:id/prompt               { text, steer?, modelId?, reasoningE
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 DELETE /api/sessions/:id/queue/:entryId     → { ok } | 404                                        // 排队条目删除（E1 排队卡行级操作）
 POST /api/sessions/:id/queue/resume                     → { ok: boolean }                         // 恢复中断冻结的队列冲刷（取队头开新回合；无事可做 ok:false）
+POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返

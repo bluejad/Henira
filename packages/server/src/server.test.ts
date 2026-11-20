@@ -535,6 +535,106 @@ describe("中断×队列全链（冻结横幅 + resume 恢复）", () => {
   });
 });
 
+describe("立即发送抢占全链（promote）", () => {
+  it("忙时排两条 → promote 第二条 → 当前回合中断 + 该条先回复 + 首条留守自动续冲 + 全程无冻结横幅", async () => {
+    // 半截文本后挂起（被 promote 打断——中断徽章要真实存在，纯 hang 无流式行可标）
+    const partialThenHang = ((_req: unknown, signal: AbortSignal) =>
+      (async function* () {
+        yield mockText("half written...");
+        await new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("hung until aborted")), {
+            once: true,
+          });
+        });
+      })()) as MockEntry;
+    const { base, cleanup } = await makeServer([
+      partialThenHang,
+      [mockText("被提升回复"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+      [mockText("留守回复"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    try {
+      const id = await createSession(base);
+      subscribe(base, sink);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "第一问" }),
+      });
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        return frames.some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === true,
+        )
+          ? true
+          : undefined;
+      });
+      const r1 = (await (
+        await fetch(`${base}/api/sessions/${id}/prompt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "留守条目" }),
+        })
+      ).json()) as { id: string | null };
+      const r2 = (await (
+        await fetch(`${base}/api/sessions/${id}/prompt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "被提升条目" }),
+        })
+      ).json()) as { id: string | null };
+      expect(r1.id).not.toBeNull();
+      expect(r2.id).not.toBeNull();
+      // promote 排队中间的第二条
+      const res = await fetch(`${base}/api/sessions/${id}/queue/${r2.id}/promote`, {
+        method: "POST",
+      });
+      expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+      // 不存在条目 404
+      expect(
+        (await fetch(`${base}/api/sessions/${id}/queue/q-none/promote`, { method: "POST" })).status,
+      ).toBe(404);
+      // 被抢占回合中断标 + 被提升回复先落 + 留守回复续冲（完成判据 = 三者都在场）
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        const assistantRows = frames.flatMap((f) =>
+          f.kind === "delta" && (f.delta.op === "row.appended" || f.delta.op === "row.upserted")
+            ? [f.delta.row]
+            : [],
+        );
+        const hasInterrupted = assistantRows.some(
+          (r) => r.kind === "assistant" && r.interrupted === true,
+        );
+        const hasPromoted = assistantRows.some(
+          (r) => r.kind === "assistant" && r.text === "被提升回复",
+        );
+        const hasKept = assistantRows.some((r) => r.kind === "assistant" && r.text === "留守回复");
+        return hasInterrupted && hasPromoted && hasKept ? true : undefined;
+      });
+      // 全程无冻结横幅：queuePaused 从未推 true（抢占瞬态不出去——发布在 clearPause 之后）
+      const pausedFrames = framesFor(sink, id).filter(
+        (f) =>
+          f.kind === "delta" &&
+          f.delta.op === "state.updated" &&
+          f.delta.state.queuePaused === true,
+      );
+      expect(pausedFrames).toHaveLength(0);
+      const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        state: { queue?: unknown[]; busy: boolean };
+        rows: { kind: string; text?: string }[];
+      };
+      expect(snap.state.busy).toBe(false);
+      expect(snap.state.queue ?? []).toHaveLength(0);
+      // user 行次序：第一问 → 被提升条目 → 留守条目（插队实锤）
+      const userTexts = snap.rows.filter((r) => r.kind === "user").map((r) => r.text);
+      expect(userTexts).toEqual(["第一问", "被提升条目", "留守条目"]);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe("REST 面与设置", () => {
   it("设置读写 / 凭据只写不读（D-030）", async () => {
     const { base, cleanup } = await makeServer([]);

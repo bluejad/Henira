@@ -39,6 +39,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     ],
     prompt: async () => ({ queued: false, id: null }),
     steer: async () => true,
+    promoteQueueEntry: async () => true,
     removeQueueEntry: async () => true,
     resumeQueue: async () => true,
     interrupt: async () => {},
@@ -484,10 +485,10 @@ describe("Composer", () => {
     expect(empty.container.querySelector(".henira-queue")).toBeNull();
   });
 
-  it("E1 排队卡操作：插话钮调 steer（闲时禁用）；删除调 removeQueueEntry；编辑回填草稿并删条目", async () => {
+  it("E1 排队卡操作：立即发送钮调 promoteQueueEntry；删除调 removeQueueEntry；编辑回填草稿并删条目", async () => {
     const queue = [{ id: "q9", text: "被操作条目", steer: false }];
     const ctx = fixtureCtx();
-    const steerSpy = vi.spyOn(ctx.client, "steer");
+    const promoteSpy = vi.spyOn(ctx.client, "promoteQueueEntry");
     const removeSpy = vi.spyOn(ctx.client, "removeQueueEntry");
     const onEdit = vi.fn();
     const busyCtx = fixtureCtx({
@@ -499,7 +500,7 @@ describe("Composer", () => {
     });
     const first = render(<QueuePanel ctx={busyCtx} onEdit={onEdit} />);
     fireEvent.click(screen.getByRole("button", { name: t("composer.queue.sendNow") }));
-    await waitFor(() => expect(steerSpy).toHaveBeenCalledWith("s-1", "q9"));
+    await waitFor(() => expect(promoteSpy).toHaveBeenCalledWith("s-1", "q9"));
     fireEvent.click(screen.getByRole("button", { name: t("composer.queue.edit") }));
     await waitFor(() => expect(removeSpy).toHaveBeenCalledWith("s-1", "q9"));
     expect(onEdit).toHaveBeenCalledWith("被操作条目");
@@ -517,7 +518,23 @@ describe("Composer", () => {
     const idle = render(<QueuePanel ctx={idleCtx} />);
     expect(idle.container.querySelector(".henira-queue")).toBeNull();
     idle.unmount();
-    // 冻结（paused）态可见：插话钮仍禁用（busy=false）
+    // 旧嵌入方缺 promoteQueueEntry → 立即发送钮禁用（不崩）
+    const { promoteQueueEntry: _omitPromote, ...clientWithoutPromote } = ctx.client;
+    const legacyCtx = fixtureCtx({
+      ...ctx,
+      client: clientWithoutPromote as HeniraClientLike,
+      store: {
+        getSession: () => ({ rows: [], state: { busy: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    const legacy = render(<QueuePanel ctx={legacyCtx} />);
+    expect(
+      (screen.getByRole("button", { name: t("composer.queue.sendNow") }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    legacy.unmount();
+    // 冻结（paused）态可见：立即发送钮三态都可点（闲时 preempt = no-op 直接发这条）
     const pausedCtx = fixtureCtx({
       ...ctx,
       store: {
@@ -529,7 +546,7 @@ describe("Composer", () => {
     expect(
       (screen.getByRole("button", { name: t("composer.queue.sendNow") }) as HTMLButtonElement)
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("E1 中断冻结：头部切「队列已暂停」+「继续发送」钮（调 resumeQueue；client 缺方法时禁用）", async () => {
