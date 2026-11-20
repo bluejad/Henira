@@ -113,12 +113,16 @@ export function fsSearchPlugin(): ServiceDefinition {
           const r = await fs.glob(String(args.pattern), gateFor(ctx, "glob", args), {
             path: typeof args.path === "string" ? args.path : undefined,
           });
-          if (r.files.length === 0) return { content: "No files found" };
-          let out = r.files.join("\n");
+          const shown = r.files.map((f) => displayPath(cwd, f));
+          if (r.files.length === 0) {
+            return { content: "No files found", __meta: { kind: "glob", files: [], total: 0 } };
+          }
+          let out = shown.join("\n");
           if (r.total > r.files.length) {
             out += `\n(Results are truncated: showing ${r.files.length} of ${r.total}. Consider using a more specific path or pattern.)`;
           }
-          return { content: out };
+          // 带外元数据：路径数组供搜索卡分组渲染（显示路径与 content 同源）
+          return { content: out, __meta: { kind: "glob", files: shown, total: r.total } };
         },
       };
 
@@ -178,7 +182,24 @@ export function fsSearchPlugin(): ServiceDefinition {
             headLimit: typeof a.head_limit === "number" ? a.head_limit : undefined,
           };
           const r = await fs.grep(String(a.pattern), gateFor(ctx, "grep", args), opts);
-          return { content: formatGrepResult(r, opts, (f) => displayPath(cwd, f)) };
+          const show = (f: string): string => displayPath(cwd, f);
+          // 带外元数据：结构化 matches 供搜索卡按文件分组（显示路径与 content 同源；
+          // totalSeen/totalFiles/headLimit 供截断注记）
+          return {
+            content: formatGrepResult(r, opts, show),
+            __meta: {
+              kind: "grep",
+              mode: opts.outputMode ?? "files_with_matches",
+              matches: r.matches.map((m) => ({ ...m, file: show(m.file) })),
+              ...(r.files !== undefined ? { files: r.files.map(show) } : {}),
+              ...(r.counts !== undefined
+                ? { counts: r.counts.map((c) => ({ ...c, file: show(c.file) })) }
+                : {}),
+              totalSeen: r.totalSeen,
+              ...(r.totalFiles !== undefined ? { totalFiles: r.totalFiles } : {}),
+              headLimit: opts.headLimit ?? 250,
+            },
+          };
         },
       };
 

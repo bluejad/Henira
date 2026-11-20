@@ -16,6 +16,7 @@ import { QueuePanel } from "./parts/queue-panel.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import { SettingsModal } from "./parts/settings-modal.js";
+import { McpCard } from "./parts/tool-cards.js";
 import type {
   HeniraClientLike,
   RowStoreLike,
@@ -749,6 +750,48 @@ describe("行级挂载点（D-057）", () => {
     expect(screen.getByText("read")).toBeDefined(); // 官方卡渲染工具名
   });
 
+  it("MCP 工具路由（E5）：精确 wire 名无注册 → 查 tool.call.view.mcp 总缝渲染官方 MCP 卡", () => {
+    const mcpRow: Row = {
+      kind: "tool",
+      rowId: "t:t-1:1:m1",
+      rowSeq: 3,
+      turn: "t-1",
+      step: 1,
+      callId: "m1",
+      name: "mcp__office__read_doc",
+      status: "done",
+      input: "{}",
+      output: {
+        content: "doc body",
+        isError: false,
+        durationMs: 3,
+        meta: { kind: "mcp", server: "office", tool: "read_doc" },
+      },
+    };
+    const slots = new Map<string, readonly SlotPart[]>([["tool.call.view.mcp", [McpCard]]]);
+    render(<Conversation {...ctxWithRows([mcpRow], slots)} />);
+    // 拆名显示：tool 名做标题 + server 名进摘要（wire 名不直接做标题）
+    expect(screen.getByText("read_doc")).toBeDefined();
+    expect(screen.getByText("office")).toBeDefined();
+  });
+
+  it("MCP 工具总缝也缺席 → ToolView 通用卡兜底（wire 名原样）", () => {
+    const mcpRow: Row = {
+      kind: "tool",
+      rowId: "t:t-1:1:m2",
+      rowSeq: 4,
+      turn: "t-1",
+      step: 1,
+      callId: "m2",
+      name: "mcp__fs__read_file",
+      status: "done",
+      input: "{}",
+      output: { content: "body", isError: false, durationMs: 3 },
+    };
+    render(<Conversation {...ctxWithRows([mcpRow], new Map())} />);
+    expect(screen.getByText("mcp__fs__read_file")).toBeDefined();
+  });
+
   it("turn.tail 追加位：行列表之后渲染全部件（官方无默认件）", () => {
     const slots = new Map<string, readonly SlotPart[]>([
       ["turn.tail", [() => "回合尾追加块甲", () => "回合尾追加块乙"]],
@@ -799,7 +842,7 @@ describe("行级挂载点（D-057）", () => {
     expect(zero.container.textContent).not.toContain("↑");
   });
 
-  it("官方模块只注册区域槽（无 keyed 项——安全模式编译期出口无 keyed 缝 = 收起的结构保证）", () => {
+  it("官方模块注册区域槽 + per-tool keyed 卡（E5 起官方自己消费 keyed 缝；插件通道与安全模式同形）", () => {
     const registered: string[] = [];
     const host = fixtureCtx().host;
     webUiModule({
@@ -811,18 +854,28 @@ describe("行级挂载点（D-057）", () => {
       host,
     });
     // D-062 UI 侧子项：layout 框架件 + sidebar.right 右栏件随骨架批入列（区域级五名）
+    // E5：defaultToolViews 七工具键 + mcp 总缝，官方 keyed 注册示范（D-057 全语义闭环）
     expect([...registered].sort()).toEqual([
       "composer",
       "conversation",
       "layout",
       "sidebar",
       "sidebar.right",
+      "tool.call.view.bash",
+      "tool.call.view.edit",
+      "tool.call.view.glob",
+      "tool.call.view.grep",
+      "tool.call.view.mcp",
+      "tool.call.view.powershell",
+      "tool.call.view.read",
+      "tool.call.view.write",
     ]);
     expect(
-      registered.every((n) =>
-        (
-          ["layout", "sidebar", "conversation", "composer", "sidebar.right"] as WebSlotName[]
-        ).includes(n as WebSlotName),
+      registered.every(
+        (n) =>
+          (
+            ["layout", "sidebar", "conversation", "composer", "sidebar.right"] as WebSlotName[]
+          ).includes(n as WebSlotName) || n.startsWith("tool.call.view."),
       ),
     ).toBe(true);
   });

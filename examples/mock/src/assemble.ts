@@ -75,6 +75,27 @@ export const echoTool: ToolDefinition = {
   execute: async (args) => ({ content: String(args.text) }),
 };
 
+/** shell 形状 meta 的演示工具（E5 per-tool 卡离线载体；content 与 __meta 同源分字段） */
+export const demoShellTool: ToolDefinition = {
+  name: "demo_shell",
+  description: "Demo tool returning a shell-shaped result (readonly)",
+  inputSchema: {
+    type: "object",
+    properties: { command: { type: "string" } },
+    required: ["command"],
+  },
+  isConcurrencySafe: true,
+  execute: async (args) => ({
+    content: `${String(args.command)} output\n[exit code: 0]`,
+    __meta: {
+      kind: "shell",
+      exitCode: 0,
+      stdout: `${String(args.command)} output`,
+      stderr: "",
+    },
+  }),
+};
+
 /** 装配 + start；返回类型化上下文与关键槽位 */
 export async function assembleMock(options: MockAssemblyOptions): Promise<{
   harness: ReturnType<typeof createHarness>;
@@ -112,7 +133,7 @@ export async function assembleMock(options: MockAssemblyOptions): Promise<{
     .use(loopPlugin());
   await harness.start();
   const ctx = asHeniraContext(harness.context);
-  for (const tool of options.tools ?? [echoTool]) {
+  for (const tool of options.tools ?? [echoTool, demoShellTool]) {
     ctx.get("tools").register(tool);
   }
   return {

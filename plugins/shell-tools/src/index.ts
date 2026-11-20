@@ -81,7 +81,20 @@ function makeShellTool(name: "bash" | "powershell", shell: ShellService): ToolDe
         },
         gateFor(ctx, name, args),
       );
-      return { content: formatShellRun(r) };
+      // 带外元数据（P4 通道）：stdout/stderr 分字段供终端卡分色；content 文本一字不改（模型可见面零变化）
+      return {
+        content: formatShellRun(r),
+        __meta: {
+          kind: "shell",
+          exitCode: r.exitCode,
+          stdout: r.stdout,
+          stderr: r.stderr,
+          ...(r.timedOut !== undefined ? { timedOut: r.timedOut } : {}),
+          ...(r.signal !== undefined ? { signal: r.signal } : {}),
+          ...(r.stdoutTruncated !== undefined ? { stdoutTruncated: r.stdoutTruncated } : {}),
+          ...(r.stderrTruncated !== undefined ? { stderrTruncated: r.stderrTruncated } : {}),
+        },
+      };
     },
   };
 }

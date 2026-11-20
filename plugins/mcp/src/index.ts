@@ -63,7 +63,16 @@ function toToolDefinition(
     name: publicToolName(spec.server, tool.name),
     description: typeof tool.description === "string" ? tool.description : "",
     inputSchema: schema as ToolDefinition["inputSchema"],
-    execute: (args, ctx) => conn.call(raw, args, ctx.signal),
+    // 带外元数据：原始 server/tool 名供 MCP 卡拆名显示——wire 名超长截断+短哈希后
+    // 从名字反拆不可靠（publicToolName 语义），只有这里拿得到原始名
+    execute: async (args, ctx) => {
+      const r = await conn.call(raw, args, ctx.signal);
+      return {
+        content: r.content,
+        ...(r.isError !== undefined ? { isError: r.isError } : {}),
+        __meta: { kind: "mcp", server: spec.server, tool: raw },
+      };
+    },
   };
 }
 

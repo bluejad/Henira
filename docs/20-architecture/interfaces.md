@@ -790,7 +790,26 @@ interface ToolRowOutput {
   isError: boolean;
   durationMs: number;
   truncated?: { path: string; preview: string }; // 输出超限截断（preview 供 UI 展示头部，path 指完整输出落盘文件）
+  meta?: Record<string, unknown>; // 工具结果带外元数据（ToolResult.__meta 原样透传，账本 tool/result.meta 同源；不进模型上下文——E5）
 }
+interface ToolRow {
+  kind: "tool";
+  rowId: RowId;
+  rowSeq: number;
+  turn: string;
+  step: number;
+  callId: string;
+  name: string;
+  status: "running" | "done" | "error";
+  input: string; // 模型原始 argsText（P3-1）
+  output?: ToolRowOutput;
+}
+// output.meta 的 kind 标记（开放集——第三方工具可带自己的 kind，官方卡不认识就回落通用渲染）：
+// "shell"（exitCode/stdout/stderr/timedOut/signal——终端卡分色与退出码徽章，plugins/shell-tools）
+// "read"（path/startLine/endLine/totalLines——读取卡行窗与窗口注，plugins/fs-tools）
+// "write"（path/created——新建卡徽章与全文预览）/ "edit"（path/replacements——diff 卡计数，同上）
+// "glob"（files/total）/ "grep"（mode/matches/files/counts/totalSeen/totalFiles——搜索卡分组，plugins/fs-search）
+// "mcp"（server/tool 原始名——MCP 卡拆名，plugins/mcp）
 interface ToolRow {
   kind: "tool";
   rowId: RowId;
@@ -993,7 +1012,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
-- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
+- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——七键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（官方 MCP 卡注册在此，插件可整类顶替）→ 通用卡兜底）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；

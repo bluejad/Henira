@@ -154,6 +154,7 @@ export class Projection {
         const id = rowId.tool(data.turn as string, data.step as number, data.callId as string);
         const isError = data.isError as boolean;
         const truncated = data.truncated as ToolRowOutput["truncated"] | undefined;
+        const meta = data.meta as ToolRowOutput["meta"] | undefined;
         const row: ToolRow = {
           kind: "tool",
           rowId: id,
@@ -169,6 +170,7 @@ export class Projection {
             isError,
             durationMs: data.durationMs as number,
             ...(truncated !== undefined ? { truncated } : {}),
+            ...(meta !== undefined ? { meta } : {}),
           },
         };
         const existing = this.byId.get(id);

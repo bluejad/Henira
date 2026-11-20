@@ -11,6 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import {
   defaultParts,
+  defaultToolViews,
   type LayoutOption,
   makeT,
   type PluginUiHost,
@@ -214,6 +215,11 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     if (safeMode) {
       for (const [name, part] of Object.entries(defaultParts) as [WebSlotName, WebPart][]) {
         slots.set(name, [part]);
+      }
+      // per-tool 官方卡同灌（E5）：安全模式也是「同一零件库的直接组装」——缺了它工具行
+      // 全退化成通用卡，与插件通道观感不一致
+      for (const [name, view] of Object.entries(defaultToolViews)) {
+        slots.set(name, [view as SlotPart]);
       }
     } else {
       moduleCtx = makeModuleContext("plugin-web-ui");

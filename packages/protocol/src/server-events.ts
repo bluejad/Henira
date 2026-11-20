@@ -49,6 +49,10 @@ export interface ToolRowOutput {
   durationMs: number;
   /** 输出超限截断（tools 管线结算原样透传；preview 供 UI 展示头部，path 指完整输出落盘文件） */
   truncated?: { path: string; preview: string };
+  /** 工具结果带外元数据（ToolResult.__meta 原样透传，账本 tool/result.meta 同源；不进模型上下文）。
+   *  形状归工具件约定、kind 标记开放集（官方 kind："shell"/"read"/"write"/"edit"/"glob"/"grep"/"mcp"）；
+   *  UI 卡逐字段窄化校验，不认识或校验不过一律降级通用渲染（dsh「宁缺毋滥」纪律） */
+  meta?: Record<string, unknown>;
 }
 
 export interface ToolRow {

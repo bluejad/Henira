@@ -4,17 +4,27 @@
 
 export { makeT } from "./locales/make-t.js";
 export { type Dict, zh } from "./locales/zh.js";
-export { defaultParts, webUiModule } from "./module.js";
+export { defaultParts, defaultToolViews, webUiModule } from "./module.js";
 export { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
 export { Composer } from "./parts/composer.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
 export { LayoutFrame } from "./parts/layout-frame.js";
 export { ModelSelect } from "./parts/model-select.js";
 export { RightPanel } from "./parts/right-panel.js";
-export { DetailPane, DisclosureRow, type DisclosureRowProps } from "./parts/row-chrome.js";
+export { DetailPane, DisclosureRow, type DisclosureRowProps, Pill } from "./parts/row-chrome.js";
 export { SessionList } from "./parts/session-list.js";
 export { SettingsModal } from "./parts/settings-modal.js";
 export { SlotBoundary } from "./parts/slot-boundary.js";
+export {
+  EditCard,
+  GlobCard,
+  GrepCard,
+  McpCard,
+  ReadCard,
+  TerminalCard,
+  ToolView,
+  WriteCard,
+} from "./parts/tool-cards.js";
 export type {
   HeniraClientLike,
   LayoutOption,

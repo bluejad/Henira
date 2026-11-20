@@ -124,6 +124,36 @@ export function DisclosureRow(props: DisclosureRowProps): React.ReactNode {
   );
 }
 
+/** 行级印章胶囊（状态语义色——语义粉彩只做印章不做装饰）。原 conversation 内私有件，
+ * per-tool 卡（E5）共用后提升到此。 */
+export function Pill({
+  bg,
+  color,
+  title,
+  children,
+}: {
+  bg: string;
+  color: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      title={title}
+      style={{
+        background: bg,
+        color,
+        borderRadius: "9999px",
+        fontSize: "var(--henira-fs-sm)",
+        padding: "1px 8px",
+        flexShrink: 0,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** 展开体分区（dsh ioCard 行为层参照：hairline 卡 + 标签小字 + 分区滚动上限）。
  * errors/tone 由调用方传色。 */
 export function DetailPane({

@@ -1,11 +1,19 @@
 // @vitest-environment node
 // plugin-fs-search 格式化层单测（D-065）：三模式渲染 + 截断注记判据分开——files 模式按
 // **文件数**（totalFiles）、count / content 按命中行数（totalSeen）。审查抓到的「1 文件 3 行命中
-// → 假 Truncated 注记」（totalSeen 当文件数）在本文件回归锁。
+// → 假 Truncated 注记」（totalSeen 当文件数）在本文件回归锁。E5 追加：execute __meta 装配级
+// 断言（搜索卡数据源——结构化 matches/文件数进带外通道，content 一字不改）。
 
-import type { FsGrepResult } from "@henira/protocol";
+import { createHarness } from "@henira/kernel";
+import type {
+  FsGrepResult,
+  FsService,
+  ToolContext,
+  ToolDefinition,
+  ToolsService,
+} from "@henira/protocol";
 import { describe, expect, it } from "vitest";
-import { formatGrepResult } from "./index.js";
+import { formatGrepResult, fsSearchPlugin } from "./index.js";
 
 const result = (over: Partial<FsGrepResult>): FsGrepResult => ({
   matches: [],
@@ -102,5 +110,86 @@ describe("formatGrepResult", () => {
     expect(noLine).toContain("a.ts-before");
     expect(noLine).toContain("a.ts:hit");
     expect(noLine).not.toContain("a.ts:2:");
+  });
+});
+
+describe("glob/grep execute __meta（搜索卡数据源，E5）", () => {
+  const toolCtx: ToolContext = {
+    signal: new AbortController().signal,
+    requestPermission: async () => "allowed-once" as never,
+    cwd: "/ws",
+    config: { cwd: "/ws" } as never,
+  };
+
+  async function toolsWithFs(fs: FsService): Promise<Map<string, ToolDefinition>> {
+    const registered = new Map<string, ToolDefinition>();
+    const tools: ToolsService = {
+      register: (tool) => {
+        registered.set(tool.name, tool);
+        return () => {};
+      },
+      project: () => [],
+      isConcurrencySafe: () => undefined,
+      execute: async () => {
+        throw new Error("fake registry");
+      },
+      run: async () => [],
+    };
+    const harness = createHarness()
+      .use({ name: "config", start: () => ({ cwd: "/ws" }) as never })
+      .use({ name: "tools", start: () => tools })
+      .use({ name: "fs", start: () => fs })
+      .use(fsSearchPlugin());
+    await harness.start();
+    return registered;
+  }
+
+  it("glob：files（显示路径）+total 进 meta", async () => {
+    const glob = (
+      await toolsWithFs({
+        resolve: (p) => ({ absolute: p, inside: true }),
+        read: async () => null as never,
+        write: async () => null as never,
+        edit: async () => null as never,
+        glob: async () => ({ files: ["/ws/a.txt", "/ws/b.txt"], total: 2 }),
+        grep: async () => null as never,
+      })
+    ).get("glob");
+    if (glob === undefined) throw new Error("glob not registered");
+    const r = await glob.execute({ pattern: "*.txt" }, toolCtx);
+    expect(r.__meta).toMatchObject({ kind: "glob", files: ["a.txt", "b.txt"], total: 2 });
+    expect(r.content).toBe("a.txt\nb.txt");
+  });
+
+  it("grep content 模式：结构化 matches（显示路径+match 位）进 meta", async () => {
+    const grep = (
+      await toolsWithFs({
+        resolve: (p) => ({ absolute: p, inside: true }),
+        read: async () => null as never,
+        write: async () => null as never,
+        edit: async () => null as never,
+        glob: async () => null as never,
+        grep: async () => ({
+          matches: [
+            { file: "/ws/a.ts", line: 1, text: "before", match: false },
+            { file: "/ws/a.ts", line: 2, text: "hit", match: true },
+          ],
+          totalSeen: 1,
+        }),
+      })
+    ).get("grep");
+    if (grep === undefined) throw new Error("grep not registered");
+    const r = await grep.execute({ pattern: "hit", output_mode: "content" }, toolCtx);
+    expect(r.__meta).toMatchObject({
+      kind: "grep",
+      mode: "content",
+      totalSeen: 1,
+      headLimit: 250,
+      matches: [
+        { file: "a.ts", line: 1, text: "before", match: false },
+        { file: "a.ts", line: 2, text: "hit", match: true },
+      ],
+    });
+    expect(r.content).toContain("a.ts:2:hit");
   });
 });

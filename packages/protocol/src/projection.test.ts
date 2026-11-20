@@ -122,6 +122,39 @@ describe("账本回放 → 快照", () => {
     });
   });
 
+  it("tool/result 带外元数据：meta 原样进 output（透传不解释；缺席不带键）", () => {
+    const p = rebuildProjection([
+      ev(1, "turn/start", { turn: "t-1" }),
+      ev(2, "step/start", { turn: "t-1", step: 1 }),
+      ev(3, "tool/call", { turn: "t-1", step: 1, callId: "c1", name: "bash", arguments: "{}" }),
+      ev(4, "tool/result", {
+        turn: "t-1",
+        step: 1,
+        callId: "c1",
+        isError: false,
+        content: "hi",
+        durationMs: 3,
+        meta: { kind: "shell", exitCode: 0, stdout: "hi", stderr: "" },
+      }),
+      ev(5, "tool/call", { turn: "t-1", step: 1, callId: "c2", name: "read", arguments: "{}" }),
+      ev(6, "tool/result", {
+        turn: "t-1",
+        step: 1,
+        callId: "c2",
+        isError: false,
+        content: "x",
+        durationMs: 1,
+      }),
+    ]);
+    expect(p.rows[0]).toMatchObject({
+      output: { meta: { kind: "shell", exitCode: 0, stdout: "hi", stderr: "" } },
+    });
+    // 缺 meta 的结果不带键（JSON 快照/增量形状稳定）
+    const bare = p.rows[1];
+    if (bare.kind !== "tool") throw new Error("expected tool row");
+    expect("meta" in (bare.output ?? {})).toBe(false);
+  });
+
   it("step/end 用量投影：挂到该步 assistant 行（原位 upsert 不新增行）", () => {
     const p = rebuildProjection([
       ev(1, "turn/start", { turn: "t-1" }),

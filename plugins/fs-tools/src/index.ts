@@ -77,7 +77,21 @@ export function fsToolsPlugin(): ServiceDefinition {
             offset: typeof args.offset === "number" ? args.offset : undefined,
             limit: typeof args.limit === "number" ? args.limit : undefined,
           });
-          return { content: formatRead({ path: fs.resolve(filePath).absolute, result }) };
+          const absolute = fs.resolve(filePath).absolute;
+          // 带外元数据：分页事实供读取卡行窗渲染（行号本身在 content 的 `N\t` 格式里，UI 拆 gutter）
+          return {
+            content: formatRead({ path: absolute, result }),
+            __meta: {
+              kind: "read",
+              path: absolute,
+              startLine: result.startLine,
+              endLine: result.endLine,
+              totalLines: result.totalLines,
+              ...(result.truncatedByBytes !== undefined
+                ? { truncatedByBytes: result.truncatedByBytes }
+                : {}),
+            },
+          };
         },
       };
 
@@ -108,6 +122,7 @@ export function fsToolsPlugin(): ServiceDefinition {
             content: r.created
               ? `File created successfully at: ${r.path}`
               : `The file ${r.path} has been updated successfully. (file state is current in your context — no need to Read it back)`,
+            __meta: { kind: "write", path: r.path, created: r.created },
           };
         },
       };
@@ -152,6 +167,8 @@ export function fsToolsPlugin(): ServiceDefinition {
               r.replacements > 1
                 ? `Replaced ${r.replacements} occurrences in ${r.path}.`
                 : `The file ${r.path} has been updated successfully.`,
+            // 带外元数据：替换计数供 diff 卡「N 处替换」徽章；old/new 在行 input JSON 里（UI 自算 hunk）
+            __meta: { kind: "edit", path: r.path, replacements: r.replacements },
           };
         },
       };

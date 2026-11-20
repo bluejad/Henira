@@ -69,6 +69,13 @@ const mock = mockLlm([
     mockFinish("tool-calls"),
   ],
   [mockText("fs flow complete"), mockUsage(USAGE), mockFinish("stop")],
+  // E5：官方 bash 工具真 spawn——TerminalCard 全链（官方 keyed 注册卡 + 命令行 + 分色输出）
+  [
+    mockToolCall("sh1", "bash", '{"command":"echo henira-e5-done"}'),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [mockText("shell flow complete"), mockUsage(USAGE), mockFinish("stop")],
 ]);
 
 /** llm 槽位包装（examples/mock 同款）：mockLlm 给的是 LlmService，槽位要 ServiceDefinition */
@@ -344,8 +351,33 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
 
   // read（只读 → 默认放行层，无卡）→ 收尾文本
   await expect(page.getByText("fs flow complete")).toBeVisible({ timeout: 15_000 });
-  // read 工具行折叠体默认不挂 DOM（row-chrome 展开才渲染）→ 点开 read 行再断言行号输出
+  // read 工具行折叠体默认不挂 DOM（row-chrome 展开才渲染）→ 点开 read 行再断言内容。
+  // E5 读取卡把 `N\t` 格式拆成行号 gutter + 内容列（两个 span）——按内容文本断言
   await page.locator("[aria-expanded]").filter({ hasText: "read" }).first().click();
-  await expect(page.getByText("1\talpha")).toBeVisible();
+  await expect(page.getByText("alpha")).toBeVisible();
+  await expect(page.getByText("beta")).toBeVisible();
   await shot(page, "fs-02-tool-rows.png");
+});
+
+// ── 用例 ⑥：官方 bash 工具真 spawn → TerminalCard（E5 keyed 注册卡全链）──
+
+test("per-tool card: bash terminal card via keyed registration", async ({ page }) => {
+  await page.goto(server.url);
+  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  await expect(textarea).toBeVisible();
+  await textarea.fill("run a bash command");
+  await textarea.press("Enter");
+
+  // bash 非只读 → 审批卡 → 允许
+  const card = page.getByRole("dialog", { name: zh["approval.title"] });
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: zh["approval.allow"] }).click();
+
+  await expect(page.getByText("shell flow complete")).toBeVisible({ timeout: 15_000 });
+  // TerminalCard（tool.call.view.bash 官方注册）：命令 prompt 行 + stdout（meta 分色通道）。
+  // stdout 是真 spawn 回执（"henira-e5-done\r\n"）——exact 断言只命中输出 pre，不误配命令行
+  await page.locator("[aria-expanded]").filter({ hasText: "bash" }).first().click();
+  await expect(page.getByText("echo henira-e5-done")).toBeVisible();
+  await expect(page.getByText("henira-e5-done", { exact: true })).toBeVisible();
+  await shot(page, "e5-01-terminal-card.png");
 });

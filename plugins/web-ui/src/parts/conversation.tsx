@@ -23,9 +23,10 @@ import {
 } from "react";
 import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
 import { ApprovalSettledRow } from "./approval-card.js";
-import { BrainGlyph, CaretGlyph, CheckGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
-import { DetailPane, DisclosureRow } from "./row-chrome.js";
+import { BrainGlyph, CaretGlyph } from "./icons.js";
+import { Pill } from "./row-chrome.js";
 import { SlotBoundary } from "./slot-boundary.js";
+import { McpCard as McpView, ToolView } from "./tool-cards.js";
 
 /** 虚拟单位 = 轮（turn 相同行不拆散——工具输出与回答同轮同块；key = turnId，无 turn 的
  *  error 行独立成块）。ZCode ConversationTurnRenderUnit 思想的行模型简版。 */
@@ -344,35 +345,6 @@ const RowView = memo(
     a.ctx.slots === b.ctx.slots,
 );
 
-/** 行级印章胶囊（状态语义色——语义粉彩只做印章不做装饰） */
-function Pill({
-  bg,
-  color,
-  title,
-  children,
-}: {
-  bg: string;
-  color: string;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      title={title}
-      style={{
-        background: bg,
-        color,
-        borderRadius: "9999px",
-        fontSize: "var(--henira-fs-sm)",
-        padding: "1px 8px",
-        flexShrink: 0,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
 function UserView({ row }: { row: UserRow; ctx?: WebPartContext }) {
   // 右对齐气泡（两家共识：user 右浅气泡 + assistant 左全宽裸排；中性 5% 派生面——
   // 2026-11-17 用户拍板不走 dsh 浅蓝）；右上角收小角=朝向说话者的气泡性格语言。
@@ -616,151 +588,37 @@ function ReasoningView({
   );
 }
 
-/** 工具行：keyed 槽 tool.call.view.<工具名> 顶替官方工具卡（D-057；官方默认=未被顶替时生效） */
+/** 工具行路由（D-057 keyed 缝）：① 精确 keyed 槽 tool.call.view.<wire 名>（官方 per-tool
+ * 卡经 module.ts 注册进缝、第三方 replaceSlot 顶替同语义）→ ② MCP 工具（mcp__ 前缀、动态
+ * 名无法逐个注册）查 tool.call.view.mcp 总缝（第三方可整类顶替；官方 McpCard 注册在此）
+ * → ③ ToolView 通用卡兜底。 */
 function ToolRowView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }): React.ReactNode {
   const view = ctx.slots.get(`tool.call.view.${row.name}`)?.[0] as ToolCallView | undefined;
   const View = view; // 组件渲染（hooks 合法——批 C 修正）
-  return View !== undefined ? (
-    <SlotBoundary label={`tool.call.view.${row.name}`}>
-      <View ctx={ctx} row={row} />
-    </SlotBoundary>
-  ) : (
-    <ToolView row={row} ctx={ctx} />
-  );
+  if (View !== undefined) {
+    return (
+      <SlotBoundary label={`tool.call.view.${row.name}`}>
+        <View ctx={ctx} row={row} />
+      </SlotBoundary>
+    );
+  }
+  if (row.name.startsWith("mcp__")) {
+    const mcpView = ctx.slots.get("tool.call.view.mcp")?.[0] as ToolCallView | undefined;
+    if (mcpView !== undefined) {
+      return (
+        <SlotBoundary label="tool.call.view.mcp">
+          <McpView ctx={ctx} row={row} />
+        </SlotBoundary>
+      );
+    }
+  }
+  return <ToolView row={row} ctx={ctx} />;
 }
 
-/** 复制按钮（common.copy / common.copied）。t 可选注入（markdown 代码块头部条复用——
- * 纯渲染层不持有字典，缺省英文兜底）；无 ctx 依赖，包根出口供插件/宿主共用。 */
-export function CopyButton({
-  text,
-  t,
-  className,
-}: {
-  text: string;
-  t?: (key: string) => string;
-  className?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      className={className}
-      onClick={() => {
-        void navigator.clipboard
-          ?.writeText(text)
-          .then(() => {
-            setCopied(true);
-            setTimeout(() => {
-              setCopied(false);
-            }, 1500);
-          })
-          .catch(() => {});
-      }}
-      style={{
-        fontSize: "var(--henira-fs-sm)",
-        padding: "0 6px",
-      }}
-    >
-      {copied ? (t?.("common.copied") ?? "Copied") : (t?.("common.copy") ?? "Copy")}
-    </button>
-  );
-}
-
-function ToolView({ row, ctx }: { row: ToolRow; ctx: WebPartContext }) {
-  const isError = row.status === "error";
-  const statusColor =
-    row.status === "running"
-      ? "var(--henira-info-text)"
-      : isError
-        ? "var(--henira-danger-text)"
-        : "var(--henira-ok-text)";
-  const running = row.status === "running";
-  // 错误揭示（dsh/ZCode autoOpen 行为参照）：mount 时已 error 或执行中转 error 都要展开可见
-  const [revealed, setRevealed] = useState(isError);
-  useEffect(() => {
-    if (isError) setRevealed(true);
-  }, [isError]);
-  // 官方默认工具卡 = 组装行 chrome 原语（与 keyed 顶替件同一套，D-057 观感协调）
-  return (
-    <DisclosureRow
-      icon={
-        running ? (
-          <SpinnerGlyph size={14} color={statusColor} />
-        ) : isError ? (
-          <XGlyph size={14} color={statusColor} />
-        ) : (
-          <CheckGlyph size={14} color={statusColor} />
-        )
-      }
-      title={row.name}
-      busy={running}
-      tone={statusColor}
-      meta={`#${row.callId}`}
-      summary={
-        <>
-          {row.status === "done" && row.output !== undefined ? (
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{row.output.durationMs}ms</span>
-          ) : null}
-          {row.output?.truncated !== undefined ? (
-            <Pill
-              bg="var(--henira-warn-bg)"
-              color="var(--henira-warn-text)"
-              title={row.output.truncated.path}
-            >
-              {ctx.t("row.truncated")}
-            </Pill>
-          ) : null}
-        </>
-      }
-      open={revealed ? true : undefined}
-    >
-      <DetailPane
-        sections={[
-          {
-            label: ctx.t("tool.input"),
-            body: (
-              <pre
-                className="henira-mono"
-                style={{
-                  margin: 0,
-                  color: "var(--henira-text-muted)",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                  fontSize: "var(--henira-fs-md)",
-                }}
-              >
-                {row.input}
-              </pre>
-            ),
-          },
-          ...(row.output !== undefined
-            ? [
-                {
-                  label: isError ? ctx.t("error.title") : ctx.t("row.output"),
-                  tone: isError ? "var(--henira-danger-text)" : undefined,
-                  actions: <CopyButton text={row.output.content} t={ctx.t} />,
-                  maxHeight: 180,
-                  body: (
-                    <pre
-                      className="henira-mono"
-                      style={{
-                        margin: 0,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-all",
-                        fontSize: "var(--henira-fs-md)",
-                      }}
-                    >
-                      {row.output.content}
-                    </pre>
-                  ),
-                },
-              ]
-            : []),
-        ]}
-      />
-    </DisclosureRow>
-  );
-}
+// CopyButton / ToolView 迁出（E5 per-tool 卡共用）：CopyButton → copy-button.tsx
+// （断开 tool-cards ↔ conversation 循环引用）；ToolView → tool-cards.tsx（fallback 语义
+// 与六卡同文件内聚）。此处 re-export 保持既有出口形状。
+export { CopyButton } from "./copy-button.js";
 
 function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
   // 已知配置类错误翻成可行动中文（模型目录收敛批：闸门后用户本不该走到这——兜底），
