@@ -155,7 +155,15 @@ function RightPanelView(props: {
             </span>
           ) : null}
         </span>
-        <span className="henira-right-tabstrip">
+        <span
+          className="henira-right-tabstrip"
+          onWheel={(e) => {
+            // 滚动条已藏（用户裁定）——滚轮纵向增量转横向滚动保住可达性；
+            // 不 preventDefault：本条滚不动时不吞页面滚动
+            const el = e.currentTarget;
+            if (el.scrollWidth > el.clientWidth) el.scrollLeft += e.deltaY;
+          }}
+        >
           {tabs.map((tab) => (
             <span
               key={tab.id}

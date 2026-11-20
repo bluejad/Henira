@@ -1310,8 +1310,13 @@ button:focus-visible > .henira-row-caret {
   flex: 1;
   min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
+  /* 隐藏滚动条但保留滚动（2026-11-20 用户裁定：粗滚动条压垮 48px header——
+     滚动经触控板横扫 / tabstrip 上滚轮转横滚 right-panel.tsx onWheel） */
+  scrollbar-width: none;
   padding: 2px 0;
+}
+.henira-right-tabstrip::-webkit-scrollbar {
+  display: none;
 }
 .henira-right-tab {
   display: inline-flex;
