@@ -120,21 +120,20 @@ describe("shell 服务（真实 spawn）", () => {
     expect(r.exitCode).not.toBe(0);
   });
 
-  it("powershell 组（win32 门控）：Write-Output 跑通 + UTF-8 中文不乱码", async () => {
-    const dir = await tmpWorkdir();
-    const shell = await serviceWithCwd(dir);
-    try {
+  it.skipIf(process.platform !== "win32")(
+    "powershell 组（win32 门控）：Write-Output 跑通 + UTF-8 中文不乱码",
+    { timeout: 20_000 }, // pwsh 冷启动在慢机可超 vitest 默认 5s
+    async () => {
+      const dir = await tmpWorkdir();
+      const shell = await serviceWithCwd(dir);
       const r = await shell.run(
         { command: `Write-Output 'ps-ok'; Write-Output '中文'`, shell: "powershell" },
         gate(),
       );
       expect(r.stdout).toContain("ps-ok");
       expect(r.stdout).toContain("中文");
-    } catch (err) {
-      // 本机无 pwsh/powershell（如裸 Linux CI）：探测失败即预期路径
-      expect((err as Error).message).toMatch(/neither pwsh nor powershell/);
-    }
-  });
+    },
+  );
 });
 
 describe("timeout 钳制", () => {
