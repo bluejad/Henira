@@ -57,6 +57,18 @@ const mock = mockLlm([
   [mockToolCall("c1", "probe", '{"question":"ping"}'), mockUsage(USAGE), mockFinish("tool-calls")],
   finalStream(),
   ...longTurnScript,
+  // D-065 批 B：官方 fs 工具经真 UI 全链（write 审批卡 → read 行号）——defaultPreset 装配
+  [
+    mockToolCall("fs1", "write", '{"file_path":"e2e-demo.txt","content":"alpha\\nbeta\\n"}'),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [
+    mockToolCall("fs2", "read", '{"file_path":"e2e-demo.txt"}'),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [mockText("fs flow complete"), mockUsage(USAGE), mockFinish("stop")],
 ]);
 
 /** llm 槽位包装（examples/mock 同款）：mockLlm 给的是 LlmService，槽位要 ServiceDefinition */
@@ -311,4 +323,27 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
   );
   expect(atBottom).toBe(true);
   await page.screenshot({ path: `${ARTIFACTS}/12-back-at-bottom.png` });
+});
+
+// ── 用例 ⑤：官方 fs 工具经真 UI 全链（D-065 批 B）——write 审批卡收答 → read 行号 → 收尾 ──
+
+test("fs tools: write approval card, allow, read line numbers", async ({ page }) => {
+  await page.goto(server.url);
+  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  await expect(textarea).toBeVisible();
+  await textarea.fill("write and read a demo file");
+  await textarea.press("Enter");
+
+  // write 非只读 → 审批卡（fail-closed 默认）；收答放行
+  const card = page.getByRole("dialog", { name: zh["approval.title"] });
+  await expect(card).toBeVisible();
+  await shot(page, "fs-01-write-approval.png");
+  await card.getByRole("button", { name: zh["approval.allow"] }).click();
+
+  // read（只读 → 默认放行层，无卡）→ 收尾文本
+  await expect(page.getByText("fs flow complete")).toBeVisible({ timeout: 15_000 });
+  // read 工具行折叠体默认不挂 DOM（row-chrome 展开才渲染）→ 点开 read 行再断言行号输出
+  await page.locator("[aria-expanded]").filter({ hasText: "read" }).first().click();
+  await expect(page.getByText("1\talpha")).toBeVisible();
+  await shot(page, "fs-02-tool-rows.png");
 });

@@ -1,0 +1,166 @@
+// plugin-fs-search：glob / grep 工具件（interfaces.md §fs / D-065）。
+// 纯适配器：能力与守卫全部在 fs 服务（D-049）；grep 为 JS 引擎（零外部二进制，
+// rg 加速挂账）。工具 md 见本包 tools/。
+
+import path from "node:path";
+import type { ServiceDefinition } from "@henira/kernel";
+import {
+  asHeniraContext,
+  type FsGate,
+  type FsGrepOptions,
+  type ToolDefinition,
+} from "@henira/protocol";
+
+function gateFor(
+  ctx: Parameters<ToolDefinition["execute"]>[1],
+  tool: string,
+  args: unknown,
+): FsGate {
+  return {
+    tool,
+    args,
+    signal: ctx.signal,
+    requestPermission: ctx.requestPermission,
+  };
+}
+
+/** 区内文件显示相对路径（省 token），区外保留绝对路径 */
+function displayPath(cwd: string, file: string): string {
+  const rel = path.relative(cwd, file);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return file;
+  return rel;
+}
+
+/** 官方 glob/grep 工具件（不占槽位；inject tools + fs——D-049 工具件形状） */
+export function fsSearchPlugin(): ServiceDefinition {
+  return {
+    inject: ["tools", "fs"],
+    start(ctx) {
+      const cx = asHeniraContext(ctx);
+      const fs = cx.get("fs");
+      const tools = cx.get("tools");
+      const cwd = cx.get("config").cwd;
+
+      const glob: ToolDefinition = {
+        description:
+          "Find files by glob pattern (supports **, *, ?, {a,b}). Returns absolute paths sorted by " +
+          "modification time (newest first), capped at 100 results. .git/.hg/.svn/node_modules are skipped. " +
+          "Paths outside the session workspace require approval.",
+        name: "glob",
+        inputSchema: {
+          type: "object",
+          properties: {
+            pattern: { type: "string", description: 'Glob pattern, e.g. "src/**/*.ts"' },
+            path: {
+              type: "string",
+              description:
+                "Base directory (absolute, or relative to the session cwd; default = session cwd)",
+            },
+          },
+          required: ["pattern"],
+        },
+        isConcurrencySafe: true,
+        execute: async (args, ctx) => {
+          const r = await fs.glob(String(args.pattern), gateFor(ctx, "glob", args), {
+            path: typeof args.path === "string" ? args.path : undefined,
+          });
+          if (r.files.length === 0) return { content: "No files found" };
+          let out = r.files.join("\n");
+          if (r.total > r.files.length) {
+            out += `\n(Results are truncated: showing ${r.files.length} of ${r.total}. Consider using a more specific path or pattern.)`;
+          }
+          return { content: out };
+        },
+      };
+
+      const grep: ToolDefinition = {
+        description:
+          "Search file contents with a regular expression (JavaScript regex, line-based). " +
+          "output_mode: files_with_matches (default) lists files newest-first; content prints path:line:text " +
+          "with optional context lines (-A/-B/-C); count prints path:count per file. Binary files and " +
+          "files over 10MB are skipped; .git/.hg/.svn/node_modules are skipped. " +
+          "Paths outside the session workspace require approval.",
+        name: "grep",
+        inputSchema: {
+          type: "object",
+          properties: {
+            pattern: { type: "string", description: "Regular expression" },
+            path: {
+              type: "string",
+              description: "Base directory or a single file (default = session cwd)",
+            },
+            glob: { type: "string", description: 'Filename filter, e.g. "*.ts"' },
+            output_mode: {
+              type: "string",
+              enum: ["content", "files_with_matches", "count"],
+              description: "Default files_with_matches",
+            },
+            "-i": { type: "boolean", description: "Case-insensitive (default false)" },
+            "-n": { type: "boolean", description: "Line numbers in content mode (default true)" },
+            "-A": { type: "integer", description: "Lines of context after (content mode, 0-10)" },
+            "-B": { type: "integer", description: "Lines of context before (content mode, 0-10)" },
+            "-C": {
+              type: "integer",
+              description: "Lines of context both sides (content mode, 0-10)",
+            },
+            head_limit: { type: "integer", description: "Max results (default 250)" },
+          },
+          required: ["pattern"],
+        },
+        isConcurrencySafe: true,
+        execute: async (args, ctx) => {
+          const a = args as Record<string, unknown>;
+          // -A/-B/-C 归并为对称 context（服务 v1 只收对称窗口；不对称挂账）
+          const context = Math.max(
+            typeof a["-C"] === "number" ? a["-C"] : 0,
+            typeof a["-B"] === "number" ? a["-B"] : 0,
+            typeof a["-A"] === "number" ? a["-A"] : 0,
+          );
+          const opts: FsGrepOptions = {
+            path: typeof a.path === "string" ? a.path : undefined,
+            include: typeof a.glob === "string" ? a.glob : undefined,
+            outputMode:
+              a.output_mode === "content" || a.output_mode === "count"
+                ? a.output_mode
+                : "files_with_matches",
+            ignoreCase: a["-i"] === true,
+            lineNumbers: a["-n"] !== false,
+            context,
+            headLimit: typeof a.head_limit === "number" ? a.head_limit : undefined,
+          };
+          const r = await fs.grep(String(a.pattern), gateFor(ctx, "grep", args), opts);
+          if (r.totalSeen === 0) return { content: "No matches found" };
+          const rel = (f: string) => displayPath(cwd, f);
+          if (opts.outputMode === "files_with_matches") {
+            const out = `Found ${r.files?.length ?? 0} files\n${(r.files ?? []).map(rel).join("\n")}`;
+            if (r.totalSeen > (r.files?.length ?? 0)) {
+              return {
+                content: `${out}\n(Truncated at head_limit=${opts.headLimit ?? 250}; ${r.totalSeen} files seen in total. Raise head_limit or refine the pattern.)`,
+              };
+            }
+            return { content: out };
+          }
+          if (opts.outputMode === "count") {
+            const rows = (r.counts ?? []).map((c) => `${rel(c.file)}:${c.count}`);
+            const total = (r.counts ?? []).reduce((s, c) => s + c.count, 0);
+            const out = `${rows.join("\n")}\nFound ${total} total matching lines across ${(r.counts ?? []).length} files.`;
+            if (r.totalSeen > total) {
+              return {
+                content: `${out}\n(Truncated at head_limit=${opts.headLimit ?? 250}; ${r.totalSeen} matching lines seen in total.)`,
+              };
+            }
+            return { content: out };
+          }
+          let out = r.matches.map((m) => `${rel(m.file)}:${m.line}:${m.text}`).join("\n");
+          if (r.totalSeen > r.matches.length) {
+            out += `\n(Truncated at head_limit=${opts.headLimit ?? 250}; ${r.totalSeen} matching lines seen in total. Refine the pattern or raise head_limit.)`;
+          }
+          return { content: out };
+        },
+      };
+
+      tools.register(glob);
+      tools.register(grep);
+    },
+  };
+}

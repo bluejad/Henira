@@ -75,7 +75,7 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 - **fail-closed**：answerer（= `InteractionService`）缺失 / 抛错 / 返回不合规值 → 一律 `unavailable` → 必须拒 `[dsh]`；
 - **默认放行层（D-039，2026-11-13）**：无任何规则命中时，`isConcurrencySafe: true`（只读标记）**自动放行**并照常落 `approval/decided` 审计；其余照旧走缝与 answerer。`deny` 规则压倒一切（链首），显式 allow 规则也在默认层之前。web_fetch 类只读工具因此免问（Claude Code 默认放行抓取）。headless（`henira run`）开箱即可跑只读任务，写类靠 `permissions.json` 规则（§3.1）；
 - **灾难操作硬拒（D-039）**：灾难性命令（`rm -rf /`、格式化、`dd`、shutdown 等）与凭据同列链外，**任何规则、任何标记都放不了行**；清单由官方 approval 插件承担，官方 shell 工具执行前内置检查；
-- **路径围栏跟着能力走（D-039 立、D-049 修订）**：默认放行层只看工具标记；"这条路径能不能碰"的判定住进 fs 能力服务（D-049）——官方 fs / shell 工具件与任何注入该服务的第三方件同样受围栏；工作区内直接执行、区外调 `requestPermission`（`ToolContext` 已注入）、凭据与灾难仍硬拒；
+- **路径围栏跟着能力走（D-039 立、D-049 修订；✓ 落码 2026-11-20 D-065）**：默认放行层只看工具标记；"这条路径能不能碰"的判定住进 fs 能力服务（D-049）——官方 fs / shell 工具件与任何注入该服务的第三方件同样受围栏；工作区内直接执行、区外调 `requestPermission`（`ToolContext` 已注入）、凭据与灾难仍硬拒。落形（interfaces.md §fs）：围栏强制点唯一住 fs 服务层——区内直行（链照常）、区外服务层 `requestPermission(req, {floor:"ask"})` 弹卡；区外写类因此见两张卡（链卡 + 区外卡），有意为之（fail-closed 显式二次确认）；
 - **钩子缝（D-027）**：`approval/request`（waterfall）位于规则链（含默认放行层）全未命中、交给宿主 answerer **之前**；监听者可返回 allow / deny / ask / undefined（ask = 照常弹卡）。凭据硬拒、灾难硬拒与 deny 规则仍在它之前，**钩子不能放行凭据与灾难操作**；
 - **挂起状态归交互层**：待答请求由 `InteractionService` 维护，会话级、不挂连接——断线重连、多窗口都能重放同一张卡；`settle` 幂等（先答者赢）。approval 插件自身不保存挂起表，只消费答复并映射成 `Decision`（D-013①）；
 - **审计**：每次 ask / decided 落 `approval/asked` + `approval/decided` 事件对；**没有打开的回合不接受审批记录**，且**先落 `decided` 再执行工具**（write-ahead，见 [session.md](./session.md) §1.1）；

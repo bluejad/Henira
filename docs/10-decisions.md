@@ -689,7 +689,7 @@
 
 ## D-058 熔断插件进首发批：v0.1.0 默认装配死循环兜底
 
-- **状态**：已定 · 2026-11-17 · 修订 D-041 批次表（首发批 10→11，官方件 21→22，二批三批不变）；50-open 🟡 销账
+- **状态**：已定 · 2026-11-17 · 修订 D-041 批次表（首发批 10→11，官方件 21→22，二批三批不变）；50-open 🟡 销账。**✓ 已落码（2026-11-20，D-065 批）**——双机制（回合内提醒 user/message{source:"breaker"} + 回合尾 bail 否决注入续跑提示）、阈值默认 50/3/2 且 settings 可配、进 defaultPreset
 - **背景**：D-045 定回合步数上限**默认不设**、死循环全靠熔断兜底；D-013⑤ 定熔断 = 官方插件走 `loop/turn-stopping`（bail）缝（principles.md P7：bail 的真实用户就是官方熔断插件）。但官方件清单与三批排期均无此件（2026-11-17 架构评判抓出）——bail 缝语义 M1 起有测试锁定，生产消费者却缺位：v0.1.0 默认装配的死循环保护为空，模型抽风无限重试 / 连烧 token 时无兜底。50-open 🟡 挂"批次归属 M4 前拍板"，2026-11-17 项目所有者拍板：按建议进首发批。
 - **决定**：
   1. **首发批第 11 件**：`@henira/plugin-breaker`（熔断件），与引擎五件同批、进 defaultPreset——v0.1.0 默认装配自带死循环兜底；熔断阈值**默认必设**（D-045 步上限不设 ≠ 熔断不设——兜底件本身就是那条兜底），数值随 M4 落码定、settings 可配。
@@ -786,3 +786,20 @@
   8. **范围外挂账**：OAuth、prompt templates / resources / elicitation / sampling、server instructions 注入、进程级连接池共享、管理面连接状态显示与重连钮、图像 / 音频 blob 落盘、MCP 工具描述长度上限、SSE-only transport。
 - **理由**：MCP 是行业标准（D-019「市面上现成的直接可用」），官方 SDK 是四家参照物的共同选择——自研传输层零收益；命名与审批语义跟着生态同形（模型与用户都无需学新约定）；确认指纹是我们已有的 D-030 语义（「MCP 定义变更要确认」），落形为内容指纹即可，不引入新机制；凭据引用替代配置内求值（dsh `!!js`）与配置内明文（CC headers），是我们凭据分离架构（D-030）的自然延伸——插件目录零 key 这条线从 M3 设置浮层起就没破过。
 - **备注**：落点 = interfaces.md（`## mcp` 契约小节 / REST 面 +2 / ResourceReply + PluginDetail.mcp confirmed / 能力服务表行）、plugins.md（落码状态 + §4 mcp 行注）、packages.md（plugin-mcp 行落码标注）、50-open（销 ④⑥⑦ + 新挂账行）、roadmap（批 C 闭环项销账）。验收随批：未确认不 spawn → confirm 后新会话工具进注册表 → mock llm 触达 → useResource 越权 403 / happy / 失败保旧 → e2e 真浏览器确认 → live → 停用全链。
+
+## D-065 fs / shell 能力服务契约定稿 + 首发批六件落码（fs 族 3 / shell 族 2 / breaker 1）
+
+- **状态**：已定 · 2026-11-20 · M4 首发批第 6–11 件（D-041 / D-049 / D-058 的落码批）；interfaces.md `## fs` / `## shell` 契约小节同批定稿
+- **背景**：D-049 立了「能力一律服务、按族拆包」的骨架，fs / shell 服务契约按表「M4 落码前定稿」；D-058 拍板 breaker 进首发批第 11 件。开工前四仓取证（dsh / ZCode / opencode / CC，行为层，D-004 / D-047）共识：read 默认/上限 2000 行四家一致；write / edit 的 read-before-mutate 与 stale 守卫三家有（纯权限无守卫的一家是我们避开的坑）；edit `old_string/new_string/replace_all` 三家同形；shell timeout 默认 120s / 上限 600s 四家一致、每次新 spawn 四家一致；grep 引擎三家打包 ripgrep 二进制、一家有 JS 兜底；重复调用检测两家都是「回合内提醒注入 + 阈值 3 起、advisory 不否决」。
+- **决定**：
+  1. **FsService（fs 槽）**：六能力 `resolve / read / write / edit / glob / grep` + 会话级读态（read-before-mutate 守卫住服务层——注入者皆受，D-049）；结构化返回、格式化归工具件；能力方法带 `gate`（`{signal, requestPermission}`）——**围栏强制点唯一在服务层**：区内直行（判定链照常，凭据 / 灾难硬拒不受影响）、区外 → 服务经 `requestPermission(req, {floor:"ask"})` 走判定链弹卡（默认放行层不得放行区外）。区外 write / edit 会见两张卡（链卡 + 区外卡）——有意为之：区外是显式二次确认，fail-closed 优先于卡片数量；词法围栏（相对 cwd 解析、win32 大小写不敏感、`~` 展开），symlink 真实归属检查挂账——fs 围栏是给模型的护栏不是对抗恶意进程的沙箱（审批链才是闸）；
+  2. **read/write/edit 语义**（三家同形）：read 默认 2000 行 / 每行 2000 字符 / 选区 50KB、`N\t` 行号、尾注带 offset 续读提示、二进制（NUL 探测）报错；write 新建自动建父目录、已存在必须先 read（未见 / stale / 部分读三类守卫消息）、写后刷新读态；edit 唯一性报错带计数与「可能已改过」提示、LF 归一匹配保留原换行符、空 new = 删除、v1 纯精确匹配（模糊阶梯挂账）；
+  3. **glob/grep**：glob 上限 100、mtime 降序、绝对路径返回、跳 `.git/.hg/.svn/node_modules`；grep **JS 引擎**（零外部二进制——v0.1.0 发布面不带平台二进制，rg 加速挂账）、`output_mode` 默认 files_with_matches、head_limit 默认 250、-A/-B/-C 上下文、跳二进制与 >10MB 文件、单行预览 2000 字符；
+  4. **ShellService（shell 槽）**：`run(spec, gate)`——spec = `{command, shell:"bash"|"powershell", cwd?, timeout?, env?}`、结果 = `{exitCode, stdout, stderr, durationMs, timedOut?, signal?}`；每次新 spawn（持久会话 / cwd 持久化挂账）；timeout 默认 120s 上限 600s、超时杀进程树（win32 `taskkill /T /F`；posix detached + 负 pid，TERM→3s→KILL）；**非零退出码不是 isError**（`[exit code: N]` 计入内容，模型自行判读——spawn 级失败才 isError）；
+  5. **shell 工具**：`bash`（`bash -c`）+ `powershell`（探 pwsh 7 → powershell 5.1，`-NoLogo -NoProfile -NonInteractive -Command`，UTF-8 输出包装）；每流尾部保留 20KB + 截断注记；env = 父环境 + `NO_COLOR/TERM/PAGER/GIT_PAGER` 输出净化覆盖 + `HENIRA_PROJECT_DIR`（**不洗敏感 env**——agent 以用户身份跑、凭据值本不经环境传递、审批链是闸；与 MCP stdio 的清洗是两个场景，后者防外部 server 侧信道）；审批走既有链——灾难硬拒清单已含 Windows 命令，`commandPrefix/commandContains` 规则天然适配 shell 工具；
+  6. **plugin-breaker 双机制**（D-058 落形）：①回合内提醒——观测 `tools/pre-execute`（waterfall 透传 `next(value)`，不否决不截流），签名 = 工具名 + 稳定序 JSON args，连续同形 ≥ 阈值 → `session.append` 一条 `user/message{source:"breaker"}` 英文提醒（模型下一步即见、自纠），封顶 2 条/回合、用户插话重置；②回合尾否决——计步（bus `step/start`）+ 记忆本回合重复，`onBail("loop/turn-stopping")` 超限返回 `Veto{by:"plugin-breaker", reason, resume:{prompt}}`（bail 缝首个生产消费者；内核每回合只查一次缝 → 每回合至多一次干预）。阈值默认必设：步数 50 / 同形重复 3 / 提醒 2 条，`config.get("plugin-breaker")` 读 `settings.plugins.plugin-breaker.options` 可配。无名件（不占槽）、inject `["session","config"]`、进 defaultPreset、可停用（不在 OFFICIAL 保护集）；
+  7. **workingDirectory 不设独立件**：cwd 现状链路已通（`SessionHeader.cwd` → `ConfigService.cwd` → `ToolContext.cwd`），fs / shell 服务 inject config 取 cwd 作围栏根；唯一潜在消费者（shell cwd 持久化）挂账，需求出现再立服务。能力服务表该行改记「不设独立件（本条）」；
+  8. **第二实现思想实验**（D-049 契约要求，结论进契约）：**沙箱 fs** —— FsService 六能力进出全为字符串 / 结构化数据、零 Node 句柄零流，同槽换 plugin-fs 沙箱实现时围栏从「区外问」变硬 containment（拒绝而非 ask），工具件与全部注入者零改动；**远程 shell** —— ShellService 契约零 child_process 类型、env 显式 map（远程无法继承父环境）、结果纯数据（流文本 + 退出码 + 计时），SSH 实现 `run()` 同形可换；后台任务 / 持久会话属实现细节不进 v1 契约；
+  9. **范围外挂账**：read 的图片 / PDF / notebook 特化、grep offset 分页与 0=不限、edit 模糊匹配阶梯与多段批量、shell 后台任务（run_in_background / 超时转后台）/ 持久会话 / cwd 持久化、symlink 真实归属围栏、ripgrep 加速、breaker 升级为否决链多级提示。
+- **理由**：语义参数（2000 行 / 120s / 600s / 阈值 3 / head_limit 250）全部取四仓共识值，模型与用户都无需学新约定；守卫语义取有守卫的三家（未读不覆盖是防 clobber 的行为底线）；JS grep 是零依赖发布面的必然选择（ZCode JS 兜底先例证明可行）；breaker 双机制是 D-058 文字（否决）与参照物实践（回合内提醒）的并集——纯否决盖不住「永不完成」的跑飞回合（bail 缝只在回合将结束时触发），纯提醒又缺 D-013⑤ 要求的否决生产消费者；不洗 shell 环境是因为洗了就坏 `git push` / `npm publish` 这类合法流程，而 D-030 的威胁模型（credentials.json 值外泄）本就不经环境变量。
+- **备注**：落点 = interfaces.md（`## fs` / `## shell` 契约小节 / SlotMap / 能力服务表三行）、tools-approval.md（围栏段落落码标注）、packages.md（六行 ✓）、loop.md（turn-stopping 典型插件列）、50-open（挂账行）、roadmap M4 判据回填。验收随批：mock 会话跑完 read→write→edit→bash 全链、停用 fs 服务 → fs 工具全体缺席、breaker 提醒行与 veto 续跑、e2e 审批卡全链、冷构建模拟绿。

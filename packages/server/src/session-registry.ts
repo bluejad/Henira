@@ -25,6 +25,10 @@ import {
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
+import { breakerPlugin } from "@henira/plugin-breaker";
+import { fsPlugin } from "@henira/plugin-fs";
+import { fsSearchPlugin } from "@henira/plugin-fs-search";
+import { fsToolsPlugin } from "@henira/plugin-fs-tools";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
 import { mcpPlugin } from "@henira/plugin-mcp";
@@ -34,6 +38,8 @@ import {
   type SessionHandle,
   sessionPlugin,
 } from "@henira/plugin-session";
+import { shellPlugin } from "@henira/plugin-shell";
+import { shellToolsPlugin } from "@henira/plugin-shell-tools";
 import { toolsPlugin } from "@henira/plugin-tools";
 import type { LlmService, McpServerSpec, McpService } from "@henira/protocol";
 import {
@@ -124,6 +130,8 @@ const CORE_SLOT_NAMES = new Set([
   "interaction",
   "config",
   "mcp",
+  "fs",
+  "shell",
 ]);
 
 /** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符） */
@@ -215,10 +223,12 @@ export class SessionRegistry {
   }
 
   /** 启停（§6.4：写 settings.plugins.<id>.enabled；缺 key = 启用）。官方件不给关（§5 :222）；
-   *  外圈官方件（plugin-mcp，D-064）可停用——不占内圈槽位，停用后新会话不装配 */
+   *  外圈官方件（defaultPreset 中非内圈五件：plugin-mcp D-064 / fs 族 / shell 族 / breaker，D-065）
+   *  可停用——不占内圈槽位，停用后新会话不装配 */
   async setPluginEnabled(id: string, enabled: boolean): Promise<boolean> {
     if (OFFICIAL_PLUGIN_IDS.has(id)) return false; // 官方五件不给关
-    if (id === "plugin-mcp") {
+    if (defaultPreset.some((entry) => entry.id === id)) {
+      // 外圈官方件：开关直接写 settings（无盘上目录可查，快照侧 defaultPreset 映射已反映）
       await setPluginSetting(this.#opts.globalDir, id, { enabled });
       return true;
     }
@@ -273,7 +283,7 @@ export class SessionRegistry {
     const configured = this.#opts.plugins;
     const entries = configured !== undefined && configured.length > 0 ? configured : defaultPreset;
     const usingPreset = entries === defaultPreset;
-    const out: ServiceDefinition<unknown>[] = [];
+    const out: { id: string; def: ServiceDefinition<unknown> }[] = [];
     const seen = new Set<string>();
     for (const entry of entries) {
       if (seen.has(entry.id)) continue;
@@ -286,50 +296,87 @@ export class SessionRegistry {
       ) {
         continue;
       }
-      switch (entry.id) {
-        case "plugin-session":
-          if (entry.definition !== undefined) {
-            console.warn(
-              "[server] 插件：v1 不支持替换 session 槽（宿主投影链要求官方包装，D-048 挂账）——按官方实现装载",
-            );
-          }
-          out.push(
-            observedSession(
-              sessionPlugin({ directory: ctx.directory, cwd: ctx.cwd, id: ctx.id }),
-              ctx.onAppend,
-            ),
-          );
-          break;
-        case "plugin-tools":
-          out.push(entry.definition ?? toolsPlugin({}));
-          break;
-        case "plugin-llm":
-          out.push(entry.definition ?? this.#opts.llm ?? llmPlugin());
-          break;
-        case "plugin-approval":
-          out.push(entry.definition ?? approvalPlugin());
-          break;
-        case "plugin-loop":
-          out.push(entry.definition ?? loopPlugin());
-          break;
-        case "plugin-mcp":
-          // 外圈读者（D-064）：servers 空时也装配（McpService 恒在场，useResource 报"未声明"
-          // 而非"服务缺失"）；opts.plugins 显式替换 = 听它的
-          out.push(
-            entry.definition ??
-              mcpPlugin({
-                servers: ctx.mcpServers,
-                spawnEnv: scrubSpawnEnv(),
-                warn: (message) => console.warn(`[server] MCP：${message}`),
-              }),
-          );
-          break;
-        default:
-          if (entry.definition !== undefined) out.push(entry.definition);
-          else console.warn(`[server] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
-      }
+      const built = this.#builtinDefinition(entry, ctx);
+      if (built !== undefined) out.push({ id: entry.id, def: built });
     }
-    return out;
+    // D-049 装配层预检（官方 preset 条目同规，目录件已在 preparePlugins 做过）：
+    // 声明注入的槽位无提供者 → 该件不装载 + 告警，不挡其他件（kernel start() 静态检查是最后防线）
+    const provided = new Set<string>(["interaction", "config"]); // #mount 随后挂载的宿主槽
+    for (const item of out) {
+      if (item.def.name !== undefined) provided.add(item.def.name);
+    }
+    const defs: ServiceDefinition<unknown>[] = [];
+    for (const item of out) {
+      const missing = (item.def.inject ?? []).filter((slot) => !provided.has(slot));
+      if (missing.length > 0) {
+        console.warn(
+          `[server] 插件：${item.id} 注入的槽位无提供者（${missing.join(", ")}）——不装载`,
+        );
+        continue;
+      }
+      defs.push(item.def);
+    }
+    return defs;
+  }
+
+  /** 官方清单条目 → 内置工厂（definition 在场 = 替换实现；session 槽 v1 只允许官方包装） */
+  #builtinDefinition(
+    entry: PluginEntry,
+    ctx: {
+      id: string;
+      cwd: string;
+      directory: string;
+      onAppend: (event: SessionEvent) => void;
+      mcpServers: McpServerSpec[];
+    },
+  ): ServiceDefinition<unknown> | undefined {
+    switch (entry.id) {
+      case "plugin-session":
+        if (entry.definition !== undefined) {
+          console.warn(
+            "[server] 插件：v1 不支持替换 session 槽（宿主投影链要求官方包装，D-048 挂账）——按官方实现装载",
+          );
+        }
+        return observedSession(
+          sessionPlugin({ directory: ctx.directory, cwd: ctx.cwd, id: ctx.id }),
+          ctx.onAppend,
+        );
+      case "plugin-tools":
+        return entry.definition ?? toolsPlugin({});
+      case "plugin-llm":
+        return entry.definition ?? this.#opts.llm ?? llmPlugin();
+      case "plugin-approval":
+        return entry.definition ?? approvalPlugin();
+      case "plugin-loop":
+        return entry.definition ?? loopPlugin();
+      case "plugin-fs":
+        return entry.definition ?? fsPlugin();
+      case "plugin-fs-tools":
+        return entry.definition ?? fsToolsPlugin();
+      case "plugin-fs-search":
+        return entry.definition ?? fsSearchPlugin();
+      case "plugin-shell":
+        return entry.definition ?? shellPlugin();
+      case "plugin-shell-tools":
+        return entry.definition ?? shellToolsPlugin();
+      case "plugin-breaker":
+        return entry.definition ?? breakerPlugin();
+      case "plugin-mcp":
+        // 外圈读者（D-064）：servers 空时也装配（McpService 恒在场，useResource 报"未声明"
+        // 而非"服务缺失"）；opts.plugins 显式替换 = 听它的
+        return (
+          entry.definition ??
+          mcpPlugin({
+            servers: ctx.mcpServers,
+            spawnEnv: scrubSpawnEnv(),
+            warn: (message) => console.warn(`[server] MCP：${message}`),
+          })
+        );
+      default:
+        if (entry.definition !== undefined) return entry.definition;
+        console.warn(`[server] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
+        return undefined;
+    }
   }
 
   /** MCP 声明 → plugin-mcp 工厂入参（D-064）：模板变量与 `${credential:名}` 在宿主侧展开

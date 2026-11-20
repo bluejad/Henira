@@ -9,8 +9,14 @@ import { createConfigService } from "@henira/config-loader";
 import { createHarness } from "@henira/kernel";
 import { type MockEntry, mockLlm } from "@henira/llm-mock";
 import { approvalPlugin } from "@henira/plugin-approval";
+import { breakerPlugin } from "@henira/plugin-breaker";
+import { fsPlugin } from "@henira/plugin-fs";
+import { fsSearchPlugin } from "@henira/plugin-fs-search";
+import { fsToolsPlugin } from "@henira/plugin-fs-tools";
 import { loopPlugin } from "@henira/plugin-loop";
 import { sessionPlugin } from "@henira/plugin-session";
+import { shellPlugin } from "@henira/plugin-shell";
+import { shellToolsPlugin } from "@henira/plugin-shell-tools";
 import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
@@ -92,6 +98,13 @@ export async function assembleMock(options: MockAssemblyOptions): Promise<{
     .use(llmStub(mock.service))
     .use(autoAnswerInteraction(options.answers))
     .use(approvalPlugin())
+    // fs / shell 能力族 + 熔断件（D-065：官方 defaultPreset 的 examples 聚合同形）
+    .use(fsPlugin())
+    .use(fsToolsPlugin())
+    .use(fsSearchPlugin())
+    .use(shellPlugin())
+    .use(shellToolsPlugin())
+    .use(breakerPlugin())
     .use({
       name: "config",
       start: () => createConfigService({ cwd: sessionDir, globalDir }),

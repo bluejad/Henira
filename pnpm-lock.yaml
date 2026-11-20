@@ -38,12 +38,30 @@ importers:
       '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
+      '@henira/plugin-breaker':
+        specifier: workspace:*
+        version: link:../../plugins/breaker
+      '@henira/plugin-fs':
+        specifier: workspace:*
+        version: link:../../plugins/fs
+      '@henira/plugin-fs-search':
+        specifier: workspace:*
+        version: link:../../plugins/fs-search
+      '@henira/plugin-fs-tools':
+        specifier: workspace:*
+        version: link:../../plugins/fs-tools
       '@henira/plugin-loop':
         specifier: workspace:*
         version: link:../../plugins/loop
       '@henira/plugin-session':
         specifier: workspace:*
         version: link:../../plugins/session
+      '@henira/plugin-shell':
+        specifier: workspace:*
+        version: link:../../plugins/shell
+      '@henira/plugin-shell-tools':
+        specifier: workspace:*
+        version: link:../../plugins/shell-tools
       '@henira/plugin-tools':
         specifier: workspace:*
         version: link:../../plugins/tools
@@ -159,6 +177,18 @@ importers:
       '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
+      '@henira/plugin-breaker':
+        specifier: workspace:*
+        version: link:../../plugins/breaker
+      '@henira/plugin-fs':
+        specifier: workspace:*
+        version: link:../../plugins/fs
+      '@henira/plugin-fs-search':
+        specifier: workspace:*
+        version: link:../../plugins/fs-search
+      '@henira/plugin-fs-tools':
+        specifier: workspace:*
+        version: link:../../plugins/fs-tools
       '@henira/plugin-llm':
         specifier: workspace:*
         version: link:../../plugins/llm
@@ -171,6 +201,12 @@ importers:
       '@henira/plugin-session':
         specifier: workspace:*
         version: link:../../plugins/session
+      '@henira/plugin-shell':
+        specifier: workspace:*
+        version: link:../../plugins/shell
+      '@henira/plugin-shell-tools':
+        specifier: workspace:*
+        version: link:../../plugins/shell-tools
       '@henira/plugin-tools':
         specifier: workspace:*
         version: link:../../plugins/tools
@@ -199,6 +235,18 @@ importers:
       '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
+      '@henira/plugin-breaker':
+        specifier: workspace:*
+        version: link:../../plugins/breaker
+      '@henira/plugin-fs':
+        specifier: workspace:*
+        version: link:../../plugins/fs
+      '@henira/plugin-fs-search':
+        specifier: workspace:*
+        version: link:../../plugins/fs-search
+      '@henira/plugin-fs-tools':
+        specifier: workspace:*
+        version: link:../../plugins/fs-tools
       '@henira/plugin-llm':
         specifier: workspace:*
         version: link:../../plugins/llm
@@ -211,6 +259,12 @@ importers:
       '@henira/plugin-session':
         specifier: workspace:*
         version: link:../../plugins/session
+      '@henira/plugin-shell':
+        specifier: workspace:*
+        version: link:../../plugins/shell
+      '@henira/plugin-shell-tools':
+        specifier: workspace:*
+        version: link:../../plugins/shell-tools
       '@henira/plugin-tools':
         specifier: workspace:*
         version: link:../../plugins/tools
@@ -302,6 +356,58 @@ importers:
         specifier: ^24.0.0
         version: 24.19.2
 
+  plugins/breaker:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/fs:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/fs-search:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/fs-tools:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
   plugins/llm:
     dependencies:
       '@ai-sdk/openai-compatible':
@@ -370,6 +476,32 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.7
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/shell:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/shell-tools:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
     devDependencies:
       '@henira/kernel':
         specifier: workspace:*

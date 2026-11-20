@@ -36,13 +36,13 @@ turn（用户回合）
 
 ## 4. 暴露的缝（P8 插件挂载点；waterfall / bail）
 
-| 缝                   | 时机                                        | 典型插件                               |
-| -------------------- | ------------------------------------------- | -------------------------------------- |
-| `loop/pre-step`      | 每步请求前                                  | 压缩（预算检查 + 投影）、注入提醒      |
-| `loop/request`       | 请求配置定稿前                              | 改写温度/截断/工具清单投影             |
-| `tools/pre-execute`  | 工具执行前（归 plugin-tools，D-027）        | 权限闸、沙箱闸（见 tools-approval.md） |
-| `tools/post-execute` | 工具执行后（归 plugin-tools，D-027）        | 结果剪枝、检查点捕获                   |
-| `loop/turn-stopping` | 回合将结束（**bail** 模式，可否决，D-012①） | 熔断续跑、排队消费                     |
+| 缝                   | 时机                                        | 典型插件                                        |
+| -------------------- | ------------------------------------------- | ----------------------------------------------- |
+| `loop/pre-step`      | 每步请求前                                  | 压缩（预算检查 + 投影）、注入提醒               |
+| `loop/request`       | 请求配置定稿前                              | 改写温度/截断/工具清单投影                      |
+| `tools/pre-execute`  | 工具执行前（归 plugin-tools，D-027）        | 权限闸、沙箱闸（见 tools-approval.md）          |
+| `tools/post-execute` | 工具执行后（归 plugin-tools，D-027）        | 结果剪枝、检查点捕获                            |
+| `loop/turn-stopping` | 回合将结束（**bail** 模式，可否决，D-012①） | 熔断续跑（`plugin-breaker`，✓ D-065）、排队消费 |
 
 **缝载荷类型（定稿 · 2026-11-16，接口形状同 [interfaces.md](./interfaces.md) protocol 段）**：
 
@@ -63,7 +63,7 @@ interface TurnStoppingValue {
 }
 ```
 
-_已定稿：死循环熔断 → 官方插件，走 `loop/turn-stopping`（bail）缝（2026-11-11）。_
+_已定稿：死循环熔断 → 官方插件，走 `loop/turn-stopping`（bail）缝（2026-11-11）。**✓ 生产消费者已落码**（`plugin-breaker`，D-065 批：回合内提醒 + 回合尾否决双机制；内核每回合只查一次缝 = 每回合至多一次否决干预）。_
 _已定稿：bail 的 `Veto` 形状 = `{ by, reason, resume? }`（[interfaces.md](./interfaces.md) §kernel、[principles.md](./principles.md) P7，2026-11-12）。_
 _已定稿：基底系统提示由官方 loop 插件在会话初始化注入（一条 `system/message`；组装规则见 [session.md](./session.md) §4，2026-11-13）。_
 _已定稿：忙时投递唯一化 = 排队持久化（`queue.json`）+ 条目"立即发送"插话（step 边界进场，不打断工具）；步数上限机制可选、默认不设（主循环 / 子代理均不设），token 硬顶不做归压缩预算（D-045，2026-11-14）。_

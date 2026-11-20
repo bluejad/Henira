@@ -19,6 +19,15 @@ export const defaultPreset: PluginEntry[] = [
   { id: "plugin-tools" },
   { id: "plugin-approval" },
   { id: "plugin-loop" },
+  // fs / shell 能力族（D-065，批 B）：服务件 + 工具件——可停用（停 fs 服务 → 工具件全体
+  // 缺席 + 告警，D-049 装配层预检）；官方 npm 包无盘上目录，不可卸载天然成立
+  { id: "plugin-fs" },
+  { id: "plugin-fs-tools" },
+  { id: "plugin-fs-search" },
+  { id: "plugin-shell" },
+  { id: "plugin-shell-tools" },
+  // 熔断件（D-058 / D-065）：无名行为件——死循环兜底，v0.1.0 默认装配
+  { id: "plugin-breaker" },
   // MCP 读者（D-064，C5）：外圈官方件——可停用（settings.plugins["plugin-mcp"].enabled:false），
   // 不可卸载（官方 npm 包无盘上目录，卸载端点天然 404）；无 mcp 槽位时零开销
   { id: "plugin-mcp" },

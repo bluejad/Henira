@@ -97,6 +97,9 @@ interface SlotMap {
   loop: LoopService;
   interaction: InteractionService;
   config: ConfigService;
+  mcp: McpService; // ✓ 落码（D-064）
+  fs: FsService; // ✓ 落码（D-065）
+  shell: ShellService; // ✓ 落码（D-065）
 }
 // commands 槽随 plugin-commands 落码（M6）进入 SlotMap（D-025；接口形状已定稿于 protocol 段）
 type HeniraContext = Omit<HarnessContext, "get"> & {
@@ -443,16 +446,16 @@ applyConfig(harness: Harness, cfg: HeniraConfig): void;   // 翻译成 .use() �
 - 替换两级粒度：换工具件或换服务件（全体工具件跟着换实现），同一套 D-048 确认卡与回落；
 - `SlotMap` 随各服务契约定稿扩项；服务清单开放不封顶。
 
-| 服务                                                   | 提供者                                | 契约定稿时点  |
-| ------------------------------------------------------ | ------------------------------------- | ------------- |
-| `fs`（文件能力 + 路径围栏）                            | `plugin-fs`（服务件）                 | M4 落码前     |
-| `shell`（命令执行能力）                                | `plugin-shell`（服务件）              | M4 落码前     |
-| `workingDirectory`（每会话 cwd）                       | 随 fs 批定（plugin-session 或独立件） | M4 落码前     |
-| `tasks`（计划 / 任务状态，`plans/` `tasks/` 唯一写者） | `plugin-tasks`（服务件）              | M5 落码前     |
-| `subagents`（子代理编排） / `web`（抓取）              | `plugin-subagent` / `plugin-fetch`    | M5 随设计文档 |
-| `skills`（技能目录）                                   | `plugin-skills`                       | M6 随设计文档 |
-| `commands`                                             | `plugin-commands`（D-025 已是服务）   | 已定          |
-| `mcp`（MCP 连接与工具转接）                            | `plugin-mcp`（服务件，D-064）         | 已定（C5 批） |
+| 服务                                                   | 提供者                                                                                                                                                   | 契约定稿时点          |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `fs`（文件能力 + 路径围栏）                            | `plugin-fs`（服务件）                                                                                                                                    | ✓ 已定（D-065，批 B） |
+| `shell`（命令执行能力）                                | `plugin-shell`（服务件）                                                                                                                                 | ✓ 已定（D-065，批 B） |
+| `workingDirectory`（每会话 cwd）                       | **不设独立件（D-065）**——cwd 链路已通（SessionHeader → ConfigService → ToolContext），fs / shell 服务 inject config 取 cwd；shell cwd 持久化需求出现再立 | —                     |
+| `tasks`（计划 / 任务状态，`plans/` `tasks/` 唯一写者） | `plugin-tasks`（服务件）                                                                                                                                 | M5 落码前             |
+| `subagents`（子代理编排） / `web`（抓取）              | `plugin-subagent` / `plugin-fetch`                                                                                                                       | M5 随设计文档         |
+| `skills`（技能目录）                                   | `plugin-skills`                                                                                                                                          | M6 随设计文档         |
+| `commands`                                             | `plugin-commands`（D-025 已是服务）                                                                                                                      | 已定                  |
+| `mcp`（MCP 连接与工具转接）                            | `plugin-mcp`（服务件，D-064）                                                                                                                            | 已定（C5 批）         |
 
 ## mcp（官方插件；对外形状 = McpService，D-064）
 
@@ -479,6 +482,78 @@ interface McpCallResult {
 - **凭据与展开（D-030）**：`mcp/*.json` 的 env / headers 值支持 `${credential:名}` 引用——宿主从 `config/credentials.json` 展开后**内存传递**；缺失 → 该 server 跳过 + 告警、**不 spawn**（fail-closed）；`${HENIRA_PLUGIN_ROOT}` / `${HENIRA_PROJECT_DIR}` 与生态别名（plugins.md §4 模板变量）在 command / args / env / url / headers 展开；command 为含路径分隔符的相对路径时相对插件版本目录解析，裸命令名走 PATH；
 - **stdio 环境**：父环境清洗（剔名称匹配 `KEY|PASSWORD|SECRET|TOKEN` 与 `HENIRA_*` 的变量）后合并声明 env（防环境侧信道，声明 env 显式项总赢）；
 - **密钥不出服务**：plugin-mcp 不接触 credentials.json，不回显任何密钥；`type: "sse"` 声明 → 跳过 + 告警（挂账）。
+
+## fs / shell（官方插件；对外形状 = FsService / ShellService，D-065）
+
+> 契约定稿（2026-11-20，批 B）：能力服务化（D-049）的首两族——文件能力 + 路径围栏住 `fs` 服务（**围栏跟着能力走，注入者皆受**），命令执行能力住 `shell` 服务；工具件（fs-tools / fs-search / shell-tools）只是适配器，格式化归工具件、能力与守卫归服务。**第二实现思想实验**（D-049 契约要求）：FsService 进出全为字符串 / 结构化数据、零 Node 句柄零流 → 沙箱 fs 同槽替换时围栏从「区外问」变硬 containment，工具件与注入者零改动；ShellService 契约零 child_process 类型、env 显式 map、结果纯数据 → 远程 shell（SSH）同形可换。后台任务 / 持久会话属实现细节，不进 v1 契约。
+
+```ts
+// ── fs 槽（plugin-fs 提供；工具件与第三方件注入同一份）──────────────
+/** 围栏放行通道：区外访问经判定链问（floor:"ask" 抬高默认放行层）——服务不绕链直问 interaction */
+interface FsGate {
+  /** 调用方工具名与原始 args（区外弹卡 PermissionRequest 用） */
+  tool: string;
+  args?: unknown;
+  signal?: AbortSignal;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
+}
+
+interface FsService {
+  /** 解析相对路径（相对会话 cwd）+ 区内 / 区外判定（词法；win32 大小写不敏感；~ 展开到 home） */
+  resolve(path: string): { absolute: string; inside: boolean };
+  read(
+    path: string,
+    gate: FsGate,
+    opts?: { offset?: number; limit?: number },
+  ): Promise<FsReadResult>;
+  /** 已存在的文件必须先 read（未见 / stale / 部分读三类守卫住服务层）；新建自动建父目录 */
+  write(path: string, content: string, gate: FsGate): Promise<{ created: boolean; path: string }>;
+  /** old_string 唯一性强制（>1 命中且未 replace_all → 抛错带计数）；LF 归一匹配、保留原换行符 */
+  edit(
+    path: string,
+    op: { old: string; new: string; replaceAll?: boolean },
+    gate: FsGate,
+  ): Promise<{ replacements: number; path: string }>;
+  /** 跳 .git/.hg/.svn/node_modules；上限 100、mtime 降序、绝对路径返回 */
+  glob(pattern: string, gate: FsGate, opts?: { path?: string }): Promise<FsGlobResult>;
+  /** JS 引擎（零外部二进制）；output_mode 三态；跳二进制与 >10MB 文件 */
+  grep(pattern: string, gate: FsGate, opts?: FsGrepOptions): Promise<FsGrepResult>;
+}
+```
+
+- **围栏语义（唯一强制点在服务层）**：区内直行——判定链照常（凭据 / 灾难硬拒不受影响，读类走默认放行层）；区外 → 服务调 `gate.requestPermission(req, { floor: "ask" })`，放行才继续、否则抛错。**区外 write / edit 会见两张卡**（工具链卡 + 区外卡）——有意为之：区外是显式二次确认，fail-closed 优先于卡片数量；词法围栏是给模型的护栏不是对抗恶意进程的沙箱（审批链才是闸；symlink 真实归属检查挂账）；
+- **读态守卫**：服务按会话记忆读过的文件（mtime 快照）——write / edit 已存在文件前必须 read；文件在读后被外部改动（mtime 变）→ 拒并提示重读；带 offset / limit 的部分读不满足覆盖条件；write / edit 成功后刷新读态（模型无需回读）；
+- **read**：默认 / 上限 2000 行、每行 2000 字符截尾、选区 50KB；二进制（NUL 探测）→ 报错；空文件提示；截断尾注带 `offset` 续读提示；
+- **grep/glob 参数与帽**：见 D-065 决定 2/3；regex 非法 → 报错（建议转义）；`No matches found` / `No files found` 空态固定英文。
+
+```ts
+// ── shell 槽（plugin-shell 提供）──────────────────────────────────
+interface ShellRunSpec {
+  command: string;
+  shell: "bash" | "powershell";
+  cwd?: string; // 缺省 = 会话 cwd；目录不存在 → 抛错
+  timeout?: number; // ms；默认 120_000、上限 600_000（钳制）
+  env?: Record<string, string>; // 显式覆盖（本地实现合并父环境之上；远程实现原样传递）
+}
+interface ShellRunResult {
+  exitCode: number | null; // null = 被信号杀死
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  timedOut?: boolean;
+  signal?: string;
+  stdoutTruncated?: boolean; // 服务层每流尾部保留 20KB——丢弃头部时置位
+  stderrTruncated?: boolean;
+}
+interface ShellService {
+  run(spec: ShellRunSpec, gate: FsGate): Promise<ShellRunResult>;
+}
+```
+
+- **每次新 spawn**（无持久会话、无 cwd 持久化——挂账）；stdout / stderr 分开捕获（渲染分节归工具件）；
+- **超时杀进程树**：win32 `taskkill /T /F`；posix detached + 负 pid（TERM → 3s → KILL）；超时结果 `timedOut: true` + 已有输出照返；
+- **非零退出码不是 isError**：`[exit code: N]` 计入内容由模型判读；spawn 级失败（命令不存在等）→ isError；
+- **env**：父环境 + 输出净化覆盖（`NO_COLOR/TERM/PAGER/GIT_PAGER`）+ `HENIRA_PROJECT_DIR`，spec.env 显式项总赢；**不洗敏感名**——shell 以用户身份跑（审批链是闸），与 MCP stdio 的清洗（防外部 server 侧信道）是两个场景。
 
 ## server —— HTTP + SSE 宿主（正式宿主，D-035；定稿 2026-11-17）
 

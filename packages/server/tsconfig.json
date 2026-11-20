@@ -22,7 +22,13 @@
     { "path": "../../plugins/llm" },
     { "path": "../../plugins/loop" },
     { "path": "../../plugins/tools" },
-    { "path": "../../plugins/mcp" }
+    { "path": "../../plugins/mcp" },
+    { "path": "../../plugins/fs" },
+    { "path": "../../plugins/fs-tools" },
+    { "path": "../../plugins/fs-search" },
+    { "path": "../../plugins/shell" },
+    { "path": "../../plugins/shell-tools" },
+    { "path": "../../plugins/breaker" }
   ],
   "include": ["src"]
 }

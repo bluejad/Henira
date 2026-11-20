@@ -385,7 +385,7 @@ function UserView({ row }: { row: UserRow; ctx?: WebPartContext }) {
         margin: "var(--henira-space-3) 0",
       }}
     >
-      {row.source === "steer" || row.source === "veto" ? (
+      {row.source === "steer" || row.source === "veto" || row.source === "breaker" ? (
         <div style={{ marginBottom: "var(--henira-space-1)" }}>
           <Pill bg="var(--henira-info-bg)" color="var(--henira-info-text)">
             {row.source}

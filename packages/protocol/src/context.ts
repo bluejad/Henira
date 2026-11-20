@@ -5,14 +5,16 @@
 import type { HarnessContext } from "@henira/kernel";
 import type { ApprovalService } from "./approval.js";
 import type { ConfigService } from "./config.js";
+import type { FsService } from "./fs.js";
 import type { InteractionService } from "./interaction.js";
 import type { LlmService } from "./llm.js";
 import type { LoopService } from "./loop.js";
 import type { McpService, SessionService } from "./services.js";
+import type { ShellService } from "./shell.js";
 import type { ToolsService } from "./tools.js";
 
 /** 槽位名 → 服务类型。commands 槽随 plugin-commands 落码（M6）进入（D-025）；
- *  mcp 槽随 plugin-mcp 落码进入（D-064） */
+ *  mcp 槽随 plugin-mcp 落码进入（D-064）；fs / shell 槽随批 B 落码进入（D-065） */
 export interface SlotMap {
   session: SessionService;
   llm: LlmService;
@@ -22,6 +24,8 @@ export interface SlotMap {
   interaction: InteractionService;
   config: ConfigService;
   mcp: McpService;
+  fs: FsService;
+  shell: ShellService;
 }
 
 export type HeniraContext = Omit<HarnessContext, "get"> & {

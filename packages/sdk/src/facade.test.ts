@@ -12,7 +12,9 @@ import type {
   InteractionRequest,
   InteractionService,
   LlmService,
+  Row,
   ServerFrame,
+  ToolRow,
 } from "@henira/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { autoRejectInteraction, createClient, createRuntime } from "./index.js";
@@ -613,6 +615,98 @@ process.stdin.on("end", () => process.exit(0));
       await facade.setPluginEnabled("plugin-mcp", false);
       const session3 = await facade.createSession({ cwd: dataDir });
       await expect(facade.executeResource(session3.id, "echo-mcp", address)).rejects.toThrow();
+    });
+  },
+);
+
+describe.each(forms.map((f) => [f.name, f] as const))(
+  "能力件一致（D-065 批 B）：%s",
+  (_name, form) => {
+    const U1 = { inputTokens: 1, outputTokens: 1 };
+    const asTool = (r: Row): r is ToolRow => r.kind === "tool";
+    it("官方清单含 6 新件；read 工具经 mock 回合真执行（行模型可见，isError false）", async () => {
+      const { facade, dataDir } = await form.make([
+        [
+          mockToolCall("c1", "read", '{"file_path":"note.txt"}'),
+          mockUsage(U1),
+          mockFinish("tool-calls"),
+        ],
+        [mockText("read 完成"), mockUsage(U1), mockFinish("stop")],
+      ]);
+      await fs.writeFile(path.join(dataDir, "note.txt"), "alpha\nbeta\n", "utf8");
+
+      const ids = (await facade.listPlugins()).plugins.map((p) => p.id);
+      for (const id of [
+        "plugin-fs",
+        "plugin-fs-tools",
+        "plugin-fs-search",
+        "plugin-shell",
+        "plugin-shell-tools",
+        "plugin-breaker",
+      ]) {
+        expect(ids).toContain(id);
+      }
+
+      const session = await facade.createSession({ cwd: dataDir });
+      const receipt = await facade.prompt(session.id, "读一下");
+      expect(receipt.queued).toBe(false);
+      const toolRow = await waitFor(async () => {
+        const rows = await facade.sessionRows(session.id, {});
+        const hit = rows.rows.find((r): r is ToolRow => asTool(r) && r.name === "read");
+        return hit !== undefined && hit.status === "done" ? hit : undefined;
+      });
+      expect(toolRow.output?.isError).toBe(false);
+      expect(toolRow.output?.content).toContain("1\talpha");
+    });
+
+    it("停用 fs 服务 → fs 工具不注册、shell 照常（能力服务装载强制，双形态）", async () => {
+      const { facade, dataDir } = await form.make([
+        [
+          mockToolCall("c1", "bash", '{"command":"node -e \\"console.log(41+1)\\""}'),
+          mockUsage(U1),
+          mockFinish("tool-calls"),
+        ],
+        [mockText("bash 完成"), mockUsage(U1), mockFinish("stop")],
+      ]);
+      await facade.setPluginEnabled("plugin-fs", false);
+      const after = (await facade.listPlugins()).plugins.find((p) => p.id === "plugin-fs");
+      expect(after?.enabled).toBe(false);
+
+      const session = await facade.createSession({ cwd: dataDir });
+      const sink: ServerFrame[] = [];
+      void (async () => {
+        try {
+          for await (const frame of facade.events()) sink.push(frame);
+        } catch {
+          // stop
+        }
+      })();
+      await facade.prompt(session.id, "跑个命令");
+      // bash 非只读 → 审批卡（fail-closed 默认）；收答放行
+      const requestRow = await waitFor(() => {
+        for (const f of framesOf(sink, session.id)) {
+          if (
+            f.kind === "delta" &&
+            f.delta.op === "row.appended" &&
+            f.delta.row.kind === "approval"
+          ) {
+            return f.delta.row;
+          }
+        }
+        return undefined;
+      });
+      expect(await facade.settleApproval(session.id, requestRow.requestId, "allowed-once")).toBe(
+        true,
+      );
+
+      const done = await waitFor(async () => {
+        const page = await facade.sessionRows(session.id, {});
+        const hit = page.rows.find((r): r is ToolRow => asTool(r) && r.name === "bash");
+        return hit?.status === "done" ? hit : undefined;
+      }, 15_000);
+      // fs 工具全体缺席的正面证据：bash 照常执行成功（系统照跑）
+      expect(done.output?.isError).toBe(false);
+      expect(done.output?.content).toContain("42");
     });
   },
 );

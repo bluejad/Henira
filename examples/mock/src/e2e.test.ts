@@ -49,6 +49,113 @@ describe("examples/mock 离线 e2e", () => {
     await dispose();
   });
 
+  it("判据②（M4）：mock 会话跑完 fs+shell 工具流——write → read → edit → bash 全链", async () => {
+    const script = [
+      [
+        mockToolCall("c1", "write", '{"file_path":"demo.txt","content":"line1\\nline2\\n"}'),
+        mockUsage(USAGE),
+        mockFinish("tool-calls"),
+      ],
+      [
+        mockToolCall("c2", "read", '{"file_path":"demo.txt"}'),
+        mockUsage(USAGE),
+        mockFinish("tool-calls"),
+      ],
+      [
+        mockToolCall(
+          "c3",
+          "edit",
+          '{"file_path":"demo.txt","old_string":"line1","new_string":"LINE-1"}',
+        ),
+        mockUsage(USAGE),
+        mockFinish("tool-calls"),
+      ],
+      [
+        mockToolCall("c4", "bash", '{"command":"node -e \\"console.log(2+2)\\""}'),
+        mockUsage(USAGE),
+        mockFinish("tool-calls"),
+      ],
+      [mockText("fs+shell 全链跑完"), mockUsage(USAGE), mockFinish("stop")],
+    ];
+    const { ctx, dispose } = await assembleMock({ script });
+    const events: string[] = [];
+    for await (const event of ctx.get("loop").run("读写改跑一遍")) {
+      events.push(event.type);
+    }
+    expect(events.at(-1)).toBe("turn-ended");
+
+    const events2 = ctx.get("session").events();
+    const callName = new Map<string, string>();
+    for (const e of events2) {
+      if (e.type === "tool/call") {
+        const d = e.data as { callId: string; name: string };
+        callName.set(d.callId, d.name);
+      }
+    }
+    const results = events2
+      .filter((e) => e.type === "tool/result")
+      .map((e) => {
+        const d = e.data as { callId: string; content: string; isError?: boolean };
+        return { name: callName.get(d.callId) ?? "", content: d.content, isError: d.isError };
+      });
+    const byName = (name: string) => results.filter((r) => r.name === name);
+    expect(byName("write")).toHaveLength(1);
+    expect(byName("write")[0]?.content).toContain("File created successfully");
+    expect(byName("read")).toHaveLength(1);
+    expect(byName("read")[0]?.content).toContain("1\tline1");
+    expect(byName("edit")).toHaveLength(1);
+    expect(byName("edit")[0]?.content).toContain("has been updated successfully");
+    expect(byName("bash")).toHaveLength(1);
+    expect(byName("bash")[0]?.content).toContain("4");
+    for (const r of results) expect(r.isError).toBe(false);
+    // 盘上事实：edit 已生效
+    const session = ctx.get("session");
+    const written = await fs.readFile(path.join(session.header().cwd, "demo.txt"), "utf8");
+    expect(written).toContain("LINE-1");
+    await dispose();
+  });
+
+  it("熔断件（D-058/D-065）：连续同形调用 → 提醒行 + 回合尾 veto 续跑一步（bail 缝首个生产消费者）", async () => {
+    const sameCall = (id: string) => [
+      mockToolCall(id, "echo", '{"text":"loop"}'),
+      mockUsage(USAGE),
+      mockFinish("tool-calls"),
+    ];
+    const script = [
+      sameCall("c1"),
+      sameCall("c2"),
+      sameCall("c3"), // 第 3 次连续同形 → 提醒行
+      [mockText("我觉得我完成了"), mockUsage(USAGE), mockFinish("stop")], // 回合尾 → veto
+      [mockText("收到熔断提示，收尾"), mockUsage(USAGE), mockFinish("stop")], // resume 续跑的一步
+    ];
+    const { ctx, dispose } = await assembleMock({ script });
+    for await (const _ of ctx.get("loop").run("死循环演练")) void _;
+
+    const userRows = ctx
+      .get("session")
+      .events()
+      .filter((e) => e.type === "user/message")
+      .map((e) => e.data as { content: string; source: string });
+    expect(
+      userRows.some((r) => r.source === "breaker" && r.content.includes("Circuit breaker")),
+    ).toBe(true);
+    expect(userRows.some((r) => r.source === "veto" && r.content.includes("Circuit breaker"))).toBe(
+      true,
+    );
+    const end = [...ctx.get("session").events()].reverse().find((e) => e.type === "turn/end");
+    expect(end === undefined ? undefined : (end.data as { reason: string }).reason).toBe(
+      "completed",
+    );
+    // resume 续跑的一步真的跑了：最终 assistant 行是收尾文本
+    const assistant = ctx
+      .get("session")
+      .events()
+      .filter((e) => e.type === "assistant/message")
+      .map((e) => e.data as { content: string });
+    expect(assistant.at(-1)?.content).toContain("收尾");
+    await dispose();
+  });
+
   it("拒绝路径：自动应答器 rejected → 工具不执行，tool/result 落拒绝错误，回合照常收尾", async () => {
     const script = [
       [mockToolCall("c1", "echo", '{"text":"x"}'), mockUsage(USAGE), mockFinish("tool-calls")],

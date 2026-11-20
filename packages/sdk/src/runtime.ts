@@ -26,6 +26,10 @@ import {
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
+import { breakerPlugin } from "@henira/plugin-breaker";
+import { fsPlugin } from "@henira/plugin-fs";
+import { fsSearchPlugin } from "@henira/plugin-fs-search";
+import { fsToolsPlugin } from "@henira/plugin-fs-tools";
 import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
 import { mcpPlugin } from "@henira/plugin-mcp";
@@ -38,6 +42,8 @@ import {
   sameCwd,
   sessionPlugin,
 } from "@henira/plugin-session";
+import { shellPlugin } from "@henira/plugin-shell";
+import { shellToolsPlugin } from "@henira/plugin-shell-tools";
 import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
@@ -112,7 +118,69 @@ const CORE_SLOT_NAMES = new Set([
   "interaction",
   "config",
   "mcp",
+  "fs",
+  "shell",
 ]);
+
+/** 官方清单条目 → 内置工厂（与 server #builtinDefinition 同构；llm 替换经入参传递） */
+function builtinDefinition(
+  entry: PluginEntry,
+  ctx: {
+    id: string;
+    cwd: string;
+    directory: string;
+    onAppend: (event: SessionEvent) => void;
+    mcpServers: import("@henira/protocol").McpServerSpec[];
+  },
+  llmOverride?: ServiceDefinition<LlmService>,
+): ServiceDefinition<unknown> | undefined {
+  switch (entry.id) {
+    case "plugin-session":
+      if (entry.definition !== undefined) {
+        console.warn(
+          "[sdk] 插件：v1 不支持替换 session 槽（宿主投影链要求官方包装，D-048 挂账）——按官方实现装载",
+        );
+      }
+      return observedSession(
+        sessionPlugin({ directory: ctx.directory, cwd: ctx.cwd, id: ctx.id }),
+        ctx.onAppend,
+      );
+    case "plugin-tools":
+      return entry.definition ?? toolsPlugin({});
+    case "plugin-llm":
+      return entry.definition ?? llmOverride ?? llmPlugin();
+    case "plugin-approval":
+      return entry.definition ?? approvalPlugin();
+    case "plugin-loop":
+      return entry.definition ?? loopPlugin();
+    case "plugin-fs":
+      return entry.definition ?? fsPlugin();
+    case "plugin-fs-tools":
+      return entry.definition ?? fsToolsPlugin();
+    case "plugin-fs-search":
+      return entry.definition ?? fsSearchPlugin();
+    case "plugin-shell":
+      return entry.definition ?? shellPlugin();
+    case "plugin-shell-tools":
+      return entry.definition ?? shellToolsPlugin();
+    case "plugin-breaker":
+      return entry.definition ?? breakerPlugin();
+    case "plugin-mcp":
+      // 外圈读者（D-064）：与 server 同构——servers 空也装配（McpService 恒在场）
+      return (
+        entry.definition ??
+        mcpPlugin({
+          servers: ctx.mcpServers,
+          spawnEnv: scrubSpawnEnv(),
+          warn: (message) => console.warn(`[sdk] MCP：${message}`),
+        })
+      );
+    default:
+      if (entry.definition !== undefined) return entry.definition;
+      console.warn(`[sdk] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
+      return undefined;
+  }
+}
 
 /** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符；与 server 同值） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
@@ -273,7 +341,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     const configured = opts.plugins;
     const entries = configured !== undefined && configured.length > 0 ? configured : defaultPreset;
     const usingPreset = entries === defaultPreset;
-    const out: ServiceDefinition<unknown>[] = [];
+    const out: { id: string; def: ServiceDefinition<unknown> }[] = [];
     const seen = new Set<string>();
     for (const entry of entries) {
       if (seen.has(entry.id)) continue;
@@ -286,49 +354,25 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       ) {
         continue;
       }
-      switch (entry.id) {
-        case "plugin-session":
-          if (entry.definition !== undefined) {
-            console.warn(
-              "[sdk] 插件：v1 不支持替换 session 槽（宿主投影链要求官方包装，D-048 挂账）——按官方实现装载",
-            );
-          }
-          out.push(
-            observedSession(
-              sessionPlugin({ directory: ctx.directory, cwd: ctx.cwd, id: ctx.id }),
-              ctx.onAppend,
-            ),
-          );
-          break;
-        case "plugin-tools":
-          out.push(entry.definition ?? toolsPlugin({}));
-          break;
-        case "plugin-llm":
-          out.push(entry.definition ?? opts.llm ?? llmPlugin());
-          break;
-        case "plugin-approval":
-          out.push(entry.definition ?? approvalPlugin());
-          break;
-        case "plugin-loop":
-          out.push(entry.definition ?? loopPlugin());
-          break;
-        case "plugin-mcp":
-          // 外圈读者（D-064）：与 server 同构——servers 空也装配（McpService 恒在场）
-          out.push(
-            entry.definition ??
-              mcpPlugin({
-                servers: ctx.mcpServers,
-                spawnEnv: scrubSpawnEnv(),
-                warn: (message) => console.warn(`[sdk] MCP：${message}`),
-              }),
-          );
-          break;
-        default:
-          if (entry.definition !== undefined) out.push(entry.definition);
-          else console.warn(`[sdk] 插件：清单条目 "${entry.id}" 无 definition——跳过`);
-      }
+      const built = builtinDefinition(entry, ctx, opts.llm);
+      if (built !== undefined) out.push({ id: entry.id, def: built });
     }
-    return out;
+    // D-049 装配层预检（官方 preset 条目同规，目录件已在 preparePlugins 做过）：
+    // 声明注入的槽位无提供者 → 该件不装载 + 告警，不挡其他件（kernel start() 是最后防线）
+    const provided = new Set<string>(["interaction", "config"]); // createSession 随后挂载的宿主槽
+    for (const item of out) {
+      if (item.def.name !== undefined) provided.add(item.def.name);
+    }
+    const defs: ServiceDefinition<unknown>[] = [];
+    for (const item of out) {
+      const missing = (item.def.inject ?? []).filter((slot) => !provided.has(slot));
+      if (missing.length > 0) {
+        console.warn(`[sdk] 插件：${item.id} 注入的槽位无提供者（${missing.join(", ")}）——不装载`);
+        continue;
+      }
+      defs.push(item.def);
+    }
+    return defs;
   };
   const dirs = new DirRegistry({ dataDir });
   const queues = new Map<object, ReturnType<typeof frameQueue>>();
@@ -704,8 +748,8 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async setPluginEnabled(id, enabled) {
       if (OFFICIAL_PLUGIN_IDS.has(id)) throw new Error("official plugin is not toggleable");
-      if (id === "plugin-mcp") {
-        // 外圈官方件可停用（D-064，与 server 同语义）
+      if (defaultPreset.some((entry) => entry.id === id)) {
+        // 外圈官方件可停用（D-064 plugin-mcp / D-065 fs 族 / shell 族 / breaker，与 server 同语义）
         await setPluginSetting(globalDir, id, { enabled });
         return;
       }

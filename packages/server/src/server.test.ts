@@ -15,7 +15,7 @@ import {
   mockToolCall,
   mockUsage,
 } from "@henira/llm-mock";
-import type { LlmService, ServerFrame } from "@henira/protocol";
+import type { ConfigService, LlmService, ServerFrame, ToolContext } from "@henira/protocol";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type HeniraServer, type ServerOptions } from "./server.js";
 
@@ -2093,6 +2093,183 @@ process.stdin.on("end", () => {
       expect(noMcp.status).toBe(404);
       const unknown = await fetch(`${base}/api/plugins/ghost/confirm-mcp`, { method: "POST" });
       expect(unknown.status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默认装配）", () => {
+  const USAGE = { inputTokens: 12, outputTokens: 6 };
+  /** 最小 ToolContext（tools.execute 直呼用） */
+  function fsToolCtx(cwd: string, decision = "allowed-once"): ToolContext {
+    return {
+      cwd,
+      signal: new AbortController().signal,
+      requestPermission: async () => decision as never,
+      config: { get: async () => undefined } as unknown as ConfigService,
+    };
+  }
+
+  it("默认装配：fs / shell 槽在场 + 七工具注册 + breaker 无名件 + /api/plugins 官方 12 条", async () => {
+    const { server, dataDir, base, cleanup } = await makeServer([]);
+    try {
+      const entry = await server.registry.create({ cwd: dataDir });
+      expect(() => entry.ctx.get("fs")).not.toThrow();
+      expect(() => entry.ctx.get("shell")).not.toThrow();
+      const names = entry.ctx
+        .get("tools")
+        .project()
+        .map((t) => t.name)
+        .sort();
+      for (const expected of ["bash", "edit", "glob", "grep", "powershell", "read", "write"]) {
+        expect(names).toContain(expected);
+      }
+
+      const list = (await (await fetch(`${base}/api/plugins`)).json()) as {
+        plugins: { id: string; enabled: boolean; state: string }[];
+      };
+      expect(list.plugins).toHaveLength(12); // defaultPreset：引擎 5 + fs 族 3 + shell 族 2 + breaker + mcp
+      const ids = list.plugins.map((p) => p.id);
+      for (const id of [
+        "plugin-fs",
+        "plugin-fs-tools",
+        "plugin-fs-search",
+        "plugin-shell",
+        "plugin-shell-tools",
+        "plugin-breaker",
+      ]) {
+        expect(ids).toContain(id);
+      }
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("能力服务装载强制（M4 判据③）：停用 fs 服务 → fs 工具全体缺席 + fs 槽缺失，shell 照常", async () => {
+    const { server, dataDir, globalDir, cleanup } = await makeServer([]);
+    try {
+      await fs.writeFile(
+        path.join(globalDir, "settings.json"),
+        JSON.stringify({
+          version: 1,
+          model: "mock/mock-1",
+          plugins: { "plugin-fs": { enabled: false } },
+        }),
+        "utf8",
+      );
+      const entry = await server.registry.create({ cwd: dataDir });
+      expect(() => entry.ctx.get("fs")).toThrow(); // MissingSlotError
+      const names = entry.ctx
+        .get("tools")
+        .project()
+        .map((t) => t.name);
+      for (const gone of ["read", "write", "edit", "glob", "grep"]) {
+        expect(names).not.toContain(gone);
+      }
+      expect(names).toContain("bash"); // shell 族照常——系统照跑
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("read 工具全链（server 宿主）：tools.execute → 行号输出；区外路径经判定链弹卡", async () => {
+    const { server, dataDir, cleanup } = await makeServer([]);
+    try {
+      await fs.writeFile(path.join(dataDir, "hello.txt"), "alpha\nbeta\n", "utf8");
+      const entry = await server.registry.create({ cwd: dataDir });
+      const outcome = await entry.ctx
+        .get("tools")
+        .execute(
+          { callId: "t1", name: "read", argsText: '{"file_path":"hello.txt"}' },
+          fsToolCtx(dataDir),
+        );
+      expect(outcome.result.isError).toBeUndefined();
+      expect(outcome.result.content).toContain("1\talpha");
+      expect(outcome.result.content).toContain("2\tbeta");
+
+      // 区外：floor ask → 自动应答 allowed → 放行（卡经判定链，reason 带区外说明）
+      const outside = await fs.mkdtemp(path.join(tmpdir(), "henira-out-"));
+      await fs.writeFile(path.join(outside, "o.txt"), "outer", "utf8");
+      const asks: { reason?: string }[] = [];
+      const askCtx = fsToolCtx(dataDir);
+      askCtx.requestPermission = async (req) => {
+        asks.push({ reason: req.reason });
+        return "allowed-once";
+      };
+      const o = await entry.ctx.get("tools").execute(
+        {
+          callId: "t2",
+          name: "read",
+          argsText: JSON.stringify({ file_path: path.join(outside, "o.txt") }),
+        },
+        askCtx,
+      );
+      expect(o.result.isError).toBeUndefined();
+      expect(o.result.content).toContain("outer");
+      // 第一次 ask = 管线判定链（无 reason），第二次 = 服务层区外问（带 reason）
+      expect(asks.some((a) => a.reason?.includes("outside the session workspace"))).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bash 工具全链（server 宿主）：执行 + [exit code] 语义", async () => {
+    const { server, dataDir, cleanup } = await makeServer([]);
+    try {
+      const entry = await server.registry.create({ cwd: dataDir });
+      const ok = await entry.ctx
+        .get("tools")
+        .execute(
+          { callId: "t1", name: "bash", argsText: '{"command":"node -e \\"console.log(40+2)\\""}' },
+          fsToolCtx(dataDir),
+        );
+      expect(ok.result.isError).toBeUndefined();
+      expect(ok.result.content).toContain("42");
+
+      const fail = await entry.ctx
+        .get("tools")
+        .execute(
+          { callId: "t2", name: "bash", argsText: '{"command":"node -e \\"process.exit(7)\\""}' },
+          fsToolCtx(dataDir),
+        );
+      expect(fail.result.isError).toBeUndefined(); // 非零退出码不是 isError
+      expect(fail.result.content).toContain("[exit code: 7]");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("凭据硬拒（D-030）走真判定链：读 .env 链前拒（无审计对），工具未执行", async () => {
+    const { server, dataDir, cleanup } = await makeServer([
+      [
+        mockToolCall("c1", "read", '{"file_path":".env"}'),
+        mockUsage(USAGE),
+        mockFinish("tool-calls"),
+      ],
+      [mockText("被拒后收尾"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    try {
+      await fs.writeFile(path.join(dataDir, ".env"), "SECRET=1", "utf8");
+      const entry = await server.registry.create({ cwd: dataDir });
+      const events: string[] = [];
+      for await (const event of entry.ctx.get("loop").run("读 env")) {
+        events.push(event.type);
+      }
+      expect(events.at(-1)).toBe("turn-ended");
+      const results = entry.ctx
+        .get("session")
+        .events()
+        .filter((e) => e.type === "tool/result")
+        .map((e) => e.data as { isError: boolean; content: string });
+      expect(results[0]?.isError).toBe(true);
+      expect(results[0]?.content).toContain("[permission:rejected]");
+      // 链外硬拒无审计对（D-039：清单前拒不进 asked/decided）
+      const types = entry.ctx
+        .get("session")
+        .events()
+        .map((e) => e.type);
+      expect(types).not.toContain("approval/asked");
     } finally {
       await cleanup();
     }

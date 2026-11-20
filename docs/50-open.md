@@ -25,6 +25,7 @@ _无。M1 开工前的阻塞项已全部定稿。_
 
 - [ ] 黑窗口聊天（cli 包）与 Repl 命令集、流式渲染——发布后启做
 - [ ] **plugin-mcp 后续扩展（C5 落码后挂账，D-064 范围外清单）**——OAuth（远程 server 授权流；三家参照物都有，机器量大）；SSE-only 旧 transport（声明即跳过+告警）；MCP prompt templates / resources / elicitation / sampling；server instructions 注入系统提示（涉头部稳定性，须与压缩预算同议）；进程级连接池共享（hosts.md §3「每 server 进程级共享」语义，v1 每会话独立连接）；管理面连接状态显示与重连钮（v1 只有声明/目标/确认态）；图像 / 音频结果 blob 落盘 + 路径指针（现占位行文本）；MCP 工具描述长度上限（防 OpenAPI 型 server 撑爆工具表）
+- [ ] **fs / shell 工具后续扩展（批 B 落码后挂账，D-065 范围外清单）**——read 的图片 / PDF / notebook 特化（现二进制一律报错）；grep offset 分页与 head_limit 0=不限；edit 模糊匹配阶梯（引号归一 / 行修剪 / 缩进弹性——参照物最深 8 级）与多段批量编辑；shell 后台任务（run_in_background / 超时转后台——四家参照物都有）与持久会话 / cwd 持久化（持久化是 workingDirectory 服务的唯一潜在消费者）；fs 围栏 symlink 真实归属检查（现词法）；grep ripgrep 加速（有 rg on PATH 时可选外挂）；breaker 升级为多级提示链（提醒 → 收紧 → 否决的分档）。
 - [ ] TUI 拓扑：**倾向 C1** 薄客户端连本地 server（终端"不起服务"的坑位由发布后 cli 聊天占住）——共同成本是 InteractionService 终端实现；发布后按需求定稿（[hosts.md](./20-architecture/hosts.md) §6）
 - [ ] 移动端层次：**倾向远程客户端先行**（复用①栈；第一步响应式网页 / PWA，原生壳后置）；proot 手机本地执行为执行环境课题单独立项；发布后按需求定稿（移动 UI 词表已随 D-033 推迟）
 - [ ] 本地沙箱插件设计：**倾向暂缓 + 容器过渡**（`henira serve` 跑进容器 / devcontainer 即得隔离；需 SandboxService 新槽位，开工时立 ADR）；与云已定不共用（D-036）
