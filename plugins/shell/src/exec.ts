@@ -32,7 +32,12 @@ class StreamTail {
   }
 
   text(): string {
-    return this.#tail.toString("utf8");
+    // 尾部可能落在多字节字符中间：跳过续字节（0b10xxxxxx，至多 3 个）再解码，尾部不留替换符
+    let start = 0;
+    while (start < this.#tail.length && start < 4 && ((this.#tail[start] ?? 0) & 0xc0) === 0x80) {
+      start++;
+    }
+    return this.#tail.subarray(start).toString("utf8");
   }
 
   get truncated(): boolean {

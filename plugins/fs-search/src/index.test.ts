@@ -83,4 +83,24 @@ describe("formatGrepResult", () => {
       }),
     ).toBe("No matches found");
   });
+
+  it("content 模式：上下文行（match:false）用 `-` 分隔；-n:false 省略行号", () => {
+    const r: FsGrepResult = {
+      matches: [
+        { file: "/ws/a.ts", line: 1, text: "before", match: false },
+        { file: "/ws/a.ts", line: 2, text: "hit", match: true },
+        { file: "/ws/a.ts", line: 3, text: "after", match: false },
+      ],
+      totalSeen: 1,
+    };
+    const out = formatGrepResult(r, { outputMode: "content" }, strip);
+    expect(out).toContain("a.ts-1-before");
+    expect(out).toContain("a.ts:2:hit");
+    expect(out).toContain("a.ts-3-after");
+
+    const noLine = formatGrepResult(r, { outputMode: "content", lineNumbers: false }, strip);
+    expect(noLine).toContain("a.ts-before");
+    expect(noLine).toContain("a.ts:hit");
+    expect(noLine).not.toContain("a.ts:2:");
+  });
 });

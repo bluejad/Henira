@@ -53,6 +53,9 @@ export interface FsGrepMatch {
   file: string;
   line: number;
   text: string;
+  /** content 模式：true = 命中行，false = 上下文行（-A/-B/-C 展开）；
+   *  缺省按命中行处理（:/- 前缀渲染归工具件） */
+  match?: boolean;
 }
 
 export interface FsGrepResult {

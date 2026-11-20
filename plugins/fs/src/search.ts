@@ -133,23 +133,25 @@ export function createSearch({ fence }: { fence: Fence }) {
       }
       const re = globToRegExp(pattern);
       const candidates: { file: string; mtimeMs: number }[] = [];
+      let totalHits = 0;
       await walkFiles(
         base.absolute,
         async (file) => {
-          if (candidates.length >= GLOB_MAX_CANDIDATES) return;
           if (!re.test(relPosix(base.absolute, file))) return;
+          totalHits += 1; // 计数不受候选帽影响（total 恒为命中全量）
+          if (candidates.length >= GLOB_MAX_CANDIDATES) return; // 帽后只计数不 stat
           try {
             const st = await fsp.stat(file);
             candidates.push({ file, mtimeMs: st.mtimeMs });
           } catch {
-            /* 竞态消失：跳过 */
+            /* 竞态消失：跳过（计数已含） */
           }
         },
         gate.signal,
       );
       candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.file < b.file ? -1 : 1));
       const files = candidates.slice(0, GLOB_MAX_RESULTS).map((c) => c.file);
-      return { files, total: candidates.length };
+      return { files, total: totalHits };
     },
 
     async grep(pattern: string, gate: FsGate, opts?: FsGrepOptions): Promise<FsGrepResult> {
@@ -197,6 +199,7 @@ export function createSearch({ fence }: { fence: Fence }) {
         fileSet.set(file, { mtimeMs: st.mtimeMs, count: matchedIdx.length, firstSeq: seq });
 
         if (mode === "content") {
+          const matchSet = new Set(matchedIdx);
           const emitted = new Set<number>();
           for (const idx of matchedIdx) {
             for (
@@ -213,6 +216,7 @@ export function createSearch({ fence }: { fence: Fence }) {
                   file,
                   line: j + 1,
                   text: raw.slice(0, GREP_MAX_LINE_CHARS),
+                  match: matchSet.has(j),
                 });
               }
             }

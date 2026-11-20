@@ -217,7 +217,9 @@ test("插话 steer：忙时投递升格 → step 边界进场带 steer 徽章", 
     inputSchema: { type: "object" },
     isConcurrencySafe: true,
     execute: async () => {
-      await new Promise((r) => setTimeout(r, 150));
+      // 800ms 工具窗：prompt + steer 两个 HTTP 往返必须落在窗内（150ms 在并行负载下越窗时，
+      // 队列条目会被回合末冲刷成新回合 source=send——steer 徽章不出现，稳定复现于 5 worker 全量）
+      await new Promise((r) => setTimeout(r, 800));
       return { content: "slow done" };
     },
   };

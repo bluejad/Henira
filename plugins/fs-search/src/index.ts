@@ -63,7 +63,17 @@ export function formatGrepResult(
     }
     return out;
   }
-  const out = r.matches.map((m) => `${display(m.file)}:${m.line}:${m.text}`).join("\n");
+  // 行号（-n，默认开）与命中/上下文区分：上下文行（match:false）用 `-` 分隔（rg 同形
+  // file:12:hit / file-13-context）
+  const lineNumbers = opts.lineNumbers !== false;
+  const out = r.matches
+    .map((m) => {
+      const sep = m.match === false ? "-" : ":";
+      return lineNumbers
+        ? `${display(m.file)}${sep}${m.line}${sep}${m.text}`
+        : `${display(m.file)}${sep}${m.text}`;
+    })
+    .join("\n");
   if (r.totalSeen > r.matches.length) {
     return `${out}\n(Truncated at head_limit=${headLimit}; ${r.totalSeen} matching lines seen in total. Refine the pattern or raise head_limit.)`;
   }

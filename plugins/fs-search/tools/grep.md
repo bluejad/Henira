@@ -34,6 +34,8 @@ content 模式（区内相对路径显示）：
 ```
 src/a.ts:2:// hello
 ```
+
+上下文行（`-A` / `-B` / `-C` 展开）用 `-` 分隔（`src/a.ts-3-neighbor`，rg 同形）；`-n:false` 省略行号（`src/a.ts:// hello`）。
 count 模式：
 
 ```

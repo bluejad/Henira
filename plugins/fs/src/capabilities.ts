@@ -198,8 +198,9 @@ export function createCapabilities({ fence, readState }: CapabilityDeps) {
       }
       if (endLine < offset) endLine = offset - 1;
 
-      const partial =
-        Boolean(opts?.limit) || Boolean(opts?.offset && opts.offset > 1) || truncatedByBytes;
+      // 部分读 = 没把文件读完（字节帽截断 / 从中间起读 / 到尾部前停）——显式 limit 若覆盖全文件
+      // 不算部分读（此前 Boolean(limit) 一律判部分，读全 5 行后 write 被误拒）
+      const partial = truncatedByBytes || offset > 1 || endLine < totalLines;
       readState.record(absolute, {
         mtimeMs: stat.mtimeMs,
         sizeBytes: stat.sizeBytes,
@@ -277,9 +278,20 @@ export function createCapabilities({ fence, readState }: CapabilityDeps) {
         );
       }
       const hadCrlf = original.includes("\r\n");
-      const content = hadCrlf ? original.replaceAll("\r\n", "\n") : original;
-      const oldN = op.old.replaceAll("\r\n", "\n");
-      const newN = op.new.replaceAll("\r\n", "\n");
+      const hadBareLf = /(^|[^\r])\n/.test(original);
+      const mixed = hadCrlf && hadBareLf;
+      if (mixed && (op.old.includes("\n") || op.old.includes("\r"))) {
+        // 混合换行的多行匹配：归一写回会把全线尾改成一种，拒绝优于静默改全文
+        throw new FsError(
+          "mixed_line_endings",
+          `"${absolute}" has mixed line endings (CRLF and LF); a multi-line edit cannot preserve them. Normalize the file's line endings first.`,
+        );
+      }
+      // 纯 LF / 纯 CRLF：归一视图匹配、写回还原原换行符；
+      // 混合文件只受理单行编辑（原样匹配，其余行纹丝不动）
+      const content = mixed ? original : hadCrlf ? original.replaceAll("\r\n", "\n") : original;
+      const oldN = mixed ? op.old : op.old.replaceAll("\r\n", "\n");
+      const newN = mixed ? op.new : op.new.replaceAll("\r\n", "\n");
 
       let count = 0;
       let at = content.indexOf(oldN);
@@ -303,7 +315,7 @@ export function createCapabilities({ fence, readState }: CapabilityDeps) {
         );
       }
       const replaced = op.replaceAll ? content.replaceAll(oldN, newN) : content.replace(oldN, newN);
-      const out = hadCrlf ? replaced.replaceAll("\n", "\r\n") : replaced;
+      const out = !mixed && hadCrlf ? replaced.replaceAll("\n", "\r\n") : replaced;
       await atomicWrite(absolute, out);
       const after = await statOrNull(absolute);
       readState.record(absolute, {

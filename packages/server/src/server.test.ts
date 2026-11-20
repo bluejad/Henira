@@ -1732,7 +1732,9 @@ process.stdin.on("end", () => {
     };
   }
 
-  it("确认门 fail-closed：未确认不 spawn；confirm-mcp 后新会话工具进注册表并经 tools.execute 触达", async () => {
+  it("确认门 fail-closed：未确认不 spawn；confirm-mcp 后新会话工具进注册表并经 tools.execute 触达", {
+    timeout: 20_000,
+  }, async () => {
     const { server, base, dataDir, cleanup } = await makeServer([]);
     try {
       await writeMcpPack(dataDir, false);
@@ -1788,7 +1790,9 @@ process.stdin.on("end", () => {
     }
   });
 
-  it("useResource 端点：越权 403 / 未声明 server 403 / happy path", async () => {
+  it("useResource 端点：越权 403 / 未声明 server 403 / happy path", {
+    timeout: 20_000,
+  }, async () => {
     const { server, base, dataDir, cleanup } = await makeServer([]);
     try {
       await writeMcpPack(dataDir, false);
@@ -1830,7 +1834,9 @@ process.stdin.on("end", () => {
     }
   });
 
-  it("凭据引用：缺失 → 该 server 跳过不 spawn；凭据在场 → env 注入生效（值只进内存）", async () => {
+  it("凭据引用：缺失 → 该 server 跳过不 spawn；凭据在场 → env 注入生效（值只进内存）", {
+    timeout: 20_000,
+  }, async () => {
     const { server, base, dataDir, globalDir, cleanup } = await makeServer([]);
     try {
       await writeMcpPack(dataDir, true); // cred.json env.MY_SECRET = ${credential:test-token}

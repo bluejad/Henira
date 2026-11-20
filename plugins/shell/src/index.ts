@@ -32,6 +32,11 @@ export function shellPlugin(): ServiceDefinition<ShellService> {
           if (typeof spec.command !== "string" || spec.command.trim() === "") {
             throw new ShellError("command must be a non-empty string");
           }
+          if (spec.shell !== "bash" && spec.shell !== "powershell") {
+            throw new ShellError(
+              `unsupported shell: ${String(spec.shell)}; expected "bash" or "powershell"`,
+            );
+          }
           // 相对 cwd 相对会话 cwd 解析（与 fs resolve 同语义）；绝对路径原样
           const cwd = path.resolve(config.cwd, spec.cwd ?? ".");
           const st = await fsp.stat(cwd).catch(() => null);

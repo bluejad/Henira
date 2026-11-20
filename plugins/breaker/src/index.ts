@@ -38,7 +38,7 @@ interface TurnStats {
 
 /** 稳定序 JSON（键递归排序，总长封顶）——同形调用签名（dsh/ZCode canonical key 同思想） */
 function stableKey(value: unknown, depth = 0): string {
-  if (depth > 8) return "…";
+  if (depth > 12) return "…";
   if (value === null || typeof value !== "object") return JSON.stringify(value ?? null);
   if (Array.isArray(value)) {
     return `[${value.map((v) => stableKey(v, depth + 1)).join(",")}]`;

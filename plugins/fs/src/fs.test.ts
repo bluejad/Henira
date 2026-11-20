@@ -236,6 +236,33 @@ describe("read / write / edit（读态守卫住服务层）", () => {
     expect(back).toBe("one\r\nTWO\r\n");
   });
 
+  it("edit：混合换行文件只受理单行编辑（其余行原样）；多行 old 报 mixed_line_endings", async () => {
+    const dir = await tmpWorkdir();
+    const caps = createCapabilities({ fence: createFence(dir), readState: new ReadState() });
+    await caps.write("mixed.txt", "a\r\nb\nc", gate()); // 混合：CRLF 行 + 裸 LF 行
+    await caps.read("mixed.txt", gate());
+    await caps.edit("mixed.txt", { old: "b", new: "B" }, gate());
+    // 单行编辑不归一写回：CRLF 行仍是 CRLF、裸 LF 行纹丝不动
+    expect(await fsp.readFile(path.join(dir, "mixed.txt"), "utf8")).toBe("a\r\nB\nc");
+
+    await expect(caps.edit("mixed.txt", { old: "B\nc", new: "X" }, gate())).rejects.toThrow(
+      /mixed line endings/,
+    );
+  });
+
+  it("read：显式 limit 覆盖全文件不算部分读（随后 write 放行）；未覆盖仍拒", async () => {
+    const dir = await tmpWorkdir();
+    const caps = createCapabilities({ fence: createFence(dir), readState: new ReadState() });
+    await fsp.writeFile(path.join(dir, "full.txt"), "a\nb\nc\n", "utf8");
+    await caps.read("full.txt", gate(), { limit: 2000 }); // 显式 limit 但读完 3 行
+    const w = await caps.write("full.txt", "x", gate());
+    expect(w.created).toBe(false);
+
+    await fsp.writeFile(path.join(dir, "tail-only.txt"), "1\n2\n3\n4\n", "utf8");
+    await caps.read("tail-only.txt", gate(), { offset: 3, limit: 2 }); // 从中间起读
+    await expect(caps.write("tail-only.txt", "y", gate())).rejects.toThrow(/partial/);
+  });
+
   it("edit：未读拒 + stale 拒；区外路径走 floor ask（放行才动手）", async () => {
     const dir = await tmpWorkdir();
     const caps = createCapabilities({ fence: createFence(dir), readState: new ReadState() });

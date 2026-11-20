@@ -178,4 +178,12 @@ describe("timeout 钳制", () => {
     const shell = await serviceWithCwd(dir);
     await expect(shell.run({ command: "  ", shell: "bash" }, gate())).rejects.toThrow(ShellError);
   });
+
+  it("非法 shell 值拒绝（不做静默回退 bash）", async () => {
+    const dir = await tmpWorkdir();
+    const shell = await serviceWithCwd(dir);
+    await expect(shell.run({ command: "echo hi", shell: "zsh" as never }, gate())).rejects.toThrow(
+      /unsupported shell/,
+    );
+  });
 });
