@@ -49,6 +49,8 @@ export const zh = {
   "composer.stop": "停止",
   "composer.steerHint": "回合进行中 · Enter 排队 · Ctrl+Enter 插话",
   "composer.queue.title": "排队消息",
+  "composer.queue.pausedTitle": "队列已暂停（回合被中断，等待继续）",
+  "composer.queue.resume": "继续发送",
   "composer.queue.badgeSteer": "插话",
   "composer.queue.sendNow": "立即作为插话发送",
   "composer.queue.sendNowIdle": "回合空闲，条目将在回合末自动发送",

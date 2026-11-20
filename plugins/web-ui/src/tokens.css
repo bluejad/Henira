@@ -712,6 +712,28 @@ button:focus-visible > .henira-row-caret {
   padding: 0 7px;
   font-variant-numeric: tabular-nums;
 }
+/* 中断冻结态：标题转警示色，头部挂「继续发送」文本钮（恢复冲刷） */
+.henira-queue-head.henira-queue-paused {
+  color: var(--henira-warn-text);
+}
+.henira-queue-resume {
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--henira-border);
+  background: none;
+  color: var(--henira-text);
+  border-radius: var(--henira-radius);
+  font-size: var(--henira-fs-sm);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.henira-queue-resume:hover:not(:disabled) {
+  background: var(--henira-border);
+}
+.henira-queue-resume:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .henira-queue-row {
   display: flex;
   align-items: center;

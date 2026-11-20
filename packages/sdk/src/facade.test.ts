@@ -761,4 +761,38 @@ describe.each(forms.map((f) => [f.name, f] as const))("排队卡（E1）双形�
       return end.state.busy === false && (end.state.queue ?? []).length === 0 ? true : undefined;
     }, 15_000);
   });
+
+  it("中断×队列双形态：interrupt → snapshot.state.queuePaused 且条目留守 → resumeQueue 恢复 → 条目正常回复", {
+    timeout: 30_000,
+  }, async () => {
+    const { facade } = await form.make([
+      "hang", // 首回合挂住 → interrupt
+      [mockText("冻结回复"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const session = await facade.createSession();
+    await facade.prompt(session.id, "第一问");
+    await waitFor(async () => {
+      const hit = (await facade.listSessions()).find((s) => s.id === session.id);
+      return hit?.busy === true ? true : undefined;
+    });
+    await facade.prompt(session.id, "冻结的话");
+    await facade.interrupt(session.id);
+    // 冻结态：busy=false + queuePaused=true + 条目留守（两形态同投影）
+    await waitFor(async () => {
+      const snap = await facade.snapshot(session.id);
+      return snap.state.busy === false && snap.state.queuePaused === true ? true : undefined;
+    });
+    const frozen = await facade.snapshot(session.id);
+    expect(frozen.state.queue?.some((e) => e.text === "冻结的话")).toBe(true);
+    // resume：等回复行落账（不能等「队列空+busy=false」——resume 的 drainNext 广播
+    // 先于新回合 turn/start，中间态会提前放行）
+    expect(await facade.resumeQueue(session.id)).toBe(true);
+    await waitFor(async () => {
+      const snap = await facade.snapshot(session.id);
+      return snap.rows.some((r) => r.kind === "assistant" && r.text === "冻结回复") &&
+        snap.state.busy === false
+        ? true
+        : undefined;
+    }, 15_000);
+  });
 });

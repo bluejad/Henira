@@ -356,7 +356,9 @@ interface LoopService {
   pending(): QueuedPrompt[]; // 当前排队条目快照（排队卡 UI 数据源；投影态非账本事实）
   steer(entryId: string): Promise<boolean>; // 队列条目"立即发送" = 插话升格
   remove(entryId: string): Promise<boolean>; // 删除排队条目（排队卡行级操作）；不存在 false
-  interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}）
+  paused(): boolean; // 队列是否处于「中断冻结」态（UI 暂停横幅判据；投影态非账本事实）
+  resume(): Promise<boolean>; // 恢复冻结队列冲刷：取队头开新回合；闲时才可，无事可做 false
+  interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}；队列非空 = 冻结不冲刷）
 }
 
 // 命令收集（D-025）：官方 plugin-commands 实现并占 `commands` 槽位；宿主只消费
@@ -590,6 +592,7 @@ GET  /api/sessions/:id/rows?before=&limit=              → RowsPage        // �
 POST /api/sessions/:id/prompt               { text, steer?, modelId?, reasoningEffort? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；steer=true 忙时直插（E1 发送模式 Ctrl+Enter）；模型/思考按次覆盖（每次提问绑定，骨架批）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 DELETE /api/sessions/:id/queue/:entryId     → { ok } | 404                                        // 排队条目删除（E1 排队卡行级操作）
+POST /api/sessions/:id/queue/resume                     → { ok: boolean }                         // 恢复中断冻结的队列冲刷（取队头开新回合；无事可做 ok:false）
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
@@ -824,6 +827,7 @@ interface SessionState {
   busy: boolean;
   lastTurnId?: string;
   queue?: QueuedPrompt[]; // 排队条目快照（E1 排队卡数据源；投影态非账本——loop 活态经发布口并线，queue/changed → state.updated；快照同带。loop 不在册 = 键缺省）
+  queuePaused?: boolean; // 中断冻结（队列非空时中断不冲刷等 resume；投影态非账本事实，与 queue 键同批并线）
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;

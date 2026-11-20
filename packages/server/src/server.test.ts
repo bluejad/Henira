@@ -455,6 +455,86 @@ describe("排队卡全链（E1：queue 上投影态）", () => {
   });
 });
 
+describe("中断×队列全链（冻结横幅 + resume 恢复）", () => {
+  it("忙时入队 → interrupt → state.updated 携 queuePaused:true 且条目留守（不生而为 abort）→ POST queue/resume → 条目正常回复落账", async () => {
+    const { base, cleanup } = await makeServer([
+      "hang", // 首回合挂住 → interrupt
+      [
+        mockText("冻结条目回复"),
+        mockUsage({ inputTokens: 1, outputTokens: 1 }),
+        mockFinish("stop"),
+      ],
+    ]);
+    const sink: ServerFrame[] = [];
+    try {
+      const id = await createSession(base);
+      subscribe(base, sink);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "第一问" }),
+      });
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        return frames.some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === true,
+        )
+          ? true
+          : undefined;
+      });
+      const res = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "冻结的话" }),
+      });
+      const receipt = (await res.json()) as { queued: boolean; id: string | null };
+      expect(receipt.queued).toBe(true);
+      await fetch(`${base}/api/sessions/${id}/interrupt`, { method: "POST" });
+      // 语义锁：中断后 state.updated 携 queuePaused:true 且队列留守（冻结态推到客户端）
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        return frames.some(
+          (f) =>
+            f.kind === "delta" &&
+            f.delta.op === "state.updated" &&
+            f.delta.state.busy === false &&
+            f.delta.state.queuePaused === true &&
+            Array.isArray(f.delta.state.queue) &&
+            f.delta.state.queue.some((e) => e.id === receipt.id),
+        )
+          ? true
+          : undefined;
+      });
+      // 冻结期间账本无孤儿 user 行（对照修复前：条目生而为 abort 落账零回复）
+      const frozenSnap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: { kind: string; text?: string }[];
+      };
+      expect(frozenSnap.rows.some((r) => r.kind === "user" && r.text === "冻结的话")).toBe(false);
+      // resume：等回复行落账（resume 的 drainNext 广播先于新回合 turn/start——
+      // 等「队列空+busy=false」会被中间态提前放行，必须等回复行这个确定性信号）
+      const resumeRes = await fetch(`${base}/api/sessions/${id}/queue/resume`, {
+        method: "POST",
+      });
+      expect(((await resumeRes.json()) as { ok: boolean }).ok).toBe(true);
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        return frames.some(
+          (f) =>
+            f.kind === "delta" &&
+            f.delta.op === "row.appended" &&
+            f.delta.row.kind === "assistant" &&
+            f.delta.row.text === "冻结条目回复",
+        )
+          ? true
+          : undefined;
+      });
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe("REST 面与设置", () => {
   it("设置读写 / 凭据只写不读（D-030）", async () => {
     const { base, cleanup } = await makeServer([]);

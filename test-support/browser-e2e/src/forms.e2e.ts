@@ -306,6 +306,55 @@ test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽�
   await stop();
 });
 
+// ── 中断×队列（停止 = 队列冻结不冲刷 + 暂停横幅 + 继续发送恢复）──────────────
+
+test("中断冻结：停止 → 队列留守 + 暂停横幅 → 继续发送 → 条目逐条回复进流", async ({ page }) => {
+  // 半截文本后挂起——abort 即拒绝（同 13 中断收尾的织入法）
+  const partialThenHang = ((_req: unknown, signal: AbortSignal) =>
+    (async function* () {
+      yield { type: "text-delta", text: "half written..." } as StreamEvent;
+      await new Promise<never>((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new LlmError("ABORTED", "hung until aborted")),
+          { once: true },
+        );
+      });
+    })()) as Parameters<typeof mockLlm>[0][number];
+  const { server, stop } = await startServer([
+    partialThenHang,
+    [mockText("Frozen entry replied."), mockUsage(USAGE), mockFinish("stop")],
+    [mockText("Second entry replied."), mockUsage(USAGE), mockFinish("stop")],
+  ]);
+  await page.goto(server.url);
+  await send(page, "start and then stop me");
+  const stopButton = page.getByRole("button", { name: zh["composer.stop"] });
+  await expect(stopButton).toBeVisible();
+  const area = page.getByPlaceholder(zh["composer.placeholder"]);
+  const panel = page.getByRole("list", { name: zh["composer.queue.title"] });
+  // 忙时排两条
+  await area.fill("frozen-entry-one");
+  await area.press("Enter");
+  await expect(panel).toBeVisible();
+  await area.fill("frozen-entry-two");
+  await area.press("Enter");
+  await expect(panel.getByText("frozen-entry-two")).toBeVisible();
+  // 停止 → 冻结：横幅标题切换 + 条目留守（不落流、不消失——修复前条目会生而为 abort 全烧掉）
+  await stopButton.click();
+  await expect(page.getByText(zh["composer.queue.pausedTitle"])).toBeVisible();
+  await expect(panel.getByText("frozen-entry-one")).toBeVisible();
+  await shot(page, "19-queue-paused.png");
+  // 继续发送 → 队头条目逐条开回合、各有回复；面板排空退场
+  await page.getByRole("button", { name: zh["composer.queue.resume"] }).click();
+  await expect(page.getByText("Frozen entry replied.")).toBeVisible();
+  await expect(page.getByText("frozen-entry-one")).toBeVisible(); // 第一条落流（面板此刻只剩第二条）
+  await expect(page.getByText("Second entry replied.")).toBeVisible();
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByText("frozen-entry-two")).toBeVisible(); // 面板退场后流内唯一命中
+  await shot(page, "20-queue-resumed.png");
+  await stop();
+});
+
 // ── 输出截断（>50KB → 尾注 + truncated 徽章 + spill 落盘）────────────────
 
 test("输出截断：徽章 + 尾注 + spill 落盘会话 artifacts/", async ({ page }) => {

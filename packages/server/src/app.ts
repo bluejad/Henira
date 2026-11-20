@@ -219,6 +219,13 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(ok ? { ok: true } : { error: "entry not found" }, ok ? 200 : 404);
   });
 
+  // 恢复中断冻结的队列冲刷（取队头开新回合，回合末自动续冲）；无冻结/无条目 ok:false
+  app.post("/api/sessions/:id/queue/resume", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    return c.json({ ok: await entry.ctx.get("loop").resume() });
+  });
+
   app.post("/api/sessions/:id/steer", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);

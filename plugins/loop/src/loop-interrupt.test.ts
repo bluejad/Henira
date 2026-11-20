@@ -209,3 +209,101 @@ describe("中断纪律五条（loop.md §2，一行一测试）", () => {
     await harness.dispose();
   });
 });
+
+describe("中断×队列（队列非空中断 = 冻结不冲刷，resume 显式恢复）", () => {
+  it("冻结：中断后条目留守（不落账、无孤儿 user 行、paused 置位），resume 取队头恢复续冲", async () => {
+    const { harness, ctx, loop, session } = await startedLoop([
+      "hang", // 首回合挂住 → interrupt 打断
+      [mockText("排队一回复"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("排队二回复"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const pauses: boolean[] = [];
+    ctx.events.on("queue/changed", () => pauses.push(loop.paused()));
+    const consuming = (async () => {
+      for await (const _ of loop.run("首回合挂住")) void _;
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await loop.send("排队一");
+    await loop.send("排队二");
+    expect(loop.pending()).toHaveLength(2);
+    expect(loop.paused()).toBe(false);
+    await loop.interrupt();
+    await consuming; // 中断收尾：冲刷守卫接住，不带走队列
+    expect(loop.pending()).toHaveLength(2); // 冻结：条目留守
+    expect(loop.paused()).toBe(true);
+    expect(pauses).toContain(true);
+    // 修复前此处会「生而为 abort」：排队条目落 user 行、零回复——现在账本里只有首回合的提问
+    const userTexts = session
+      .events()
+      .filter((e) => e.type === "user/message")
+      .map((e) => (e.data as { content: string }).content);
+    expect(userTexts).toEqual(["首回合挂住"]);
+    // resume：队头开新回合 + 回合末自动续冲第二条，两回复都落账
+    let ends = 0;
+    const chainDone = new Promise<void>((resolve) => {
+      ctx.events.on("turn/end", () => {
+        ends += 1;
+        if (ends >= 2) resolve(); // resume 首回合 + 续冲回合
+      });
+    });
+    expect(await loop.resume()).toBe(true);
+    await chainDone;
+    expect(loop.paused()).toBe(false);
+    expect(loop.pending()).toHaveLength(0);
+    const contents = session
+      .events()
+      .filter((e) => e.type === "assistant/message")
+      .map((e) => (e.data as { content: string }).content);
+    expect(contents).toContain("排队一回复"); // 有回复（对照修复前的零回复）
+    expect(contents).toContain("排队二回复");
+    await harness.dispose();
+  });
+
+  it("冻结期间 send 新消息 = 解冻开跑，该回合末队列照常自动续冲", async () => {
+    const { harness, ctx, loop, session } = await startedLoop([
+      "hang",
+      [mockText("新消息回复"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("排队回复"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const consuming = (async () => {
+      for await (const _ of loop.run("首回合挂住")) void _;
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await loop.send("排队的话");
+    await loop.interrupt();
+    await consuming;
+    expect(loop.paused()).toBe(true);
+    let ends = 0;
+    const chainDone = new Promise<void>((resolve) => {
+      ctx.events.on("turn/end", () => {
+        ends += 1;
+        if (ends >= 2) resolve(); // 新消息回合 + 续冲回合
+      });
+    });
+    await loop.send("解冻的新消息"); // 闲时直开回合 = 重新上路
+    expect(loop.paused()).toBe(false); // 解冻即时生效（横幅退场）
+    await chainDone;
+    expect(loop.pending()).toHaveLength(0); // 冻结条目在该回合末自动续冲
+    const contents = session
+      .events()
+      .filter((e) => e.type === "assistant/message")
+      .map((e) => (e.data as { content: string }).content);
+    expect(contents).toContain("新消息回复");
+    expect(contents).toContain("排队回复");
+    await harness.dispose();
+  });
+
+  it("队列空时中断 = 不置冻结态；resume 无事可做返回 false", async () => {
+    const { harness, loop } = await startedLoop(["hang"]);
+    const consuming = (async () => {
+      for await (const _ of loop.run("只此一回")) void _;
+    })();
+    await new Promise((r) => setTimeout(r, 20));
+    await loop.interrupt();
+    await consuming;
+    expect(loop.pending()).toHaveLength(0);
+    expect(loop.paused()).toBe(false); // 队列空：无冻结（横幅判据不会误亮）
+    expect(await loop.resume()).toBe(false);
+    await harness.dispose();
+  });
+});

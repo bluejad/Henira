@@ -3,6 +3,9 @@
 // 队列与插话待进场条目同面板呈现、徽章区分（流内 pending 气泡本地回显挂账 50-open）。
 // 行操作：插话发送 = steer 升格（仅 busy 时可点——闲时条目随回合末冲刷，dsh 同语义）；
 // 编辑 = 文本回填 composer 草稿 + 条目删除（跨窗口冻结锁挂账）；删除 = removeQueueEntry。
+// 中断冻结：队列非空时中断不冲刷——queuePaused 态头部切「队列已暂停」+「继续发送」
+// （resumeQueue 恢复冲刷）。渲染条件 = 队列非空且（busy 或冻结）：回合末 busy 翻 false
+// 与冲刷广播之间有瞬态窗口，两侧都不满足时隐藏（防每对回合间面板闪现）。
 // 空队列不渲染（不打扰）；审批接管不受影响（面板位于审批卡之下、输入卡之上）。
 
 import type { QueuedPrompt } from "@henira/protocol";
@@ -25,13 +28,19 @@ export function QueuePanel({
     () => ctx.store.getSession(ctx.sessionId).state.busy,
     () => false,
   );
+  const paused = useSyncExternalStore(
+    ctx.store.subscribe,
+    () => ctx.store.getSession(ctx.sessionId).state.queuePaused === true,
+    () => false,
+  );
   const queue = useSyncExternalStore(
     ctx.store.subscribe,
     () => ctx.store.getSession(ctx.sessionId).state.queue ?? EMPTY_QUEUE,
     () => EMPTY_QUEUE,
   );
-  if (ctx.sessionId === null || queue.length === 0) return null;
+  if (ctx.sessionId === null || queue.length === 0 || !(busy || paused)) return null;
   const canRemove = ctx.client.removeQueueEntry !== undefined;
+  const canResume = ctx.client.resumeQueue !== undefined;
 
   const remove = (entryId: string): void => {
     void ctx.client.removeQueueEntry?.(ctx.sessionId as string, entryId).catch(() => {});
@@ -39,9 +48,23 @@ export function QueuePanel({
 
   return (
     <div className="henira-queue">
-      <div className="henira-queue-head">
-        {ctx.t("composer.queue.title")}
+      <div className={paused ? "henira-queue-head henira-queue-paused" : "henira-queue-head"}>
+        {paused ? ctx.t("composer.queue.pausedTitle") : ctx.t("composer.queue.title")}
         <span className="henira-queue-count">{queue.length}</span>
+        {paused ? (
+          <button
+            type="button"
+            className="henira-queue-resume"
+            aria-label={ctx.t("composer.queue.resume")}
+            title={ctx.t("composer.queue.resume")}
+            disabled={!canResume}
+            onClick={() => {
+              void ctx.client.resumeQueue?.(ctx.sessionId as string).catch(() => {});
+            }}
+          >
+            {ctx.t("composer.queue.resume")}
+          </button>
+        ) : null}
       </div>
       <ul className="henira-queue-rows" aria-label={ctx.t("composer.queue.title")}>
         {queue.map((entry) => (

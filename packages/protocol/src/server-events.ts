@@ -97,6 +97,8 @@ export interface SessionState {
   lastTurnId?: string;
   /** 当前排队条目快照（排队卡 UI 数据源；投影态非账本事实——P9-1 不变，queue.json 仍是唯一持久层） */
   queue?: QueuedPrompt[];
+  /** 中断冻结（队列非空时中断不冲刷，等 resume 恢复；投影态非账本事实，与 queue 键同批并线） */
+  queuePaused?: boolean;
 }
 
 export interface SessionSnapshot {

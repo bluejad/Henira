@@ -34,6 +34,8 @@ export interface HeniraClientLike {
   steer(sessionId: string, entryId: string): Promise<boolean>;
   /** 删除排队条目（排队卡行级操作；可选——旧嵌入方缺省时面板删除钮禁用） */
   removeQueueEntry?(sessionId: string, entryId: string): Promise<boolean>;
+  /** 恢复中断冻结的队列冲刷（可选——旧嵌入方缺省时「继续发送」钮禁用） */
+  resumeQueue?(sessionId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
   events(): AsyncIterable<ServerFrame>;

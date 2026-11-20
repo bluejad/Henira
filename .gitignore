@@ -12,3 +12,4 @@ dist-web/
 test-support/browser-e2e/test-results/
 test-support/browser-e2e/playwright-report/
 test-support/browser-e2e/artifacts/
+/artifacts/

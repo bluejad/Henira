@@ -100,6 +100,13 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       return res.ok;
     },
 
+    async resumeQueue(sessionId) {
+      const res = await requestJson<{ ok: boolean }>(`/api/sessions/${sessionId}/queue/resume`, {
+        method: "POST",
+      }).catch(() => ({ ok: false }) as { ok: boolean });
+      return res.ok;
+    },
+
     async interrupt(sessionId) {
       await requestJson(`/api/sessions/${sessionId}/interrupt`, { method: "POST" });
     },

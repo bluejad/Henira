@@ -192,10 +192,13 @@ const RESOURCE_MAX_CHARS = 200 * 1024;
  *  queue 键。loop 不在册（自定义清单无 loop——get 缺槽抛 MissingSlotError）→ queue 键缺省 */
 function stateWithQueue(state: SessionState, ctx: unknown): SessionState {
   let pending: QueuedPrompt[] | undefined;
+  let paused: boolean | undefined;
   try {
-    pending = (ctx as { get(slot: "loop"): { pending(): QueuedPrompt[] } } | undefined)
-      ?.get("loop")
-      .pending();
+    const loop = (
+      ctx as { get(slot: "loop"): { pending(): QueuedPrompt[]; paused(): boolean } } | undefined
+    )?.get("loop");
+    pending = loop?.pending();
+    paused = loop?.paused();
   } catch {
     pending = undefined; // 清单没列 loop = 听清单的（无队列面）
   }
@@ -209,6 +212,7 @@ function stateWithQueue(state: SessionState, ctx: unknown): SessionState {
       modelId,
       reasoningEffort,
     })),
+    queuePaused: paused === true ? true : undefined,
   };
 }
 
@@ -544,6 +548,10 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async removeQueueEntry(sessionId, entryId) {
       return requireSession(sessions, sessionId).ctx.get("loop").remove(entryId);
+    },
+
+    async resumeQueue(sessionId) {
+      return requireSession(sessions, sessionId).ctx.get("loop").resume();
     },
 
     async interrupt(sessionId) {

@@ -40,6 +40,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     prompt: async () => ({ queued: false, id: null }),
     steer: async () => true,
     removeQueueEntry: async () => true,
+    resumeQueue: async () => true,
     interrupt: async () => {},
     settleApproval: async () => true,
     events: async function* () {
@@ -505,7 +506,7 @@ describe("Composer", () => {
     fireEvent.click(screen.getByRole("button", { name: t("composer.queue.delete") }));
     await waitFor(() => expect(removeSpy).toHaveBeenCalledTimes(2));
     first.unmount();
-    // 闲时插话钮禁用
+    // 闲时未冻结 + 队列非空 = 回合末冲刷瞬态窗口 → 不渲染（防每对回合间面板闪现）
     const idleCtx = fixtureCtx({
       ...ctx,
       store: {
@@ -513,9 +514,54 @@ describe("Composer", () => {
         subscribe: () => () => {},
       },
     });
-    render(<QueuePanel ctx={idleCtx} />);
+    const idle = render(<QueuePanel ctx={idleCtx} />);
+    expect(idle.container.querySelector(".henira-queue")).toBeNull();
+    idle.unmount();
+    // 冻结（paused）态可见：插话钮仍禁用（busy=false）
+    const pausedCtx = fixtureCtx({
+      ...ctx,
+      store: {
+        getSession: () => ({ rows: [], state: { busy: false, queuePaused: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    render(<QueuePanel ctx={pausedCtx} />);
     expect(
       (screen.getByRole("button", { name: t("composer.queue.sendNow") }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("E1 中断冻结：头部切「队列已暂停」+「继续发送」钮（调 resumeQueue；client 缺方法时禁用）", async () => {
+    const queue = [{ id: "q1", text: "冻结条目", steer: false }];
+    const ctx = fixtureCtx();
+    const resumeSpy = vi.spyOn(ctx.client, "resumeQueue");
+    const pausedCtx = fixtureCtx({
+      ...ctx,
+      store: {
+        getSession: () => ({ rows: [], state: { busy: false, queuePaused: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    const view = render(<QueuePanel ctx={pausedCtx} />);
+    expect(screen.getByText(t("composer.queue.pausedTitle"))).toBeDefined();
+    const resumeBtn = screen.getByRole("button", { name: t("composer.queue.resume") });
+    fireEvent.click(resumeBtn);
+    await waitFor(() => expect(resumeSpy).toHaveBeenCalledWith("s-1"));
+    // 旧嵌入方缺 resumeQueue → 继续钮禁用（不崩）
+    const { resumeQueue: _omit, ...clientWithoutResume } = ctx.client;
+    const legacyCtx = fixtureCtx({
+      ...ctx,
+      client: clientWithoutResume as HeniraClientLike,
+      store: {
+        getSession: () => ({ rows: [], state: { busy: false, queuePaused: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    view.unmount();
+    render(<QueuePanel ctx={legacyCtx} />);
+    expect(
+      (screen.getByRole("button", { name: t("composer.queue.resume") }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });

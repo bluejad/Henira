@@ -693,8 +693,11 @@ export class SessionRegistry {
    *  get 缺槽抛 MissingSlotError）或未挂载（磁盘历史会话）时 queue 键缺省 = 无队列语义 */
   #stateWithQueue(entry: SessionEntry, base: SessionState): SessionState {
     let pending: QueuedPrompt[] | undefined;
+    let paused: boolean | undefined;
     try {
-      pending = entry.ctx?.get("loop").pending();
+      const loop = entry.ctx?.get("loop");
+      pending = loop.pending();
+      paused = loop.paused();
     } catch {
       pending = undefined; // 清单没列 loop = 听清单的（无队列面）
     }
@@ -708,6 +711,7 @@ export class SessionRegistry {
         modelId,
         reasoningEffort,
       })),
+      queuePaused: paused === true ? true : undefined,
     };
   }
 

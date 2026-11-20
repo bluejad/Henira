@@ -59,6 +59,10 @@ export interface LoopService {
   steer(entryId: string): Promise<boolean>;
   /** 删除排队条目；条目不存在返回 false */
   remove(entryId: string): Promise<boolean>;
-  /** 中止当前回合（turn/end{aborted, cause:'user'}） */
+  /** 队列是否处于「中断冻结」态（中断后不自动冲刷，等显式恢复；UI 暂停横幅判据） */
+  paused(): boolean;
+  /** 恢复被中断冻结的队列冲刷：取队头开新回合（闲时才可；无冻结/无条目返回 false） */
+  resume(): Promise<boolean>;
+  /** 中止当前回合（turn/end{aborted, cause:'user'}；队列非空时中断 = 队列冻结不冲刷） */
   interrupt(signal?: AbortSignal): Promise<void>;
 }
