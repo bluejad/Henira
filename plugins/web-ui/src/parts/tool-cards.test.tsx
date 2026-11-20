@@ -67,11 +67,37 @@ describe("buildDiffRows（jsdiff 包装）", () => {
     expect(r?.rows.some((row) => row.kind === "del" && row.oldLine === 2)).toBe(true);
   });
 
-  it("相同文本 = null（无变化不渲染卡）；超限 = 整体替换单 hunk", () => {
+  it("多 hunk：行号按各自 hunk.oldStart/newStart 重置（审查 F2 回归）", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`);
+    const mod = [...lines];
+    mod[1] = "B2"; // 第 2 行改
+    mod[16] = "B17"; // 第 17 行改——与第 2 行相距足够远 → 多 hunk
+    const r = buildDiffRows(lines.join("\n"), mod.join("\n"));
+    expect(r).not.toBeNull();
+    // 不论 jsdiff 切几个 hunk，del 行号必须等于真实旧文件行号（拍平实现第二 hunk 会错）
+    expect(r?.rows.filter((row) => row.kind === "del").map((d) => d.oldLine)).toEqual([2, 17]);
+    expect(r?.rows.filter((row) => row.kind === "add").map((a) => a.newLine)).toEqual([2, 17]);
+  });
+
+  it("相同文本 = null；超 maxEditLength（v9 返回 undefined）= 自构整体替换", () => {
     expect(buildDiffRows("same", "same")).toBeNull();
     const r = buildDiffRows("x".repeat(5000), "y".repeat(5000));
     expect(r).not.toBeNull();
-    expect(r?.added).toBeGreaterThan(0);
+    expect(r?.added).toBe(1);
+    expect(r?.removed).toBe(1);
+    expect(r?.truncated).toBeUndefined(); // 两行，未触千行闸
+  });
+
+  it("自构整体替换超千行 → 截断（±N 计数仍算全量，审查 F6）", () => {
+    // jsdiff 对字符串按行 token 跑 Myers：总编辑长度（删+增行数）2400 > maxEditLength
+    // 2000 → 返回 undefined → 自构整体替换 fallback（千行闸截断）
+    const bigOld = Array.from({ length: 1200 }, () => "xxxxx").join("\n");
+    const bigNew = Array.from({ length: 1200 }, () => "yyyyy").join("\n");
+    const r = buildDiffRows(bigOld, bigNew);
+    expect(r?.truncated).toBe(true);
+    expect(r?.rows.length).toBe(1000); // 500 del + 500 add
+    expect(r?.added).toBe(1200); // 计数不截断
+    expect(r?.removed).toBe(1200);
   });
 });
 
@@ -134,6 +160,32 @@ describe("TerminalCard（终端卡）", () => {
       }),
     );
     expect(timed).toContain("已超时");
+  });
+
+  it("stdout/stderr 流截断 → 「输出已截断」徽章（审查 F4）", () => {
+    const text = renderCard(
+      createElement(TerminalCard, {
+        row: toolRow({
+          name: "bash",
+          input: JSON.stringify({ command: "big" }),
+          output: {
+            content: "...(truncated)",
+            isError: false,
+            durationMs: 1,
+            meta: {
+              kind: "shell",
+              exitCode: 0,
+              stdout: "tail only",
+              stderr: "",
+              stdoutTruncated: true,
+            },
+          },
+        }),
+        ctx,
+      }),
+    );
+    expect(text).toContain("输出已截断");
+    expect(text).toContain("tail only");
   });
 
   it("meta 缺（旧会话）→ content 原样；running 无 output → 通用卡回落", () => {
@@ -252,6 +304,26 @@ describe("WriteCard（新建/覆盖卡）", () => {
     );
     expect(overwrote).toContain("覆盖文件");
     expect(overwrote).toContain("hi");
+  });
+
+  it("created 全文超千行 → 截断注记（审查 F6：行数闸防大文件挂满 DOM）", () => {
+    const content = Array.from({ length: 1200 }, (_, i) => `L${i}`).join("\n");
+    const text = renderCard(
+      createElement(WriteCard, {
+        row: toolRow({
+          name: "write",
+          input: JSON.stringify({ file_path: "big.txt", content }),
+          output: {
+            content: "created",
+            isError: false,
+            durationMs: 1,
+            meta: { kind: "write", path: "big.txt", created: true },
+          },
+        }),
+        ctx,
+      }),
+    );
+    expect(text).toContain("差异过大，已截断显示");
   });
 });
 

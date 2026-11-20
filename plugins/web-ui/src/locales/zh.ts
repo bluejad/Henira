@@ -52,6 +52,8 @@ export const zh = {
   "tool.matchesSuffix": "处命中",
   "tool.filesSuffix": "个文件",
   "tool.lines": "行",
+  "tool.streamTruncatedTip": "stdout/stderr 超过上限，仅保留末尾部分",
+  "tool.diffTruncated": "差异过大，已截断显示",
   "composer.placeholder": "输入消息，Enter 发送，Shift+Enter 换行",
   "composer.send": "发送",
   "composer.queueSend": "排队发送",

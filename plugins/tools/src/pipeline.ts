@@ -34,6 +34,27 @@ function errorOutcome(content: string): ToolOutcome {
   return { result: { content, isError: true }, durationMs: 0 }; // 未到 execute 的拒 = 0（审计事实不造假）
 }
 
+/** __meta 带外通道尺寸闸：meta 只进账本/SSE（不进模型上下文），但同样不能无界——官方
+ * 工具的 meta 自带服务层上限（shell 每流 20KB 等），此闸防第三方工具塞任意大对象绕过
+ * 出口限量。超限/不可序列化（BigInt 等）= 整体丢弃（UI 卡降级通用渲染，模型可见面不受
+ * 影响——meta 本来就不进模型上下文）。 */
+const META_MAX_BYTES = 256 * 1024;
+
+function capMeta(result: ToolOutcome["result"]): ToolOutcome["result"] {
+  const meta = result.__meta;
+  if (meta === undefined) return result;
+  let within = false;
+  try {
+    within = JSON.stringify(meta).length <= META_MAX_BYTES;
+  } catch {
+    within = false; // 不可序列化 = 丢弃
+  }
+  if (within) return result;
+  console.warn(`[tools] tool result __meta dropped: exceeds ${META_MAX_BYTES} byte cap`);
+  const { __meta: _drop, ...rest } = result;
+  return rest;
+}
+
 /** 段1 parseArgs：JSON 解析 + schema 校验，失败 → 结构化错误回模型重发 */
 function parseArgs(
   call: ToolCall,
@@ -157,7 +178,7 @@ export async function runOne(
     spillName: `${call.callId}.txt`,
   });
   return {
-    result: { ...outcome.result, content: limited.content },
+    result: { ...capMeta(outcome.result), content: limited.content },
     truncated: limited.truncated ?? outcome.truncated,
     durationMs: outcome.durationMs,
   };

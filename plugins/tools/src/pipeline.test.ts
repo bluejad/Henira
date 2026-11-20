@@ -285,6 +285,43 @@ describe("runOne 五段管线", () => {
     await harness.dispose();
   });
 
+  it("meta 尺寸闸（审查 F5）：__meta 超 256KB 整体丢弃；小 meta 原样透传", async () => {
+    const { harness, ctx } = await started();
+    const deps = makeDeps(ctx, {});
+    deps.registry.register({
+      name: "bigmeta",
+      description: "bigmeta",
+      inputSchema: { type: "object" },
+      isConcurrencySafe: true,
+      execute: async () => ({
+        content: "ok",
+        __meta: { kind: "x", blob: "z".repeat(300 * 1024) },
+      }),
+    });
+    const big = await runOne(
+      { callId: "m1", name: "bigmeta", argsText: "{}" },
+      mkToolCtx(probe().ask(["allowed-once"])),
+      deps,
+    );
+    expect(big.result.content).toBe("ok");
+    expect("meta" in big.result === false && big.result.__meta === undefined).toBe(true);
+
+    deps.registry.register({
+      name: "smallmeta",
+      description: "smallmeta",
+      inputSchema: { type: "object" },
+      isConcurrencySafe: true,
+      execute: async () => ({ content: "ok", __meta: { kind: "x", n: 1 } }),
+    });
+    const small = await runOne(
+      { callId: "m2", name: "smallmeta", argsText: "{}" },
+      mkToolCtx(probe().ask(["allowed-once"])),
+      deps,
+    );
+    expect(small.result.__meta).toEqual({ kind: "x", n: 1 });
+    await harness.dispose();
+  });
+
   it("toolsPlugin 经 kernel 公共注册路径装配：register + project + execute 全通（P8）", async () => {
     const harness = createHarness().use(toolsPlugin({}));
     await harness.start();

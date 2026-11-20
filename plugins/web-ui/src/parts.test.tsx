@@ -792,6 +792,48 @@ describe("行级挂载点（D-057）", () => {
     expect(screen.getByText("mcp__fs__read_file")).toBeDefined();
   });
 
+  it("MCP 总缝渲染槽内件本身（审查 F1 回归）：第三方顶替件生效，不是硬编码官方卡", () => {
+    const mcpRow: Row = {
+      kind: "tool",
+      rowId: "t:t-1:1:m3",
+      rowSeq: 5,
+      turn: "t-1",
+      step: 1,
+      callId: "m3",
+      name: "mcp__office__read_doc",
+      status: "done",
+      input: "{}",
+      output: { content: "doc body", isError: false, durationMs: 3 },
+    };
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["tool.call.view.mcp", [() => "总缝顶替件甲"]],
+    ]);
+    render(<Conversation {...ctxWithRows([mcpRow], slots)} />);
+    expect(screen.getByText("总缝顶替件甲")).toBeDefined();
+    expect(screen.queryByText("read_doc")).toBeNull(); // 官方 McpCard 未被渲染
+  });
+
+  it("字面名 mcp 的工具不走总缝（保留键守卫，审查 F9）：顶替件与官方卡都不渲染", () => {
+    const literalRow: Row = {
+      kind: "tool",
+      rowId: "t:t-1:1:m4",
+      rowSeq: 6,
+      turn: "t-1",
+      step: 1,
+      callId: "m4",
+      name: "mcp",
+      status: "done",
+      input: "{}",
+      output: { content: "body", isError: false, durationMs: 3 },
+    };
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["tool.call.view.mcp", [() => "总缝顶替件甲"]],
+    ]);
+    render(<Conversation {...ctxWithRows([literalRow], slots)} />);
+    expect(screen.queryByText("总缝顶替件甲")).toBeNull();
+    expect(screen.getByText("mcp")).toBeDefined(); // ToolView 通用卡兜底渲染工具名
+  });
+
   it("turn.tail 追加位：行列表之后渲染全部件（官方无默认件）", () => {
     const slots = new Map<string, readonly SlotPart[]>([
       ["turn.tail", [() => "回合尾追加块甲", () => "回合尾追加块乙"]],

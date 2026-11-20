@@ -201,25 +201,41 @@ export function TerminalCard({ row, ctx }: CardProps): React.ReactNode {
     return <ToolView row={row} ctx={ctx} />;
   }
   const failed = m !== null && (m.exitCode === null || m.exitCode !== 0);
+  // 流截断可见（审查 F4）：模型面 content 有截断注记，UI 只有 meta 知道——漏了用户看不到
+  // 「只保留尾部 20KB」这个事实
+  const streamTruncated = m !== null && (m.stdoutTruncated === true || m.stderrTruncated === true);
   const summaryExtra =
-    m === null || row.status === "running" ? null : m.timedOut === true ? (
-      <Pill bg="var(--henira-warn-bg)" color="var(--henira-warn-text)">
-        {ctx.t("tool.timedOut")}
-      </Pill>
-    ) : m.exitCode === null ? (
-      <Pill bg="var(--henira-danger-bg)" color="var(--henira-danger-text)">
-        {ctx.t("tool.killed")}
-        {m.signal !== undefined ? ` · ${m.signal}` : ""}
-      </Pill>
-    ) : m.exitCode !== 0 ? (
-      <Pill
-        bg="var(--henira-danger-bg)"
-        color="var(--henira-danger-text)"
-        title={ctx.t("tool.exitCode")}
-      >
-        exit {m.exitCode}
-      </Pill>
-    ) : null;
+    m === null || row.status === "running" ? null : (
+      <>
+        {m.timedOut === true ? (
+          <Pill bg="var(--henira-warn-bg)" color="var(--henira-warn-text)">
+            {ctx.t("tool.timedOut")}
+          </Pill>
+        ) : m.exitCode === null ? (
+          <Pill bg="var(--henira-danger-bg)" color="var(--henira-danger-text)">
+            {ctx.t("tool.killed")}
+            {m.signal !== undefined ? ` · ${m.signal}` : ""}
+          </Pill>
+        ) : m.exitCode !== 0 ? (
+          <Pill
+            bg="var(--henira-danger-bg)"
+            color="var(--henira-danger-text)"
+            title={ctx.t("tool.exitCode")}
+          >
+            exit {m.exitCode}
+          </Pill>
+        ) : null}
+        {streamTruncated ? (
+          <Pill
+            bg="var(--henira-warn-bg)"
+            color="var(--henira-warn-text)"
+            title={ctx.t("tool.streamTruncatedTip")}
+          >
+            {ctx.t("row.truncated")}
+          </Pill>
+        ) : null}
+      </>
+    );
   return (
     <ToolCardShell
       row={row}
@@ -277,48 +293,74 @@ interface DiffRow {
   text: string;
 }
 
-/** jsdiff structuredPatch → 行序列；maxEditLength 超限 = jsdiff 内建整体替换单 hunk。
- * 返回 null = 两串相同（无变化）。 */
+/** 超限整体替换 fallback 的行数上限：大文本一次性挂全部行会撑爆 DOM（MonoBlock 的
+ * maxHeight 管不住行数本身），超限截断 + 注记（注记文案调用方按语言包补） */
+const DIFF_FALLBACK_MAX_LINES = 1000;
+
+/** jsdiff structuredPatch → 行序列。jsdiff 对字符串按行 token 跑 Myers——总编辑长度
+ * （删+增行数）超 maxEditLength 时返回 undefined（不产部分结果，审查 F7 机制勘误）——
+ * 此时自构整体替换行，行数超 DIFF_FALLBACK_MAX_LINES 截断（truncated=true；±N 计数仍算
+ * 全量，行只渲染截断前段）。返回 null = 两串相同。 */
 export function buildDiffRows(
   oldText: string,
   newText: string,
-): { rows: DiffRow[]; added: number; removed: number } | null {
+): { rows: DiffRow[]; added: number; removed: number; truncated?: boolean } | null {
   if (oldText === newText) return null;
   const patch = structuredPatch("a", "b", oldText, newText, "", "", {
     context: 3,
     maxEditLength: 2000,
   });
-  // 类型声明含 undefined 分支（超限语义版本间有变）——undefined 时自构整体替换行，不渲染坏卡
+  // 类型声明含 undefined 分支——超限/异常形态一律自构 fallback，不渲染坏卡
   const raw = patch?.hunks;
-  const lines =
-    raw !== undefined && raw.length > 0
-      ? raw.flatMap((h) => h.lines)
-      : [...oldText.split("\n").map((l) => `-${l}`), ...newText.split("\n").map((l) => `+${l}`)];
   const rows: DiffRow[] = [];
   let added = 0;
   let removed = 0;
-  let oldLine = raw?.[0]?.oldStart ?? 1;
-  let newLine = raw?.[0]?.newStart ?? 1;
-  for (const line of lines) {
-    const mark = line.charAt(0);
-    const text = line.slice(1);
-    if (mark === "+") {
-      rows.push({ kind: "add", newLine, text });
-      newLine += 1;
-      added += 1;
-    } else if (mark === "-") {
-      rows.push({ kind: "del", oldLine, text });
-      oldLine += 1;
-      removed += 1;
-    } else if (mark === "\\") {
-      rows.push({ kind: "note", text: line });
-    } else {
-      rows.push({ kind: "context", oldLine, newLine, text });
-      oldLine += 1;
-      newLine += 1;
+  if (raw !== undefined && raw.length > 0) {
+    // 逐 hunk 推进：行号从各自 hunk.oldStart/newStart 起步——flat 拍平会把后续 hunk 的
+    // 起点吃掉，第二+ hunk 行号全错（多点修改的常态形状，审查 F2）
+    for (const h of raw) {
+      let oldLine = h.oldStart;
+      let newLine = h.newStart;
+      for (const line of h.lines) {
+        const mark = line.charAt(0);
+        const text = line.slice(1);
+        if (mark === "+") {
+          rows.push({ kind: "add", newLine, text });
+          newLine += 1;
+          added += 1;
+        } else if (mark === "-") {
+          rows.push({ kind: "del", oldLine, text });
+          oldLine += 1;
+          removed += 1;
+        } else if (mark === "\\") {
+          rows.push({ kind: "note", text: line });
+        } else {
+          rows.push({ kind: "context", oldLine, newLine, text });
+          oldLine += 1;
+          newLine += 1;
+        }
+      }
     }
+    return { rows, added, removed };
   }
-  return { rows, added, removed };
+  // 超限 fallback：自构整体替换行（旧行全 del + 新行全 add），行数超限各截半——
+  // ±N 计数仍算全量（行截断计数不截断，徽章反映真实替换规模）
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  const truncated = oldLines.length + newLines.length > DIFF_FALLBACK_MAX_LINES;
+  const cap = truncated ? Math.floor(DIFF_FALLBACK_MAX_LINES / 2) : undefined;
+  for (const [i, l] of oldLines.slice(0, cap).entries()) {
+    rows.push({ kind: "del", oldLine: i + 1, text: l });
+  }
+  for (const [i, l] of newLines.slice(0, cap).entries()) {
+    rows.push({ kind: "add", newLine: i + 1, text: l });
+  }
+  return {
+    rows,
+    added: newLines.length,
+    removed: oldLines.length,
+    ...(truncated ? { truncated: true } : {}),
+  };
 }
 
 const gutterStyle = (width: string): React.CSSProperties => ({
@@ -397,6 +439,10 @@ export function EditCard({ row, ctx }: CardProps): React.ReactNode {
   const replacements = meta === null ? 1 : (num(meta.replacements) ?? 1);
   const diff = buildDiffRows(oldText, newText);
   if (diff === null) return <ToolView row={row} ctx={ctx} />;
+  const diffRows =
+    diff.truncated === true
+      ? [...diff.rows, { kind: "note" as const, text: ctx.t("tool.diffTruncated") }]
+      : diff.rows;
   return (
     <ToolCardShell
       row={row}
@@ -423,7 +469,7 @@ export function EditCard({ row, ctx }: CardProps): React.ReactNode {
         >
           {filePath}
         </div>
-        <DiffRowsView rows={diff.rows} />
+        <DiffRowsView rows={diffRows} />
       </div>
     </ToolCardShell>
   );
@@ -472,7 +518,17 @@ export function WriteCard({ row, ctx }: CardProps): React.ReactNode {
           {filePath}
         </div>
         {created === true ? (
-          <DiffRowsView rows={lines.map((text, i) => ({ kind: "add", newLine: i + 1, text }))} />
+          <DiffRowsView
+            rows={[
+              // 千行闸（审查 F6 同族）：全文 add 行超限截断 + 注记，防大文件一次性挂满 DOM
+              ...lines
+                .slice(0, DIFF_FALLBACK_MAX_LINES)
+                .map((text, i) => ({ kind: "add" as const, newLine: i + 1, text })),
+              ...(lines.length > DIFF_FALLBACK_MAX_LINES
+                ? [{ kind: "note" as const, text: ctx.t("tool.diffTruncated") }]
+                : []),
+            ]}
+          />
         ) : (
           <MonoBlock text={content} maxHeight={320} />
         )}

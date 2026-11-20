@@ -28,6 +28,7 @@ import type { GlobalUiState, ServerFrame, SessionSummary, SessionUiState } from 
 import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
 import { createResourcePump } from "./resource-pump.js";
+import { createSlotRegistry } from "./slot-registry.js";
 import { RowStore } from "./store.js";
 import { streamingMarkdownNode } from "./streaming-markdown.js";
 
@@ -163,54 +164,31 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview."];
   const slotAccepted = (name: string): boolean =>
     REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
-  const slots = new Map<string, SlotPart[]>();
-  /** registerSlot 的 order 旁路记录（插入排序用；part 是函数，WeakMap 门牌） */
-  let partOrders = new WeakMap<object, number>();
   /** UI 装载告警（管理面 C3 消费；先 console + 收集） */
   const uiWarnings: string[] = [];
+  // 槽位登记簿（slot-registry.ts，可单测）：官方默认件可被插件 replaceSlot 顶替、卸载回落
+  //（D-057/D-048 全语义——审查 F3：旧「占位即报错」判据在 E5 官方注册七键后会把第三方
+  // 整个 UI 模块挡在装载门外，承诺的顶替路径从此不通）
+  const registry = createSlotRegistry({
+    slotAccepted,
+    onUnknownSlot: (name) => {
+      const message = `unknown UI slot, ignored: ${name}`;
+      console.warn(`[henira] ${message}`);
+      uiWarnings.push(message);
+    },
+    officialId: "plugin-web-ui",
+  });
+  const slots = registry.slots;
   let moduleCtx: UiModuleContext | undefined;
 
   function makeModuleContext(callerPluginId: string): UiModuleContext {
-    return {
-      registerSlot: (name, part, registerOpts) => {
-        if (!slotAccepted(name)) {
-          const message = `unknown UI slot, ignored: ${name}`;
-          console.warn(`[henira] ${message}`);
-          uiWarnings.push(message);
-          return () => {};
-        }
-        const list = slots.get(name) ?? [];
-        const order = registerOpts?.order ?? 0;
-        partOrders.set(part as unknown as object, order);
-        const at = list.findIndex((p) => (partOrders.get(p as unknown as object) ?? 0) > order);
-        if (at === -1) list.push(part);
-        else list.splice(at, 0, part);
-        slots.set(name, list);
-        return () => {
-          const current = slots.get(name);
-          if (current === undefined) return;
-          const index = current.indexOf(part);
-          if (index >= 0) current.splice(index, 1);
-        };
-      },
-      replaceSlot: (name, part) => {
-        if (!slotAccepted(name)) {
-          console.warn(`[henira] unknown UI slot, ignored: ${name}`);
-          return () => {};
-        }
-        if (slots.has(name)) {
-          throw new Error(`slot conflict: ${name} already has a default part (D-022)`);
-        }
-        slots.set(name, [part]);
-        return () => {};
-      },
-      host: hostFor(callerPluginId),
-    };
+    return { ...registry.apiFor(callerPluginId), host: hostFor(callerPluginId) };
   }
 
   function renderSlots(): void {
-    slots.clear();
-    partOrders = new WeakMap();
+    // 清登记簿在第三方 dispose 之前：重建期卸载回落不得复活旧列表（dispose 闭包查不到
+    // 登记 = no-op），清场后全量重装
+    registry.reset();
     disposeThirdPartyUi();
     if (safeMode) {
       for (const [name, part] of Object.entries(defaultParts) as [WebSlotName, WebPart][]) {
@@ -308,8 +286,13 @@ export function createWebApp(opts: WebAppOptions): WebApp {
                 ? (mod.default as (ctx: UiModuleContext) => unknown)
                 : undefined;
         if (candidate === undefined) throw new Error("module does not export apply(ctx)");
-        // per-module ctx：host 绑定该插件 id（useResource 所有权闸按插件隔离）
-        const moduleUiCtx: UiModuleContext = { ...moduleCtx, host: hostFor(plugin.id) };
+        // per-module ctx：host 绑定该插件 id（useResource 所有权闸按插件隔离）+ 注册 API
+        // 同步按该插件 id 绑定（partOwners 所有权 → replaceSlot 顶替语义按插件判定，审查 F3）
+        const moduleUiCtx: UiModuleContext = {
+          ...moduleCtx,
+          ...registry.apiFor(plugin.id),
+          host: hostFor(plugin.id),
+        };
         const dispose = await (candidate as (ctx: UiModuleContext) => unknown)(moduleUiCtx);
         thirdParty.set(plugin.id, {
           version: plugin.version,

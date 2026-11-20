@@ -12,6 +12,7 @@ import type {
   McpServerSpec,
   McpService,
   ToolDefinition,
+  ToolResult,
   ToolsService,
 } from "@henira/protocol";
 import {
@@ -49,6 +50,16 @@ export function publicToolName(server: string, tool: string): string {
   return `${raw.slice(0, NAME_MAX - 1 - suffix.length)}-${suffix}`;
 }
 
+/** MCP 调用结果 → ToolResult 包装（E5 工具卡带外 meta 带原始名）。isError 缺省不带键——
+ * JSON 序列化丢 undefined 值键，账本/SSE 字节面与直返等价。抽纯函数可单测（审查 F12）。 */
+export function mcpToolResult(r: McpCallResult, server: string, rawTool: string): ToolResult {
+  return {
+    content: r.content,
+    ...(r.isError !== undefined ? { isError: r.isError } : {}),
+    __meta: { kind: "mcp", server, tool: rawTool },
+  };
+}
+
 /** MCP 工具 → 注册表 ToolDefinition：isConcurrencySafe 恒缺省（外部 server 默认过审批，D-039 判定链不变） */
 function toToolDefinition(
   spec: McpServerSpec,
@@ -65,14 +76,8 @@ function toToolDefinition(
     inputSchema: schema as ToolDefinition["inputSchema"],
     // 带外元数据：原始 server/tool 名供 MCP 卡拆名显示——wire 名超长截断+短哈希后
     // 从名字反拆不可靠（publicToolName 语义），只有这里拿得到原始名
-    execute: async (args, ctx) => {
-      const r = await conn.call(raw, args, ctx.signal);
-      return {
-        content: r.content,
-        ...(r.isError !== undefined ? { isError: r.isError } : {}),
-        __meta: { kind: "mcp", server: spec.server, tool: raw },
-      };
-    },
+    execute: async (args, ctx) =>
+      mcpToolResult(await conn.call(raw, args, ctx.signal), spec.server, raw),
   };
 }
 
