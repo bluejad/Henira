@@ -732,7 +732,7 @@ button:focus-visible > .henira-row-caret {
 .henira-select--input {
   width: 100%;
 }
-.henira-app button.henira-select--input .henira-select-trigger {
+.henira-app .henira-select--input button.henira-select-trigger {
   border: 1px solid var(--henira-border);
   background: var(--henira-bg);
   color: var(--henira-text);
@@ -1410,8 +1410,8 @@ button:focus-visible > .henira-row-caret {
 
 /* 设置弹窗（左菜单右内容；大面板形态，鬼鬼祟祟小窗退场） */
 .henira-settings-dialog {
-  width: min(920px, calc(100vw - 64px));
-  height: min(680px, calc(100vh - 96px));
+  width: min(1060px, calc(100vw - 64px));
+  height: min(780px, calc(100vh - 72px));
 }
 .henira-settings-body {
   display: flex;

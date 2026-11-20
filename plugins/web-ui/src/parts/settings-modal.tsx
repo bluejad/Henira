@@ -40,8 +40,26 @@ export function SettingsModal(props: {
     };
   }, [ctx.client]);
 
+  // Esc 关闭（2026-11-20 用户裁定：点外面要能关）——keydown 挂 document，弹窗开着才挂
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") props.onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [props]);
+
   return (
-    <div className="henira-overlay" role="dialog" aria-label={ctx.t("settings.title")}>
+    <div
+      className="henira-overlay"
+      role="dialog"
+      aria-label={ctx.t("settings.title")}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) props.onClose(); // 只点遮罩本体（不含弹窗内）
+      }}
+    >
       <div className="henira-dialog henira-settings-dialog">
         <div className="henira-dialog-head">
           <strong>{ctx.t("settings.title")}</strong>
