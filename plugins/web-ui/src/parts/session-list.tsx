@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { DirectoryDialog } from "./directory-dialog.js";
-import { CaretGlyph, SpinnerGlyph } from "./icons.js";
+import { CaretGlyph, SpinnerGlyph, XGlyph } from "./icons.js";
 
 /** 按 cwd 分组（保持出现序）；cwd 缺失归 ""（渲染为「其他」） */
 function groupByCwd(sessions: readonly SessionSummary[]): Map<string, SessionSummary[]> {
@@ -604,7 +604,7 @@ function DeleteConfirm(props: {
             onClick={props.onClose}
             disabled={busy}
           >
-            ✕
+            <XGlyph size={14} />
           </button>
         </div>
         <p className="henira-dialog-message">{message}</p>

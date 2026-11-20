@@ -9,6 +9,7 @@ import { webUiModule } from "./module.js";
 import { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
+import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSelect } from "./parts/model-select.js";
 import { QueuePanel } from "./parts/queue-panel.js";
@@ -1100,7 +1101,7 @@ describe("右栏 tab 框架（D-062 sidebar.right 官方默认件）", () => {
 });
 
 describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
-  it("默认分区渲染主题页（select 列官方双主题）；模型管理页无全局默认模型入口（用户裁定 2026-11-19）+ 行带视觉徽章", async () => {
+  it("默认分区渲染主题页（下拉列官方双主题——原生 select 退场，HeniraSelect 自制弹层）；模型管理页无全局默认模型入口（用户裁定 2026-11-19）+ 行带视觉徽章", async () => {
     const putSettings = vi.fn().mockResolvedValue({ version: 1 });
     const onTheme = vi.fn();
     const ctx = fixtureCtx({
@@ -1141,10 +1142,12 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     render(<SettingsModal ctx={ctx} section="theme" onClose={() => {}} />);
     const dialog = screen.getByRole("dialog", { name: t("settings.title") });
     expect(dialog).not.toBeNull();
-    // 主题页：select 显示当前主题 dark；切 light 走 onTheme
-    const themeSelect = dialog.querySelector("select") as HTMLSelectElement;
-    expect(themeSelect.value).toBe("dark");
-    fireEvent.change(themeSelect, { target: { value: "light" } });
+    // 主题页：触发钮显示当前主题「深色」；点开面板选「浅色」走 onTheme
+    //（定位走容器内 class——左导航分区钮的可访问名同为「主题」，role 查询撞名）
+    const themeTrigger = dialog.querySelector(".henira-select-trigger") as HTMLButtonElement;
+    expect(themeTrigger.textContent).toContain(t("settings.theme.dark"));
+    fireEvent.click(themeTrigger);
+    fireEvent.click(await screen.findByRole("option", { name: t("settings.theme.light") }));
     expect(onTheme).toHaveBeenCalledWith("light", undefined);
     // 切模型管理页：无「当前模型」入口（收敛裁定）；行徽章带 1M + 视觉
     fireEvent.click(screen.getByRole("button", { name: t("settings.section.models") }));
@@ -1159,7 +1162,7 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(putSettings).toHaveBeenCalledWith({ ui: { theme: "light" } });
   });
 
-  it("语言页显示实际生效语言（宿主 ctx.locale）：包卸载 boot 回落官方后不读磁盘旧值漂移显示（审查 P3-b）", () => {
+  it("语言页显示实际生效语言（宿主 ctx.locale）：包卸载 boot 回落官方后不读磁盘旧值漂移显示（审查 P3-b）", async () => {
     const ctx = fixtureCtx({
       locale: "zh", // 宿主生效值（boot 时磁盘上的 fr 包不在场已回落官方）
       closeSettings: vi.fn(),
@@ -1170,9 +1173,9 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
       },
     });
     render(<SettingsModal ctx={ctx} section="locale" onClose={() => {}} />);
-    const dialog = screen.getByRole("dialog", { name: t("settings.title") });
-    const localeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
-    expect(localeSelect.value).toBe("zh"); // 显示生效值，不是磁盘的 fr
+    // 触发钮显示生效语言（不是磁盘残留的 fr）
+    const localeTrigger = await screen.findByRole("button", { name: t("settings.locale") });
+    expect(localeTrigger.textContent).toContain(t("settings.locale.zh"));
   });
 
   it("模型管理面板（四视图）：分组+开关回调 → 厂商选择页 → 连接表单 → 自定义表单", async () => {
@@ -1485,7 +1488,7 @@ describe("思考档按次绑定（骨架批）", () => {
         throw new Error("thinking control not grayed");
       }
     });
-    expect(container.querySelector(".henira-thinking-select select")).toBeNull();
+    expect(container.querySelector(".henira-thinking-select button")).toBeNull();
     expect(container.textContent).toContain("—");
     cleanup();
 
@@ -1511,12 +1514,12 @@ describe("思考档按次绑定（骨架批）", () => {
       },
     });
     const glm = render(<Composer {...glmCtx} />);
-    const select = (await screen.findByRole("combobox", {
-      name: t("composer.thinking"),
-    })) as HTMLSelectElement;
-    // 数据驱动档位：effort 值直通——关/低/高/最高 四档（max 独立成档，不归并）
-    expect(select.options).toHaveLength(4);
-    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+    // 数据驱动档位：effort 值直通——关/低/高/最高 四档（max 独立成档，不归并）；
+    // 点开自制面板断言选项排（原生 select 退场）
+    fireEvent.click(await screen.findByRole("button", { name: t("composer.thinking") }));
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(4);
+    expect(options.map((o) => o.textContent)).toEqual([
       t("composer.thinking.off"),
       t("composer.thinking.low"),
       t("composer.thinking.high"),
@@ -1526,7 +1529,9 @@ describe("思考档按次绑定（骨架批）", () => {
     cleanup();
 
     // agnes 数据仅 toggle → 两档「关/开」（开承载 medium）
+    const agnesUpdateUiState = vi.fn();
     const agnesCtx = fixtureCtx({
+      updateUiState: agnesUpdateUiState,
       client: {
         ...fixtureCtx().client,
         getSettings: async () => ({ version: 1, model: "agnes/agnes-3.0-flash" }),
@@ -1547,14 +1552,15 @@ describe("思考档按次绑定（骨架批）", () => {
       },
     });
     render(<Composer {...agnesCtx} />);
-    const agnesSelect = (await screen.findByRole("combobox", {
-      name: t("composer.thinking"),
-    })) as HTMLSelectElement;
-    expect(Array.from(agnesSelect.options).map((o) => o.textContent)).toEqual([
+    fireEvent.click(await screen.findByRole("button", { name: t("composer.thinking") }));
+    const agnesOptions = await screen.findAllByRole("option");
+    expect(agnesOptions.map((o) => o.textContent)).toEqual([
       t("composer.thinking.off"),
       t("composer.thinking.on"),
     ]);
-    expect(Array.from(agnesSelect.options).map((o) => o.value)).toEqual(["off", "medium"]);
+    // 「开」承载 medium（原 select option value 断言的行为化等价——点它落会话记忆）
+    fireEvent.click(screen.getByRole("option", { name: t("composer.thinking.on") }));
+    expect(agnesUpdateUiState).toHaveBeenCalledWith({ reasoningEffort: "medium" });
   });
 
   it("选档写会话记忆（updateUiState）；发送携带 {modelId, reasoningEffort}", async () => {
@@ -1588,10 +1594,9 @@ describe("思考档按次绑定（骨架批）", () => {
     // 会话绑定优先于全局默认（触发钮显示 glm）
     const trigger = await screen.findByRole("button", { name: t("composer.model") });
     await waitFor(() => expect(trigger.textContent).toContain("GLM-5.3-Flash"));
-    const select = (await screen.findByRole("combobox", {
-      name: t("composer.thinking"),
-    })) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "high" } });
+    const thinkTrigger = await screen.findByRole("button", { name: t("composer.thinking") });
+    fireEvent.click(thinkTrigger);
+    fireEvent.click(await screen.findByRole("option", { name: t("composer.thinking.high") }));
     expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "high" });
     const area = screen.getByPlaceholderText(t("composer.placeholder")) as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "问一句" } });
@@ -1631,10 +1636,9 @@ describe("思考档按次绑定（骨架批）", () => {
     });
     render(<Composer {...ctx} />);
     await waitFor(() => expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "medium" }));
-    const select = (await screen.findByRole("combobox", {
-      name: t("composer.thinking"),
-    })) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe("medium")); // 显示为「开」
+    // 触发钮显示为「开」（medium 的 toggle 文案）
+    const thinkTrigger = await screen.findByRole("button", { name: t("composer.thinking") });
+    await waitFor(() => expect(thinkTrigger.textContent).toContain(t("composer.thinking.on")));
   });
 
   it("思考档行上徽章（AssistantRow.reasoningEffort 投影；off 不渲染）", () => {
@@ -1817,5 +1821,105 @@ describe("插件页 MCP 详情（C5，D-064）", () => {
     expect(container.querySelector('[data-plugin-id="plugin-mcp"]')?.textContent).toContain(
       zh["settings.plugins.official"],
     );
+  });
+});
+
+describe("统一下拉基础件（基础件批 2026-11-20）", () => {
+  const opts = [
+    { value: "off", label: "关" },
+    { value: "low", label: "低" },
+    { value: "high", label: "高" },
+    { value: "max", label: "最高" },
+  ];
+
+  it("键盘：关闭态 ↓ 开面板；End/↑/Home 移动活动项（data-active）；Enter 选中收面板", () => {
+    const onChange = vi.fn();
+    render(<HeniraSelect value="off" options={opts} onChange={onChange} ariaLabel="档位" />);
+    const trigger = screen.getByRole("button", { name: "档位" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" }); // 关闭态 ↓ = 开面板（活动项=当前值）
+    const active = () => document.querySelector("[role='option'][data-kbd='true']");
+    expect(active()?.textContent).toBe("关");
+    fireEvent.keyDown(trigger, { key: "End" });
+    expect(active()?.textContent).toBe("最高");
+    fireEvent.keyDown(trigger, { key: "ArrowUp" });
+    expect(active()?.textContent).toBe("高");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("high");
+    expect(screen.queryByRole("listbox", { name: "档位" })).toBeNull();
+  });
+
+  it("Esc 收（焦点归还触发钮）+ 外点收（useDismiss 统一出口）", () => {
+    const onChange = vi.fn();
+    render(<HeniraSelect value="off" options={opts} onChange={onChange} ariaLabel="档位" />);
+    const trigger = screen.getByRole("button", { name: "档位" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox", { name: "档位" })).not.toBeNull();
+    fireEvent.keyDown(trigger, { key: "Escape" }); // 冒泡到 document 监听
+    expect(screen.queryByRole("listbox", { name: "档位" })).toBeNull();
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(document.body); // 面板外按下
+    expect(screen.queryByRole("listbox", { name: "档位" })).toBeNull();
+  });
+
+  it("弹向：auto 在 jsdom（rect 全 0）判向下；direction=up 钉死向上", () => {
+    render(<HeniraSelect value="off" options={opts} onChange={vi.fn()} ariaLabel="档位" />);
+    fireEvent.click(screen.getByRole("button", { name: "档位" }));
+    expect(document.querySelector(".henira-select-pop")?.getAttribute("data-direction")).toBe(
+      "down",
+    );
+    cleanup();
+    render(
+      <HeniraSelect
+        value="off"
+        options={opts}
+        onChange={vi.fn()}
+        ariaLabel="档位"
+        direction="up"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "档位" }));
+    expect(document.querySelector(".henira-select-pop")?.getAttribute("data-direction")).toBe("up");
+  });
+
+  it("排队卡行操作钮 = henira-iconbtn 基类 + hover 浮现容器（浮现语义收口在 CSS，此处锁 class 结构）", () => {
+    const queue = [{ id: "q1", text: "第一条排队", steer: false }];
+    const queueCtx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: [] as Row[], state: { busy: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    render(<QueuePanel ctx={queueCtx} />);
+    expect(document.querySelector(".henira-queue-row .henira-queue-actions")).not.toBeNull();
+    expect(document.querySelector(".henira-queue-actions .henira-iconbtn")).not.toBeNull();
+  });
+
+  it("模型下拉键盘导航：活动项初值=当前绑定值，↓ 移动（data-kbd）、Enter 选中", async () => {
+    const onChange = vi.fn();
+    const ctx = fixtureCtx();
+    render(
+      <ModelSelect
+        ctx={ctx}
+        value="deepseek/deepseek-v4-flash"
+        onChange={onChange}
+        ariaLabel={t("composer.model")}
+        providers={{
+          deepseek: { models: [{ id: "deepseek-v4-flash" }, { id: "deepseek-flash" }] },
+        }}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: t("composer.model") });
+    fireEvent.click(trigger);
+    await waitFor(() =>
+      expect(
+        document.querySelector(".henira-model-item[data-kbd='true']")?.getAttribute("title"),
+      ).toBe("deepseek/deepseek-v4-flash"),
+    );
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(
+      document.querySelector(".henira-model-item[data-kbd='true']")?.getAttribute("title"),
+    ).toBe("deepseek/deepseek-flash");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("deepseek/deepseek-flash");
   });
 });

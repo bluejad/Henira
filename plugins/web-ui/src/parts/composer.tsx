@@ -19,7 +19,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SettingsSection, WebPart, WebPartContext } from "../types.js";
 import { ApprovalCard } from "./approval-card.js";
-import { BrainGlyph, CaretGlyph, SendGlyph, StopGlyph } from "./icons.js";
+import { HeniraSelect } from "./dropdown.js";
+import { BrainGlyph, SendGlyph, StopGlyph } from "./icons.js";
 import { ModelSelect, type PickerProviders } from "./model-select.js";
 import { QueuePanel } from "./queue-panel.js";
 
@@ -247,7 +248,8 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
             />
           ) : null}
           {/* 思考档：档位集合数据驱动（模型 reasoningOptions）——
-              空集合（none/budget/形状未收录）置灰「—」；toggle-only 两档「关/开」 */}
+              空集合（none/budget/形状未收录）置灰「—」；toggle-only 两档「关/开」；
+              弹层 = HeniraSelect 自制面板（原生 select 系统菜单退场，基础件批 2026-11-20） */}
           {settingsReady ? (
             levels.length === 0 ? (
               <span
@@ -261,26 +263,22 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
             ) : (
               <span className="henira-thinking-select">
                 <BrainGlyph size={13} />
-                <select
-                  aria-label={ctx.t("composer.thinking")}
+                <HeniraSelect
+                  ariaLabel={ctx.t("composer.thinking")}
                   value={effort ?? "off"}
-                  onChange={(e) => {
-                    changeEffort(e.target.value as ReasoningEffort);
+                  direction="up"
+                  options={levels.map((level) => ({
+                    value: level,
+                    label: ctx.t(
+                      toggleOnly && level === "medium"
+                        ? "composer.thinking.on"
+                        : `composer.thinking.${level}`,
+                    ),
+                  }))}
+                  onChange={(next) => {
+                    changeEffort(next as ReasoningEffort);
                   }}
-                >
-                  {levels.map((level) => (
-                    <option key={level} value={level}>
-                      {ctx.t(
-                        toggleOnly && level === "medium"
-                          ? "composer.thinking.on"
-                          : `composer.thinking.${level}`,
-                      )}
-                    </option>
-                  ))}
-                </select>
-                <span className="henira-model-caret">
-                  <CaretGlyph size={10} />
-                </span>
+                />
               </span>
             )
           ) : null}

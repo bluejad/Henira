@@ -8,6 +8,7 @@
 import type { ReasoningCapability } from "@henira/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SettingsSection, UiAssetLocale, UiAssetTheme, WebPartContext } from "../types.js";
+import { HeniraSelect } from "./dropdown.js";
 import { BrainGlyph, GearGlyph, XGlyph } from "./icons.js";
 import { fmtWindow } from "./model-select.js";
 
@@ -79,29 +80,28 @@ export function SettingsModal(props: {
 
 function ThemePage(props: { ctx: WebPartContext; themes: UiAssetTheme[] }): ReactNode {
   const { ctx } = props;
+  // div 非 label：HeniraSelect 是自制弹层（无原生控件可关联，label 会吃 a11y 闸）；
+  // 可访问名由触发钮 aria-label 自带
   return (
-    <label className="henira-dialog-field">
+    <div className="henira-dialog-field">
       <div className="henira-field-label">{ctx.t("settings.theme")}</div>
-      <select
-        className="henira-input"
+      <HeniraSelect
+        variant="input"
+        ariaLabel={ctx.t("settings.theme")}
         value={ctx.theme}
-        onChange={(e) => {
-          const id = e.target.value;
+        options={[
+          { value: "light", label: ctx.t("settings.theme.light") },
+          { value: "dark", label: ctx.t("settings.theme.dark") },
+          ...props.themes.map((theme) => ({ value: theme.name, label: theme.name })),
+        ]}
+        onChange={(id) => {
           ctx.onTheme?.(id, props.themes.find((t) => t.name === id)?.url);
           // 持久化（用户反馈：选深色刷新回落亮色——改前只切内存不落盘）：settings.json
           // ui.theme；旧服务器无 putSettings 静默跳过
           void ctx.client.putSettings?.({ ui: { theme: id } }).catch(() => {});
         }}
-      >
-        <option value="light">{ctx.t("settings.theme.light")}</option>
-        <option value="dark">{ctx.t("settings.theme.dark")}</option>
-        {props.themes.map((theme) => (
-          <option key={`${theme.pluginId}@${theme.version}/${theme.name}`} value={theme.name}>
-            {theme.name}
-          </option>
-        ))}
-      </select>
-    </label>
+      />
+    </div>
   );
 }
 
@@ -138,23 +138,21 @@ function LocalePage(props: { ctx: WebPartContext; locales: UiAssetLocale[] }): R
   };
 
   return (
-    <label className="henira-dialog-field">
+    <div className="henira-dialog-field">
       <div className="henira-field-label">{ctx.t("settings.locale")}</div>
-      <select
-        className="henira-input"
+      <HeniraSelect
+        variant="input"
+        ariaLabel={ctx.t("settings.locale")}
         value={localeId}
-        onChange={(e) => {
-          changeLocale(e.target.value);
+        options={[
+          { value: "zh", label: ctx.t("settings.locale.zh") },
+          ...props.locales.map((locale) => ({ value: locale.lang, label: locale.lang })),
+        ]}
+        onChange={(lang) => {
+          changeLocale(lang);
         }}
-      >
-        <option value="zh">{ctx.t("settings.locale.zh")}</option>
-        {props.locales.map((locale) => (
-          <option key={`${locale.pluginId}@${locale.version}/${locale.lang}`} value={locale.lang}>
-            {locale.lang}
-          </option>
-        ))}
-      </select>
-    </label>
+      />
+    </div>
   );
 }
 

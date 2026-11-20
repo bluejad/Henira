@@ -5,10 +5,22 @@
 //（composer 会话绑定各自行事）。条目渲染显示名 + 上下文窗/视觉/思考徽章（裸 id 退场）；
 // 触发钮同样只显示模型显示名（厂商 id 永不进按钮），绑定值目录里失效即回落清单首个
 //（断开 DeepSeek 后按钮不挂着已断厂商——2026-11-19）。
+// 键盘导航（基础件批 2026-11-20）：↑↓/Home/End 移动 + Enter 选中（aria-activedescendant，
+// 活动项滚进可视区）；外点/Esc 收走 useDismiss 统一出口（原自写一份且监听 host 不一致）。
+// 复合面板（搜索+分组+管理入口）保留自研——不硬套 HeniraSelect 单选件。
 
 import type { ReasoningOption } from "@henira/protocol";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { WebPartContext } from "../types.js";
+import { useDismiss } from "./dropdown.js";
 import { BrainGlyph, CaretDownGlyph, GearGlyph, MagnifierGlyph } from "./icons.js";
 
 /** 选择器目录条目（types.ts listModels 同形；本地声明——web-ui 不依 sdk） */
@@ -79,8 +91,11 @@ export function ModelSelect(props: {
   const direction = props.direction ?? "down";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [fetched, setFetched] = useState<PickerProviders>(EMPTY_PROVIDERS);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const listRef = useRef<HTMLSpanElement>(null);
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const providers = props.providers ?? fetched;
 
   // 每次展开自取目录（不开不拉——设置里新连的厂商下一开就在，免整页刷新）
@@ -100,22 +115,10 @@ export function ModelSelect(props: {
     };
   }, [ctx.client, props.providers, open]);
 
-  // 开着时点外 / Escape 收（监听只在 open 挂——关闭态零开销）
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      if (wrapRef.current !== null && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // 开着时点外 / Escape 收（useDismiss 统一出口——监听只在 open 挂，关闭态零开销）
+  useDismiss(open, wrapRef, () => {
+    setOpen(false);
+  });
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -133,6 +136,50 @@ export function ModelSelect(props: {
   }, [providers, query]);
 
   const hasCatalog = Object.keys(providers).length > 0;
+
+  // 键盘导航的扁平序（过滤后逐条 id）；活动项失效（搜索过滤/目录变化）回落当前值或首条
+  const flatIds = useMemo(
+    () => groups.flatMap((group) => group.models.map((m) => `${group.provider}/${m.id}`)),
+    [groups],
+  );
+  useEffect(() => {
+    if (!open) return;
+    setActiveId((prev) => {
+      if (prev !== null && flatIds.includes(prev)) return prev;
+      return flatIds.includes(value) ? value : (flatIds[0] ?? null);
+    });
+  }, [open, flatIds, value]);
+  // 活动项滚进可视区（listbox 溢出滚动时跟随）
+  useEffect(() => {
+    if (!open || activeId === null) return;
+    listRef.current?.querySelector("[data-kbd='true']")?.scrollIntoView?.({ block: "nearest" });
+  }, [open, activeId]);
+
+  const onMenuKeyDown = (e: KeyboardEvent): void => {
+    if (!open) return;
+    const fromInput = e.target instanceof HTMLInputElement;
+    if (
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp" ||
+      ((e.key === "Home" || e.key === "End") && !fromInput)
+    ) {
+      e.preventDefault();
+      const idx = activeId === null ? -1 : flatIds.indexOf(activeId);
+      const next =
+        e.key === "ArrowDown"
+          ? Math.min(flatIds.length - 1, idx + 1)
+          : e.key === "ArrowUp"
+            ? Math.max(0, idx - 1)
+            : e.key === "Home"
+              ? 0
+              : flatIds.length - 1;
+      setActiveId(flatIds[Math.max(0, next)] ?? null);
+    } else if (e.key === "Enter" && activeId !== null) {
+      e.preventDefault();
+      setOpen(false);
+      onChange(activeId);
+    }
+  };
 
   // 触发钮文案 = 目录条目的显示名（按钮上永不出厂商 id）。目录里
   // 没有该绑定值（断开/移除/禁用后失效）→ 裸模型 id 兜底，同样不带厂商前缀
@@ -162,6 +209,7 @@ export function ModelSelect(props: {
           setOpen((v) => !v);
           setQuery("");
         }}
+        onKeyDown={onMenuKeyDown}
       >
         <span className="henira-model-trigger-label">{currentLabel}</span>
         <CaretDownGlyph size={10} />
@@ -181,21 +229,37 @@ export function ModelSelect(props: {
             />
           </span>
           {hasCatalog ? (
-            <span role="listbox" aria-label={ariaLabel} className="henira-model-list">
+            <span
+              role="listbox"
+              aria-label={ariaLabel}
+              aria-activedescendant={
+                activeId !== null ? `${uid}-opt-${flatIds.indexOf(activeId)}` : undefined
+              }
+              tabIndex={-1}
+              className="henira-model-list"
+              ref={listRef}
+              onKeyDown={onMenuKeyDown}
+            >
               {groups.map((group) => (
                 <span key={group.provider} className="henira-model-group">
                   <span className="henira-model-group-label">{group.label}</span>
                   {group.models.map((m) => {
                     const fullId = `${group.provider}/${m.id}`;
+                    const idx = flatIds.indexOf(fullId);
                     return (
                       <button
                         key={fullId}
                         type="button"
+                        id={`${uid}-opt-${idx}`}
                         role="option"
                         aria-selected={fullId === value}
                         className="henira-model-item"
                         data-active={fullId === value ? "true" : undefined}
+                        data-kbd={fullId === activeId ? "true" : undefined}
                         title={fullId}
+                        onMouseDown={(e) => {
+                          e.preventDefault(); // 触发钮失焦先于 click——保住焦点链
+                        }}
                         onClick={() => {
                           setOpen(false);
                           onChange(fullId);

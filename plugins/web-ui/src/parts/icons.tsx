@@ -1,6 +1,9 @@
 // 图标收口（interfaces.md web 段视觉语言节：库可换——换集只动本文件）。
 // phosphor 子路径导入（包根星号图在 2.1.1 不出 *Icon 主名）；显式组件清单——不用动态注册表，
 // 组件名避开 phosphor 导出的 Icon 类型名。换图标集 = 重写本文件的小函数。
+// 字重规范（基础件批 2026-11-20）：UI chrome 静态图标默认 bold——regular 细笔画在 ≤14px
+// 操作钮尺寸下糊成「小点/空方块」（用户实拍根因）；品牌 Horse 用 fill、发送/停止等强调钮
+// 沿用 bold/fill、Spinner 保持 regular（运动可读性优先于笔画力度）。
 
 import { ArrowLineUpIcon } from "@phosphor-icons/react/dist/csr/ArrowLineUp";
 import { ArrowsInIcon } from "@phosphor-icons/react/dist/csr/ArrowsIn";
@@ -23,19 +26,19 @@ import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 type Props = { size?: number; color?: string };
 
 export function ArrowsInGlyph(props: Props) {
-  return <ArrowsInIcon size={props.size ?? 14} color={props.color} />;
+  return <ArrowsInIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function ArrowsOutGlyph(props: Props) {
-  return <ArrowsOutIcon size={props.size ?? 14} color={props.color} />;
+  return <ArrowsOutIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function CaretDownGlyph(props: Props) {
-  return <CaretDownIcon size={props.size ?? 12} color={props.color} />;
+  return <CaretDownIcon size={props.size ?? 12} color={props.color} weight="bold" />;
 }
 
 export function GearGlyph(props: Props) {
-  return <GearSixIcon size={props.size ?? 16} color={props.color} />;
+  return <GearSixIcon size={props.size ?? 16} color={props.color} weight="bold" />;
 }
 
 /** 品牌图标（Henira 词源 ἡνία「缰绳」——马具点题） */
@@ -44,7 +47,7 @@ export function HorseGlyph(props: Props) {
 }
 
 export function MagnifierGlyph(props: Props) {
-  return <MagnifyingGlassIcon size={props.size ?? 13} color={props.color} />;
+  return <MagnifyingGlassIcon size={props.size ?? 13} color={props.color} weight="bold" />;
 }
 
 export function PlusGlyph(props: Props) {
@@ -52,15 +55,15 @@ export function PlusGlyph(props: Props) {
 }
 
 export function BrainGlyph(props: Props) {
-  return <BrainIcon size={props.size ?? 14} color={props.color} />;
+  return <BrainIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function CaretGlyph(props: Props) {
-  return <CaretRightIcon size={props.size ?? 14} color={props.color} />;
+  return <CaretRightIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function CheckGlyph(props: Props) {
-  return <CheckCircleIcon size={props.size ?? 14} color={props.color} />;
+  return <CheckCircleIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function SpinnerGlyph(props: Props) {
@@ -68,11 +71,11 @@ export function SpinnerGlyph(props: Props) {
 }
 
 export function WarnGlyph(props: Props) {
-  return <WarningIcon size={props.size ?? 14} color={props.color} />;
+  return <WarningIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function XGlyph(props: Props) {
-  return <XIcon size={props.size ?? 14} color={props.color} />;
+  return <XIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function SendGlyph(props: Props) {
@@ -88,5 +91,5 @@ export function SendNowGlyph(props: Props) {
 }
 
 export function PencilGlyph(props: Props) {
-  return <PencilIcon size={props.size ?? 14} color={props.color} />;
+  return <PencilIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }

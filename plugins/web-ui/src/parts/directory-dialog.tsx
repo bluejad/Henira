@@ -7,6 +7,7 @@ import type { RegisteredDir } from "@henira/protocol";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { WebPartContext } from "../types.js";
+import { CaretDownGlyph, CaretGlyph, XGlyph } from "./icons.js";
 
 const DRIVES_ROOT = "__drives__";
 
@@ -164,7 +165,7 @@ export function DirectoryDialog(props: {
               }
             }}
           >
-            {n.expanded ? "▾" : "▸"}
+            {n.expanded ? <CaretDownGlyph size={12} /> : <CaretGlyph size={12} />}
           </button>
           <button
             type="button"
@@ -197,7 +198,7 @@ export function DirectoryDialog(props: {
         <div className="henira-dialog-head">
           <strong>{ctx.t("dirs.add")}</strong>
           <button type="button" aria-label={ctx.t("common.cancel")} onClick={props.onClose}>
-            ✕
+            <XGlyph size={14} />
           </button>
         </div>
         <label className="henira-dialog-field">

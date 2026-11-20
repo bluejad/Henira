@@ -50,6 +50,8 @@
   --henira-shiki-token-inserted: #4e7d46;
   --henira-shiki-token-deleted: #9f2f2d;
   --henira-mono: ui-monospace, "JetBrains Mono", "SF Mono", Consolas, monospace;
+  /* 浮层阴影（基础件批 2026-11-20：model-popover / context-menu 两处硬编码同值沉淀成 token） */
+  --henira-shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.18);
   --henira-radius: 6px;
   --henira-radius-lg: 12px;
   --henira-radius-xl: 16px;
@@ -392,6 +394,36 @@ button:focus-visible > .henira-row-caret {
   cursor: default;
 }
 
+/* 图标钮基类（基础件批 2026-11-20）：小图标操作钮统一形态——透明重置全局按钮基线的
+   边框/底色（基线 × 透明重置叠加 = 实拍截图「素框空方块」真凶），muted 常态、hover
+   升 strong + surface-hover。操作钮图标一律 bold + 14px（icons.tsx 规范） */
+.henira-app button.henira-iconbtn {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.henira-app button.henira-iconbtn:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-iconbtn:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+  outline-offset: 0;
+}
+.henira-app button.henira-iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* 输入族焦点环（与 button 同一语言：info 色双像素外环） */
 .henira-app input:focus-visible,
 .henira-app textarea:focus-visible,
@@ -521,7 +553,7 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-panel);
   border: 1px solid var(--henira-border-strong);
   border-radius: var(--henira-radius);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--henira-shadow-pop);
   padding: 4px;
 }
 .henira-model-popover[data-direction="up"] {
@@ -602,6 +634,10 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-selected);
   color: var(--henira-text-strong);
 }
+/* 键盘活动项（↑↓/Home/End 移动，aria-activedescendant——hover 同款弱底） */
+.henira-model-item[data-kbd="true"] {
+  background: var(--henira-surface-hover);
+}
 .henira-model-empty {
   display: block;
   padding: 8px;
@@ -636,7 +672,8 @@ button:focus-visible > .henira-row-caret {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 思考档（Brain 图标 + 关/低/中/高 ghost select；none=置灰「—」） */
+/* 思考档（Brain 图标 + 档位 ghost 触发钮 + 自制弹层——原生 select 系统菜单退场；
+   none=置灰「—」） */
 .henira-thinking-select {
   position: relative;
   display: inline-flex;
@@ -650,29 +687,109 @@ button:focus-visible > .henira-row-caret {
   opacity: 0.55;
   cursor: not-allowed;
 }
-.henira-thinking-select select {
+
+/* ── 统一下拉弹层（HeniraSelect 基础件，基础件批 2026-11-20）：触发钮 ghost 形态同
+   model-trigger 语言；--input 形态配表单字段（henira-input 同款）；弹层 = .henira-pop
+   通用面板（panel 实底 + border-strong + shadow-pop，z-65 与模型弹层同档）── */
+.henira-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.henira-app button.henira-select-trigger {
   appearance: none;
   border: 1px solid transparent;
   background: none;
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
-  padding: 3px 18px 3px 2px;
+  padding: 3px 8px;
   border-radius: var(--henira-radius);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
-.henira-thinking-select select:hover {
+.henira-app button.henira-select-trigger:hover:not(:disabled) {
   color: var(--henira-text);
   border-color: var(--henira-border);
 }
-.henira-thinking-select select:focus-visible {
+.henira-app button.henira-select-trigger:focus-visible {
   outline: 1px solid var(--henira-info-text);
 }
-.henira-model-caret {
+.henira-select-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-select--input {
+  width: 100%;
+}
+.henira-app button.henira-select--input .henira-select-trigger {
+  border: 1px solid var(--henira-border);
+  background: var(--henira-bg);
+  color: var(--henira-text);
+  font: inherit;
+  padding: 6px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.henira-select--input .henira-select-trigger-label {
+  flex: 1;
+}
+.henira-pop {
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-select-pop {
   position: absolute;
-  right: 5px;
-  display: inline-flex;
+  z-index: 65;
+  min-width: 140px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.henira-select--input .henira-select-pop {
+  min-width: 100%;
+}
+.henira-select-pop[data-direction="up"] {
+  bottom: calc(100% + 4px);
+}
+.henira-select-pop[data-direction="down"] {
+  top: calc(100% + 4px);
+}
+.henira-app button.henira-pop-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.henira-app button.henira-pop-item:hover:not(:disabled):not([data-active="true"]) {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-pop-item[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-pop-item[data-kbd="true"] {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-pop-item:disabled {
   color: var(--henira-text-muted);
-  pointer-events: none;
+  cursor: not-allowed;
 }
 /* 发送失败行内提示（prompt 失败不静默，R125） */
 .henira-send-error {
@@ -758,31 +875,18 @@ button:focus-visible > .henira-row-caret {
   font-size: var(--henira-fs-sm);
   color: var(--henira-text-muted);
 }
+/* 行操作钮：hover / focus-within 浮现（常驻三钮五条连成「小方块网格」= 用户实拍最丑点；
+   opacity-only 不动 pointer-events——Playwright 直点可达，键盘 focus-within 同样显形） */
 .henira-queue-actions {
   flex-shrink: 0;
   display: inline-flex;
   gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
-.henira-queue-btn {
-  border: none;
-  background: none;
-  color: var(--henira-text-muted);
-  border-radius: var(--henira-radius);
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-}
-.henira-queue-btn:hover:not(:disabled) {
-  background: var(--henira-border);
-  color: var(--henira-text);
-}
-.henira-queue-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
+.henira-queue-row:hover .henira-queue-actions,
+.henira-queue-row:focus-within .henira-queue-actions {
+  opacity: 1;
 }
 
 /* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
@@ -930,7 +1034,7 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-panel);
   border: 1px solid var(--henira-border-strong);
   border-radius: var(--henira-radius);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--henira-shadow-pop);
   padding: 4px;
 }
 .henira-menu-item {
@@ -1246,6 +1350,8 @@ button:focus-visible > .henira-row-caret {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* tab 关闭钮：tab hover / focus-within 浮现（10px × opacity .55 常驻 = 「小方块小点」
+   头号嫌疑——图标换 12px、平时隐藏，照 row-caret/hover-reveal 惯例 opacity-only） */
 .henira-right-tab-close {
   flex-shrink: 0;
   border: none;
@@ -1253,33 +1359,21 @@ button:focus-visible > .henira-row-caret {
   padding: 2px;
   display: inline-flex;
   color: inherit;
-  opacity: 0.55;
   cursor: pointer;
   border-radius: calc(var(--henira-radius) - 2px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.henira-right-tab:hover .henira-right-tab-close,
+.henira-right-tab:focus-within .henira-right-tab-close {
+  opacity: 1;
 }
 .henira-right-tab-close:hover {
-  opacity: 1;
   background: var(--henira-surface-hover);
 }
-.henira-right-barbtn {
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: none;
-  color: var(--henira-text-muted);
-  border-radius: var(--henira-radius);
-  cursor: pointer;
-}
-.henira-right-barbtn:hover {
-  background: var(--henira-surface-hover);
-  color: var(--henira-text);
-}
-/* 窄轨里的 ＋ 格顶格 48px（顶线收起态也不断——与三栏顶等高同批，用户反馈④） */
-.henira-right-rail .henira-right-barbtn {
+/* 窄轨里的 ＋ 格顶格 48px（顶线收起态也不断——与三栏顶等高同批，用户反馈④；
+   钮本体 = henira-iconbtn 基类） */
+.henira-right-rail .henira-iconbtn {
   height: var(--henira-header-height);
   width: 100%;
   border-bottom: 1px solid var(--henira-border);

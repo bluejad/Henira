@@ -189,12 +189,15 @@ describe("createWebApp", () => {
     await new Promise((r) => setTimeout(r, 50));
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     const dialog = await screen.findByRole("dialog", { name: "设置" });
-    const themeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
-    fireEvent.change(themeSelect, { target: { value: "sea" } });
+    // 主题下拉 = HeniraSelect 自制弹层（原生 select 退场，基础件批 2026-11-20）；
+    // 定位走容器内 class（左导航分区钮可访问名同为「主题」，role 查询撞名）
+    const themeTrigger = dialog.querySelector(".henira-select-trigger") as HTMLButtonElement;
+    fireEvent.click(themeTrigger);
+    fireEvent.click(await screen.findByRole("option", { name: "sea" }));
     expect(el.dataset.theme).toBe("sea"); // 容器切主题 id
     const link = document.head.querySelector("link[data-henira-theme]");
     expect(link?.getAttribute("href")).toBe("/api/ui-assets/sea-pack/1.0.0/themes/sea.css");
-    expect(themeSelect.value).toBe("sea"); // 显示值跟随主题（onTheme 漏 render 回归锚，R125）
+    expect(themeTrigger.textContent).toContain("sea"); // 显示值跟随主题（onTheme 漏 render 回归锚，R125）
     // 持久化（补全①写侧）：选择即落盘 settings.json ui.theme——刷新才有得还原
     expect(puts).toEqual([{ ui: { theme: "sea" } }]);
     // 安全模式回落官方默认：第三方主题/语言收起（D-059 决定 4）
@@ -356,8 +359,9 @@ describe("createWebApp", () => {
       //（mount 后 React 并发渲染异步落 DOM，立即 getByRole 是空 body）
       fireEvent.click(await screen.findByRole("button", { name: "设置" }));
       const dialog = await screen.findByRole("dialog", { name: "设置" });
-      const themeSelect = dialog.querySelectorAll("select")[0] as HTMLSelectElement;
-      fireEvent.change(themeSelect, { target: { value: "dark" } });
+      const themeTrigger = dialog.querySelector(".henira-select-trigger") as HTMLButtonElement;
+      fireEvent.click(themeTrigger);
+      fireEvent.click(await screen.findByRole("option", { name: "深色" }));
       expect(el.dataset.theme).toBe("dark");
       // 磁盘旧值这才晚到
       resolveSettings({ version: 1, ui: { theme: "light" } });

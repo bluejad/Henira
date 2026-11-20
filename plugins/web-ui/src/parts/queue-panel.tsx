@@ -3,7 +3,8 @@
 // 队列与插话待进场条目同面板呈现、徽章区分（流内 pending 气泡本地回显挂账 50-open）。
 // 行操作：立即发送 = promote 抢占式升格（停止当前回合并以该条开新回合；忙/闲/冻结三态
 // 都可点——闲时 preempt 变 no-op 直接发这条）；编辑 = 文本回填 composer 草稿 + 条目删除
-// （跨窗口冻结锁挂账）；删除 = removeQueueEntry。
+// （跨窗口冻结锁挂账）；删除 = removeQueueEntry。操作钮 hover / focus-within 浮现
+// （henira-iconbtn 基类 + bold 图标——常驻小方块网格是用户实拍最丑点，基础件批 2026-11-20）。
 // 中断冻结：队列非空时中断不冲刷——queuePaused 态头部切「队列已暂停」+「继续发送」
 // （resumeQueue 恢复冲刷）。渲染条件 = 队列非空且（busy 或冻结）：回合末 busy 翻 false
 // 与冲刷广播之间有瞬态窗口，两侧都不满足时隐藏（防每对回合间面板闪现）。
@@ -82,7 +83,7 @@ export function QueuePanel({
             <span className="henira-queue-actions">
               <button
                 type="button"
-                className="henira-queue-btn"
+                className="henira-iconbtn"
                 aria-label={ctx.t("composer.queue.sendNow")}
                 title={ctx.t("composer.queue.sendNow")}
                 disabled={!canPromote}
@@ -90,11 +91,11 @@ export function QueuePanel({
                   void ctx.client.promoteQueueEntry?.(ctx.sessionId as string, entry.id);
                 }}
               >
-                <SendNowGlyph size={13} />
+                <SendNowGlyph size={14} />
               </button>
               <button
                 type="button"
-                className="henira-queue-btn"
+                className="henira-iconbtn"
                 aria-label={ctx.t("composer.queue.edit")}
                 title={ctx.t("composer.queue.edit")}
                 onClick={() => {
@@ -102,11 +103,11 @@ export function QueuePanel({
                   onEdit?.(entry.text);
                 }}
               >
-                <PencilGlyph size={13} />
+                <PencilGlyph size={14} />
               </button>
               <button
                 type="button"
-                className="henira-queue-btn"
+                className="henira-iconbtn"
                 aria-label={ctx.t("composer.queue.delete")}
                 title={ctx.t("composer.queue.delete")}
                 disabled={!canRemove}
@@ -114,7 +115,7 @@ export function QueuePanel({
                   remove(entry.id);
                 }}
               >
-                <XGlyph size={13} />
+                <XGlyph size={14} />
               </button>
             </span>
           </li>

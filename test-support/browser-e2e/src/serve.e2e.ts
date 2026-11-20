@@ -160,11 +160,13 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   await originalItem.click();
   await expect(page.getByText(FINAL_TEXT)).toBeVisible(); // 会话行随快照回来
 
-  // 主题浅 → 深：设置浮层下拉，data-theme 落根容器；深色截图
+  // 主题浅 → 深：设置浮层主题下拉（HeniraSelect 自制弹层——原生 select 退场，基础件批 2026-11-20），
+  // data-theme 落根容器；深色截图
   await page.getByRole("button", { name: zh["settings.open"] }).click();
   const settings = page.getByRole("dialog", { name: zh["settings.title"] });
   await expect(settings).toBeVisible();
-  await settings.locator("select").first().selectOption({ label: zh["settings.theme.dark"] });
+  await settings.locator(".henira-select-trigger").first().click();
+  await page.getByRole("option", { name: zh["settings.theme.dark"] }).click();
   await expect(page.locator(".henira-app[data-theme='dark']")).toHaveCount(1);
   await shot(page, "04-completed-dark.png");
 });

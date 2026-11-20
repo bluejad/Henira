@@ -5,8 +5,9 @@
 // 注册件各成一 tab（官方 tab 与插件 tab 并存，D-062），标签暂取件名；顶替 sidebar.right 本体
 // = 整条右栏替换（D-043 区域替换语义）。⤢ 最大化 = 覆盖视口的瞬态视图，不落盘。
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
+import { useDismiss } from "./dropdown.js";
 import { ArrowsInGlyph, ArrowsOutGlyph, CaretDownGlyph, PlusGlyph, XGlyph } from "./icons.js";
 
 type PanelTab = { id: string; kind: string };
@@ -38,12 +39,12 @@ export const RightPanel: WebPart = (ctx: WebPartContext): ReactNode => {
       <div className="henira-right-rail">
         <button
           type="button"
-          className="henira-right-barbtn"
+          className="henira-iconbtn"
           aria-label={ctx.t("rightPanel.new")}
           title={ctx.t("rightPanel.new")}
           onClick={newTab}
         >
-          <PlusGlyph size={13} />
+          <PlusGlyph size={14} />
         </button>
       </div>
     );
@@ -87,23 +88,10 @@ function RightPanelView(props: {
   const [listOpen, setListOpen] = useState(false);
   const listRef = useRef<HTMLSpanElement>(null);
 
-  // ⌄ 清单：点外 / Escape 收
-  useEffect(() => {
-    if (!listOpen) return;
-    const onDown = (e: MouseEvent): void => {
-      if (listRef.current !== null && !listRef.current.contains(e.target as Node))
-        setListOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setListOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [listOpen]);
+  // ⌄ 清单：点外 / Escape 收（useDismiss 统一出口）
+  useDismiss(listOpen, listRef, () => {
+    setListOpen(false);
+  });
 
   const labelOf = (tab: PanelTab): string =>
     tab.kind === "blank" ? ctx.t("rightPanel.blank") : tab.kind;
@@ -121,7 +109,7 @@ function RightPanelView(props: {
         <span className="henira-right-tablist-wrap" ref={listRef}>
           <button
             type="button"
-            className="henira-right-barbtn"
+            className="henira-iconbtn"
             aria-label={ctx.t("rightPanel.list")}
             title={ctx.t("rightPanel.list")}
             aria-expanded={listOpen}
@@ -129,7 +117,7 @@ function RightPanelView(props: {
               setListOpen((v) => !v);
             }}
           >
-            <CaretDownGlyph size={11} />
+            <CaretDownGlyph size={12} />
           </button>
           {listOpen ? (
             <span className="henira-context-menu henira-right-tabmenu" role="menu">
@@ -192,7 +180,7 @@ function RightPanelView(props: {
                   props.onClose(tab.id);
                 }}
               >
-                <XGlyph size={10} />
+                <XGlyph size={12} />
               </button>
             </span>
           ))}
@@ -219,16 +207,16 @@ function RightPanelView(props: {
         </span>
         <button
           type="button"
-          className="henira-right-barbtn"
+          className="henira-iconbtn"
           aria-label={ctx.t("rightPanel.new")}
           title={ctx.t("rightPanel.new")}
           onClick={props.onNew}
         >
-          <PlusGlyph size={13} />
+          <PlusGlyph size={14} />
         </button>
         <button
           type="button"
-          className="henira-right-barbtn"
+          className="henira-iconbtn"
           aria-label={maximized ? ctx.t("rightPanel.restore") : ctx.t("rightPanel.maximize")}
           title={maximized ? ctx.t("rightPanel.restore") : ctx.t("rightPanel.maximize")}
           onClick={() => {
