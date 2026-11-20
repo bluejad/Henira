@@ -516,7 +516,7 @@ button:focus-visible > .henira-row-caret {
   min-width: 0;
   max-width: 220px;
 }
-.henira-model-trigger {
+.henira-app button.henira-model-trigger {
   appearance: none;
   border: 1px solid transparent;
   background: none;
@@ -531,11 +531,11 @@ button:focus-visible > .henira-row-caret {
   max-width: 220px;
   min-width: 0;
 }
-.henira-model-trigger:hover {
+.henira-app button.henira-model-trigger:hover {
   color: var(--henira-text);
   border-color: var(--henira-border);
 }
-.henira-model-trigger:focus-visible {
+.henira-app button.henira-model-trigger:focus-visible {
   outline: 1px solid var(--henira-info-text);
 }
 .henira-model-trigger-label {
@@ -595,7 +595,7 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
 }
-.henira-model-item {
+.henira-app button.henira-model-item {
   display: flex;
   align-items: center;
   gap: var(--henira-space-2);
@@ -627,15 +627,15 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
 }
-.henira-model-item:hover {
+.henira-app button.henira-model-item:hover {
   background: var(--henira-surface-hover);
 }
-.henira-model-item[data-active="true"] {
+.henira-app button.henira-model-item[data-active="true"] {
   background: var(--henira-selected);
   color: var(--henira-text-strong);
 }
 /* 键盘活动项（↑↓/Home/End 移动，aria-activedescendant——hover 同款弱底） */
-.henira-model-item[data-kbd="true"] {
+.henira-app button.henira-model-item[data-kbd="true"] {
   background: var(--henira-surface-hover);
 }
 .henira-model-empty {
@@ -644,7 +644,7 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
 }
-.henira-model-manage {
+.henira-app button.henira-model-manage {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -661,7 +661,7 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text-muted);
   cursor: pointer;
 }
-.henira-model-manage:hover {
+.henira-app button.henira-model-manage:hover {
   background: var(--henira-surface-hover);
   color: var(--henira-text);
 }
@@ -1037,7 +1037,7 @@ button:focus-visible > .henira-row-caret {
   box-shadow: var(--henira-shadow-pop);
   padding: 4px;
 }
-.henira-menu-item {
+.henira-app button.henira-menu-item {
   display: block;
   width: 100%;
   border: none;
@@ -1050,14 +1050,14 @@ button:focus-visible > .henira-row-caret {
   color: var(--henira-text);
   cursor: pointer;
 }
-.henira-menu-item:hover:not(:disabled) {
+.henira-app button.henira-menu-item:hover:not(:disabled) {
   background: var(--henira-surface-hover);
 }
-.henira-menu-item:disabled {
+.henira-app button.henira-menu-item:disabled {
   color: var(--henira-text-muted);
   cursor: not-allowed;
 }
-.henira-menu-item[data-danger="true"] {
+.henira-app button.henira-menu-item[data-danger="true"] {
   color: var(--henira-danger-text);
 }
 .henira-menu-sep {
@@ -1177,7 +1177,7 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-selected);
   color: var(--henira-text-strong);
 }
-.henira-dir-caret {
+.henira-app button.henira-dir-caret {
   flex-shrink: 0;
   border: none;
   background: none;
@@ -1319,7 +1319,7 @@ button:focus-visible > .henira-row-caret {
   gap: 2px;
   min-width: 60px;
   max-width: 180px;
-  height: 28px;
+  height: 24px;
   padding: 0 4px 0 8px;
   border-radius: var(--henira-radius);
   color: var(--henira-text-muted);
@@ -1327,15 +1327,17 @@ button:focus-visible > .henira-row-caret {
   flex-shrink: 0;
   background: none;
 }
+/* 选中态 = 轻底 + 强文字（实灰块 16% 档是「胖灰胶囊」观感——hover 档 8% 与文字深浅
+   区分选中/悬停，2026-11-20 用户实拍裁定减淡） */
 .henira-right-tab[data-active="true"] {
-  background: var(--henira-selected);
+  background: var(--henira-surface-hover);
   color: var(--henira-text-strong);
 }
-.henira-right-tab:hover {
+.henira-right-tab:hover:not([data-active="true"]) {
   background: var(--henira-surface-hover);
   color: var(--henira-text);
 }
-.henira-right-tab-label {
+.henira-app button.henira-right-tab-label {
   flex: 1;
   min-width: 0;
   border: none;
@@ -1352,7 +1354,7 @@ button:focus-visible > .henira-row-caret {
 }
 /* tab 关闭钮：tab hover / focus-within 浮现（10px × opacity .55 常驻 = 「小方块小点」
    头号嫌疑——图标换 12px、平时隐藏，照 row-caret/hover-reveal 惯例 opacity-only） */
-.henira-right-tab-close {
+.henira-app button.henira-right-tab-close {
   flex-shrink: 0;
   border: none;
   background: none;
@@ -1368,7 +1370,7 @@ button:focus-visible > .henira-row-caret {
 .henira-right-tab:focus-within .henira-right-tab-close {
   opacity: 1;
 }
-.henira-right-tab-close:hover {
+.henira-app button.henira-right-tab-close:hover {
   background: var(--henira-surface-hover);
 }
 /* 窄轨里的 ＋ 格顶格 48px（顶线收起态也不断——与三栏顶等高同批，用户反馈④；
