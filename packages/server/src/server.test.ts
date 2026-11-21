@@ -2712,3 +2712,164 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
     }
   });
 });
+
+describe("重启收口（R175）：settle 分型 + 启动账本修理", () => {
+  it("settle 分型：未知 requestId → 404 approval not found；真挂起 → applied:true；已答 → applied:false", async () => {
+    const { server, base, cleanup } = await makeServer([
+      [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
+      [mockText("已处理"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    try {
+      const id = await createSession(base);
+      // 从不存在（服务重启收口/重启前死亡）：404 结构化——不假成功不 500
+      const missing = await fetch(`${base}/api/sessions/${id}/approvals/no-such-id`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "allowed-once" }),
+      });
+      expect(missing.status).toBe(404);
+      expect(((await missing.json()) as { error: string }).error).toBe("approval not found");
+
+      // 造真挂起 → settle 应用 → 重复 settle 幂等 false（200，先答者赢语义不变）
+      server.registry
+        .get(id)
+        ?.ctx.get("tools")
+        .register({
+          name: "demo-write",
+          description: "demo write tool (requires approval)",
+          inputSchema: { type: "object", properties: {} },
+          execute: async () => ({ content: "written" }),
+        });
+      const promptRes = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "写文件" }),
+      });
+      expect(promptRes.status).toBe(200);
+      const requestId = await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: { kind: string; status?: string; requestId?: string }[];
+        };
+        const row = snap.rows.find((r) => r.kind === "approval" && r.status === "pending");
+        return row?.requestId;
+      });
+      const settle1 = await fetch(`${base}/api/sessions/${id}/approvals/${requestId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "allowed-once" }),
+      });
+      expect(settle1.status).toBe(200);
+      expect(((await settle1.json()) as { applied: boolean }).applied).toBe(true);
+      const settle2 = await fetch(`${base}/api/sessions/${id}/approvals/${requestId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "allowed-once" }),
+      });
+      expect(settle2.status).toBe(200);
+      expect(((await settle2.json()) as { applied: boolean }).applied).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("启动账本修理：seq 重排 + 孤儿收口在监听前完成（幽灵卡与假在跑工具行不可能重放出来）", async () => {
+    const dataDir = path.join(root, `repair-${Math.random().toString(36).slice(2, 8)}`);
+    const globalDir = path.join(dataDir, "config");
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.writeFile(
+      path.join(globalDir, "settings.json"),
+      JSON.stringify({ version: 1, model: "mock/mock-1" }),
+      "utf8",
+    );
+    const sid = "s-repair000-abc123";
+    const ledgerDir = path.join(dataDir, "projects", "--repair-test-deadbeef--", "sessions", sid);
+    await fs.mkdir(ledgerDir, { recursive: true });
+    const header = JSON.stringify({ version: 1, id: sid, createdAt: 1, cwd: root });
+    const line = (seq: number, type: string, data: object, time: number): string =>
+      JSON.stringify({ type, seq, time, data });
+    // 用户幽灵会话同款账本伤：decided 连发抢 seq（3,3）+ 孤儿审批挂起 + 开回合无收尾
+    const ledger = [
+      header,
+      line(1, "user/message", { turn: "t1", step: 0, content: "hi", source: "send" }, 100),
+      line(2, "turn/start", { turn: "t1" }, 120),
+      line(
+        3,
+        "approval/asked",
+        {
+          turn: "t1",
+          step: 1,
+          requestId: "r-ghost",
+          callId: "r-ghost",
+          tool: "bash",
+          argsDigest: "sha:x",
+          args: { command: "ls" },
+        },
+        150,
+      ),
+      line(
+        3,
+        "approval/decided",
+        { turn: "t1", step: 1, requestId: "r-other", decision: "allowed-once" },
+        151,
+      ),
+      line(
+        4,
+        "assistant/message",
+        { turn: "t1", step: 1, content: "", model: "m", finishReason: "tool-calls" },
+        160,
+      ),
+    ].join("\n");
+    const ledgerPath = path.join(ledgerDir, "session.v1.jsonl");
+    await fs.writeFile(ledgerPath, `${ledger}\n`, "utf8");
+
+    const { mockLlm } = await import("@henira/llm-mock");
+    const server = await createServer({
+      dataDir,
+      globalDir,
+      llm: llmStub(mockLlm([]).service),
+    });
+    try {
+      const readEvents = async (): Promise<
+        { seq: number; type: string; data: Record<string, unknown> }[]
+      > => {
+        const raw = (await fs.readFile(ledgerPath, "utf8")).trimEnd().split("\n");
+        return raw
+          .slice(1)
+          .map(
+            (l) => JSON.parse(l) as { seq: number; type: string; data: Record<string, unknown> },
+          );
+      };
+      // 账本自洽：seq 连续 + 尾部 invalidated → interrupted（先审批后回合）
+      const events = await readEvents();
+      expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      expect(events[5]).toMatchObject({
+        type: "approval/invalidated",
+        data: { requestId: "r-ghost" },
+      });
+      expect(events[6]).toMatchObject({
+        type: "turn/end",
+        data: { turn: "t1", reason: "interrupted" },
+      });
+
+      // 快照（未装配、从账本重建的路径）：无 pending 幽灵卡、已失效痕迹行在场、busy false
+      const snap = (await (await fetch(`${server.url}/api/sessions/${sid}/snapshot`)).json()) as {
+        rows: { kind: string; status?: string; decision?: string }[];
+        state: { busy: boolean };
+      };
+      expect(snap.state.busy).toBe(false);
+      expect(snap.rows.some((r) => r.kind === "approval" && r.status === "pending")).toBe(false);
+      expect(
+        snap.rows.some(
+          (r) => r.kind === "approval" && r.status === "settled" && r.decision === "invalidated",
+        ),
+      ).toBe(true);
+
+      // 幂等：再跑一遍零新增
+      await server.registry.repairLedgers();
+      expect((await readEvents()).map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    } finally {
+      await server.stop();
+      await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});

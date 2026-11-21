@@ -78,6 +78,10 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeniraServ
     dictionary: opts.dictionary ?? new Dictionary(globalDir, fetch),
   });
 
+  // 启动账本修理（R175 重启收口）：监听前无请求无并发；此后快照重建/翻页/装配读到的
+  // 都是自洽账本——幽灵审批卡与死回合计时从结构上不可能再从账本重放出来
+  await registry.repairLedgers();
+
   const server = serve({ fetch: app.fetch, hostname: host, port });
   await new Promise<void>((resolve) => {
     server.once("listening", resolve);

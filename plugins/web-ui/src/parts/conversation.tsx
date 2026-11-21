@@ -88,6 +88,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     lastSnapshotRef.current = snapshot;
     lastActivityRef.current = Date.now(); // 任何快照变化（行/增量落地）= 有活动
   }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ctx.sessionId 刻意触发信号——切会话重置兜底表
   useEffect(() => {
     if (busy) {
       setBusySince((prev) => prev ?? Date.now()); // 边沿起表；StrictMode 重渲不重置
@@ -99,7 +100,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     }
     setBusySince(undefined);
     return undefined;
-  }, [busy, ctx.sessionId]); // 切会话重置兜底表（服务端 busySince 是权威——兜底只管无字段老快照）
+  }, [busy, ctx.sessionId]);
   const hasActiveTools = useMemo(
     () => snapshot.rows.some((r) => r.kind === "tool" && r.status === "running"),
     [snapshot.rows],
@@ -687,7 +688,9 @@ function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext })
       {row.interrupted === true ? (
         <div style={{ marginTop: "var(--henira-space-2)" }}>
           <Pill bg="var(--henira-warn-bg)" color="var(--henira-warn-text)">
-            {ctx.t("row.interrupted")}
+            {ctx.t(
+              row.interruptedKind === "restart" ? "row.interrupted.restart" : "row.interrupted",
+            )}
           </Pill>
         </div>
       ) : null}

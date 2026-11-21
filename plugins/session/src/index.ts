@@ -19,12 +19,15 @@ export {
   SessionVersionError,
   UnknownEventTypeError,
 } from "./reader.js";
+export { type LedgerRepairResult, repairSessionLedger } from "./repair.js";
 export { createSession, type SessionHandle } from "./service.js";
 export {
+  type AppendOptions,
   type CreateSessionOptions,
   type CreateSessionResult,
   EventDataInvalidError,
   NoOpenTurnError,
+  repairLedgerFile,
   SESSION_LOG_FILE,
   SessionStore,
   UnregisteredEventTypeError,

@@ -35,6 +35,7 @@ import { mcpPlugin } from "@henira/plugin-mcp";
 import {
   forkSession,
   projectKey,
+  repairSessionLedger,
   SESSION_LOG_FILE,
   type SessionHandle,
   sessionPlugin,
@@ -760,6 +761,54 @@ export class SessionRegistry {
     const events = await this.ledgerEvents(id);
     if (events === undefined) return undefined;
     return sliceRowsPage(rebuildProjection(events).rows, beforeSeq, limit);
+  }
+
+  /** 启动账本修理（R175 重启收口）：监听前逐目录跑 seq 外科重排（写者竞态历史伤）+ 孤儿
+   * 挂起收口（approval/invalidated + turn/end{interrupted}）。单会话失败只告警不挡其余、
+   * 不挡 serve 上线（读不了的账本 attach 时还会经同一条修理路径再试）。 */
+  async repairLedgers(): Promise<{ scanned: number; repaired: number }> {
+    const projectsDir = path.join(this.#opts.dataDir, "projects");
+    let keys: string[] = [];
+    try {
+      keys = await fs.readdir(projectsDir);
+    } catch {
+      return { scanned: 0, repaired: 0 };
+    }
+    let scanned = 0;
+    let repaired = 0;
+    for (const key of keys) {
+      const sessionsDir = path.join(projectsDir, key, "sessions");
+      let ids: string[] = [];
+      try {
+        ids = await fs.readdir(sessionsDir);
+      } catch {
+        continue;
+      }
+      for (const id of ids) {
+        const dir = path.join(sessionsDir, id);
+        try {
+          const result = await repairSessionLedger(dir);
+          scanned += 1;
+          if (
+            result.resequenced ||
+            result.invalidatedApprovals > 0 ||
+            result.synthesizedInterrupted
+          ) {
+            repaired += 1;
+            console.log(
+              `[server] ledger repaired: ${id} (resequenced=${result.resequenced}, ` +
+                `invalidatedApprovals=${result.invalidatedApprovals}, ` +
+                `synthesizedInterrupted=${result.synthesizedInterrupted})`,
+            );
+          }
+        } catch (err) {
+          scanned += 1;
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[server] ledger repair skipped for ${id}: ${msg}`);
+        }
+      }
+    }
+    return { scanned, repaired };
   }
 
   /** 全部会话收尾（server stop）：harness dispose（各插件 stop：锁/句柄）+ 挂起审批 cancelled 收口 */

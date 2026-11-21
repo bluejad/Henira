@@ -86,10 +86,14 @@ const DEMO_WRITE = {
 
 const forms: {
   name: string;
+  /** client 形态走真 HTTP——REST 语义显面（R175：未知审批 id = 404 HttpError）；
+   * runtime 进程内无 HTTP 面，程序化调用保持布尔契约 */
+  usesHttp: boolean;
   make: (script: import("@henira/llm-mock").MockEntry[]) => Promise<FormHandle>;
 }[] = [
   {
     name: "runtime(③进程内)",
+    usesHttp: false,
     async make(script) {
       const { mockLlm } = await import("@henira/llm-mock");
       const { dataDir, globalDir } = await tempDirs();
@@ -111,6 +115,7 @@ const forms: {
   },
   {
     name: "client(①远端)",
+    usesHttp: true,
     async make(script) {
       const { createServer } = await import("@henira/server");
       const { mockLlm } = await import("@henira/llm-mock");
@@ -191,7 +196,7 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     void frames;
   });
 
-  it("settleApproval：未知 requestId → false；挂起审批 → 收答放行", async () => {
+  it("settleApproval：未知 requestId → 分型（R175）；挂起审批 → 收答放行", async () => {
     const { facade, registerTool } = await form.make([
       [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
       [mockText("完成"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
@@ -206,7 +211,20 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
         // stop
       }
     })();
-    expect(await facade.settleApproval(session.id, "no-such-request", "allowed-once")).toBe(false);
+    // 未知 id 的语义分型（R175 重启收口）：client 形态忠实透传 REST——从不存在 = 404 HttpError
+    // （「已答过」仍是 resolve false，双形态语义一致）；runtime 进程内无 HTTP 面，保持布尔契约
+    // false（嵌入式程序化调用的既有形状）。UI 两侧殊途同归：resolve(false) 与 404 都不回滚。
+    if (form.usesHttp) {
+      const err = await facade
+        .settleApproval(session.id, "no-such-request", "allowed-once")
+        .then(() => undefined)
+        .catch((e: unknown) => e);
+      expect((err as Error & { status?: number })?.status).toBe(404);
+    } else {
+      expect(await facade.settleApproval(session.id, "no-such-request", "allowed-once")).toBe(
+        false,
+      );
+    }
 
     await facade.prompt(session.id, "写文件");
     const requestRow = await waitFor(() => {
@@ -848,5 +866,32 @@ describe.each(forms.map((f) => [f.name, f] as const))("排队卡（E1）双形�
     expect(done.state.queue ?? []).toHaveLength(0);
     expect(done.state.busy).toBe(false);
     void kept;
+  });
+});
+
+describe("client 独有：HttpError 带 status（R175 settle 分型——404 当已解决的判别依据）", () => {
+  it("非 2xx 抛 HttpError（message 形状照旧 + status 结构化暴露）", async () => {
+    const fakeFetch = (async (url: string | URL, init?: RequestInit) => {
+      void url;
+      if ((init?.method ?? "GET") === "POST") {
+        return new Response(JSON.stringify({ error: "approval not found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ id: "s-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const facade = createClient({ baseUrl: "http://127.0.0.1:0", fetch: fakeFetch });
+    const err = await facade
+      .settleApproval("s-1", "r-1", "allowed-once")
+      .then(() => undefined)
+      .catch((e: unknown) => e);
+    expect(err).toBeDefined();
+    expect((err as Error).name).toBe("HttpError");
+    expect((err as Error & { status?: number }).status).toBe(404);
+    expect((err as Error).message).toContain("404");
   });
 });

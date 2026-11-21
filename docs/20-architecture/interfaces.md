@@ -302,6 +302,7 @@ type InteractionAnswer =
 interface InteractionService {
   ask(req: InteractionRequest, signal?: AbortSignal): Promise<InteractionAnswer>;
   settle(requestId: string, answer: InteractionAnswer): boolean; // 幂等，先答者赢
+  knows?(requestId: string): boolean; // 该 id 曾为本服务所知（挂起或已答）——settle false 后区分「已答过」与「从不存在」（REST 对后者 404，R175）；可选，缺省实现可缺
   listPending(): readonly InteractionRequest[]; // 断线 / 刷新重放（P5）
 }
 
@@ -597,7 +598,7 @@ POST /api/sessions/:id/queue/resume                     → { ok: boolean }     
 POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   // 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话并装配入册，返回子会话 id（parentSession 指源；半回合切点补写 turn/end{forked}）；atSeq 缺省 = 复制到最新；越界切点 400
-POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）
+POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
 //  写路径懒挂载（重启续聊，✓ 2026-11-18）：prompt / steer / interrupt / approvals / files 对磁盘历史会话
 //  （本进程未装配）首次调用按需重建运行体（定位目录 + 账本头核验 + 装配 + 投影从账本补账）——重启后不再
@@ -784,7 +785,8 @@ interface AssistantRow {
   model?: string;
   finishReason?: string;
   usage?: TokenUsage; // 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage）
-  interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）。回合从未产生流式碎片时合成零文本中断行（rowId 从账本事实派生，回放同形；只进投影不落账）
+  interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"|"interrupted"} 投影；部分文本定格，无权威落定）。回合从未产生流式碎片时合成零文本中断行（rowId 从账本事实派生，回放同形；只进投影不落账）；重放路径对死亡步落定行（finishReason:"tool-calls"）补标——"stop" 权威完成不诬
+  interruptedKind?: "restart"; // 中断来源分型（R175）：restart = turn/end{reason:"interrupted"}（开档/启动收口补写——进程死亡掐停），徽章「已中断（服务重启）」；aborted（用户中止）不带此字段
   reasoningEffort?: ReasoningEffort; // 本步实际生效思考档（request/header.params 投影——行上档位可见性，骨架批）
   time?: number; // 消息时刻（账本 assistant/message 事件 time，epoch ms——轮尾操作行时间戳，E4；流式行与中止冻结行无权威落定故缺此字段）
 }
@@ -826,7 +828,7 @@ interface ApprovalRow {
   args?: unknown; // 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染，per-tool 预览体唯一数据源；凭据经架构保证不进 args，approval/* 不进 derive）
   reason?: string; // 引擎判定链解释原样（围栏区外访问等；仅呈现）
   status: "pending" | "settled";
-  decision?: Decision;
+  decision?: Decision | "invalidated"; // "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交（settle 端点 z.enum(DECISIONS) 不含它）
   scope?: "session"; // 会话级允许标记（decided{scope:'session'} 投影——settled「· 本会话」）
 }
 interface ErrorRow {
@@ -877,7 +879,8 @@ type ServerFrame =
 - **唯一权威输入 = 会话账本**：历史与断线重建都从账本回放——快照永远从真相重建，实时路径任何漂移都被账本兜底（自愈）；
 - 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
 - 行构造纯函数共享：快照 = 从空投影顺序 apply 全部账本事件；增量 = 逐追加 apply；两路同一套行构造逻辑（一个词表，无第二 reducer）；
-- **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；**孤儿 `approval/decided`（无 asked 配对——默认放行层 / 规则层 / 会话折叠的审计）不投影行**：自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行（E3 实锤——幽灵行既污染流又切断相邻聚合组），审计住账本不丢；
+- **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；**孤儿 `approval/decided`（无 asked 配对——默认放行层 / 规则层 / 会话折叠的审计）不投影行**：自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行（E3 实锤——幽灵行既污染流又切断相邻聚合组），审计住账本不丢；**孤儿 `approval/invalidated`（无 asked 配对）同款抑制**；
+- **重启收口**（R175）：serve 启动扫描全部账本（registry.repairLedgers，监听前）+ 开档（SessionStore.create）双路径执行同一修理——①seq 外科重排（append 串行化之前写者竞态留下的共享 seq 伤——保事件保行序只修 seq，删行会丢 decided 事实）②孤儿挂起审批补写 `approval/invalidated`（修理专用事件，loop 与客户端都不发；事件自带 ignorable——旧读者透明跳过）③开回合补写 `turn/end{interrupted}`（time = 账本最后真实事件时间——轮耗时定格死亡时刻）。投影侧：invalidated → settled 痕迹行「已失效（服务重启）」；reason:"interrupted" 与 aborted 同享中断徽章 + interruptedKind:"restart" 分型 + 死亡步悬挂工具行（tool/call 无 result）收口为 error——幽灵审批卡 / 假在跑工具卡 / 跨重启 busy 计时三族幽灵在结构上不可能从账本重放出来；
 - **回合耗时**（E3 回合头）：`turn/start` 记账本 time、`turn/end` 结算 `durationMs` 入 `state.turnTimings`，E4 扩 `endedAt`（轮尾时间戳）与 `forkSeq`（turn/end 事件 seq——轮尾 fork 的账本切点）（事件时间戳取数——重放重建/重载后仍在；保留最近 50 轮）；**busy 段计时起点**（R173）：`state.busySince` 同取 turn/start time、turn/end 清除，前端「思考中」秒数优先此值——刷新/重连/换窗口续同一块表；
 - **行时间**（E4 轮尾/用户行操作行时间戳）：`user/message` / `assistant/message` 落账投影带 `time`（事件 time，epoch ms）——流式行与中止冻结行无权威落定故缺字段；
 - seq 在扇出层按会话编发（快照帧携带当前水位，增量帧 +1 单调）；

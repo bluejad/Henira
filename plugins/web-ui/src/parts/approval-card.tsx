@@ -61,7 +61,10 @@ export function ApprovalCardShell(props: {
         decision,
         ...(scope !== undefined ? [scope] : []),
       )
-      .catch(() => {
+      .catch((err: unknown) => {
+        // 404 = 审批对象已不存在（服务重启收口/已答）——当已解决，卡保持离场不回滚
+        //（回滚会让死卡复活、再点再炸死循环；参照物「404 视为已解决」同款语义）
+        if ((err as { status?: number } | undefined)?.status === 404) return;
         setSettling(false); // 网络失败回到待处理（重试语义）
         props.onDecideFailed?.(row.requestId);
       });
@@ -297,11 +300,13 @@ export function ApprovalSettledRow({
   const decisionLabel =
     row.decision === undefined
       ? ctx.t("approval.settled")
-      : allowed
-        ? row.scope === "session"
-          ? ctx.t("approval.decision.session")
-          : ctx.t("approval.decision.allowed")
-        : ctx.t("approval.decision.rejected");
+      : row.decision === "invalidated"
+        ? ctx.t("approval.decision.invalidated")
+        : allowed
+          ? row.scope === "session"
+            ? ctx.t("approval.decision.session")
+            : ctx.t("approval.decision.allowed")
+          : ctx.t("approval.decision.rejected");
   const args =
     row.args !== null && typeof row.args === "object" && !Array.isArray(row.args)
       ? (row.args as Record<string, unknown>)

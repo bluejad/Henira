@@ -26,6 +26,10 @@ export interface InteractionService {
   ask(req: InteractionRequest, signal?: AbortSignal): Promise<InteractionAnswer>;
   /** 幂等，先答者赢；未知 requestId 返回 false */
   settle(requestId: string, answer: InteractionAnswer): boolean;
+  /** 该 requestId 是否曾为本服务所知（现在挂起或已答过）——settle false 后区分「已答过」
+   * 与「从不存在」（REST 层对后者 404；R175 重启收口：幽灵卡点击不再假成功）。可选，
+   * 缺省实现（autoReject 等）可不提供 */
+  knows?(requestId: string): boolean;
   /** 断线 / 刷新重放（P5：审批状态属于会话而非连接） */
   listPending(): readonly InteractionRequest[];
 }

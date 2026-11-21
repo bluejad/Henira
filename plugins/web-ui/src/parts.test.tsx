@@ -813,6 +813,41 @@ describe("ApprovalCard", () => {
     expect(settle).toHaveBeenCalledTimes(2);
   });
 
+  it("404 不回滚（R175）：审批对象已不存在（服务重启收口）——卡保持离场当已解决", async () => {
+    const approvalRows: Row[] = [pendingRow];
+    const ctx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: approvalRows, state: { busy: false } }),
+        subscribe: () => () => {},
+      },
+    });
+    // HttpError 形状（sdk client 非 2xx：message 照旧 + status 结构化）
+    const notFound = Object.assign(new Error("POST /approvals → 404 approval not found"), {
+      status: 404,
+    });
+    const settle = vi.spyOn(ctx.client, "settleApproval").mockRejectedValueOnce(notFound);
+    render(<Composer {...ctx} />);
+    expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
+    fireEvent.click(screen.getByText(t("approval.allow")));
+    expect(screen.queryByRole("dialog", { name: t("approval.title") })).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 20)); // catch 链微任务排空
+    // 404 → 不回滚：卡不复活（死卡复活再点再炸的循环不再存在）
+    expect(screen.queryByRole("dialog", { name: t("approval.title") })).toBeNull();
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it("已失效痕迹行（R175）：decision:'invalidated' 显「已失效（服务重启）」", () => {
+    const ctx = fixtureCtx();
+    render(
+      <ApprovalSettledRow
+        row={{ ...pendingRow, status: "settled", decision: "invalidated" } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    expect(screen.getByText(t("approval.decision.invalidated"))).toBeDefined();
+    cleanup();
+  });
+
   it("settled 行走 ApprovalSettledRow：中文决策词在场；scope:'session' 显「允许（本会话）」（R171 词表化）", () => {
     const ctx = fixtureCtx();
     render(

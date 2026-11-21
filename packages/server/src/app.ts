@@ -308,6 +308,11 @@ export function createApp(deps: AppDeps): Hono {
       decision: parsed.data.decision,
       ...(parsed.data.scope !== undefined ? { scope: parsed.data.scope } : {}),
     });
+    if (!applied && entry.interaction.knows?.(requestId) !== true) {
+      // 从不存在（服务重启收口/重启前死亡）：404 让前端判别「当已解决」，
+      // 不假成功——假成功会让幽灵卡永远留在界面上（R175 重启收口）
+      return c.json({ error: "approval not found" }, 404);
+    }
     return c.json({ applied });
   });
 

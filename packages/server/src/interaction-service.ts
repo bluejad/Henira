@@ -15,6 +15,8 @@ interface Pending {
 
 export class ServerInteraction implements InteractionService {
   readonly #pending = new Map<string, Pending>();
+  /** 已答过的 requestId（R175：settle false 后区分「已答过」与「从不存在」——REST 对后者 404） */
+  readonly #answered = new Set<string>();
 
   ask(req: InteractionRequest, signal?: AbortSignal): Promise<InteractionAnswer> {
     return new Promise<InteractionAnswer>((resolve) => {
@@ -37,10 +39,15 @@ export class ServerInteraction implements InteractionService {
     });
   }
 
+  knows(requestId: string): boolean {
+    return this.#pending.has(requestId) || this.#answered.has(requestId);
+  }
+
   settle(requestId: string, answer: InteractionAnswer): boolean {
     const pending = this.#pending.get(requestId);
     if (pending === undefined) return false; // 未知 / 已答（幂等，先答者赢）
     this.#pending.delete(requestId);
+    this.#answered.add(requestId);
     if (pending.onAbort !== undefined && pending.signal !== undefined) {
       pending.signal.removeEventListener("abort", pending.onAbort);
     }
@@ -63,6 +70,7 @@ export class ServerInteraction implements InteractionService {
         requestId: pending.request.requestId,
         decision: "cancelled",
       });
+      this.#answered.add(pending.request.requestId);
     }
     this.#pending.clear();
   }

@@ -32,8 +32,10 @@ export function sessionPlugin(options: SessionPluginOptions): ServiceDefinition<
       });
     },
     async stop(svc) {
-      // stop 只收服务自身资源：文件锁与句柄（interfaces.md kernel 段两条约定）
-      await svc.close();
+      // stop 只收服务自身资源：文件锁与句柄（interfaces.md kernel 段两条约定）。
+      // start 失败时 kernel 回滚仍会调 stop——此时槽位值不存在，空安全跳过（R175：第二枪
+      // TypeError 掩盖第一枪真因的教训）。
+      if (svc !== undefined && svc !== null) await svc.close();
     },
   };
 }

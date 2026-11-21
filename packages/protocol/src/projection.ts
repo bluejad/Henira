@@ -95,18 +95,48 @@ export class Projection {
             const row = this.byId.get(id);
             if (row?.kind === "assistant" && row.streaming) {
               row.streaming = false;
-              if (reason === "aborted") row.interrupted = true;
+              if (reason === "aborted" || reason === "interrupted") {
+                row.interrupted = true;
+                // interrupted = 开档/启动收口补写（进程死亡掐停）——徽章文案「已中断（服务重启）」
+                if (reason === "interrupted") row.interruptedKind = "restart";
+              }
               deltas.push({ op: "row.upserted", row: { ...row } });
             }
           }
           this.streamingByTurn.delete(turn);
+        } else if (reason === "aborted" || reason === "interrupted") {
+          // 回放路径（无直播流式行——重建/重放场景）两笔收口：
+          // a. 死亡步落定行标中断——只限 finishReason:"tool-calls"（回合中途死亡的形状：
+          //    模型要了工具、回合没走完）；"stop" 是权威完成（R168 守卫语义：不诬完整行）。
+          const stepAt = this.cursor.turn === turn ? this.cursor.step : undefined;
+          if (stepAt !== undefined) {
+            const existing = this.byId.get(rowId.assistant(turn, stepAt));
+            if (
+              existing?.kind === "assistant" &&
+              existing.interrupted !== true &&
+              existing.finishReason === "tool-calls"
+            ) {
+              existing.interrupted = true;
+              if (reason === "interrupted") existing.interruptedKind = "restart";
+              deltas.push({ op: "row.upserted", row: { ...existing } });
+            }
+          }
+          // b. 死亡步悬挂工具行收口（R175）：tool/call 已落账、tool/result 随进程死亡缺席
+          //    → 重放后永远转圈的假在跑卡（同「账本重放 vs 引擎活态」幽灵族）。live 路径
+          //    自愈（引擎 abort 时结算 error result），这里只兜回放。
+          for (const row of this.byId.values()) {
+            if (row.kind === "tool" && row.turn === turn && row.status === "running") {
+              row.status = "error";
+              deltas.push({ op: "row.upserted", row: { ...row } });
+            }
+          }
         }
         // 首个碎片前中止（delta 前中止档）：流式行从未创建，回合零痕迹——按当前步合成一条
         // 零文本中断行。rowId 从账本事实派生（回放重建同形）；合成只进投影，账本不写事件。
         // 步号不可信（未见 turn/start）或目标步已有落定行时不猜、不覆盖。
         const step = this.cursor.turn === turn ? this.cursor.step : undefined;
         if (
-          reason === "aborted" &&
+          (reason === "aborted" || reason === "interrupted") &&
           !pending &&
           step !== undefined &&
           !this.byId.has(rowId.assistant(turn, step))
@@ -123,6 +153,7 @@ export class Projection {
             text: "",
             streaming: false,
             interrupted: true,
+            ...(reason === "interrupted" ? { interruptedKind: "restart" as const } : {}),
             ...(effort !== undefined ? { reasoningEffort: effort } : {}),
             time: event.time,
           };
@@ -271,6 +302,30 @@ export class Projection {
           // 每个安全工具一张幽灵行既污染流又切断相邻聚合组）；审计住账本不丢。
           return [];
         }
+        row.toolName = existing.toolName;
+        row.argsSummary = existing.argsSummary;
+        if (existing.args !== undefined) row.args = existing.args;
+        if (existing.reason !== undefined) row.reason = existing.reason;
+        return [this.upsert(row)];
+      }
+      case "approval/invalidated": {
+        // 修理专用事件（开档/启动扫描补写）投影成 settled 痕迹行「已失效（服务重启）」——
+        // 幽灵 pending 卡自此不可能从账本重放出来（R175 重启收口）。孤儿（无 asked 配对）
+        // 抑制同 decided 分支。
+        const requestId = data.requestId as string;
+        const row: ApprovalRow = {
+          kind: "approval",
+          rowId: rowId.approval(requestId),
+          rowSeq: event.seq,
+          turn: data.turn as string,
+          step: data.step as number,
+          requestId,
+          toolName: "",
+          status: "settled",
+          decision: "invalidated",
+        };
+        const existing = this.byId.get(row.rowId);
+        if (existing?.kind !== "approval") return [];
         row.toolName = existing.toolName;
         row.argsSummary = existing.argsSummary;
         if (existing.args !== undefined) row.args = existing.args;

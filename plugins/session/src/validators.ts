@@ -139,6 +139,14 @@ const schemas: Record<string, z.ZodType> = {
     scope: z.string().min(1),
     tool: z.string().optional(),
   }),
+  // 修理专用（R175 重启收口）：只由 session 开档/启动扫描补写产生，loop 与客户端都不发
+  // （turn/end reason "interrupted"/"forked" 的修理词汇同模式）。事件自带 ignorable——
+  // 旧读者 fail-closed 闸透明跳过，回滚兼容。
+  "approval/invalidated": z.object({
+    turn: z.string().min(1),
+    step: z.number().int().nonnegative(),
+    requestId: z.string().min(1),
+  }),
   error: z.looseObject({
     turn: z.string().min(1).optional(),
     step: z.number().int().nonnegative().optional(),

@@ -39,8 +39,11 @@ export interface AssistantRow {
   finishReason?: string;
   /** 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage） */
   usage?: TokenUsage;
-  /** true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定） */
+  /** true = 该步被中断掐停（turn/end{reason:"aborted"|"interrupted"} 投影；部分文本定格，无权威落定） */
   interrupted?: boolean;
+  /** 中断来源分型（R175）：restart = turn/end{reason:"interrupted"}（开档/启动收口补写——进程死亡
+   * 掐停），徽章文案「已中断（服务重启）」；aborted（用户中止）不带此字段 */
+  interruptedKind?: "restart";
   /** 本步实际生效思考档（request/header.params 投影——行上可见每次提问档位语义） */
   reasoningEffort?: ReasoningEffort;
   /** 消息时刻（账本 assistant/message 事件 time，epoch ms——轮尾操作行时间戳，E4；
@@ -91,7 +94,9 @@ export interface ApprovalRow {
   /** 审批请求解释（引擎判定链 reason 原样——围栏区外访问等；仅呈现） */
   reason?: string;
   status: "pending" | "settled";
-  decision?: Decision;
+  /** "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交
+   * （settle 端点 z.enum(DECISIONS) 不含它，尝试即 400） */
+  decision?: Decision | "invalidated";
   /** 会话级允许标记（decided{scope:'session'} 投影——settled 留痕「· 本会话」） */
   scope?: "session";
 }

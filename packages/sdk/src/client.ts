@@ -30,6 +30,18 @@ export interface ClientOptions {
   maxBackoffMs?: number;
 }
 
+/** 非 2xx 响应错误：message 形状照旧（`POST path → 404 detail`），status 结构化暴露——
+ * UI 按 status 判别（404 = 对象已不存在，当已解决；网络错无 status 字段） */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 export function createClient(opts: ClientOptions): HeniraFacade {
   const doFetch = opts.fetch ?? fetch;
   const base = opts.baseUrl.replace(/\/$/, "");
@@ -55,7 +67,7 @@ export function createClient(opts: ClientOptions): HeniraFacade {
         .filter((part) => typeof part === "string" && part !== "")
         .join(" ");
       const suffix = detail === "" ? "" : ` ${detail}`;
-      throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}${suffix}`);
+      throw new HttpError(`${init?.method ?? "GET"} ${path} → ${res.status}${suffix}`, res.status);
     }
     return (await res.json()) as T;
   }

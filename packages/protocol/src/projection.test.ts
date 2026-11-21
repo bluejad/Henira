@@ -719,3 +719,94 @@ describe("思考档投影（request/header.params → assistant 行）", () => {
     ).toBeUndefined();
   });
 });
+
+describe("重启收口投影（R175）", () => {
+  it("approval/invalidated：pending 行翻 settled 痕迹行 decision=invalidated（字段回填同 decided）；孤儿抑制", () => {
+    const p = new Projection();
+    p.ingest(
+      ev(1, "approval/asked", {
+        turn: "t-1",
+        step: 1,
+        requestId: "r-1",
+        callId: "r-1",
+        tool: "bash",
+        argsDigest: "sha:abcd",
+        args: { command: "ls" },
+        reason: "fence",
+      }),
+    );
+    const d = p.ingest(
+      ev(2, "approval/invalidated", { turn: "t-1", step: 1, requestId: "r-1" }, 900),
+    );
+    expect(d).toHaveLength(1);
+    expect(d[0].op).toBe("row.upserted");
+    expect(p.rows).toHaveLength(1);
+    expect(p.rows[0]).toMatchObject({
+      rowId: "p:r-1",
+      status: "settled",
+      decision: "invalidated",
+      toolName: "bash",
+      argsSummary: "sha:abcd",
+      args: { command: "ls" },
+      reason: "fence",
+    });
+    // 孤儿（无 asked 配对）不上 UI（R165 同款抑制）
+    const p2 = new Projection();
+    expect(
+      p2.ingest(ev(1, "approval/invalidated", { turn: "t", step: 1, requestId: "r-x" })),
+    ).toEqual([]);
+    expect(p2.rows).toHaveLength(0);
+  });
+
+  it("turn/end{interrupted}（重启收口补写）：冻结流式行带 interrupted+interruptedKind、busy/busySince 清、轮耗时定格补写 time", () => {
+    const events = [
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "hi", source: "send" }, 1_000),
+      ev(2, "turn/start", { turn: "t-1" }, 1_200),
+      ev(3, "step/start", { turn: "t-1", step: 1 }),
+      ev(
+        4,
+        "assistant/message",
+        {
+          turn: "t-1",
+          step: 1,
+          content: "部分文本",
+          model: "m",
+          finishReason: "tool-calls",
+        },
+        1_500,
+      ),
+      ev(5, "turn/end", { turn: "t-1", reason: "interrupted" }, 2_000), // 开档补写形状
+    ];
+    const p = rebuildProjection(events);
+    expect(p.state.busy).toBe(false);
+    expect(p.state.busySince).toBeUndefined();
+    const row = p.rows.find((r) => r.kind === "assistant") as {
+      interrupted?: boolean;
+      interruptedKind?: string;
+      streaming?: boolean;
+    };
+    expect(row.interrupted).toBe(true);
+    expect(row.interruptedKind).toBe("restart"); // 徽章文案「已中断（服务重启）」
+    expect(row.streaming).toBe(false);
+    const timing = p.state.turnTimings?.["t-1"];
+    expect(timing?.endedAt).toBe(2_000); // 补写 time 定格死亡时刻（不发明空洞时长）
+  });
+
+  it("turn/end{interrupted} 零文本合成行（delta 前死亡——流式行从未创建）：合成带 interruptedKind", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "hi", source: "send" }, 1_000),
+      ev(2, "turn/start", { turn: "t-1" }, 1_200),
+      ev(3, "step/start", { turn: "t-1", step: 1 }),
+      ev(4, "turn/end", { turn: "t-1", reason: "interrupted" }, 2_000),
+    ]);
+    const rows = p.rows.filter((r) => r.kind === "assistant");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      rowId: "a:t-1:1",
+      text: "",
+      interrupted: true,
+      interruptedKind: "restart",
+    });
+    expect(p.state.busy).toBe(false);
+  });
+});
