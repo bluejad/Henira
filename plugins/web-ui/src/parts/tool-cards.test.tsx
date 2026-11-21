@@ -56,6 +56,60 @@ function renderCard(el: ReactNode): string {
   return view.container.textContent ?? "";
 }
 
+/** 渲染不展开，返回收起态头行全文（R171 头行摘要断言用） */
+function renderHead(el: ReactNode): string {
+  const view = render(el);
+  return view.container.textContent ?? "";
+}
+
+describe("头行摘要与耗时（R171）", () => {
+  it("收起态即见命令摘要 + 中文标题；callId 不占版面、走 rowTitle 悬停", () => {
+    const head = renderHead(
+      <TerminalCard
+        row={toolRow({
+          input: JSON.stringify({ command: "pnpm vitest run --coverage" }),
+          output: { content: "ok", durationMs: 4560, isError: false },
+        })}
+        ctx={ctx}
+      />,
+    );
+    expect(head).toContain("终端"); // 中文标题
+    expect(head).toContain("pnpm vitest run --coverage"); // 摘要收起态可见
+    expect(head).toContain("4.6 秒"); // 耗时中文格式
+    expect(head).not.toContain("#c"); // callId 不再渲染为可见文本
+    const { container } = render(
+      <TerminalCard
+        row={toolRow({
+          callId: "call_00_abc",
+          input: JSON.stringify({ command: "pwd" }),
+        })}
+        ctx={ctx}
+      />,
+    );
+    const btn = container.querySelector("button");
+    expect(btn?.getAttribute("title")).toContain("bash"); // wire 名保真
+    expect(btn?.getAttribute("title")).toContain("call_00_abc"); // callId 排障通道
+  });
+
+  it("摘要 80 字符截断；未知工具取首个字符串值兜底；无 args → 无摘要", () => {
+    const long = "x".repeat(200);
+    const truncated = renderHead(
+      <TerminalCard row={toolRow({ input: JSON.stringify({ command: long }) })} ctx={ctx} />,
+    );
+    expect(truncated).toContain("…");
+    const fallback = renderHead(
+      <TerminalCard
+        row={toolRow({ name: "custom_tool", input: JSON.stringify({ target: "some-path" }) })}
+        ctx={ctx}
+      />,
+    );
+    expect(fallback).toContain("custom_tool"); // 未知工具标题回落 wire 名
+    expect(fallback).toContain("some-path");
+    const empty = renderHead(<TerminalCard row={toolRow({ input: "{}" })} ctx={ctx} />);
+    expect(empty).not.toContain("undefined");
+  });
+});
+
 describe("buildDiffRows（jsdiff 包装）", () => {
   it("行级 diff：+/- 计数与行号窗口", () => {
     const r = buildDiffRows("alpha\nbeta\ngamma\ndelta", "alpha\nBETA\ngamma\ndelta");
@@ -207,7 +261,7 @@ describe("TerminalCard（终端卡）", () => {
         ctx,
       }),
     );
-    expect(running).toContain("bash"); // ToolView 兜底渲染工具名
+    expect(running).toContain("终端"); // ToolView 兜底渲染中文标题
   });
 });
 
@@ -262,7 +316,7 @@ describe("EditCard（diff 卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("edit"); // ToolView 渲染工具名
+    expect(text).toContain("编辑"); // ToolView 渲染中文标题
   });
 });
 
@@ -455,7 +509,7 @@ describe("GlobCard / GrepCard（搜索卡）", () => {
         ctx,
       }),
     );
-    expect(legacy).toContain("grep"); // ToolView 渲染工具名
+    expect(legacy).toContain("搜内容"); // ToolView 渲染中文标题
   });
 });
 

@@ -13,7 +13,9 @@ import { useEffect, useState } from "react";
 import type { ApprovalCardView, WebPartContext } from "../types.js";
 import { ApprovalPreview } from "./approval-preview.js";
 import { CheckGlyph, XGlyph } from "./icons.js";
+import { DisclosureRow } from "./row-chrome.js";
 import { SlotBoundary } from "./slot-boundary.js";
+import { argsSummaryText, MonoBlock } from "./tool-cards.js";
 
 type Decision = "allowed-once" | "rejected";
 
@@ -28,12 +30,19 @@ function sessionAllowable(toolName: string): boolean {
 
 /** 审批卡外壳（导出——第三方 keyed 顶替件复用同一 chrome，D-057 观感协调）：warn 边框卡 +
  * 标题行（权限请求 + 队列计数 + pending/settled 徽章 + 工具名）+ reason 解释行 + 预览 children +
- * 按钮组 + Enter/Esc 键盘直选（IME 组合中不抢）。settle 幂等先答者赢（网络失败回 pending 重试）。 */
+ * 按钮组 + Enter/Esc 键盘直选（IME 组合中不抢）。点击即退场（R171——参照产品/opencode/dsh
+ * 三家同款乐观移除）：onDecided 在发起瞬间回调（composer 本地摘卡，不等 SSE settled 回传）；
+ * settle 网络失败 onDecideFailed 回滚（卡回 dock 可重试）。幂等先答者赢（另一窗口已答时
+ * applied=false）。 */
 export function ApprovalCardShell(props: {
   row: ApprovalRow;
   ctx: WebPartContext;
   /** 队列总数（composer 队首单卡传入；>1 时显示「待审批 N」计数徽标——CC/ZCode FIFO 单卡同款） */
   queueTotal?: number;
+  /** 决定发起即回调（乐观摘卡——点击即走，不等回传） */
+  onDecided?: (requestId: string) => void;
+  /** settle 失败回调（回滚乐观摘除——卡回 pending 可重试） */
+  onDecideFailed?: (requestId: string) => void;
   children?: React.ReactNode;
 }): React.ReactNode {
   const { row, ctx } = props;
@@ -43,6 +52,7 @@ export function ApprovalCardShell(props: {
   const decide = (decision: Decision, scope?: "session"): void => {
     if (ctx.sessionId === null) return;
     setSettling(true);
+    props.onDecided?.(row.requestId); // 乐观摘卡（点击即走——失败走 onDecideFailed 回滚）
     // scope 缺省保持三参调用形状（once 字节面与 E6 前等价）
     void ctx.client
       .settleApproval(
@@ -51,7 +61,10 @@ export function ApprovalCardShell(props: {
         decision,
         ...(scope !== undefined ? [scope] : []),
       )
-      .catch(() => setSettling(false)); // 网络失败回到待处理（重试语义）
+      .catch(() => {
+        setSettling(false); // 网络失败回到待处理（重试语义）
+        props.onDecideFailed?.(row.requestId);
+      });
   };
 
   // 键盘直选（队首单卡——composer 只渲染一张）：Enter=允许一次、Esc=拒绝（CC/ZCode 同款：
@@ -179,9 +192,17 @@ export function ApprovalCard(props: {
   row: ApprovalRow;
   ctx: WebPartContext;
   queueTotal?: number;
+  onDecided?: (requestId: string) => void;
+  onDecideFailed?: (requestId: string) => void;
 }): React.ReactNode {
   return (
-    <ApprovalCardShell row={props.row} ctx={props.ctx} queueTotal={props.queueTotal}>
+    <ApprovalCardShell
+      row={props.row}
+      ctx={props.ctx}
+      queueTotal={props.queueTotal}
+      onDecided={props.onDecided}
+      onDecideFailed={props.onDecideFailed}
+    >
       {props.row.args !== undefined ? (
         <div
           style={{
@@ -218,27 +239,45 @@ export function ApprovalQueueCard(props: {
   row: ApprovalRow;
   ctx: WebPartContext;
   queueTotal: number;
+  onDecided?: (requestId: string) => void;
+  onDecideFailed?: (requestId: string) => void;
 }): React.ReactNode {
   const view = props.ctx.slots.get(`approval.view.${props.row.toolName}`)?.[0] as
     | ApprovalCardView
     | undefined;
+  const routed = (children: React.ReactNode): React.ReactNode => (
+    <SlotBoundary
+      label={`approval.view.${props.row.toolName}`}
+      fallback={() => (
+        <ApprovalCard
+          row={props.row}
+          ctx={props.ctx}
+          queueTotal={props.queueTotal}
+          onDecided={props.onDecided}
+          onDecideFailed={props.onDecideFailed}
+        />
+      )}
+    >
+      {children}
+    </SlotBoundary>
+  );
   if (view !== undefined) {
     const View = view; // 组件渲染（hooks 合法）
-    return (
-      <SlotBoundary
-        label={`approval.view.${props.row.toolName}`}
-        fallback={() => (
-          <ApprovalCard row={props.row} ctx={props.ctx} queueTotal={props.queueTotal} />
-        )}
-      >
-        <View ctx={props.ctx} row={props.row} queueTotal={props.queueTotal} />
-      </SlotBoundary>
-    );
+    return routed(<View ctx={props.ctx} row={props.row} queueTotal={props.queueTotal} />);
   }
-  return <ApprovalCard row={props.row} ctx={props.ctx} queueTotal={props.queueTotal} />;
+  return (
+    <ApprovalCard
+      row={props.row}
+      ctx={props.ctx}
+      queueTotal={props.queueTotal}
+      onDecided={props.onDecided}
+      onDecideFailed={props.onDecideFailed}
+    />
+  );
 }
 
-/** settled 紧凑结果行（对话流内留痕：图标 + 标题 + 工具名 + 决策原文 + 会话级标记） */
+/** settled 紧凑结果行（对话流内留痕——R171 升级：中文决策词 + 参数摘要 + 可展开看全文，
+ *  与工具行同一行 chrome；决策原文不再裸显英文）。展开体 = args 完整 JSON / digest 弱色行。 */
 export function ApprovalSettledRow({
   row,
   ctx,
@@ -247,31 +286,41 @@ export function ApprovalSettledRow({
   ctx: WebPartContext;
 }): React.ReactNode {
   const allowed = row.decision === "allowed-once";
+  const decisionLabel =
+    row.decision === undefined
+      ? ctx.t("approval.settled")
+      : allowed
+        ? row.scope === "session"
+          ? ctx.t("approval.decision.session")
+          : ctx.t("approval.decision.allowed")
+        : ctx.t("approval.decision.rejected");
+  const args =
+    row.args !== null && typeof row.args === "object" && !Array.isArray(row.args)
+      ? (row.args as Record<string, unknown>)
+      : null;
+  const summary = argsSummaryText(row.toolName, args);
+  const fullText = args !== null ? JSON.stringify(args, null, 2) : (row.argsSummary ?? "");
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--henira-space-2)",
-        margin: "var(--henira-space-2) 0",
-        padding: "2px 4px",
-        color: "var(--henira-text-muted)",
-        fontSize: "var(--henira-fs-sm)",
-      }}
+    <DisclosureRow
+      icon={
+        allowed ? (
+          <CheckGlyph size={14} color="var(--henira-ok-text)" />
+        ) : (
+          <XGlyph size={14} color="var(--henira-danger-text)" />
+        )
+      }
+      title={decisionLabel}
+      meta={row.toolName}
+      rowTitle={fullText !== "" ? `${row.toolName} ${row.decision ?? ""}` : undefined}
+      summary={
+        summary !== null ? (
+          <span className="henira-row-summary" title={summary}>
+            {summary}
+          </span>
+        ) : null
+      }
     >
-      {allowed ? (
-        <CheckGlyph size={14} color="var(--henira-ok-text)" />
-      ) : (
-        <XGlyph size={14} color="var(--henira-danger-text)" />
-      )}
-      <span>{ctx.t("approval.title")}</span>
-      <span className="henira-mono">{row.toolName}</span>
-      {row.decision !== undefined ? (
-        <span className="henira-mono" style={{ fontVariantNumeric: "tabular-nums" }}>
-          {row.decision}
-          {row.scope === "session" ? ` · ${ctx.t("approval.scopeSession")}` : ""}
-        </span>
-      ) : null}
-    </div>
+      {fullText !== "" ? <MonoBlock text={fullText} maxHeight={240} /> : null}
+    </DisclosureRow>
   );
 }

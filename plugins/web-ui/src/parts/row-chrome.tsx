@@ -20,6 +20,8 @@ export type DisclosureRowProps = {
   meta?: React.ReactNode;
   /** 行尾摘要（单行省略；截断徽章等短件） */
   summary?: React.ReactNode;
+  /** 行级悬停提示（排障通道：wire 名 + callId 等——不占版面，五家 0/5 把 call id 渲染为可见文本） */
+  rowTitle?: string;
   /** 无展开体时隐藏箭头（纯状态行） */
   expandable?: boolean;
   /** 初始展开（error 行默认展开——错误必须被看见，dsh/ZCode 同行为） */
@@ -48,6 +50,7 @@ export function DisclosureRow(props: DisclosureRowProps): React.ReactNode {
       <button
         type="button"
         onClick={toggle}
+        title={props.rowTitle}
         aria-expanded={expandable ? open : undefined}
         style={{
           display: "flex",

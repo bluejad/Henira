@@ -766,7 +766,35 @@ describe("ApprovalCard", () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
-  it("settled 行走 ApprovalSettledRow：决策原文在场；scope:'session' 显示「· 本会话」", () => {
+  it("点击即退场（R171）：点允许卡立即离场不等回传；settle 失败回滚可重试", async () => {
+    const approvalRows: Row[] = [pendingRow];
+    const ctx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: approvalRows, state: { busy: false } }),
+        subscribe: () => () => {},
+      },
+    });
+    const settle = vi.spyOn(ctx.client, "settleApproval").mockRejectedValueOnce(new Error("net"));
+    render(<Composer {...ctx} />);
+    expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
+    fireEvent.click(screen.getByText(t("approval.allow")));
+    // 点击瞬间卡已离场（乐观移除——不等 SSE settled）
+    expect(screen.queryByRole("dialog", { name: t("approval.title") })).toBeNull();
+    // settle 失败 → 回滚：卡回 dock 可重试
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined(),
+    );
+    expect(settle).toHaveBeenCalledTimes(1);
+    // 重试成功 → 再度离场
+    settle.mockResolvedValueOnce(undefined as never);
+    fireEvent.click(screen.getByText(t("approval.allow")));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: t("approval.title") })).toBeNull(),
+    );
+    expect(settle).toHaveBeenCalledTimes(2);
+  });
+
+  it("settled 行走 ApprovalSettledRow：中文决策词在场；scope:'session' 显「允许（本会话）」（R171 词表化）", () => {
     const ctx = fixtureCtx();
     render(
       <ApprovalSettledRow
@@ -774,7 +802,7 @@ describe("ApprovalCard", () => {
         ctx={ctx}
       />,
     );
-    expect(screen.getByText("rejected")).toBeDefined();
+    expect(screen.getByText(t("approval.decision.rejected"))).toBeDefined();
 
     cleanup();
     render(
@@ -790,7 +818,29 @@ describe("ApprovalCard", () => {
         ctx={ctx}
       />,
     );
-    expect(screen.getByText("allowed-once · 本会话")).toBeDefined();
+    expect(screen.getByText(t("approval.decision.session"))).toBeDefined();
+  });
+
+  it("settled 痕迹行带参数摘要与展开全文（R171：点得开——当时批的命令可回看）", () => {
+    const ctx = fixtureCtx();
+    render(
+      <ApprovalSettledRow
+        row={
+          {
+            ...pendingRow,
+            status: "settled",
+            decision: "allowed-once",
+            toolName: "bash",
+            args: { command: "echo hi" },
+          } as ApprovalRow
+        }
+        ctx={ctx}
+      />,
+    );
+    // 摘要在头行可见；点开 = 完整 args JSON
+    expect(screen.getByText("echo hi")).toBeDefined();
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText(/"command"/).textContent).toContain("echo hi");
   });
 });
 
@@ -836,7 +886,7 @@ describe("行级挂载点（D-057）", () => {
 
   it("keyed 槽缺席 → 回落官方默认工具卡（卸载即回落同一语义）", () => {
     render(<Conversation {...ctxWithRows([toolRow], new Map())} />);
-    expect(screen.getByText("read")).toBeDefined(); // 官方卡渲染工具名
+    expect(screen.getByText("读取")).toBeDefined(); // 官方卡渲染中文标题
   });
 
   it("MCP 工具路由（E5）：精确 wire 名无注册 → 查 tool.call.view.mcp 总缝渲染官方 MCP 卡", () => {

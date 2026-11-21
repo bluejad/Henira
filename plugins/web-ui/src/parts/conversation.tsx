@@ -27,7 +27,7 @@ import { CopyButton } from "./copy-button.js";
 import { BrainGlyph, CaretGlyph } from "./icons.js";
 import { Pill } from "./row-chrome.js";
 import { SlotBoundary } from "./slot-boundary.js";
-import { ToolView } from "./tool-cards.js";
+import { ToolView, toolTitle } from "./tool-cards.js";
 
 /** 虚拟单位 = 轮（turn 相同行不拆散——工具输出与回答同轮同块；key = turnId，无 turn 的
  *  error 行独立成块）。ZCode ConversationTurnRenderUnit 思想的行模型简版。 */
@@ -445,7 +445,7 @@ function ToolGroupItem({ rows, ctx }: { rows: Row[]; ctx: WebPartContext }) {
         <span className={running !== undefined ? "henira-sweep" : undefined}>
           {`${tools.length} ${ctx.t("tools.groupSuffix")}`}
         </span>
-        <span className="henira-mono">{last?.name ?? ""}</span>
+        <span className="henira-mono">{last !== undefined ? toolTitle(last.name, ctx.t) : ""}</span>
         <span
           className="henira-row-caret"
           style={{ transform: open ? "rotate(90deg)" : undefined }}

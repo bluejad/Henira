@@ -61,9 +61,28 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
   );
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
+  // 点击即退场（R171——参照产品先摘卡再发请求同款）：已答 requestId 本地集合，
+  // settled SSE 到达前卡片就已离场；settle 失败回滚（卡回 dock 可重试）
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
+  const onDecided = useCallback((requestId: string): void => {
+    setAnswered((prev) => {
+      const next = new Set(prev);
+      next.add(requestId);
+      return next;
+    });
+  }, []);
+  const onDecideFailed = useCallback((requestId: string): void => {
+    setAnswered((prev) => {
+      const next = new Set(prev);
+      next.delete(requestId);
+      return next;
+    });
+  }, []);
+
   // 审批接管：pending 卡在 dock 渲染；键盘直选期间 composer 提交让位
   const pendingApprovals = rows.filter(
-    (row: Row): row is ApprovalRow => row.kind === "approval" && row.status === "pending",
+    (row: Row): row is ApprovalRow =>
+      row.kind === "approval" && row.status === "pending" && !answered.has(row.requestId),
   );
 
   // 模型/思考控件（宿主方法齐备才接；缺任一则整体不渲染）
@@ -221,6 +240,8 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
           row={pendingApprovals[0]}
           ctx={ctx}
           queueTotal={pendingApprovals.length}
+          onDecided={onDecided}
+          onDecideFailed={onDecideFailed}
         />
       ) : null}
       <QueuePanel ctx={ctx} onEdit={editQueued} />

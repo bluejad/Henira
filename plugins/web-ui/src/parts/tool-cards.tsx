@@ -21,6 +21,75 @@ export interface CardProps {
 
 // ── meta 窄化 helpers（dsh「宁缺毋滥」纪律的实现体）──
 
+/** 头行参数摘要上限（参照产品 toolSummary 同款 80 字符截断） */
+const SUMMARY_MAX_CHARS = 80;
+
+/** 摘要文本整形：空白压平 + 单行截断（参照产品行为层） */
+export function truncateSummary(text: string): string {
+  const flat = text.replaceAll(/\s+/g, " ").trim();
+  return flat.length > SUMMARY_MAX_CHARS ? `${flat.slice(0, SUMMARY_MAX_CHARS)}…` : flat;
+}
+
+/** args 按键位提取人类摘要（R171 头行改版：收起态即见参数——五家共识形状；callId 不占版面，
+ *  挪 rowTitle 排障）。工具名分派取键、未知工具取首个字符串值兜底；无可读值返回 null。 */
+export function argsSummaryText(name: string, args: Record<string, unknown> | null): string | null {
+  if (args === null) return null;
+  const pick = (...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = str(args[k]);
+      if (v !== null && v.trim() !== "") return v;
+    }
+    return null;
+  };
+  let text: string | null;
+  switch (name) {
+    case "bash":
+    case "powershell":
+      text = pick("command");
+      break;
+    case "read":
+    case "write":
+    case "edit":
+      text = pick("file_path", "path");
+      break;
+    case "glob":
+    case "grep":
+      text = pick("pattern");
+      break;
+    default: {
+      text = null;
+      for (const v of Object.values(args)) {
+        const s = str(v);
+        if (s !== null && s.trim() !== "") {
+          text = s;
+          break;
+        }
+      }
+    }
+  }
+  return text === null ? null : truncateSummary(text);
+}
+
+/** 行 input（模型原始 args JSON）→ 头行摘要 */
+export function toolSummary(row: ToolRow): string | null {
+  return argsSummaryText(row.name, parseInput(row));
+}
+
+/** 工具名 → 显示标题（白名单安全映射：t 是 fail-loud 查表，动态名（mcp__/第三方）不能进
+ *  t()——未知回落 wire 名。悬停 rowTitle 仍带 wire 名保真）。 */
+export function toolTitle(name: string, t: (k: string) => string): string {
+  const known = ["bash", "powershell", "read", "write", "edit", "glob", "grep"];
+  return known.includes(name) ? t(`tool.title.${name}`) : name;
+}
+
+/** 耗时显示（参照产品 formatDuration 行为层：<60s 一位小数秒 / ≥60s 分 + 秒） */
+export function formatDuration(ms: number, t: (k: string) => string): string {
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} ${t("tool.unitSec")}`;
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  return `${m} ${t("tool.unitMin")} ${String(total % 60).padStart(2, "0")} ${t("tool.unitSec")}`;
+}
+
 function asMeta(row: ToolRow, kind: string): Record<string, unknown> | null {
   const m = row.output?.meta;
   if (m === null || typeof m !== "object" || Array.isArray(m)) return null;
@@ -83,6 +152,8 @@ function ToolCardShell(props: {
   tone?: string;
   /** 行标题覆盖（MCP 卡拆名显示 server · tool） */
   title?: string;
+  /** 摘要覆盖（缺省 = toolSummary(row)；传 null 禁用摘要槽） */
+  summaryText?: string | null;
   summaryExtra?: React.ReactNode;
   children?: React.ReactNode;
 }): React.ReactNode {
@@ -100,6 +171,7 @@ function ToolCardShell(props: {
   useEffect(() => {
     if (isError) setRevealed(true);
   }, [isError]);
+  const summaryText = props.summaryText !== undefined ? props.summaryText : toolSummary(row);
   return (
     <DisclosureRow
       icon={
@@ -111,14 +183,21 @@ function ToolCardShell(props: {
           <CheckGlyph size={14} color={statusColor} />
         )
       }
-      title={props.title ?? row.name}
+      title={props.title ?? toolTitle(row.name, ctx.t)}
       busy={running}
       tone={statusColor}
-      meta={`#${row.callId}`}
+      rowTitle={`${row.name} · ${row.callId}`}
       summary={
         <>
+          {summaryText ? (
+            <span className="henira-row-summary" title={summaryText}>
+              {summaryText}
+            </span>
+          ) : null}
           {row.status === "done" && row.output !== undefined ? (
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{row.output.durationMs}ms</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+              {formatDuration(row.output.durationMs, ctx.t)}
+            </span>
           ) : null}
           {row.output?.truncated !== undefined ? (
             <Pill
@@ -140,7 +219,11 @@ function ToolCardShell(props: {
 }
 
 /** mono pre 块（卡内滚动上限统一走 maxHeight——与 DetailPane 同一取向） */
-function MonoBlock(props: { text: string; color?: string; maxHeight?: number }): React.ReactNode {
+export function MonoBlock(props: {
+  text: string;
+  color?: string;
+  maxHeight?: number;
+}): React.ReactNode {
   return (
     <pre
       className="henira-mono"
@@ -915,8 +998,9 @@ export function McpCard({ row, ctx }: CardProps): React.ReactNode {
 
 // ── 通用卡（fallback；原 conversation.tsx 私有实现原样迁入）──
 
-/** 通用卡：图标+名+callId+耗时/截断徽章+展开 IN/OUT 两段 pre。keyed 缝查不到官方卡、
- * per-tool 卡 meta 校验不过、第三方工具——三路兜底都是它。 */
+/** 通用卡：图标+中文名+参数摘要+耗时/截断徽章+展开 IN/OUT 两段 pre（callId 走 rowTitle
+ *  悬停，不占版面）。keyed 缝查不到官方卡、per-tool 卡 meta 校验不过、第三方工具——
+ *  三路兜底都是它。 */
 export function ToolView({ row, ctx }: CardProps): React.ReactNode {
   const isError = row.status === "error";
   const statusColor =
@@ -932,6 +1016,7 @@ export function ToolView({ row, ctx }: CardProps): React.ReactNode {
     if (isError) setRevealed(true);
   }, [isError]);
   // 官方默认工具卡 = 组装行 chrome 原语（与 keyed 顶替件同一套，D-057 观感协调）
+  const summaryText = toolSummary(row);
   return (
     <DisclosureRow
       icon={
@@ -943,14 +1028,21 @@ export function ToolView({ row, ctx }: CardProps): React.ReactNode {
           <CheckGlyph size={14} color={statusColor} />
         )
       }
-      title={row.name}
+      title={toolTitle(row.name, ctx.t)}
       busy={running}
       tone={statusColor}
-      meta={`#${row.callId}`}
+      rowTitle={`${row.name} · ${row.callId}`}
       summary={
         <>
+          {summaryText ? (
+            <span className="henira-row-summary" title={summaryText}>
+              {summaryText}
+            </span>
+          ) : null}
           {row.status === "done" && row.output !== undefined ? (
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{row.output.durationMs}ms</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+              {formatDuration(row.output.durationMs, ctx.t)}
+            </span>
           ) : null}
           {row.output?.truncated !== undefined ? (
             <Pill

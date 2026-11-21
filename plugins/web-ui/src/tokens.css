@@ -259,6 +259,16 @@ button:focus-visible > .henira-row-caret {
   opacity: 1;
 }
 
+/* 行头参数摘要（R171：工具行/痕迹行收起态即见命令/路径——五家共识形状）：
+   flex 容器内单行省略，全文走 title 悬停 */
+.henira-row-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
 /* markdown 渲染（host.renderMarkdown 唯一出口；raw HTML 不渲染；零 webfont）。
    行为取舍：流式中未闭合围栏=代码块（settled grammar is the streaming one）；
    宽表格自然宽度+横向滚动；图片限宽。 */
