@@ -766,12 +766,18 @@ describe("立即发送抢占全链（promote）", () => {
           f.delta.state.queuePaused === true,
       );
       expect(pausedFrames).toHaveLength(0);
-      const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
-        state: { queue?: unknown[]; busy: boolean };
-        rows: { kind: string; text?: string }[];
-      };
-      expect(snap.state.busy).toBe(false);
-      expect(snap.state.queue ?? []).toHaveLength(0);
+      // 收口判据用轮询：抢占后「留守续冲」回合可能在上一条 busy=false 之后立刻接棒——
+      // 单次快照会撞回合间隙（CI 慢机实锤，E1 同族）；等到真正 idle + 队列空再断言行序
+      const snap = await waitFor(async () => {
+        const res = await fetch(`${base}/api/sessions/${id}/snapshot`);
+        const body = (await res.json()) as {
+          state: { queue?: unknown[]; busy: boolean };
+          rows: { kind: string; text?: string }[];
+        };
+        return body.state.busy === false && (body.state.queue ?? []).length === 0
+          ? body
+          : undefined;
+      });
       // user 行次序：第一问 → 被提升条目 → 留守条目（插队实锤）
       const userTexts = snap.rows.filter((r) => r.kind === "user").map((r) => r.text);
       expect(userTexts).toEqual(["第一问", "被提升条目", "留守条目"]);
