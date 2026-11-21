@@ -14,6 +14,7 @@ export {
 export { ApprovalPreview } from "./parts/approval-preview.js";
 export { Composer } from "./parts/composer.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
+export { CodeGlyph } from "./parts/icons.js";
 export { LayoutFrame } from "./parts/layout-frame.js";
 export { ModelSelect } from "./parts/model-select.js";
 export { RightPanel } from "./parts/right-panel.js";

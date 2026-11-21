@@ -382,6 +382,25 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect(one.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
   });
 
+  it("fork 全链（E4 轮尾分叉）：子会话在册 + 行 = 前缀 + 越界切点抛错（双形态同行为）", async () => {
+    const reply = [mockText("答"), mockFinish("stop")];
+    const { facade } = await form.make([reply, [...reply]]);
+    const session = await facade.createSession();
+    await facade.prompt(session.id, "问");
+    await waitFor(async () => {
+      const snap = await facade.snapshot(session.id);
+      return !snap.state.busy && snap.rows.length >= 2 ? true : undefined;
+    });
+    const childId = await facade.fork(session.id);
+    expect(childId).not.toBe(session.id);
+    const list = await facade.listSessions();
+    expect(list.some((s) => s.id === childId)).toBe(true);
+    const childRows = await facade.sessionRows(childId);
+    expect(childRows.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+    expect(childRows.rows[0]).toMatchObject({ kind: "user", text: "问" });
+    await expect(facade.fork(session.id, 99999)).rejects.toThrow();
+  });
+
   it("prompt opts（每次提问绑定）：modelId/reasoningEffort 随请求到达引擎侧 LlmRequest", async () => {
     const reply = [
       mockText("回"),

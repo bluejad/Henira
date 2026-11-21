@@ -3,7 +3,7 @@
 // 链接/内联图渲染；raw HTML 不渲染（消毒默认）；未闭合围栏=代码块（settled grammar
 // is the streaming one）；根容器 .henira-md（样式挂点，嵌入方零依赖）。
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { markdownChildren, markdownNode } from "./markdown.js";
 
@@ -22,11 +22,34 @@ describe("markdownNode（host.renderMarkdown 实现体）", () => {
     expect(container.querySelector("pre code")).not.toBeNull();
   });
 
-  it("预装语言代码块 shiki 高亮（头部条 + token 着色 span 在场）", () => {
+  it("预装语言代码块 shiki 高亮（伪文件名头部条 + token 着色 span 异步在场——语言包懒加载后 swap）", async () => {
     const { container } = render(markdownNode("```python\ndef f():\n    return 1\n```"));
     expect(container.querySelector(".henira-code")).not.toBeNull();
     expect(container.querySelector(".henira-code-lang")?.textContent).toBe("python");
-    expect(container.querySelector("code span[style]")).not.toBeNull();
+    expect(container.querySelector(".henira-code-filename")?.textContent).toBe("python");
+    await waitFor(() => expect(container.querySelector("code span[style]")).not.toBeNull());
+  });
+
+  it("换行切换钮：默认不换行（data-code-wrap=false），点击折行再切回（E4——每块独立 state）", () => {
+    const { container } = render(markdownNode("```js\nconst x = 1;\n```"));
+    const block = container.querySelector(".henira-code");
+    expect(block?.getAttribute("data-code-wrap")).toBe("false");
+    const btn = container.querySelector<HTMLButtonElement>(".henira-code-wrap");
+    expect(btn?.getAttribute("aria-pressed")).toBe("false");
+    if (btn === null) throw new Error("wrap button missing");
+    fireEvent.click(btn);
+    expect(block?.getAttribute("data-code-wrap")).toBe("true");
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(btn);
+    expect(block?.getAttribute("data-code-wrap")).toBe("false");
+  });
+
+  it("表外语言降纯文本不炸（懒加载登记表外静默保持无高亮）", async () => {
+    const { container } = render(markdownNode("```nosuchlang\nhello\n```"));
+    expect(container.querySelector(".henira-code-lang")?.textContent).toBe("nosuchlang");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(container.querySelector("code span[style]")).toBeNull();
+    expect(container.querySelector("pre code")?.textContent).toContain("hello");
   });
 
   it("streaming 标志抑制代码高亮（增量臂经 markdownChildren 消费的活机制；markdownNode 生产入口恒 settled——审查 P3-1）", () => {
@@ -42,11 +65,24 @@ describe("markdownNode（host.renderMarkdown 实现体）", () => {
     expect(container.querySelector("p")?.textContent).toBe("先说话");
   });
 
-  it("GFM 表格渲染（表头/行），宽表格容器 overflow-x", () => {
+  it("GFM 表格渲染（表头/行），<4 列填满消息列（tableFill）", () => {
     const { container } = render(markdownNode("| a | b |\n|---|---|\n| 1 | 2 |"));
-    expect(container.querySelector("table")).not.toBeNull();
+    const table = container.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table?.classList.contains("henira-table-fill")).toBe(true);
     expect(container.querySelectorAll("th")).toHaveLength(2);
     expect(container.querySelectorAll("td")).toHaveLength(2);
+  });
+
+  it("宽表专组件（E4）：≥4 列进横滚容器（tabIndex + hover 显横滚的 overflow 切换本体）", () => {
+    const { container } = render(
+      markdownNode("| a | b | c | d |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |"),
+    );
+    const scroll = container.querySelector(".henira-table-scroll");
+    expect(scroll).not.toBeNull();
+    expect(scroll?.getAttribute("tabindex")).toBe("0");
+    expect(scroll?.querySelector("table")).not.toBeNull();
+    expect(container.querySelector(".henira-table-fill")).toBeNull();
   });
 
   it("链接与内联图渲染", () => {

@@ -23,6 +23,7 @@ import {
 } from "react";
 import type { ToolCallView, WebPart, WebPartContext } from "../types.js";
 import { ApprovalSettledRow } from "./approval-card.js";
+import { CopyButton } from "./copy-button.js";
 import { BrainGlyph, CaretGlyph } from "./icons.js";
 import { Pill } from "./row-chrome.js";
 import { SlotBoundary } from "./slot-boundary.js";
@@ -313,12 +314,26 @@ function ConversationTimeline(props: {
     overscan: 2,
     getItemKey: (i) => units[i]?.key ?? i,
   });
+  // 最新落定轮（E4 操作行常显判据）：从尾往前第一个 turn/end 已结算的轮
+  const lastSettledKey = useMemo(() => {
+    for (let i = units.length - 1; i >= 0; i--) {
+      const u = units[i];
+      if (u?.turn !== undefined && turnTimings?.[u.turn] !== undefined) return u.key;
+    }
+    return undefined;
+  }, [units, turnTimings]);
 
   if (!VIRTUAL) {
     return (
       <>
         {units.map((unit) => (
-          <TurnBlock key={unit.key} unit={unit} ctx={ctx} turnTimings={turnTimings} />
+          <TurnBlock
+            key={unit.key}
+            unit={unit}
+            ctx={ctx}
+            turnTimings={turnTimings}
+            latestSettled={unit.key === lastSettledKey}
+          />
         ))}
       </>
     );
@@ -341,7 +356,12 @@ function ConversationTimeline(props: {
               transform: `translateY(${item.start}px)`,
             }}
           >
-            <TurnBlock unit={unit} ctx={ctx} turnTimings={turnTimings} />
+            <TurnBlock
+              unit={unit}
+              ctx={ctx}
+              turnTimings={turnTimings}
+              latestSettled={unit.key === lastSettledKey}
+            />
           </div>
         );
       })}
@@ -440,21 +460,24 @@ function ToolGroupItem({ rows, ctx }: { rows: Row[]; ctx: WebPartContext }) {
 
 /** 轮块：回合头（E3——settled 轮且含工具行时显示「已完成 · 用时 Xs · N 个工具」，事件
  * 时间戳取数重放重建）+ 行列表（相邻工具聚合 ≥3 折叠；RowView memo——store 未变行同引用，
- * 跳过重渲） */
+ * 跳过重渲）+ 轮尾操作行（E4——时间戳 · 复制 · fork；.henira-turn-group 是浮现 CSS 的
+ * hover 组，纯 CSS 无 JS hover state——RowView memo 契约不破） */
 function TurnBlock({
   unit,
   ctx,
   turnTimings,
+  latestSettled,
 }: {
   unit: TurnUnit;
   ctx: WebPartContext;
   turnTimings?: SessionState["turnTimings"];
+  latestSettled?: boolean;
 }) {
   const timing = unit.turn !== undefined ? turnTimings?.[unit.turn] : undefined;
   const toolCount = useMemo(() => unit.rows.filter((r) => r.kind === "tool").length, [unit.rows]);
   const items = useMemo(() => buildTurnItems(unit.rows), [unit.rows]);
   return (
-    <>
+    <div className="henira-turn-group">
       {timing !== undefined && toolCount > 0 ? (
         <div
           style={{
@@ -474,7 +497,72 @@ function TurnBlock({
           <RowView key={item.row.rowId} row={item.row} ctx={ctx} />
         ),
       )}
-    </>
+      {timing !== undefined ? (
+        <TurnTailActions
+          unit={unit}
+          ctx={ctx}
+          timing={timing}
+          alwaysVisible={latestSettled === true}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type TurnTiming = NonNullable<SessionState["turnTimings"]>[string];
+
+/** 轮尾操作行（E4，dsh TurnTailNodeView 行为层参照）：时间戳 · 复制（本回合全部助手文本
+ * 原始 markdown，非 DOM 取文）· fork（可点 = 该轮以文本回复收尾；置灰带原因提示；点击 =
+ * 前缀复制出新会话并跳转）。仅落定轮渲染；最新落定轮常显，其余 hover 浮现（纯 CSS）。 */
+function TurnTailActions({
+  unit,
+  ctx,
+  timing,
+  alwaysVisible,
+}: {
+  unit: TurnUnit;
+  ctx: WebPartContext;
+  timing: TurnTiming;
+  alwaysVisible: boolean;
+}) {
+  const [forking, setForking] = useState(false);
+  const copyText = useMemo(
+    () =>
+      unit.rows
+        .filter((r): r is AssistantRow => r.kind === "assistant")
+        .map((r) => r.text)
+        .filter((t) => t !== "")
+        .join("\n\n"),
+    [unit.rows],
+  );
+  const forkClient = ctx.client.fork;
+  const forkable = forkClient !== undefined && turnEndsWithText(unit.rows);
+  const onFork = (): void => {
+    if (forkClient === undefined || ctx.sessionId === null || forking) return;
+    setForking(true);
+    void forkClient(ctx.sessionId, timing.forkSeq)
+      .then((childId) => {
+        ctx.selectSession(childId);
+      })
+      .catch(() => {})
+      .finally(() => setForking(false));
+  };
+  return (
+    <div className="henira-turn-actions" data-actions-reveal={alwaysVisible ? "always" : "hover"}>
+      <span className="henira-turn-time">{formatTurnClock(timing.endedAt)}</span>
+      <CopyButton text={copyText} t={ctx.t} className="henira-turn-copy" />
+      {forkClient !== undefined ? (
+        <button
+          type="button"
+          className="henira-turn-fork"
+          disabled={!forkable || forking}
+          title={forkable ? ctx.t("turn.fork") : ctx.t("turn.forkUnavailable")}
+          onClick={onFork}
+        >
+          {forking ? ctx.t("turn.forking") : ctx.t("turn.fork")}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -503,11 +591,13 @@ const RowView = memo(
     a.ctx.slots === b.ctx.slots,
 );
 
-function UserView({ row }: { row: UserRow; ctx?: WebPartContext }) {
+function UserView({ row, ctx }: { row: UserRow; ctx: WebPartContext }) {
   // 右对齐气泡（两家共识：user 右浅气泡 + assistant 左全宽裸排；中性 5% 派生面——
   // 2026-11-17 用户拍板不走 dsh 浅蓝）；右上角收小角=朝向说话者的气泡性格语言。
+  // 气泡下操作行（E4，dsh MessageItem 同位）：时间戳 · 复制——hover 浮现（纯 CSS 组）。
   return (
     <div
+      className="henira-user-group"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -536,6 +626,12 @@ function UserView({ row }: { row: UserRow; ctx?: WebPartContext }) {
       >
         {row.text}
       </div>
+      <div className="henira-user-actions" data-actions-reveal="hover">
+        {row.time !== undefined ? (
+          <span className="henira-turn-time">{formatTurnClock(row.time)}</span>
+        ) : null}
+        <CopyButton text={row.text} t={ctx.t} />
+      </div>
     </div>
   );
 }
@@ -544,6 +640,33 @@ function UserView({ row }: { row: UserRow; ctx?: WebPartContext }) {
 function reasoningPreview(reasoning: string): string {
   const lines = reasoning.split("\n").filter((line) => line.trim() !== "");
   return lines.length > 0 ? (lines[lines.length - 1] ?? "").trim() : "";
+}
+
+/** 轮尾/用户行时间戳格式（dsh message-chrome 同档）：同日 HH:mm、同年 M/D HH:mm、跨年全日期 */
+function formatTurnClock(ms: number, now = new Date()): string {
+  const d = new Date(ms);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) return hm;
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  return d.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}/${md} ${hm}`;
+}
+
+/** fork 可点判定（dsh turn-tail.ts:98 同款语义）：本回合最后一条实质内容是已落定的文本
+ *  回复——透明步级行跳过；文本后跟工具/错误/审批/插话的轮「不干净」，置灰 + 原因提示 */
+function turnEndsWithText(rows: readonly Row[]): boolean {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row === undefined) continue;
+    if (row.kind === "assistant" && row.text === "" && row.streaming !== true) continue;
+    if (row.kind === "assistant") return row.text.trim() !== "" && row.streaming !== true;
+    return false;
+  }
+  return false;
 }
 
 function AssistantView({ row, ctx }: { row: AssistantRow; ctx: WebPartContext }) {

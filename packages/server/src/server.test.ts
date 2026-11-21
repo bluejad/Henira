@@ -733,6 +733,64 @@ describe("立即发送抢占全链（promote）", () => {
   });
 });
 
+describe("轮尾分叉全链（E4：fork REST + 子会话装配）", () => {
+  it("POST /fork 缺省复制到最新 → 子会话在册且行 = 前缀；atSeq 越界 400；不存在 404", async () => {
+    const { base, cleanup } = await makeServer([[mockText("答"), mockFinish("stop")]]);
+    try {
+      const id = await createSession(base);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "问" }),
+      });
+      await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          state: { busy: boolean };
+          rows: { kind: string }[];
+        };
+        return !snap.state.busy && snap.rows.length >= 2 ? true : undefined;
+      });
+
+      const res = await fetch(`${base}/api/sessions/${id}/fork`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const forked = (await res.json()) as { ok: boolean; id: string };
+      expect(forked.ok).toBe(true);
+      expect(forked.id).not.toBe(id);
+
+      // 子会话在册（listSessions 含 child）且行 = 前缀（user + assistant）
+      const list = (await (await fetch(`${base}/api/sessions`)).json()) as { id: string }[];
+      expect(list.some((s) => s.id === forked.id)).toBe(true);
+      const childRows = (await (await fetch(`${base}/api/sessions/${forked.id}/rows`)).json()) as {
+        rows: { kind: string; text?: string }[];
+      };
+      expect(childRows.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+      expect(childRows.rows[0]?.text).toBe("问");
+
+      // 越界切点 400（ForkCutOutOfRangeError 形状化）
+      const bad = await fetch(`${base}/api/sessions/${id}/fork`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ atSeq: 99999 }),
+      });
+      expect(bad.status).toBe(400);
+
+      // 不存在会话 404
+      const missing = await fetch(`${base}/api/sessions/s-nope/fork`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(missing.status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe("REST 面与设置", () => {
   it("设置读写 / 凭据只写不读（D-030）", async () => {
     const { base, cleanup } = await makeServer([]);

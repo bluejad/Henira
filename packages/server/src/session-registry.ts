@@ -33,6 +33,7 @@ import { llmPlugin } from "@henira/plugin-llm";
 import { loopPlugin } from "@henira/plugin-loop";
 import { mcpPlugin } from "@henira/plugin-mcp";
 import {
+  forkSession,
   projectKey,
   SESSION_LOG_FILE,
   type SessionHandle,
@@ -837,6 +838,35 @@ export class SessionRegistry {
   /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号） */
   #announce(entry: SessionEntry): void {
     this.#opts.fanout.deliverSnapshot(entry.id, this.snapshotOf(entry));
+  }
+
+  /** 轮尾分叉（E4；session.md §6 引擎语义已定稿）：按账本 seq 前缀复制出新会话。走
+   *  forkSession（目录复制 + parentSession + 半回合补写 turn/end{forked}）后子锁即刻
+   *  释放、交标准装配（#mount 与 create/attach 同所有权），最后 announce 上线。返回子 id。 */
+  async fork(id: string, atSeq?: number): Promise<string | undefined> {
+    const source = this.get(id) ?? (await this.attach(id));
+    if (source === undefined) return undefined;
+    const events = await this.ledgerEvents(id);
+    if (events === undefined) return undefined;
+    const header = source.ctx.get("session").header();
+    const store = await forkSession({
+      sourceDir: source.directory,
+      sourceHeader: header,
+      sourceEvents: events,
+      atSeq,
+    });
+    const childId = store.header.id;
+    const directory = store.directory;
+    await store.close();
+    const child = await this.#mount({ id: childId, cwd: header.cwd, directory });
+    // 投影补账（#attach 同款）：装配后的装载不走 onAppend——从账本重放补前缀行
+    const childEvents = await this.ledgerEvents(childId);
+    if (childEvents !== undefined) {
+      for (const event of childEvents) child.projection.ingest(event);
+    }
+    this.#entries.set(childId, child);
+    this.#announce(child);
+    return childId;
   }
 }
 

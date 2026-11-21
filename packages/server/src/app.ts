@@ -251,6 +251,28 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // 轮尾分叉（E4；session.md §6）：按 seq 前缀复制出新会话并装配入册，返回子会话 id；
+  // atSeq 缺省 = 复制到最新；越界切点 400（ForkCutOutOfRangeError）
+  app.post("/api/sessions/:id/fork", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const parsed = z
+      .object({ atSeq: z.number().int().min(0).optional() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "atSeq invalid" }, 400);
+    try {
+      const childId = await deps.registry.fork(entry.id, parsed.data.atSeq);
+      return childId === undefined
+        ? c.json({ error: "session not found" }, 404)
+        : c.json({ ok: true, id: childId });
+    } catch (err) {
+      if (err instanceof Error && err.name === "ForkCutOutOfRangeError") {
+        return c.json({ error: "fork cut out of range" }, 400);
+      }
+      throw err;
+    }
+  });
+
   // useResource 数据泵单跳（plugins.md §4 / D-064）：所有权闸（地址 pluginId 必须 = 调用方
   // 插件且该插件声明了此 server，越权 403）在 registry——30s 超时与 200 × 1024 字符截断同层
   app.post("/api/sessions/:id/resource", async (c) => {

@@ -190,6 +190,34 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   await shot(page, "04-completed-dark.png");
 });
 
+// ── 用例 ①b：轮尾操作栏（E4）——时间戳/复制/fork，fork 跳子会话 ──
+// 不发新 prompt（llm 脚本按序消费，插队会挪后续用例的脚本段）——复用用例①跑完的预建会话
+
+test("turn tail actions: timestamp, copy, fork to child session", async ({ page }) => {
+  await page.goto(server.url);
+  // 回到用例①的原会话（含已落定 probe 回合——以回复文本收尾 = fork 可点）
+  const originalItem = page
+    .locator(".henira-sessions li")
+    .filter({ hasText: path.basename(dataDir) });
+  await originalItem.click();
+  await expect(page.getByText(FINAL_TEXT)).toBeVisible();
+
+  const actions = page.locator(".henira-turn-actions").last();
+  await expect(actions).toBeVisible();
+  await expect(actions.locator(".henira-turn-time")).toContainText(/[\d]/);
+  const forkBtn = actions.getByRole("button", { name: zh["turn.fork"] });
+  await expect(forkBtn).toBeEnabled();
+
+  const before = await page.locator(".henira-sessions li").count();
+  await forkBtn.click();
+  // 子会话在册（列表 +1）且选中（输入框可编辑）
+  await expect(page.locator(".henira-sessions li")).toHaveCount(before + 1);
+  await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeEnabled();
+  // 子会话行 = 前缀（probe 回合的最终回复在场）
+  await expect(page.getByText(FINAL_TEXT)).toBeVisible();
+  await shot(page, "09-e4-fork-child.png");
+});
+
 // ── 用例 ②：安全模式双通道（判据④）——?ui=safe 入口 + 双击 Alt 切换 ──
 
 test("safe mode: ui=safe entry and double-Alt toggle", async ({ page }) => {

@@ -37,6 +37,7 @@ import {
   atomicWriteFile,
   browseDirectories,
   DirRegistry,
+  forkSession,
   projectKey,
   type SessionHandle,
   sameCwd,
@@ -429,6 +430,107 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     return findSessionDir(dataDir, id);
   };
 
+  /** 共享装配（create 新建 / fork 复制同一条路，E4）：投影 + 引擎七件 + 宿主两件 + 总线
+   *  订阅 + 在册 + 目录登记 + 上线快照帧——fork 子会话与新建完全同构。 */
+  const mountRuntimeSession = async (input: {
+    id: string;
+    cwd: string;
+    directory: string;
+  }): Promise<RuntimeSession> => {
+    const { id, cwd, directory } = input;
+    const projection = new Projection();
+    const session: RuntimeSession = {
+      id,
+      cwd,
+      summary: { id, cwd, updatedAt: Date.now(), busy: false },
+      harness: undefined as never,
+      ctx: undefined as never,
+      projection,
+    };
+    const onAppend = (event: SessionEvent): void => {
+      const deltas = projection
+        .ingest(event)
+        .map((d): typeof d =>
+          d.op === "state.updated"
+            ? { op: "state.updated", state: stateWithQueue(d.state, session.ctx) }
+            : d,
+        );
+      publish(id, deltas);
+    };
+    // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
+    const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
+    const mcpServers = await prepareMcpSpecs(preparedNow, cwd, globalDir);
+    const settingsNow = await readSettings(globalDir);
+    const harness = createHarness();
+    for (const definition of baseDefinitions({
+      id,
+      cwd,
+      directory,
+      onAppend,
+      mcpServers,
+      isPresetEntryEnabled: (entryId) => isPluginEnabled(settingsNow, entryId),
+    })) {
+      harness.use(definition);
+    }
+    harness.use(opts.interaction ?? autoRejectInteraction());
+    harness.use({ name: "config", start: () => createConfigService({ cwd, globalDir }) });
+    for (const item of preparedNow.definitions) {
+      const definition = item.definition as { name?: string; start?: unknown };
+      if (typeof definition.start !== "function") {
+        console.warn(`[sdk] 插件：${item.id} 的 definition 形状非法——跳过`);
+        continue;
+      }
+      if (definition.name !== undefined && CORE_SLOT_NAMES.has(definition.name)) {
+        console.warn(
+          `[sdk] 插件：${item.id} 占用内圈槽位 "${definition.name}"——跳过（§7.1 撞内圈不装载）`,
+        );
+        continue;
+      }
+      harness.use(item.definition as ServiceDefinition<unknown>);
+    }
+    await harness.start();
+    session.harness = harness;
+    session.ctx = asHeniraContext(harness.context);
+    for (const tool of opts.tools ?? []) {
+      session.ctx.get("tools").register(tool);
+    }
+    // 投影补账（server #attach 同款）：装配后的装载不走 onAppend——从账本重放补历史行
+    // （fork 子会话带前缀；新建空账本 = 零事件 no-op）
+    for (const event of session.ctx.get("session").events()) session.projection.ingest(event);
+    // 流式碎片（刻意不落账）经总线进投影：text / reasoning delta 挂当前游标行
+    session.ctx.events.on("loop/event", (payload: unknown) => {
+      const event = payload as LoopEvent;
+      if (event.type !== "text-delta" && event.type !== "reasoning-delta") return;
+      publish(
+        id,
+        projection.applyStreamDelta({
+          field: event.type === "text-delta" ? "text" : "reasoning",
+          text: event.text,
+        }),
+      );
+    });
+    // 队列变更（入队/升格/删除/claim/冲刷）→ state.updated 推排队卡数据（非账本通道）
+    session.ctx.events.on("queue/changed", () => {
+      publish(id, [
+        {
+          op: "state.updated",
+          state: stateWithQueue(projection.state, session.ctx),
+        },
+      ]);
+    });
+    sessions.set(id, session);
+    await dirs.upsert(cwd, id); // 带目录建会话 = 自动登记（与 server 同一语义）
+    deliver({
+      kind: "snapshot",
+      sessionId: id,
+      snapshot: {
+        ...projection.snapshot(id, currentSeq(id)),
+        state: stateWithQueue(projection.state, session.ctx),
+      },
+    });
+    return session;
+  };
+
   const facade: HeniraFacade = {
     async createSession(sessionOpts) {
       const cwd = sessionOpts?.cwd ?? process.cwd();
@@ -436,94 +538,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const id = `s-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
       const directory = path.join(dataDir, "projects", projectKey(cwd), "sessions", id);
       await fs.mkdir(directory, { recursive: true });
-
-      const projection = new Projection();
-      const session: RuntimeSession = {
-        id,
-        cwd,
-        summary: { id, cwd, updatedAt: Date.now(), busy: false },
-        harness: undefined as never,
-        ctx: undefined as never,
-        projection,
-      };
-      const onAppend = (event: SessionEvent): void => {
-        const deltas = projection
-          .ingest(event)
-          .map((d): typeof d =>
-            d.op === "state.updated"
-              ? { op: "state.updated", state: stateWithQueue(d.state, session.ctx) }
-              : d,
-          );
-        publish(id, deltas);
-      };
-      // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件
-      const preparedNow = await prepareRuntimePlugins(dataDir, globalDir);
-      const mcpServers = await prepareMcpSpecs(preparedNow, cwd, globalDir);
-      const settingsNow = await readSettings(globalDir);
-      const harness = createHarness();
-      for (const definition of baseDefinitions({
-        id,
-        cwd,
-        directory,
-        onAppend,
-        mcpServers,
-        isPresetEntryEnabled: (entryId) => isPluginEnabled(settingsNow, entryId),
-      })) {
-        harness.use(definition);
-      }
-      harness.use(opts.interaction ?? autoRejectInteraction());
-      harness.use({ name: "config", start: () => createConfigService({ cwd, globalDir }) });
-      for (const item of preparedNow.definitions) {
-        const definition = item.definition as { name?: string; start?: unknown };
-        if (typeof definition.start !== "function") {
-          console.warn(`[sdk] 插件：${item.id} 的 definition 形状非法——跳过`);
-          continue;
-        }
-        if (definition.name !== undefined && CORE_SLOT_NAMES.has(definition.name)) {
-          console.warn(
-            `[sdk] 插件：${item.id} 占用内圈槽位 "${definition.name}"——跳过（§7.1 撞内圈不装载）`,
-          );
-          continue;
-        }
-        harness.use(item.definition as ServiceDefinition<unknown>);
-      }
-      await harness.start();
-      session.harness = harness;
-      session.ctx = asHeniraContext(harness.context);
-      for (const tool of opts.tools ?? []) {
-        session.ctx.get("tools").register(tool);
-      }
-      // 流式碎片（刻意不落账）经总线进投影：text / reasoning delta 挂当前游标行
-      session.ctx.events.on("loop/event", (payload: unknown) => {
-        const event = payload as LoopEvent;
-        if (event.type !== "text-delta" && event.type !== "reasoning-delta") return;
-        publish(
-          id,
-          projection.applyStreamDelta({
-            field: event.type === "text-delta" ? "text" : "reasoning",
-            text: event.text,
-          }),
-        );
-      });
-      // 队列变更（入队/升格/删除/claim/冲刷）→ state.updated 推排队卡数据（非账本通道）
-      session.ctx.events.on("queue/changed", () => {
-        publish(id, [
-          {
-            op: "state.updated",
-            state: stateWithQueue(projection.state, session.ctx),
-          },
-        ]);
-      });
-      sessions.set(id, session);
-      await dirs.upsert(cwd, id); // 带目录建会话 = 自动登记（与 server 同一语义）
-      deliver({
-        kind: "snapshot",
-        sessionId: id,
-        snapshot: {
-          ...projection.snapshot(id, currentSeq(id)),
-          state: stateWithQueue(projection.state, session.ctx),
-        },
-      });
+      const session = await mountRuntimeSession({ id, cwd, directory });
       return { ...session.summary };
     },
 
@@ -560,6 +575,23 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async interrupt(sessionId) {
       await requireSession(sessions, sessionId).ctx.get("loop").interrupt();
+    },
+
+    async fork(sessionId, atSeq) {
+      const source = requireSession(sessions, sessionId);
+      const sessionService = source.ctx.get("session");
+      const store = await forkSession({
+        sourceDir: path.join(dataDir, "projects", projectKey(source.cwd), "sessions", sessionId),
+        sourceHeader: sessionService.header(),
+        sourceEvents: sessionService.events(),
+        atSeq,
+      });
+      const childId = store.header.id;
+      const childCwd = store.header.cwd;
+      const childDirectory = store.directory;
+      await store.close(); // 子锁释放后交共享装配（与新建同所有权——先 close 再 mount）
+      await mountRuntimeSession({ id: childId, cwd: childCwd, directory: childDirectory });
+      return childId;
     },
 
     async settleApproval(sessionId, requestId, decision, scope) {

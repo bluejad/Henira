@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
 import type { SessionEvent } from "./envelope.js";
 import { isReplaceSurface, Projection, rebuildProjection } from "./projection.js";
 
-/** 造账本事件：time 恒定（投影不读它），seq 由调用方排（u/e 行 rowId 依赖它） */
-function ev(seq: number, type: string, data: Record<string, unknown>): SessionEvent {
-  return { type, seq, time: 0, data } as SessionEvent;
+/** 造账本事件：time 缺省 0（投影不读它除了 time/turnTimings 字段），seq 由调用方排（u/e 行 rowId 依赖它） */
+function ev(seq: number, type: string, data: Record<string, unknown>, time = 0): SessionEvent {
+  return { type, seq, time, data } as SessionEvent;
 }
 
 describe("账本回放 → 快照", () => {
@@ -269,7 +269,7 @@ describe("账本回放 → 快照", () => {
     ): SessionEvent => ({ ...ev(seq, type, data), time }) as SessionEvent;
     p.ingest(mk(1, "turn/start", { turn: "t-1" }, 1000));
     p.ingest(mk(2, "turn/end", { turn: "t-1", reason: "completed" }, 5000));
-    expect(p.state.turnTimings?.["t-1"]).toEqual({ durationMs: 4000 });
+    expect(p.state.turnTimings?.["t-1"]).toEqual({ durationMs: 4000, endedAt: 5000, forkSeq: 2 });
 
     // cap：第 51 轮结算后最老一轮被裁掉（键序 = 插入序）
     let seq = 3;
@@ -489,6 +489,52 @@ describe("delta 前中止：合成零文本中断行（投影合成，账本不�
     p.ingest(ev(1, "step/start", { turn: "t-9", step: 1 }));
     p.ingest(ev(2, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }));
     expect(p.rows).toEqual([]);
+  });
+});
+
+describe("行时间投影（E4 操作行时间戳）", () => {
+  it("user/assistant 落定行带 event.time；流式冻结行无权威落定无 time", () => {
+    const p = new Projection();
+    p.ingest(ev(1, "user/message", { turn: "t-1", step: 0, content: "问", source: "send" }, 1000));
+    p.ingest(ev(2, "turn/start", { turn: "t-1" }, 1100));
+    p.ingest(ev(3, "step/start", { turn: "t-1", step: 1 }, 1200));
+    p.applyStreamDelta({ field: "text", text: "答到一半" });
+    p.ingest(ev(4, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }, 9000));
+    // user 行：落账事件时刻
+    expect(p.rows[0]).toMatchObject({ rowId: "u:1", time: 1000 });
+    // 流式冻结行：无权威落定 → 无 time
+    expect(p.rows[1]).toMatchObject({ rowId: "a:t-1:1", text: "答到一半", interrupted: true });
+    expect(p.rows[1]).not.toHaveProperty("time");
+  });
+
+  it("合成行（delta 前中止档）time = turn/end 时刻", () => {
+    const p = new Projection();
+    p.ingest(ev(1, "user/message", { turn: "t-1", step: 0, content: "问", source: "send" }, 1000));
+    p.ingest(ev(2, "turn/start", { turn: "t-1" }, 1100));
+    p.ingest(ev(3, "step/start", { turn: "t-1", step: 1 }, 1200));
+    p.ingest(ev(4, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }, 9000));
+    expect(p.rows[1]).toMatchObject({ rowId: "a:t-1:1", text: "", interrupted: true, time: 9000 });
+  });
+
+  it("assistant/message 落定行 time = 落账事件时刻", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "问", source: "send" }, 1000),
+      ev(2, "turn/start", { turn: "t-1" }, 1100),
+      ev(3, "step/start", { turn: "t-1", step: 1 }, 1200),
+      ev(
+        4,
+        "assistant/message",
+        { turn: "t-1", step: 1, content: "答", model: "m", finishReason: "stop" },
+        8000,
+      ),
+      ev(5, "turn/end", { turn: "t-1", reason: "completed" }, 8100),
+    ]);
+    expect(p.rows[1]).toMatchObject({ rowId: "a:t-1:1", text: "答", time: 8000 });
+    expect(p.state.turnTimings?.["t-1"]).toEqual({
+      durationMs: 7000,
+      endedAt: 8100,
+      forkSeq: 5,
+    });
   });
 });
 

@@ -21,6 +21,8 @@ export interface UserRow {
   text: string;
   /** 账本 user/message.source 原样（send / steer / veto / …开放词表） */
   source: string;
+  /** 消息时刻（账本 user/message 事件 time，epoch ms——消息外壳时间戳，E4） */
+  time?: number;
 }
 
 export interface AssistantRow {
@@ -41,6 +43,9 @@ export interface AssistantRow {
   interrupted?: boolean;
   /** 本步实际生效思考档（request/header.params 投影——行上可见每次提问档位语义） */
   reasoningEffort?: ReasoningEffort;
+  /** 消息时刻（账本 assistant/message 事件 time，epoch ms——轮尾操作行时间戳，E4；
+   *  流式行与中止冻结行无权威落定故缺此字段） */
+  time?: number;
 }
 
 export interface ToolRowOutput {
@@ -112,8 +117,9 @@ export interface SessionState {
   /** 中断冻结（队列非空时中断不冲刷，等 resume 恢复；投影态非账本事实，与 queue 键同批并线） */
   queuePaused?: boolean;
   /** 回合耗时（E3 生命感回合头：事件时间戳取数——账本 turn/start·turn/end 的 time 差，
-   * 重放重建/重载后仍在；保留最近 50 轮，键 = turn id） */
-  turnTimings?: Record<string, { durationMs: number }>;
+   * 重放重建/重载后仍在；保留最近 50 轮，键 = turn id。endedAt = turn/end 时刻（轮尾
+   * 时间戳）；forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive） */
+  turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>;
 }
 
 export interface SessionSnapshot {

@@ -2163,7 +2163,10 @@ describe("生命感（E3）", () => {
         streaming: false,
       },
     ];
-    const ctx = ctxWithState(rows, { busy: false, turnTimings: { "t-1": { durationMs: 4000 } } });
+    const ctx = ctxWithState(rows, {
+      busy: false,
+      turnTimings: { "t-1": { durationMs: 4000, endedAt: 1_700_000_060_000, forkSeq: 3 } },
+    });
     const { container } = render(<Conversation {...ctx} />);
     expect(container.textContent).toContain("已完成");
     expect(container.textContent).toContain("4s");
@@ -2299,5 +2302,145 @@ describe("生命感（E3）", () => {
     const ctx = ctxWithState(rows, { busy: false });
     const { container } = render(<Conversation {...ctx} />);
     expect(container.textContent).toContain(t("row.interrupted"));
+  });
+});
+
+// ── 外壳操作栏（E4）：轮尾 时间戳·复制·fork / 用户行 时间戳·复制 / 浮现 data 属性 ──
+
+describe("外壳操作栏（E4）", () => {
+  const TIMING = { durationMs: 4000, endedAt: 1_700_000_060_000, forkSeq: 7 };
+
+  function ctxWithActions(
+    rows: Row[],
+    fork?: (sessionId: string, atSeq?: number) => Promise<string>,
+  ): WebPartContext {
+    const snapshot = { rows, state: { busy: false, turnTimings: { "t-1": TIMING } } };
+    const client: HeniraClientLike = {
+      createSession: async () => ({ id: "s-1", cwd: "C:demo", updatedAt: 0, busy: false }),
+      listSessions: async () => [],
+      prompt: async () => ({ queued: false, id: null }),
+      steer: async () => true,
+      interrupt: async () => {},
+      settleApproval: async () => true,
+      events: async function* () {
+        yield {} as ServerFrame;
+      },
+      listUiAssets: async () => ({ locales: [], themes: [] }),
+      ...(fork !== undefined ? { fork } : {}),
+    };
+    return fixtureCtx({
+      client,
+      store: { getSession: () => snapshot, subscribe: () => () => {} },
+    } as unknown as Partial<WebPartContext>);
+  }
+
+  const settledRows = (text: string): Row[] =>
+    [
+      {
+        kind: "user",
+        rowId: "u:1",
+        rowSeq: 1,
+        turn: "t-1",
+        text: "问",
+        source: "send",
+        time: 1_700_000_000_000,
+      },
+      {
+        kind: "assistant",
+        rowId: "a:t-1:1",
+        rowSeq: 3,
+        turn: "t-1",
+        step: 1,
+        text,
+        streaming: false,
+      },
+    ] as Row[];
+
+  it("轮尾操作行：落定轮渲染时间戳+复制+fork；fork 点击 → client.fork(forkSeq) → selectSession(子会话)；最新落定轮常显", async () => {
+    const fork = vi.fn(async () => "s-child");
+    const ctx = ctxWithActions(settledRows("回答"), fork);
+    const { container } = render(<Conversation {...ctx} />);
+    const actions = container.querySelector(".henira-turn-actions");
+    expect(actions).not.toBeNull();
+    expect(actions?.getAttribute("data-actions-reveal")).toBe("always");
+    expect(container.querySelector(".henira-turn-time")?.textContent).toMatch(/\d/);
+    const forkBtn = container.querySelector<HTMLButtonElement>(".henira-turn-fork");
+    expect(forkBtn?.disabled).toBe(false);
+    fireEvent.click(forkBtn as HTMLButtonElement);
+    await waitFor(() => expect(fork).toHaveBeenCalledWith("s-1", 7));
+    expect(ctx.selectSession).toHaveBeenCalledWith("s-child");
+  });
+
+  it("轮尾 fork 置灰：文本后跟工具的轮不干净 → disabled + 原因 title；宿主缺 fork 方法 → fork 钮不渲染（时间戳+复制仍在）", () => {
+    const rows: Row[] = [
+      ...settledRows("先答一半"),
+      {
+        kind: "tool",
+        rowId: "t:t-1:2:c1",
+        rowSeq: 4,
+        turn: "t-1",
+        step: 2,
+        callId: "c1",
+        name: "bash",
+        status: "done",
+        input: "{}",
+        output: { content: "bash body", isError: false, durationMs: 3 },
+      },
+    ];
+    const ctx = ctxWithActions(rows, async () => "s-child");
+    const { container } = render(<Conversation {...ctx} />);
+    const forkBtn = container.querySelector<HTMLButtonElement>(".henira-turn-fork");
+    expect(forkBtn?.disabled).toBe(true);
+    expect(forkBtn?.getAttribute("title")).toBe(t("turn.forkUnavailable"));
+
+    cleanup();
+    const noFork = ctxWithActions(settledRows("回答"));
+    const { container: c2 } = render(<Conversation {...noFork} />);
+    expect(c2.querySelector(".henira-turn-fork")).toBeNull();
+    expect(c2.querySelector(".henira-turn-actions")).not.toBeNull();
+  });
+
+  it("用户行操作行：时间戳 + 复制在场，hover 浮现 data 属性", () => {
+    const ctx = ctxWithActions(settledRows("回答"));
+    const { container } = render(<Conversation {...ctx} />);
+    const userActions = container.querySelector(".henira-user-actions");
+    expect(userActions).not.toBeNull();
+    expect(userActions?.getAttribute("data-actions-reveal")).toBe("hover");
+    expect(userActions?.querySelector(".henira-turn-time")).not.toBeNull();
+  });
+
+  it("流式中轮无操作行（timing 未结算不渲染）", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "问", source: "send" },
+      {
+        kind: "assistant",
+        rowId: "a:t-1:1",
+        rowSeq: 2,
+        turn: "t-1",
+        step: 1,
+        text: "写到",
+        streaming: true,
+      },
+    ];
+    const snapshot = { rows, state: { busy: true } }; // turn/end 未落账 → 无 turnTimings
+    const client: HeniraClientLike = {
+      createSession: async () => ({ id: "s-1", cwd: "C:\\demo", updatedAt: 0, busy: false }),
+      listSessions: async () => [],
+      prompt: async () => ({ queued: false, id: null }),
+      steer: async () => true,
+      interrupt: async () => {},
+      settleApproval: async () => true,
+      events: async function* () {
+        yield {} as ServerFrame;
+      },
+      listUiAssets: async () => ({ locales: [], themes: [] }),
+      fork: async () => "s-child",
+    };
+    const ctx = fixtureCtx({
+      client,
+      store: { getSession: () => snapshot, subscribe: () => () => {} },
+    } as unknown as Partial<WebPartContext>);
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.querySelector(".henira-turn-actions")).toBeNull();
   });
 });

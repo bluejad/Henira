@@ -68,6 +68,7 @@ export class Projection {
           turn: data.turn as string,
           text: data.content as string,
           source: data.source as string,
+          time: event.time,
         };
         this.push(row);
         return [{ op: "row.appended", row }];
@@ -122,6 +123,7 @@ export class Projection {
             streaming: false,
             interrupted: true,
             ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+            time: event.time,
           };
           this.push(row);
           deltas.push({ op: "row.appended", row });
@@ -138,6 +140,8 @@ export class Projection {
           }
           timings[turn] = {
             durationMs: Math.max(1000, event.time - startedAt),
+            endedAt: event.time, // 轮尾时间戳（E4 操作行）
+            forkSeq: event.seq, // 轮尾 fork 的账本切点（E4——前缀复制 inclusive）
           };
           this.state.turnTimings = timings;
         }
@@ -177,6 +181,7 @@ export class Projection {
           model: data.model as string | undefined,
           finishReason: data.finishReason as string | undefined,
           ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+          time: event.time,
         };
         return [this.upsert(row)];
       }

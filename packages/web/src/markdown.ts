@@ -4,23 +4,19 @@
 // 默认跳过 = 消毒）。样式 = tokens.css .henira-md / .henira-code 类族（嵌入方零样式依赖不变）。
 // 行为取舍（dsh MarkdownText 行为层参照 2026-11-17）：流式中未闭合代码围栏 = 代码块渲染
 // （settled grammar is the streaming one，remark 天然如此）；宽表格自然宽度 + 容器横向滚动。
-// 语法高亮（v1 翻案 2026-11-17，两家行为层参照）：shiki JS regex 引擎（无 WASM）+ CSS 变量
-// 主题（色值在 tokens.css 双主题组，随 data-theme 自动切）。dsh 接法启示=启动少量语言、简单
-// 可靠：v1 只预装 js/ts/python/bash/json，未知语言降级纯文本（不做懒加载/异步重渲——确定性
-// 优先）；流式中不高亮（delta 高频重渲下高亮是纯开销，回合完成后一次成型——ZCode 同行为）。
+// 语法高亮（E4 重构为懒加载）：shiki JS regex 引擎（无 WASM）+ CSS 变量主题（色值在
+// tokens.css 双主题组，随 data-theme 自动切）；语言包按需 dynamic import（vite 逐语言
+// 分包——主包零语法体积，E4 前 5 语言静态打进主包）；官方 5 语言启动即后台预热；加载
+// 结果缓存（语言已热后重复渲染同步命中不闪），未知语言/加载失败静默降纯文本（原语义）；
+// 流式中不高亮（delta 高频重渲下高亮是纯开销，回合完成后一次成型——ZCode 同行为）。
 
-import { CopyButton } from "@henira/plugin-web-ui";
-import bash from "@shikijs/langs/bash";
-import javascript from "@shikijs/langs/javascript";
-import json from "@shikijs/langs/json";
-import python from "@shikijs/langs/python";
-import typescript from "@shikijs/langs/typescript";
-import { createElement } from "react";
+import { CodeGlyph, CopyButton } from "@henira/plugin-web-ui";
+import { createElement, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   createCssVariablesTheme,
-  createHighlighterCoreSync,
+  createHighlighterCore,
   type HighlighterCore,
   type ThemedToken,
 } from "shiki/core";
@@ -37,7 +33,7 @@ export type MarkdownOptions = {
   reveal?: { state: import("./streaming-reveal.js").RevealState; seam: number };
 };
 
-// 围栏信息串 → 预装语言归一化（表外 = 纯文本，v1 不做异步加载）
+// 围栏信息串 → 规范语言 id（小写归一后查表；表外原样作 id 试加载，加载失败降纯文本）
 const LANG_ALIASES: Record<string, string> = {
   javascript: "javascript",
   js: "javascript",
@@ -56,6 +52,91 @@ const LANG_ALIASES: Record<string, string> = {
   zsh: "bash",
   json: "json",
   jsonc: "json",
+  c: "c",
+  "c++": "cpp",
+  cpp: "cpp",
+  cs: "csharp",
+  "c#": "csharp",
+  java: "java",
+  kt: "kotlin",
+  kotlin: "kotlin",
+  rs: "rust",
+  rust: "rust",
+  go: "go",
+  golang: "go",
+  rb: "ruby",
+  ruby: "ruby",
+  php: "php",
+  swift: "swift",
+  scala: "scala",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+  ini: "ini",
+  xml: "xml",
+  html: "html",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  sql: "sql",
+  markdown: "markdown",
+  md: "markdown",
+  mdx: "mdx",
+  diff: "diff",
+  patch: "diff",
+  dockerfile: "dockerfile",
+  docker: "dockerfile",
+  graphql: "graphql",
+  gql: "graphql",
+  lua: "lua",
+  zig: "zig",
+  powershell: "powershell",
+  ps1: "powershell",
+  elixir: "elixir",
+  haskell: "haskell",
+  dart: "dart",
+  r: "r",
+};
+
+/** 语言包加载器（每个 import() 一个独立 chunk——vite 代码分割，主包只载本表骨架） */
+const LANG_LOADERS: Record<string, () => Promise<{ default: unknown }>> = {
+  bash: () => import("@shikijs/langs/bash"),
+  c: () => import("@shikijs/langs/c"),
+  cpp: () => import("@shikijs/langs/cpp"),
+  csharp: () => import("@shikijs/langs/csharp"),
+  css: () => import("@shikijs/langs/css"),
+  dart: () => import("@shikijs/langs/dart"),
+  diff: () => import("@shikijs/langs/diff"),
+  dockerfile: () => import("@shikijs/langs/dockerfile"),
+  elixir: () => import("@shikijs/langs/elixir"),
+  go: () => import("@shikijs/langs/go"),
+  graphql: () => import("@shikijs/langs/graphql"),
+  haskell: () => import("@shikijs/langs/haskell"),
+  html: () => import("@shikijs/langs/html"),
+  ini: () => import("@shikijs/langs/ini"),
+  java: () => import("@shikijs/langs/java"),
+  javascript: () => import("@shikijs/langs/javascript"),
+  json: () => import("@shikijs/langs/json"),
+  kotlin: () => import("@shikijs/langs/kotlin"),
+  less: () => import("@shikijs/langs/less"),
+  lua: () => import("@shikijs/langs/lua"),
+  markdown: () => import("@shikijs/langs/markdown"),
+  mdx: () => import("@shikijs/langs/mdx"),
+  php: () => import("@shikijs/langs/php"),
+  powershell: () => import("@shikijs/langs/powershell"),
+  python: () => import("@shikijs/langs/python"),
+  r: () => import("@shikijs/langs/r"),
+  ruby: () => import("@shikijs/langs/ruby"),
+  rust: () => import("@shikijs/langs/rust"),
+  scala: () => import("@shikijs/langs/scala"),
+  scss: () => import("@shikijs/langs/scss"),
+  sql: () => import("@shikijs/langs/sql"),
+  swift: () => import("@shikijs/langs/swift"),
+  toml: () => import("@shikijs/langs/toml"),
+  typescript: () => import("@shikijs/langs/typescript"),
+  xml: () => import("@shikijs/langs/xml"),
+  yaml: () => import("@shikijs/langs/yaml"),
+  zig: () => import("@shikijs/langs/zig"),
 };
 
 // 高亮 token 色走 CSS 变量（真色值在 tokens.css 明暗两组——主题切换零重高亮）
@@ -64,35 +145,68 @@ const HENIRA_SHIKI = createCssVariablesTheme({
   variablePrefix: "--henira-shiki-",
 });
 
-let highlighter: HighlighterCore | undefined;
+let highlighterPromise: Promise<HighlighterCore> | undefined;
+const loadedLangs = new Set<string>();
 
-/** 预装语言同步高亮；表外/异常 → undefined（降级纯文本） */
-function codeHighlight(language: string, code: string): string | undefined {
+function getHighlighter(): Promise<HighlighterCore> {
+  highlighterPromise ??= createHighlighterCore({
+    themes: [HENIRA_SHIKI],
+    langs: [],
+    engine: createJavaScriptRegexEngine(),
+  });
+  return highlighterPromise;
+}
+
+/** 语言包按需加载；未登记/加载失败 → false（降级纯文本，原语义） */
+async function ensureLang(lang: string): Promise<boolean> {
+  if (loadedLangs.has(lang)) return true;
+  const load = LANG_LOADERS[lang];
+  if (load === undefined) return false;
   try {
-    if (highlighter === undefined) {
-      // v4 语言包 default export = LanguageRegistration[]（数组），flat 展开注册
-      highlighter = createHighlighterCoreSync({
-        themes: [HENIRA_SHIKI],
-        langs: [javascript, typescript, python, bash, json].flat(),
-        engine: createJavaScriptRegexEngine(),
-      });
-    }
+    const [hl, mod] = [await getHighlighter(), await load()];
+    await hl.loadLanguage(mod.default as never); // v4 语言包 default = LanguageRegistration[]（数组）
+    loadedLangs.add(lang);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 官方 5 语言启动即后台预热（并行 chunk 取数——用户首个代码块基本命中缓存，不闪纯文本）
+for (const id of ["bash", "javascript", "json", "python", "typescript"]) void ensureLang(id);
+
+function renderToken(token: ThemedToken): string {
+  return token.color === undefined
+    ? escapeHtml(token.content)
+    : `<span style="color:${token.color}">${escapeHtml(token.content)}</span>`;
+}
+
+/** 高亮结果缓存（语言已热后重复渲染同步命中——首渲即着色不闪；cap 防长会话无界） */
+const highlightCache = new Map<string, string>();
+const HIGHLIGHT_CACHE_CAP = 300;
+
+async function ensureHighlighted(lang: string, code: string): Promise<string | undefined> {
+  const key = `${lang}\u0000${code}`;
+  const hit = highlightCache.get(key);
+  if (hit !== undefined) return hit;
+  if (!(await ensureLang(lang))) return undefined;
+  try {
+    const hl = await getHighlighter();
     // shiki v4 实例方法运行时返回 { tokens, ... }（类型标注与运行时不符，强转并留证）
-    const { tokens } = highlighter.codeToTokens(code, {
-      lang: language,
-      theme: "henira",
-    }) as unknown as { tokens: ThemedToken[][] };
+    const { tokens } = hl.codeToTokens(code, { lang, theme: "henira" }) as unknown as {
+      tokens: ThemedToken[][];
+    };
     // 自拼行结构（不用 shiki 的 pre/code 模板——容器与头部条由 .henira-code 族自绘）
-    const renderToken = (token: ThemedToken): string =>
-      token.color === undefined
-        ? escapeHtml(token.content)
-        : `<span style="color:${token.color}">${escapeHtml(token.content)}</span>`;
-    return tokens
-      .map((line) => {
-        const html = line.map(renderToken).join("");
-        return `<span class="henira-code-line">${html}</span>`;
-      })
+    const html = tokens
+      .map((line) => `<span class="henira-code-line">${line.map(renderToken).join("")}</span>`)
       .join("\n");
+    highlightCache.set(key, html);
+    while (highlightCache.size > HIGHLIGHT_CACHE_CAP) {
+      const oldest = highlightCache.keys().next().value;
+      if (oldest === undefined) break;
+      highlightCache.delete(oldest);
+    }
+    return html;
   } catch {
     return undefined;
   }
@@ -104,25 +218,59 @@ function escapeHtml(s: string): string {
   );
 }
 
-/** 围栏代码块：头部条（语言名 + 复制钮）+ pre>code（block 级 code 只经由此路径——接管 pre） */
-function codeBlock(children: React.ReactNode, opts: MarkdownOptions): React.ReactNode {
+/** 围栏代码块（真组件——换行切换局部 state + 高亮异步 swap 的 hooks 经 React 渲染进
+ *  组件实例，绝不可当纯函数直呼——React #310 教训）：头部条（文件图标+伪文件名=语言串
+ *  按文件名样式，dsh/ZCode 同款 + 换行钮 + 复制钮）+ pre>code。默认不换行 = 现状横滚
+ *  （拍板 2026-11-21），每块独立切换不持久化（dsh/ZCode 同语义，持久化挂账）。 */
+function CodeBlock({ children, opts }: { children: React.ReactNode; opts: MarkdownOptions }) {
   const el = Array.isArray(children) ? children[0] : children;
   const props =
     el !== null && typeof el === "object" && "props" in el
       ? (el.props as { className?: string; children?: unknown })
       : {};
   const info = /language-([\w+#-]+)/.exec(props.className ?? "")?.[1];
-  const lang = info !== undefined ? (LANG_ALIASES[info] ?? undefined) : undefined;
+  const infoKey = info?.toLowerCase();
+  const lang = infoKey !== undefined ? (LANG_ALIASES[infoKey] ?? infoKey) : undefined;
   const raw = typeof props.children === "string" ? props.children : String(props.children ?? "");
-  const highlighted =
-    opts.streaming !== true && lang !== undefined ? codeHighlight(lang, raw) : undefined;
+  const streaming = opts.streaming === true;
+  const canHighlight = !streaming && lang !== undefined;
+  // 缓存命中同步着色（语言已热不闪纯文本）；未命中经 effect 异步加载后 swap
+  const cached = canHighlight ? highlightCache.get(`${lang ?? ""}\u0000${raw}`) : undefined;
+  const [loadedHtml, setLoadedHtml] = useState<string | undefined>(undefined);
+  const [wrapped, setWrapped] = useState(false);
+  useEffect(() => {
+    if (!canHighlight || lang === undefined) return;
+    let cancelled = false;
+    void ensureHighlighted(lang, raw).then((html) => {
+      if (!cancelled && html !== undefined) setLoadedHtml(html);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canHighlight, lang, raw]);
+  const highlighted = cached ?? loadedHtml;
   return createElement(
     "div",
-    { className: "henira-code" },
+    { className: "henira-code", "data-code-wrap": wrapped ? "true" : "false" },
     createElement(
       "div",
       { className: "henira-code-head" },
-      createElement("span", { className: "henira-code-lang" }, info ?? "text"),
+      createElement(
+        "span",
+        { className: "henira-code-lang", title: info },
+        createElement(CodeGlyph, { size: 12 }),
+        createElement("span", { className: "henira-code-filename" }, info ?? "text"),
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          className: "henira-code-wrap",
+          "aria-pressed": wrapped,
+          onClick: () => setWrapped((v) => !v),
+        },
+        wrapped ? (opts.t?.("code.nowrap") ?? "No wrap") : (opts.t?.("code.wrap") ?? "Wrap"),
+      ),
       createElement(CopyButton, { text: raw, t: opts.t }),
     ),
     createElement(
@@ -137,6 +285,44 @@ function codeBlock(children: React.ReactNode, opts: MarkdownOptions): React.Reac
         : createElement("code", null, raw),
     ),
   );
+}
+
+/** 宽表判定列数（dsh md-table-wide 同款取数思路）：表头 th 数；无表头取首行单元格数 */
+function countTableColumns(node: unknown): number {
+  interface HastElementLike {
+    tagName?: string;
+    children?: HastElementLike[];
+  }
+  const el = node as HastElementLike | undefined;
+  const cellCount = (tr: HastElementLike | undefined): number =>
+    (tr?.children ?? []).filter((c) => c?.tagName === "th" || c?.tagName === "td").length;
+  for (const child of el?.children ?? []) {
+    if (child?.tagName !== "thead") continue;
+    for (const tr of child.children ?? []) {
+      if (tr?.tagName === "tr" && cellCount(tr) > 0) return cellCount(tr);
+    }
+  }
+  for (const child of el?.children ?? []) {
+    if (child?.tagName !== "tbody") continue;
+    for (const tr of child.children ?? []) {
+      if (tr?.tagName === "tr" && cellCount(tr) > 0) return cellCount(tr);
+    }
+  }
+  return 0;
+}
+
+/** 宽表专组件（E4，dsh md-table-wide 行为层参照）：≥4 列进横滚容器（tabIndex=0 补键盘
+ *  滚动；hover/focus 才显横滚条 = 切 overflow-x 本身——hidden→scroll 是 layout 变化必然
+ *  重绘，hover 条件化的 scrollbar 样式 Chromium 不重绘）；<4 列 width:100% 占满消息列。 */
+function WideTable({ node, children }: { node: unknown; children: React.ReactNode }) {
+  if (countTableColumns(node) >= 4) {
+    return createElement(
+      "div",
+      { className: "henira-table-scroll", tabIndex: 0 },
+      createElement("table", null, children),
+    );
+  }
+  return createElement("table", { className: "henira-table-fill" }, children);
 }
 
 // 模块常量（数组字面量每次内联会触发 react-markdown 无谓的管线重建）
@@ -255,7 +441,8 @@ export function markdownChildren(
       remarkPlugins: REMARK_PLUGINS,
       ...(rehypePlugins !== undefined ? { rehypePlugins } : {}),
       components: {
-        pre: ({ children }) => codeBlock(children, opts),
+        pre: ({ children }) => createElement(CodeBlock, { children, opts }),
+        table: ({ node, children }) => createElement(WideTable, { node, children }),
       },
     },
     text,

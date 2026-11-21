@@ -14,6 +14,7 @@ import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
 import { CircleNotchIcon } from "@phosphor-icons/react/dist/csr/CircleNotch";
+import { FileCodeIcon } from "@phosphor-icons/react/dist/csr/FileCode";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { HorseIcon } from "@phosphor-icons/react/dist/csr/Horse";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
@@ -68,6 +69,11 @@ export function CheckGlyph(props: Props) {
 
 export function SpinnerGlyph(props: Props) {
   return <CircleNotchIcon size={props.size ?? 14} color={props.color} />;
+}
+
+/** 代码块伪文件名文件图标（E4 头部条——语言串按文件名样式显示的视觉锚） */
+export function CodeGlyph(props: Props) {
+  return <FileCodeIcon size={props.size ?? 12} color={props.color} weight="bold" />;
 }
 
 export function WarnGlyph(props: Props) {

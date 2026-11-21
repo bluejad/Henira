@@ -338,20 +338,33 @@ button:focus-visible > .henira-row-caret {
   border-bottom: 1px solid var(--henira-border);
 }
 .henira-code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   font-family: var(--henira-mono);
   font-size: var(--henira-fs-sm);
   color: var(--henira-text-muted);
   text-transform: lowercase;
+}
+.henira-code-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .henira-code-head button {
   border: none;
   background: none;
   padding: 0 4px;
   color: var(--henira-text-muted);
+  flex: none;
 }
 .henira-code-head button:hover {
   border: none;
   color: var(--henira-text);
+}
+.henira-code-head button[aria-pressed="true"] {
+  color: var(--henira-text-strong);
 }
 .henira-code pre {
   margin: 0;
@@ -360,6 +373,11 @@ button:focus-visible > .henira-row-caret {
   background: none;
   border: none;
   border-radius: 0;
+}
+/* 换行切换（E4；默认不换行=横滚，切换后折行——dsh 反向同款 CSS 开关） */
+.henira-code[data-code-wrap="true"] pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .henira-code pre code {
   font-family: var(--henira-mono);
@@ -388,9 +406,89 @@ button:focus-visible > .henira-row-caret {
   background: var(--henira-bg);
   color: var(--henira-text-strong);
 }
+/* 宽表专组件（E4，dsh md-table-wide 行为层参照）：≥4 列进横滚容器——hover/focus 才显
+   横滚条的实现 = 切 overflow-x 本身（hidden→scroll 是 layout 变化必然重绘；hover 条件化
+   的 scrollbar 样式 Chromium 不重绘），resting 态 padding-bottom 预留条高防跳动 */
+.henira-md .henira-table-scroll {
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding-bottom: 12px;
+  border-radius: 4px;
+}
+.henira-md .henira-table-scroll:hover,
+.henira-md .henira-table-scroll:focus-visible {
+  overflow-x: auto;
+}
+.henira-md .henira-table-scroll table {
+  display: table;
+  width: max-content;
+  max-width: none;
+  overflow-x: visible;
+}
+.henira-md .henira-table-scroll th,
+.henira-md .henira-table-scroll td {
+  max-width: min(30vw, 320px);
+  min-width: 100px;
+  overflow-wrap: anywhere;
+}
+.henira-md .henira-table-fill {
+  width: 100%;
+}
 .henira-md img {
   max-width: 100%;
   border-radius: var(--henira-radius);
+}
+/* 轮尾操作行 + 用户行操作行（E4，dsh MessageIconActions 行为层参照）：浮现纯 CSS——
+   hover:hover 设备默认隐藏（组 hover/focus-within 恢复，80ms 过渡），触屏设备全显；
+   最新落定轮 data-actions-reveal="always" 常显（dsh 同语义） */
+.henira-turn-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  margin: 0 0 var(--henira-space-1) 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-user-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  margin-top: var(--henira-space-1);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-turn-time {
+  font-variant-numeric: tabular-nums;
+}
+.henira-turn-actions button,
+.henira-user-actions button {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-turn-actions button:hover:not(:disabled),
+.henira-user-actions button:hover {
+  color: var(--henira-text);
+}
+.henira-turn-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+@media (hover: hover) {
+  .henira-turn-actions[data-actions-reveal="hover"],
+  .henira-user-actions[data-actions-reveal="hover"] {
+    opacity: 0;
+    transition: opacity 80ms ease;
+  }
+  .henira-turn-group:hover .henira-turn-actions[data-actions-reveal="hover"],
+  .henira-turn-group:focus-within .henira-turn-actions[data-actions-reveal="hover"],
+  .henira-user-group:hover .henira-user-actions[data-actions-reveal="hover"],
+  .henira-user-group:focus-within .henira-user-actions[data-actions-reveal="hover"] {
+    opacity: 1;
+  }
 }
 .henira-md hr {
   border: none;

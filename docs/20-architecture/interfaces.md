@@ -596,6 +596,7 @@ DELETE /api/sessions/:id/queue/:entryId     → { ok } | 404                    
 POST /api/sessions/:id/queue/resume                     → { ok: boolean }                         // 恢复中断冻结的队列冲刷（取队头开新回合；无事可做 ok:false）
 POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
 POST /api/sessions/:id/interrupt                        → { ok: true }
+POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   // 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话并装配入册，返回子会话 id（parentSession 指源；半回合切点补写 turn/end{forked}）；atSeq 缺省 = 复制到最新；越界切点 400
 POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
 //  写路径懒挂载（重启续聊，✓ 2026-11-18）：prompt / steer / interrupt / approvals / files 对磁盘历史会话
@@ -769,6 +770,7 @@ interface UserRow {
   turn: string;
   text: string;
   source: string; // 账本 user/message.source 原样（send / steer / veto / …开放词表，投影器不筛选）
+  time?: number; // 消息时刻（账本 user/message 事件 time，epoch ms——用户行操作行时间戳，E4）
 }
 interface AssistantRow {
   kind: "assistant";
@@ -784,6 +786,7 @@ interface AssistantRow {
   usage?: TokenUsage; // 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage）
   interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）。回合从未产生流式碎片时合成零文本中断行（rowId 从账本事实派生，回放同形；只进投影不落账）
   reasoningEffort?: ReasoningEffort; // 本步实际生效思考档（request/header.params 投影——行上档位可见性，骨架批）
+  time?: number; // 消息时刻（账本 assistant/message 事件 time，epoch ms——轮尾操作行时间戳，E4；流式行与中止冻结行无权威落定故缺此字段）
 }
 interface ToolRowOutput {
   content: string;
@@ -841,7 +844,7 @@ interface SessionState {
   lastTurnId?: string;
   queue?: QueuedPrompt[]; // 排队条目快照（E1 排队卡数据源；投影态非账本——loop 活态经发布口并线，queue/changed → state.updated；快照同带。loop 不在册 = 键缺省）
   queuePaused?: boolean; // 中断冻结（队列非空时中断不冲刷等 resume；投影态非账本事实，与 queue 键同批并线）
-  turnTimings?: Record<string, { durationMs: number }>; // 回合耗时（E3 回合头：turn/start·turn/end 事件 time 差——事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
+  turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>; // 回合耗时（E3 回合头：turn/start·turn/end 事件 time 差）+ endedAt = turn/end 时刻（E4 轮尾时间戳）+ forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive；事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
@@ -874,7 +877,8 @@ type ServerFrame =
 - 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
 - 行构造纯函数共享：快照 = 从空投影顺序 apply 全部账本事件；增量 = 逐追加 apply；两路同一套行构造逻辑（一个词表，无第二 reducer）；
 - **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；**孤儿 `approval/decided`（无 asked 配对——默认放行层 / 规则层 / 会话折叠的审计）不投影行**：自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行（E3 实锤——幽灵行既污染流又切断相邻聚合组），审计住账本不丢；
-- **回合耗时**（E3 回合头）：`turn/start` 记账本 time、`turn/end` 结算 `durationMs` 入 `state.turnTimings`（事件时间戳取数——重放重建/重载后仍在；保留最近 50 轮）；
+- **回合耗时**（E3 回合头）：`turn/start` 记账本 time、`turn/end` 结算 `durationMs` 入 `state.turnTimings`，E4 扩 `endedAt`（轮尾时间戳）与 `forkSeq`（turn/end 事件 seq——轮尾 fork 的账本切点）（事件时间戳取数——重放重建/重载后仍在；保留最近 50 轮）；
+- **行时间**（E4 轮尾/用户行操作行时间戳）：`user/message` / `assistant/message` 落账投影带 `time`（事件 time，epoch ms）——流式行与中止冻结行无权威落定故缺字段；
 - seq 在扇出层按会话编发（快照帧携带当前水位，增量帧 +1 单调）；
 - 队列状态不投影（D-045：队列不是对话事实，不进账本）；busy/lastTurnId 由账本 turn/start…turn/end 派生；
 - rowId + seq 游标为将来留口：per-session 订阅与 rowsRange 分页是加法不是重构（见文末备考）。
@@ -915,6 +919,7 @@ interface HeniraFacade {
   prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（每次提问绑定，骨架批）
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
+  fork(sessionId: string, atSeq?: number): Promise<string>; // 轮尾分叉（E4）：seq 前缀复制出新会话并装配入册，返回子会话 id；双形态同测锁
   settleApproval(
     sessionId: string,
     requestId: string,
