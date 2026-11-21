@@ -16,7 +16,7 @@ export type DisclosureRowProps = {
   busy?: boolean;
   /** 标题色（done/info/error 语义色；busy 时忽略——扫光接管） */
   tone?: string;
-  /** 元信息小字（callId / 耗时等，hover 或常态灰显） */
+  /** 元信息小字（工具名等弱信息；R171 起 callId 不进此槽——走 rowTitle 悬停） */
   meta?: React.ReactNode;
   /** 行尾摘要（单行省略；截断徽章等短件） */
   summary?: React.ReactNode;

@@ -243,6 +243,11 @@ export type ApprovalCardView = (args: {
   ctx: WebPartContext;
   row: ApprovalRow;
   queueTotal?: number;
+  /** 点击决定发起即调（乐观摘卡——点击即走不等 SSE，R171）。顶替件应接线以与官方件
+   * 同行为；settle 失败时调 onDecideFailed 回滚（卡回 dock 可重试）。缺省不接 = 回落
+   * 「等 SSE settled」旧行为（不破坏既有顶替件）。 */
+  onDecided?: (requestId: string) => void;
+  onDecideFailed?: (requestId: string) => void;
 }) => ReactNode;
 
 /** 槽位件联合：区域槽/追加位 = WebPart；keyed 工具卡 = ToolCallView；keyed 审批卡 =

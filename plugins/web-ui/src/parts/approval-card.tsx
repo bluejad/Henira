@@ -263,7 +263,15 @@ export function ApprovalQueueCard(props: {
   );
   if (view !== undefined) {
     const View = view; // 组件渲染（hooks 合法）
-    return routed(<View ctx={props.ctx} row={props.row} queueTotal={props.queueTotal} />);
+    return routed(
+      <View
+        ctx={props.ctx}
+        row={props.row}
+        queueTotal={props.queueTotal}
+        onDecided={props.onDecided}
+        onDecideFailed={props.onDecideFailed}
+      />,
+    );
   }
   return (
     <ApprovalCard

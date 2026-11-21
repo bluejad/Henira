@@ -738,6 +738,25 @@ describe("ApprovalCard", () => {
     expect(screen.getByText(`${t("approval.queueCount")} 3`)).toBeDefined();
   });
 
+  it("keyed 顶替件收到乐观回调（R171）：onDecided 可调——顶替件与官方件同行为缝", () => {
+    let received: { onDecided?: (id: string) => void } = {};
+    const slots = new Map<string, readonly SlotPart[]>([
+      [
+        "approval.view.demo-write",
+        [
+          (args: { onDecided?: (id: string) => void }) => {
+            received = args;
+            return "顶替件乙";
+          },
+        ],
+      ],
+    ]);
+    const ctx = fixtureCtx({ slots } as Partial<WebPartContext>);
+    render(<ApprovalQueueCard row={pendingRow} ctx={ctx} queueTotal={1} onDecided={() => {}} />);
+    expect(screen.getByText("顶替件乙")).toBeDefined();
+    expect(typeof received.onDecided).toBe("function"); // 透传在场——顶替件可接线乐观摘卡
+  });
+
   it("队首单卡路由（E6 keyed 缝 approval.view.<工具名>）：槽件顶替生效、缺席回落通用卡", () => {
     const slots = new Map<string, readonly SlotPart[]>([
       ["approval.view.demo-write", [() => "审批顶替件甲"]],
