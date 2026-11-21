@@ -2118,3 +2118,111 @@ describe("统一下拉基础件（基础件批 2026-11-20）", () => {
     expect(onChange).toHaveBeenCalledWith("deepseek/deepseek-flash");
   });
 });
+
+// ── 生命感（E3）：回合头 / 相邻工具聚合 / busy 计时行 ──
+
+describe("生命感（E3）", () => {
+  const mkTool = (callId: string, name: string, seq: number, status = "done"): Row =>
+    ({
+      kind: "tool",
+      rowId: `t:t-1:1:${callId}`,
+      rowSeq: seq,
+      turn: "t-1",
+      step: 1,
+      callId,
+      name,
+      status: status as "running" | "done" | "error",
+      input: "{}",
+      output:
+        status === "running"
+          ? undefined
+          : { content: `${name} body`, isError: false, durationMs: 3 },
+    }) as Row;
+
+  function ctxWithState(rows: Row[], state: Record<string, unknown>): WebPartContext {
+    const snapshot = { rows, state }; // 引用稳定——useSyncExternalStore 语义（每调用新对象=无限重渲）
+    return fixtureCtx({
+      store: {
+        getSession: () => snapshot,
+        subscribe: () => () => {},
+      },
+    } as unknown as Partial<WebPartContext>);
+  }
+
+  it("回合头：settled 轮含工具行且有 turnTimings → 已完成 · 用时 · N 个工具；无 timing 不渲染", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkTool("c1", "bash", 2),
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 3,
+        turn: "t-1",
+        step: 1,
+        text: "完成",
+        streaming: false,
+      },
+    ];
+    const ctx = ctxWithState(rows, { busy: false, turnTimings: { "t-1": { durationMs: 4000 } } });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain("已完成");
+    expect(container.textContent).toContain("4s");
+    expect(container.textContent).toContain("1 个工具");
+
+    cleanup();
+    const noTiming = ctxWithState(rows, { busy: false });
+    const { container: c2 } = render(<Conversation {...noTiming} />);
+    expect(c2.textContent?.includes("已完成")).toBe(false);
+  });
+
+  it("相邻工具聚合：≥3 连续 tool 行折叠组头；点开 = 全部子行；2 行不折叠", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkTool("c1", "bash", 2),
+      mkTool("c2", "grep", 3),
+      mkTool("c3", "glob", 4),
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 5,
+        turn: "t-1",
+        step: 1,
+        text: "完成",
+        streaming: false,
+      },
+    ];
+    const ctx = ctxWithState(rows, { busy: false });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(screen.getByText(`3 ${t("tools.groupSuffix")}`)).toBeDefined();
+    expect(screen.queryByText("bash body")).toBeNull(); // 折叠中子行不渲染
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("tools.groupSuffix")) }));
+    // 子行 = ToolRowView（DisclosureRow 默认收起）——组展开后再逐行点开（renderCard 同款先例）
+    for (const btn of [...container.querySelectorAll('button[aria-expanded="false"]')]) {
+      fireEvent.click(btn);
+    }
+    expect(screen.getByText("bash body")).toBeDefined();
+    expect(screen.getByText("glob body")).toBeDefined();
+
+    cleanup();
+    const twoRows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkTool("c1", "bash", 2),
+      mkTool("c2", "grep", 3),
+    ];
+    const two = ctxWithState(twoRows, { busy: false });
+    const { container: c3 } = render(<Conversation {...two} />);
+    expect(c3.textContent?.includes("个工具 · 最近")).toBe(false);
+  });
+
+  it("busy 计时行：busy 时思考行带点阵与秒数；空闲不渲染", () => {
+    const ctx = ctxWithState([], { busy: true });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.querySelector(".henira-loading-dots")).not.toBeNull();
+    expect(container.textContent).toContain("思考中");
+
+    cleanup();
+    const idle = ctxWithState([], { busy: false });
+    const { container: c2 } = render(<Conversation {...idle} />);
+    expect(c2.querySelector(".henira-loading-dots")).toBeNull();
+  });
+});

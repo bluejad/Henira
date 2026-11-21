@@ -120,6 +120,7 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 - **挂起请求自足可渲染**（args 在载荷里）：断线重连、多窗口重放同一张卡（P5 既有设计）；
 - `displayReason`（dsh `user-approval/types.ts:72`，仅展示不入审计）不进 v1 载荷——M2 落码时按卡片可读性再定是否补可选字段。
 - **落码归位（E6，2026-11-21）**：实现初版把 `approval/asked` 落成 12 位 digest（偏离本条备注），E6 批对齐——**审计事件对照记全文**（`args` 完整原样 + `reason`），digest 保留作关联指纹；凭据经架构保证不进 args（`${credential}` 展开只在 MCP 配置装载），`tool/call.arguments` 全文进账本早已是既有实践，D-030 面不新增。**「挂起请求自足可渲染」自此成立**：行模型携带 args 全文，断线重连 / 多窗口重放同一张卡。
+- **审计与呈现分层（E3 实锤，2026-11-21）**：默认放行层 / 规则层 / 会话折叠的 `decided` 审计**无 asked 配对**——投影层不为其产会话行（自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行）；只有真问过（answerer 路径）的审批对才有行。审计住账本，呈现归 UI。
 
 ### 3.4 审批卡呈现（定稿 · 2026-11-21，E6）
 

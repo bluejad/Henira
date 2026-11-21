@@ -841,6 +841,7 @@ interface SessionState {
   lastTurnId?: string;
   queue?: QueuedPrompt[]; // 排队条目快照（E1 排队卡数据源；投影态非账本——loop 活态经发布口并线，queue/changed → state.updated；快照同带。loop 不在册 = 键缺省）
   queuePaused?: boolean; // 中断冻结（队列非空时中断不冲刷等 resume；投影态非账本事实，与 queue 键同批并线）
+  turnTimings?: Record<string, { durationMs: number }>; // 回合耗时（E3 回合头：turn/start·turn/end 事件 time 差——事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
@@ -872,7 +873,8 @@ type ServerFrame =
 - **唯一权威输入 = 会话账本**：历史与断线重建都从账本回放——快照永远从真相重建，实时路径任何漂移都被账本兜底（自愈）；
 - 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
 - 行构造纯函数共享：快照 = 从空投影顺序 apply 全部账本事件；增量 = 逐追加 apply；两路同一套行构造逻辑（一个词表，无第二 reducer）；
-- **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；
+- **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；**孤儿 `approval/decided`（无 asked 配对——默认放行层 / 规则层 / 会话折叠的审计）不投影行**：自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行（E3 实锤——幽灵行既污染流又切断相邻聚合组），审计住账本不丢；
+- **回合耗时**（E3 回合头）：`turn/start` 记账本 time、`turn/end` 结算 `durationMs` 入 `state.turnTimings`（事件时间戳取数——重放重建/重载后仍在；保留最近 50 轮）；
 - seq 在扇出层按会话编发（快照帧携带当前水位，增量帧 +1 单调）；
 - 队列状态不投影（D-045：队列不是对话事实，不进账本）；busy/lastTurnId 由账本 turn/start…turn/end 派生；
 - rowId + seq 游标为将来留口：per-session 订阅与 rowsRange 分页是加法不是重构（见文末备考）。

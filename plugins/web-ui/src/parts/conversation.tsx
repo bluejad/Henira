@@ -9,7 +9,7 @@
 // 前插，store.mergeOlderRows 合并 + 补滚动位防跳顶）；无 ResizeObserver 的环境（jsdom 测试）
 // 降级全量渲染。行引用契约（store 未变行同引用）让 RowView memo 跳过未变行渲染。
 
-import type { AssistantRow, ErrorRow, Row, ToolRow, UserRow } from "@henira/protocol";
+import type { AssistantRow, ErrorRow, Row, SessionState, ToolRow, UserRow } from "@henira/protocol";
 import { reasoningCapability } from "@henira/protocol";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -74,6 +74,34 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const sessionRows = ctx.client.sessionRows; // feature-detect：宿主缺方法 = 不翻页
   const tailParts = ctx.slots.get("turn.tail") ?? [];
+
+  // ── 轮级 loading 计时 + stalled（E3 生命感；CC 行为层：3s 无活动渐红提示）──
+  const busy = snapshot.state.busy;
+  const [busySince, setBusySince] = useState<number | undefined>(undefined);
+  const [, setTick] = useState(0);
+  const lastActivityRef = useRef(Date.now());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: snapshot 即活动信号本体（stalled 判定的依赖是故意的）
+  useEffect(() => {
+    lastActivityRef.current = Date.now(); // 任何快照变化（行/增量落地）= 有活动
+  }, [snapshot]);
+  useEffect(() => {
+    if (busy) {
+      setBusySince((prev) => prev ?? Date.now()); // 边沿起表；StrictMode 重渲不重置
+      const timer = setInterval(() => setTick((t) => t + 1), 1000);
+      return () => {
+        clearInterval(timer);
+        setBusySince(undefined);
+      };
+    }
+    setBusySince(undefined);
+    return undefined;
+  }, [busy]);
+  const hasActiveTools = useMemo(
+    () => snapshot.rows.some((r) => r.kind === "tool" && r.status === "running"),
+    [snapshot.rows],
+  );
+  const stalled = busy && !hasActiveTools && Date.now() - lastActivityRef.current > 3000;
+  const busySeconds = busySince !== undefined ? Math.floor((Date.now() - busySince) / 1000) : 0;
 
   const commitFollowing = (on: boolean): void => {
     followingRef.current = on;
@@ -190,13 +218,23 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
           units={units}
           ctx={ctx}
           scrollRef={scrollRef}
+          turnTimings={snapshot.state.turnTimings}
         />
-        {snapshot.state.busy ? (
+        {busy ? (
           <p
-            className="henira-sweep"
-            style={{ margin: "var(--henira-space-3) 0", fontSize: "var(--henira-fs-base)" }}
+            className={`henira-loading-dots ${stalled ? "henira-stalled" : "henira-sweep"}`}
+            style={{
+              margin: "var(--henira-space-3) 0",
+              fontSize: "var(--henira-fs-base)",
+              ...(stalled ? {} : { color: undefined }),
+            }}
           >
-            {ctx.t("conversation.thinking")}
+            <span>·</span>
+            <span>·</span>
+            <span>·</span>{" "}
+            {stalled
+              ? ctx.t("response.stalled")
+              : `${ctx.t("conversation.thinking")} · ${busySeconds}s`}
           </p>
         ) : null}
         {tailParts.map((part, i) => {
@@ -262,8 +300,9 @@ function ConversationTimeline(props: {
   units: readonly TurnUnit[];
   ctx: WebPartContext;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  turnTimings?: SessionState["turnTimings"];
 }) {
-  const { units, ctx, scrollRef } = props;
+  const { units, ctx, scrollRef, turnTimings } = props;
   const virtualizer = useVirtualizer({
     count: VIRTUAL ? units.length : 0,
     getScrollElement: () => scrollRef.current,
@@ -277,7 +316,7 @@ function ConversationTimeline(props: {
     return (
       <>
         {units.map((unit) => (
-          <TurnBlock key={unit.key} unit={unit} ctx={ctx} />
+          <TurnBlock key={unit.key} unit={unit} ctx={ctx} turnTimings={turnTimings} />
         ))}
       </>
     );
@@ -300,7 +339,7 @@ function ConversationTimeline(props: {
               transform: `translateY(${item.start}px)`,
             }}
           >
-            <TurnBlock unit={unit} ctx={ctx} />
+            <TurnBlock unit={unit} ctx={ctx} turnTimings={turnTimings} />
           </div>
         );
       })}
@@ -308,14 +347,115 @@ function ConversationTimeline(props: {
   );
 }
 
-/** 轮块：行列表（RowView memo——store 未变行同引用，跳过重渲；每帧 O(n) 分组循环在
- *  buildTurnUnits，微秒级，ZCode history/tail 分区缓存挂账实测需要时再做） */
-function TurnBlock({ unit, ctx }: { unit: TurnUnit; ctx: WebPartContext }) {
+/** 轮内渲染项：单行 或 相邻工具组（≥3 连续 tool 行折叠，E3 生命感⑤——ZCode
+ * ConsecutiveSummaryGroup 形态：组头「N 个工具 · 最近一条」，点开全部子行） */
+type TurnItem = { kind: "row"; row: Row } | { kind: "group"; rows: Row[] };
+
+/** 分组纯派生（TurnBlock useMemo）：连续 kind==="tool" 行成组，≥3 折叠；其他行中断重置 */
+function buildTurnItems(rows: readonly Row[]): TurnItem[] {
+  const items: TurnItem[] = [];
+  let run: Row[] = [];
+  const flush = (): void => {
+    if (run.length >= 3) items.push({ kind: "group", rows: run });
+    else for (const r of run) items.push({ kind: "row", row: r });
+    run = [];
+  };
+  for (const row of rows) {
+    if (row.kind === "tool") {
+      run.push(row);
+      continue;
+    }
+    // 空 assistant 行（finish=tool-calls 的步级载体，文本空）不中断工具连续组——ZCode
+    // buildAssistantWorkRenderItems 同款过滤（无文本的流式行剔除）
+    if (row.kind === "assistant" && row.text === "" && row.streaming !== true) continue;
+    flush();
+    items.push({ kind: "row", row });
+  }
+  flush();
+  return items;
+}
+
+/** 相邻工具组（≥3 连续 tool 行）：组头 = 「N 个工具 · 最近一条」工具名（running 优先——
+ * ZCode active 形态），点开 = 全部子行（RowView 行引用与 key 原样保留——memo 契约不破） */
+function ToolGroupItem({ rows, ctx }: { rows: Row[]; ctx: WebPartContext }) {
+  const [open, setOpen] = useState(false);
+  const running = rows.find((r) => r.kind === "tool" && r.status === "running") as
+    | (typeof rows)[number]
+    | undefined;
+  const last = (running ?? rows[rows.length - 1]) as Row & { name?: string };
   return (
     <>
-      {unit.rows.map((row) => (
-        <RowView key={row.rowId} row={row} ctx={ctx} />
-      ))}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--henira-space-2)",
+          margin: "var(--henira-space-1) 0",
+          padding: "2px 4px",
+          border: "none",
+          background: "none",
+          color: "var(--henira-text-muted)",
+          fontSize: "var(--henira-fs-sm)",
+          cursor: "pointer",
+          textAlign: "left",
+          width: "100%",
+        }}
+      >
+        <span className={running !== undefined ? "henira-sweep" : undefined}>
+          {`${rows.length} ${ctx.t("tools.groupSuffix")}`}
+        </span>
+        <span className="henira-mono">{last.name ?? ""}</span>
+        <span
+          className="henira-row-caret"
+          style={{ transform: open ? "rotate(90deg)" : undefined }}
+        >
+          ▸
+        </span>
+      </button>
+      {open ? rows.map((row) => <RowView key={row.rowId} row={row} ctx={ctx} />) : null}
+    </>
+  );
+}
+
+/** 轮块：回合头（E3——settled 轮且含工具行时显示「已完成 · 用时 Xs · N 个工具」，事件
+ * 时间戳取数重放重建）+ 行列表（相邻工具聚合 ≥3 折叠；RowView memo——store 未变行同引用，
+ * 跳过重渲） */
+function TurnBlock({
+  unit,
+  ctx,
+  turnTimings,
+}: {
+  unit: TurnUnit;
+  ctx: WebPartContext;
+  turnTimings?: SessionState["turnTimings"];
+}) {
+  const timing = unit.turn !== undefined ? turnTimings?.[unit.turn] : undefined;
+  const toolCount = useMemo(() => unit.rows.filter((r) => r.kind === "tool").length, [unit.rows]);
+  const items = useMemo(() => buildTurnItems(unit.rows), [unit.rows]);
+  return (
+    <>
+      {timing !== undefined && toolCount > 0 ? (
+        <div
+          style={{
+            color: "var(--henira-text-muted)",
+            fontSize: "var(--henira-fs-sm)",
+            margin: "var(--henira-space-2) 0 var(--henira-space-1) 0",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {`${ctx.t("turn.worked")} · ${ctx.t("turn.durationPrefix")} ${Math.max(1, Math.round(timing.durationMs / 1000))}s · ${toolCount} ${ctx.t("turn.toolsSuffix")}`}
+        </div>
+      ) : null}
+      {items.map((item) =>
+        item.kind === "group" ? (
+          <ToolGroupItem key={item.rows[0].rowId} rows={item.rows} ctx={ctx} />
+        ) : (
+          <RowView key={item.row.rowId} row={item.row} ctx={ctx} />
+        ),
+      )}
     </>
   );
 }

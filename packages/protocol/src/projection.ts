@@ -52,6 +52,8 @@ export class Projection {
   private readonly streamingByTurn = new Map<string, Set<RowId>>();
   /** 各步实际生效思考档（request/header.params 记账 → 同步 assistant 行投影） */
   private readonly effortByStep = new Map<string, ReasoningEffort>();
+  /** 回合开始时间（E3 回合头：turn/start 的账本 time → turn/end 结算 durationMs） */
+  private readonly turnStartTimes = new Map<string, number>();
 
   /** 账本事件逐条喂入；返回可见变化（空数组 = 投影不变） */
   ingest(event: SessionEvent): Delta[] {
@@ -73,6 +75,7 @@ export class Projection {
       case "turn/start": {
         const turn = data.turn as string;
         this.cursor = { turn, step: 0 };
+        this.turnStartTimes.set(turn, event.time); // E3 回合头：开始时戳（事件自带 time）
         if (this.state.busy && this.state.lastTurnId === turn) return [];
         this.state.busy = true;
         this.state.lastTurnId = turn;
@@ -97,6 +100,20 @@ export class Projection {
           this.streamingByTurn.delete(turn);
         }
         this.cursor = {};
+        // 回合耗时结算（E3 回合头，事件时间戳取数）：保留最近 50 轮
+        const startedAt = this.turnStartTimes.get(turn);
+        this.turnStartTimes.delete(turn);
+        if (startedAt !== undefined) {
+          const timings = { ...(this.state.turnTimings ?? {}) };
+          const keys = Object.keys(timings);
+          if (keys.length >= 50) {
+            for (const key of keys.slice(0, keys.length - 49)) delete timings[key];
+          }
+          timings[turn] = {
+            durationMs: Math.max(1000, event.time - startedAt),
+          };
+          this.state.turnTimings = timings;
+        }
         if (this.state.busy) {
           this.state.busy = false;
           deltas.push({ op: "state.updated", state: { ...this.state } });
@@ -214,12 +231,16 @@ export class Projection {
           ...(data.scope === "session" ? { scope: "session" as const } : {}),
         };
         const existing = this.byId.get(row.rowId);
-        if (existing?.kind === "approval") {
-          row.toolName = existing.toolName;
-          row.argsSummary = existing.argsSummary;
-          if (existing.args !== undefined) row.args = existing.args;
-          if (existing.reason !== undefined) row.reason = existing.reason;
+        if (existing?.kind !== "approval") {
+          // 孤儿 decided（无 asked 配对——默认放行层/规则层/会话折叠的审计）不上 UI：
+          // 自动放行的工具调用不该在对话流里留「权限请求 allowed-once」噪音行（E3 实锤：
+          // 每个安全工具一张幽灵行既污染流又切断相邻聚合组）；审计住账本不丢。
+          return [];
         }
+        row.toolName = existing.toolName;
+        row.argsSummary = existing.argsSummary;
+        if (existing.args !== undefined) row.args = existing.args;
+        if (existing.reason !== undefined) row.reason = existing.reason;
         return [this.upsert(row)];
       }
       case "error": {

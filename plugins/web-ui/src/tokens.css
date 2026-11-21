@@ -175,6 +175,47 @@
   transition: opacity 0.18s ease-out;
 }
 
+/* 逐词淡入（E3 生命感；机制照参照物：只动 opacity——首帧占满最终位置、测高稳定、
+   刻意不加 will-change；@starting-style 首帧 0 → transition 到 1，per-词延迟走 CSS 变量；
+   不支持的浏览器 = 词直接出现，优雅降级） */
+.henira-md span[data-henira-reveal] {
+  opacity: 1;
+  transition: opacity 300ms ease-out;
+  transition-delay: var(--henira-reveal-delay, 0ms);
+}
+@starting-style {
+  .henira-md span[data-henira-reveal="new"] {
+    opacity: 0;
+  }
+}
+
+/* 轮级 loading 点阵（E3；CSS 逐点淡入循环——不学参照物的 rAF SVG 点阵球，简化为点阵呼吸） */
+.henira-loading-dots span {
+  animation: henira-loading-dot 1.4s ease-in-out infinite;
+  opacity: 0.2;
+}
+.henira-loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.henira-loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes henira-loading-dot {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* stalled（响应停滞，CC 行为层：3s 无新 token 渐红提示——2s 渐变到 danger 色） */
+.henira-stalled {
+  color: var(--henira-danger-text);
+  transition: color 2s ease-in;
+}
+
 /* 运行态扫光（运行态视觉语言：文字流光而非转圈 spinner——ZCode 行为层参照；
    只用在"正在发生"的词上，一处动效语义一处用） */
 .henira-sweep {

@@ -259,6 +259,31 @@ describe("账本回放 → 快照", () => {
     expect("args" in (q.rows[0] as object)).toBe(false);
   });
 
+  it("回合耗时（E3）：turn/end 结算事件 time 差入 state.turnTimings，delta 帧携带；cap 50 轮", () => {
+    const p = new Projection();
+    const mk = (
+      seq: number,
+      type: string,
+      data: Record<string, unknown>,
+      time: number,
+    ): SessionEvent => ({ ...ev(seq, type, data), time }) as SessionEvent;
+    p.ingest(mk(1, "turn/start", { turn: "t-1" }, 1000));
+    p.ingest(mk(2, "turn/end", { turn: "t-1", reason: "completed" }, 5000));
+    expect(p.state.turnTimings?.["t-1"]).toEqual({ durationMs: 4000 });
+
+    // cap：第 51 轮结算后最老一轮被裁掉（键序 = 插入序）
+    let seq = 3;
+    for (let i = 2; i <= 52; i++) {
+      const turn = `t-${i}`;
+      p.ingest(mk(seq++, "turn/start", { turn }, i * 10_000));
+      p.ingest(mk(seq++, "turn/end", { turn, reason: "completed" }, i * 10_000 + 2000));
+    }
+    const keys = Object.keys(p.state.turnTimings ?? {});
+    expect(keys).toHaveLength(50);
+    expect(keys.includes("t-1")).toBe(false);
+    expect(keys.includes("t-52")).toBe(true);
+  });
+
   it("无投影事件：system/message / request/header / approval/revoked / assistant/attempt 不产行不产增量（step/end 无 assistant 行时不投影）", () => {
     const p = new Projection();
     const deltas = [

@@ -111,6 +111,9 @@ export interface SessionState {
   queue?: QueuedPrompt[];
   /** 中断冻结（队列非空时中断不冲刷，等 resume 恢复；投影态非账本事实，与 queue 键同批并线） */
   queuePaused?: boolean;
+  /** 回合耗时（E3 生命感回合头：事件时间戳取数——账本 turn/start·turn/end 的 time 差，
+   * 重放重建/重载后仍在；保留最近 50 轮，键 = turn id） */
+  turnTimings?: Record<string, { durationMs: number }>;
 }
 
 export interface SessionSnapshot {

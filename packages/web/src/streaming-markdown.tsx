@@ -17,6 +17,12 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { type MarkdownOptions, markdownChildren } from "./markdown.js";
+import {
+  commitFrame,
+  createRevealState,
+  isIncrementalReveal,
+  type RevealState,
+} from "./streaming-reveal.js";
 
 /** 尾段不冻结的块数（追加只能重塑最后一块，第二块是安全边际） */
 const UNSTABLE_TAIL_BLOCKS = 2;
@@ -37,6 +43,8 @@ export interface TailSplit {
   newlyFrozen: FrozenBlock[];
   /** 尾段切片（自新缝到文末，含正在生长的块与未闭合围栏） */
   tail: string;
+  /** 尾段块界（绝对偏移——逐词淡入排期的分块基准，E3） */
+  tailBlocks: { start: number; end: number }[];
 }
 
 interface ParsedChild {
@@ -64,7 +72,7 @@ export function splitTail(text: string, seam: number): TailSplit | undefined {
   }
   const freezeCount = blocks.length - UNSTABLE_TAIL_BLOCKS;
   if (freezeCount <= 0) {
-    return { seam, newlyFrozen: [], tail: slice };
+    return { seam, newlyFrozen: [], tail: slice, tailBlocks: blocks };
   }
   const newlyFrozen: FrozenBlock[] = [];
   let cursor = seam;
@@ -73,7 +81,12 @@ export function splitTail(text: string, seam: number): TailSplit | undefined {
     newlyFrozen.push({ key: block.start, text: text.slice(cursor, block.end) });
     cursor = block.end;
   }
-  return { seam: cursor, newlyFrozen, tail: text.slice(cursor) };
+  return {
+    seam: cursor,
+    newlyFrozen,
+    tail: text.slice(cursor),
+    tailBlocks: blocks.slice(freezeCount).map((b) => ({ start: b.start, end: b.end })),
+  };
 }
 
 interface StreamState {
@@ -88,11 +101,20 @@ interface StreamState {
   tail: string;
   /** 构建当前冻结元素所用 t（引用比对；opts.t 变化即重建，复制钮文案跟随语言包） */
   t?: (key: string) => string;
+  /** 逐词淡入排期状态（E3；跨帧持久——EWMA/进度/时钟；重置帧整体换新=不动画） */
+  reveal: RevealState;
 }
 
-const EMPTY: StreamState = { text: "", seam: 0, blocks: [], frozen: [], tail: "" };
+const EMPTY: StreamState = {
+  text: "",
+  seam: 0,
+  blocks: [],
+  frozen: [],
+  tail: "",
+  reveal: createRevealState(),
+};
 
-function advance(prev: StreamState, text: string, opts: MarkdownOptions): StreamState {
+function advance(prev: StreamState, text: string, opts: MarkdownOptions, now: number): StreamState {
   if (text === prev.text && prev.t === opts.t) return prev;
   // 非前缀（换消息/编辑/历史跳转）：缝与冻结清零，本帧按全量渲染
   const base = text.startsWith(prev.text) ? prev : EMPTY;
@@ -109,9 +131,15 @@ function advance(prev: StreamState, text: string, opts: MarkdownOptions): Stream
           : base.blocks.map((block) => markdownChildren(block.text, opts, String(block.key))),
       tail: text.slice(base.seam),
       t: opts.t,
+      reveal: base.reveal,
     };
   }
   const blocks = [...base.blocks, ...split.newlyFrozen];
+  // 逐词淡入（E3）：真前缀小增量才排期——回填/重置/切会话整体换新状态（整段 settled 不动画）
+  const reveal =
+    base !== EMPTY && isIncrementalReveal(base.text, text)
+      ? commitFrame(base.reveal, base.text, text, split.tailBlocks, now)
+      : createRevealState();
   return {
     text,
     seam: split.seam,
@@ -128,21 +156,33 @@ function advance(prev: StreamState, text: string, opts: MarkdownOptions): Stream
         : blocks.map((block) => markdownChildren(block.text, opts, String(block.key))),
     tail: split.tail,
     t: opts.t,
+    reveal,
   };
 }
 
 /** 流式臂组件：实例随行组件驻留（RowView memo 层已保证同行同实例），ref 持缝与冻结元素。
  * 返回 Fragment 平铺块——.henira-md 容器由 streamingMarkdownNode 供，两臂 DOM 同形
- * （审查 P2-1：双层嵌套会让 .henira-md 直接子选择器语义漂移）；直用场景调用方自备容器。 */
+ * （审查 P2-1：双层嵌套会让 .henira-md 直接子选择器语义漂移）；直用场景调用方自备容器。
+ * 尾臂带逐词淡入上下文（E3）——冻结臂不带（整段 settled）。 */
 export function IncrementalMarkdown(props: {
   text: string;
   t?: (key: string) => string;
 }): ReactNode {
   const stateRef = useRef<StreamState>(EMPTY);
   const opts: MarkdownOptions = { streaming: true, t: props.t };
-  const state = advance(stateRef.current, props.text, opts);
+  const state = advance(stateRef.current, props.text, opts, performance.now());
   stateRef.current = state;
-  return createElement(Fragment, null, ...state.frozen, markdownChildren(state.tail, opts, "tail"));
+  const tailOpts: MarkdownOptions = {
+    streaming: true,
+    t: props.t,
+    reveal: { state: state.reveal, seam: state.seam },
+  };
+  return createElement(
+    Fragment,
+    null,
+    ...state.frozen,
+    markdownChildren(state.tail, tailOpts, "tail"),
+  );
 }
 
 /** host.renderMarkdown 流式臂入口（容器 .henira-md 与 settled 臂同形） */
