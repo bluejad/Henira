@@ -8,6 +8,7 @@
 // "tool.call.view.mcp" 是 MCP 工具总缝（动态 wire 名无法逐个注册，ToolRowView 前缀路由）。
 
 import type { Disposable } from "@henira/kernel";
+import { ApprovalCard } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
@@ -22,7 +23,14 @@ import {
   TerminalCard,
   WriteCard,
 } from "./parts/tool-cards.js";
-import type { SlotPart, ToolCallView, UiModuleContext, WebPart, WebSlotName } from "./types.js";
+import type {
+  ApprovalCardView,
+  SlotPart,
+  ToolCallView,
+  UiModuleContext,
+  WebPart,
+  WebSlotName,
+} from "./types.js";
 
 /** 槽位 → 官方件映射（默认组合只是一种排列——D-043 第 8 条；区域级五名各有官方默认件） */
 export const defaultParts: Record<WebSlotName, WebPart> = {
@@ -46,6 +54,16 @@ export const defaultToolViews: Record<string, ToolCallView> = {
   "tool.call.view.mcp": McpCard,
 };
 
+/** keyed 审批卡 → 官方默认件（E6，D-057 延伸：词表 10→11，approval.view.<工具名>）。
+ * 同一通用卡组件（内部 per-tool 预览路由）真实注册进八键——非代码级 fallback；插件
+ * replaceSlot 顶替、卸载回落通用卡（R163 slot-registry 语义直接复用）。 */
+export const defaultApprovalViews: Record<string, ApprovalCardView> = Object.fromEntries(
+  ["bash", "powershell", "edit", "write", "read", "glob", "grep", "mcp"].map((n) => [
+    `approval.view.${n}`,
+    ApprovalCard as ApprovalCardView,
+  ]),
+);
+
 /** UI 模块装载入口：把官方件注册进宿主槽位；返回卸载函数 */
 export function webUiModule(ctx: UiModuleContext): Disposable {
   const disposables: Disposable[] = [];
@@ -53,6 +71,9 @@ export function webUiModule(ctx: UiModuleContext): Disposable {
     disposables.push(ctx.registerSlot(name, part));
   }
   for (const [name, view] of Object.entries(defaultToolViews)) {
+    disposables.push(ctx.registerSlot(name, view as SlotPart));
+  }
+  for (const [name, view] of Object.entries(defaultApprovalViews)) {
     disposables.push(ctx.registerSlot(name, view as SlotPart));
   }
   return () => {

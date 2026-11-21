@@ -108,8 +108,14 @@ export interface HeniraFacade {
   /** 恢复中断冻结的队列冲刷（取队头开新回合）；无冻结/无条目/忙时返回 false */
   resumeQueue(sessionId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
-  /** settle 幂等先答者赢；未知 requestId 返回 false */
-  settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
+  /** settle 幂等先答者赢；未知 requestId 返回 false。scope:'session' = 会话级允许（E6：
+   * decided{scope} 落账 → 同工具后续调用免 ask，tools-approval §3.1） */
+  settleApproval(
+    sessionId: string,
+    requestId: string,
+    decision: Decision,
+    scope?: "session",
+  ): Promise<boolean>;
   /** 初始渲染 + 断档重拉共用出口（快照永远从账本重建；长会话 = 尾部窗口，历史经 sessionRows 翻页） */
   snapshot(sessionId: string): Promise<SessionSnapshot>;
   /** 行翻页（长会话历史：before = rowSeq 排他游标；页不切轮；缺省 = 尾部一页） */

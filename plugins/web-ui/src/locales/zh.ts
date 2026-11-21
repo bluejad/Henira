@@ -82,9 +82,13 @@ export const zh = {
   "composer.sendFailed": "发送失败，消息已留在输入框",
   "approval.title": "权限请求",
   "approval.allow": "允许",
+  "approval.sessionAllow": "本会话允许",
+  "approval.sessionAllowTip": "本会话内此工具后续调用不再询问",
   "approval.deny": "拒绝",
   "approval.pending": "等待处理",
   "approval.settled": "已处理",
+  "approval.queueCount": "待审批",
+  "approval.scopeSession": "本会话",
   "error.title": "出错了",
   "error.noCredentialHint": "该厂商还没有配置密钥——请在 设置 → 模型管理 里连接后再试。",
   "error.noBaseUrlHint":

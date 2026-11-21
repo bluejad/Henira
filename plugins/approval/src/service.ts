@@ -53,6 +53,10 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
                 callId: requestId,
                 tool: req.tool,
                 argsDigest: argsDigest(req.args),
+                // args 完整原样（E6，D-046「审计事件对照记全文」落码归位）：挂起卡自足可渲染
+                // （断线重连/多窗口重放），per-tool 预览体唯一数据源；digest 保留作关联指纹
+                ...(req.args !== undefined ? { args: req.args } : {}),
+                ...(req.reason !== undefined ? { reason: req.reason } : {}),
               },
             });
           };
@@ -100,6 +104,7 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           // ── answerer（InteractionService）────────────────────────
           await asked();
           let answer: Decision;
+          let answerScope: "session" | undefined;
           try {
             const interaction = cx.get("interaction");
             const result = await interaction.ask(
@@ -115,13 +120,19 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
             const valid =
               result.kind === "approval" &&
               result.requestId === requestId &&
-              (DECISIONS as readonly string[]).includes(result.decision);
-            answer = valid ? result.decision : "unavailable";
+              (DECISIONS as readonly string[]).includes(result.decision) &&
+              (result.scope === undefined || result.scope === "session"); // 不合规 scope = 形状不合规
+            if (valid) {
+              answer = result.decision;
+              answerScope = result.scope;
+            } else {
+              answer = "unavailable";
+            }
           } catch {
             // 缺席 / 抛错 → unavailable；abort 竞速 → cancelled（先答者赢的迟到异常不算）
             answer = signal?.aborted ? "cancelled" : "unavailable";
           }
-          await decided(answer);
+          await decided(answer, answerScope);
           return answer;
         },
       };

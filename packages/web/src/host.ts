@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 // 都在 plugin-web-ui 件（框架件同一注册声明子槽，声明=独占渲染权，dsh AppFrame 行为层）。
 
 import {
+  defaultApprovalViews,
   defaultParts,
   defaultToolViews,
   type LayoutOption,
@@ -161,7 +162,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     "turn.tail",
     "conversation.images",
   ]);
-  const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview."];
+  const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview.", "approval.view."];
   const slotAccepted = (name: string): boolean =>
     REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
   /** UI 装载告警（管理面 C3 消费；先 console + 收集） */
@@ -197,6 +198,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       // per-tool 官方卡同灌（E5）：安全模式也是「同一零件库的直接组装」——缺了它工具行
       // 全退化成通用卡，与插件通道观感不一致
       for (const [name, view] of Object.entries(defaultToolViews)) {
+        slots.set(name, [view as SlotPart]);
+      }
+      // per-tool 官方审批卡同灌（E6）：同上——审批卡 keyed 缝同一语义
+      for (const [name, view] of Object.entries(defaultApprovalViews)) {
         slots.set(name, [view as SlotPart]);
       }
     } else {

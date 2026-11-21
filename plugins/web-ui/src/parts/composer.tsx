@@ -18,7 +18,7 @@ import {
 } from "@henira/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SettingsSection, WebPart, WebPartContext } from "../types.js";
-import { ApprovalCard } from "./approval-card.js";
+import { ApprovalQueueCard } from "./approval-card.js";
 import { HeniraSelect } from "./dropdown.js";
 import { BrainGlyph, SendGlyph, StopGlyph } from "./icons.js";
 import { ModelSelect, type PickerProviders } from "./model-select.js";
@@ -214,9 +214,15 @@ export const Composer: WebPart = (ctx: WebPartContext) => {
           {ctx.t("composer.sendFailed")}
         </p>
       ) : null}
-      {pendingApprovals.map((row) => (
-        <ApprovalCard key={row.rowId} row={row} ctx={ctx} />
-      ))}
+      {/* 队首单卡（E6，CC/ZCode FIFO 同款）：多卡 Enter 全中 bug 随单卡化消除；计数徽标在卡内 */}
+      {pendingApprovals[0] !== undefined ? (
+        <ApprovalQueueCard
+          key={pendingApprovals[0].rowId}
+          row={pendingApprovals[0]}
+          ctx={ctx}
+          queueTotal={pendingApprovals.length}
+        />
+      ) : null}
       <QueuePanel ctx={ctx} onEdit={editQueued} />
       <div className="henira-composer-card">
         <textarea

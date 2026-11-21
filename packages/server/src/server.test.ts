@@ -358,6 +358,100 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
       await cleanup();
     }
   });
+
+  it("判据②续（E6）：pending 行带 args 全文；settle scope:'session' → 同工具第二次免审批", async () => {
+    const { server, base, cleanup } = await makeServer([
+      [
+        mockToolCall("c1", "demo-edit", '{"file_path":"a.txt","old_string":"x","new_string":"y"}'),
+        mockFinish("tool-calls"),
+      ],
+      [mockText("第一次完成"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+      [
+        mockToolCall("c2", "demo-edit", '{"file_path":"b.txt","old_string":"p","new_string":"q"}'),
+        mockFinish("tool-calls"),
+      ],
+      [mockText("第二次完成"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    const settle = async (sessionId: string, requestId: string, body: object): Promise<boolean> =>
+      (
+        (await (
+          await fetch(`${base}/api/sessions/${sessionId}/approvals/${requestId}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          })
+        ).json()) as { applied: boolean }
+      ).applied;
+    try {
+      const id = await createSession(base);
+      server.registry
+        .get(id)
+        ?.ctx.get("tools")
+        .register({
+          name: "demo-edit",
+          description: "demo edit tool (requires approval)",
+          inputSchema: { type: "object", properties: {} },
+          execute: async () => ({ content: "edited" }),
+        });
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "改文件" }),
+      });
+      subscribe(base, sink);
+      const pendingRow = await waitFor(() => {
+        for (const f of framesFor(sink, id)) {
+          if (
+            f.kind === "delta" &&
+            f.delta.op === "row.appended" &&
+            f.delta.row.kind === "approval"
+          ) {
+            return f.delta.row;
+          }
+        }
+        return undefined;
+      });
+      // args 全文进行模型（D-046「挂起自足可渲染」——diff 预览数据源）
+      expect(pendingRow).toMatchObject({
+        status: "pending",
+        toolName: "demo-edit",
+        args: { file_path: "a.txt", old_string: "x", new_string: "y" },
+      });
+
+      // 本会话允许（scope:'session'）+ 忙时发 prompt2（D-045 队列：回合 1 落定后自动续跑）
+      expect(
+        await settle(id, pendingRow.requestId, { decision: "allowed-once", scope: "session" }),
+      ).toBe(true);
+      const prompt2Res = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "再改一次" }),
+      });
+      expect(((await prompt2Res.json()) as { queued: boolean }).queued).toBe(true);
+
+      // 第二次同工具：折叠命中免审批——不产生新审批行，工具直接执行
+      await waitFor(() => {
+        const done = framesFor(sink, id).filter(
+          (f) =>
+            f.kind === "delta" &&
+            f.delta.op === "row.upserted" &&
+            f.delta.row.kind === "tool" &&
+            f.delta.row.status === "done",
+        ).length;
+        return done >= 2 ? true : undefined;
+      }, 15000);
+      const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: { kind: string; status?: string; decision?: string; scope?: string }[];
+      };
+      expect(snap.rows.filter((r) => r.kind === "approval")).toHaveLength(1); // 无第二次审批
+      expect(snap.rows.filter((r) => r.kind === "tool" && r.status === "done")).toHaveLength(2);
+      const settledRow = snap.rows.find((r) => r.kind === "approval");
+      expect(settledRow).toMatchObject({ decision: "allowed-once", scope: "session" });
+    } finally {
+      await cleanup();
+    }
+  });
 });
 
 describe("排队卡全链（E1：queue 上投影态）", () => {

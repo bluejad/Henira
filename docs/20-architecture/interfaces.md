@@ -596,7 +596,7 @@ DELETE /api/sessions/:id/queue/:entryId     → { ok } | 404                    
 POST /api/sessions/:id/queue/resume                     → { ok: boolean }                         // 恢复中断冻结的队列冲刷（取队头开新回合；无事可做 ok:false）
 POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
 POST /api/sessions/:id/interrupt                        → { ok: true }
-POST /api/sessions/:id/approvals/:requestId { decision: Decision } → { applied: boolean }        // settle 幂等，先答者赢
+POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
 //  写路径懒挂载（重启续聊，✓ 2026-11-18）：prompt / steer / interrupt / approvals / files 对磁盘历史会话
 //  （本进程未装配）首次调用按需重建运行体（定位目录 + 账本头核验 + 装配 + 投影从账本补账）——重启后不再
@@ -819,9 +819,12 @@ interface ApprovalRow {
   step: number;
   requestId: string;
   toolName: string;
-  argsSummary?: string; // argsDigest（账本原样——摘要不原文，凭据纪律 D-030）
+  argsSummary?: string; // argsDigest（关联指纹——同参同摘要；chain.test 锁定）
+  args?: unknown; // 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染，per-tool 预览体唯一数据源；凭据经架构保证不进 args，approval/* 不进 derive）
+  reason?: string; // 引擎判定链解释原样（围栏区外访问等；仅呈现）
   status: "pending" | "settled";
   decision?: Decision;
+  scope?: "session"; // 会话级允许标记（decided{scope:'session'} 投影——settled「· 本会话」）
 }
 interface ErrorRow {
   kind: "error";
@@ -910,7 +913,12 @@ interface HeniraFacade {
   prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（每次提问绑定，骨架批）
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
-  settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
+  settleApproval(
+    sessionId: string,
+    requestId: string,
+    decision: Decision,
+    scope?: "session",
+  ): Promise<boolean>; // scope:'session' = 会话级允许（E6）
   snapshot(sessionId: string): Promise<SessionSnapshot>; // 初始渲染 + 断档重拉（长会话 = 尾窗 60）
   sessionRows(sessionId: string, opts?: { before?: number; limit?: number }): Promise<RowsPage>; // 行翻页（D-061：before = rowSeq 排他游标；hasOlder=false = 已到顶）
   getSettings(): Promise<SettingsData>; // 设置读（settings.json；凭据永不出现，D-030）
@@ -1001,7 +1009,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
-- **挂载点词表 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——七键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（渲染总缝槽内件本身；官方 MCP 卡默认注册在此，插件可整类顶替）→ 通用卡兜底；`tool.call.view.mcp` 为总缝保留键——字面名 `mcp` 的工具不进总缝、直接落通用卡）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
+- **挂载点词表 v1 十一个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18 ＋ E6 审批卡缝 2026-11-21）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ 行级六个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——七键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（渲染总缝槽内件本身；官方 MCP 卡默认注册在此，插件可整类顶替）→ 通用卡兜底；`tool.call.view.mcp` 为总缝保留键——字面名 `mcp` 的工具不进总缝、直接落通用卡）· `approval.view.<工具名>`（**审批卡 keyed**，E6：官方 per-tool 审批卡注册进缝——edit/write diff 预览、bash/powershell 命令行、read/glob/grep 路径摘要、未知工具 JSON 预览；数据源 = ApprovalRow.args 完整原样（D-046「挂起自足可渲染」）；插件 `replaceSlot` 顶替、卸载回落通用卡）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；`sidebar.right.preview.` 渲染挂点仍缺；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；

@@ -190,6 +190,9 @@ export class Projection {
           requestId: data.requestId as string,
           toolName: data.tool as string,
           argsSummary: data.argsDigest as string,
+          // args/reason 完整原样透传（E6，D-046 归位——透传不解释，预览窄化归 UI）
+          ...(data.args !== undefined ? { args: data.args as ApprovalRow["args"] } : {}),
+          ...(data.reason !== undefined ? { reason: data.reason as string } : {}),
           status: "pending",
         };
         this.push(row);
@@ -208,11 +211,14 @@ export class Projection {
           toolName: "",
           status: "settled",
           decision,
+          ...(data.scope === "session" ? { scope: "session" as const } : {}),
         };
         const existing = this.byId.get(row.rowId);
         if (existing?.kind === "approval") {
           row.toolName = existing.toolName;
           row.argsSummary = existing.argsSummary;
+          if (existing.args !== undefined) row.args = existing.args;
+          if (existing.reason !== undefined) row.reason = existing.reason;
         }
         return [this.upsert(row)];
       }

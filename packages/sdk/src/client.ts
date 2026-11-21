@@ -119,10 +119,13 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       await requestJson(`/api/sessions/${sessionId}/interrupt`, { method: "POST" });
     },
 
-    async settleApproval(sessionId, requestId, decision) {
+    async settleApproval(sessionId, requestId, decision, scope) {
       const res = await requestJson<{ applied: boolean }>(
         `/api/sessions/${sessionId}/approvals/${requestId}`,
-        { method: "POST", body: JSON.stringify({ decision }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ decision, ...(scope !== undefined ? { scope } : {}) }),
+        },
       );
       return res.applied;
     },

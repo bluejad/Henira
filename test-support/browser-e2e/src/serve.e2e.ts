@@ -76,6 +76,18 @@ const mock = mockLlm([
     mockFinish("tool-calls"),
   ],
   [mockText("shell flow complete"), mockUsage(USAGE), mockFinish("stop")],
+  // E6：审批卡富化——edit 形状参数（diff 预览数据源）+ 同工具两连调（本会话允许 → 第二次折叠免审批）
+  [
+    mockToolCall(
+      "e6a",
+      "edit",
+      '{"file_path":"e6-demo.txt","old_string":"one\\ntwo","new_string":"one\\nTWO"}',
+    ),
+    mockToolCall("e6b", "edit", '{"file_path":"e6-other.txt","old_string":"a","new_string":"b"}'),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [mockText("e6 approval flow complete"), mockUsage(USAGE), mockFinish("stop")],
 ]);
 
 /** llm 槽位包装（examples/mock 同款）：mockLlm 给的是 LlmService，槽位要 ServiceDefinition */
@@ -144,7 +156,7 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
   await shot(page, "01-approval-card.png");
-  await card.getByRole("button", { name: zh["approval.allow"] }).click();
+  await card.getByRole("button", { name: zh["approval.allow"], exact: true }).click();
 
   // 工具执行 → 第二次模型调用慢流 → 流式行透明度浮现窗口截图
   const streaming = page.locator(".henira-streaming");
@@ -347,7 +359,7 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
   await shot(page, "fs-01-write-approval.png");
-  await card.getByRole("button", { name: zh["approval.allow"] }).click();
+  await card.getByRole("button", { name: zh["approval.allow"], exact: true }).click();
 
   // read（只读 → 默认放行层，无卡）→ 收尾文本
   await expect(page.getByText("fs flow complete")).toBeVisible({ timeout: 15_000 });
@@ -371,7 +383,7 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
   // bash 非只读 → 审批卡 → 允许
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
-  await card.getByRole("button", { name: zh["approval.allow"] }).click();
+  await card.getByRole("button", { name: zh["approval.allow"], exact: true }).click();
 
   await expect(page.getByText("shell flow complete")).toBeVisible({ timeout: 15_000 });
   // TerminalCard（tool.call.view.bash 官方注册）：命令 prompt 行 + stdout（meta 分色通道）。
@@ -380,4 +392,31 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
   await expect(page.getByText("echo henira-e5-done")).toBeVisible();
   await expect(page.getByText("henira-e5-done", { exact: true })).toBeVisible();
   await shot(page, "e5-01-terminal-card.png");
+});
+
+// ── 用例 ⑥（E6）：审批卡富化——edit diff 预览 / 本会话允许 / 同工具第二次折叠免审批 ──
+
+test("E6 approval card: diff preview, session allow, second call skip", async ({ page }) => {
+  await page.goto(server.url);
+  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  await expect(textarea).toBeVisible();
+  await textarea.fill("edit two files please");
+  await textarea.press("Enter");
+
+  // 审批卡：edit 形状参数 → per-tool 预览体（diff add 行）+ 三选项集（本会话允许在 bash 族才有）
+  const card = page.getByRole("dialog", { name: zh["approval.title"] });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("e6-demo.txt")).toBeVisible();
+  await expect(card.getByText("TWO", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: zh["approval.sessionAllow"] })).toBeVisible();
+  await shot(page, "e6-01-approval-diff-preview.png");
+
+  // 本会话允许（scope:'session'）→ c1 执行 → c2 折叠免审批直接执行 → 回合完成
+  await card.getByRole("button", { name: zh["approval.sessionAllow"] }).click();
+  await expect(page.getByText("e6 approval flow complete")).toBeVisible({ timeout: 15_000 });
+
+  // settled 留痕：决策原文 + 「· 本会话」标记；折叠生效 = 无第二张审批卡
+  await expect(page.getByText("allowed-once · 本会话")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toHaveCount(0);
+  await shot(page, "e6-02-session-allowed.png");
 });

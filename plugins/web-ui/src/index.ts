@@ -4,8 +4,14 @@
 
 export { makeT } from "./locales/make-t.js";
 export { type Dict, zh } from "./locales/zh.js";
-export { defaultParts, defaultToolViews, webUiModule } from "./module.js";
-export { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
+export { defaultApprovalViews, defaultParts, defaultToolViews, webUiModule } from "./module.js";
+export {
+  ApprovalCard,
+  ApprovalCardShell,
+  ApprovalQueueCard,
+  ApprovalSettledRow,
+} from "./parts/approval-card.js";
+export { ApprovalPreview } from "./parts/approval-preview.js";
 export { Composer } from "./parts/composer.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
 export { LayoutFrame } from "./parts/layout-frame.js";
@@ -16,16 +22,23 @@ export { SessionList } from "./parts/session-list.js";
 export { SettingsModal } from "./parts/settings-modal.js";
 export { SlotBoundary } from "./parts/slot-boundary.js";
 export {
+  buildDiffRows,
+  DIFF_FALLBACK_MAX_LINES,
+  DiffRowsView,
+  DiffTotals,
   EditCard,
   GlobCard,
   GrepCard,
   McpCard,
   ReadCard,
+  str,
   TerminalCard,
   ToolView,
+  tryFormatJson,
   WriteCard,
 } from "./parts/tool-cards.js";
 export type {
+  ApprovalCardView,
   HeniraClientLike,
   LayoutOption,
   PluginInfo,

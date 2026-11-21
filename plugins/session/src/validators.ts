@@ -120,6 +120,11 @@ const schemas: Record<string, z.ZodType> = {
     callId: z.string().min(1),
     tool: z.string().min(1),
     argsDigest: z.string(),
+    /** 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染；
+     * 凭据经架构保证不进 args，approval/* 不进 derive） */
+    args: z.unknown().optional(),
+    /** 引擎判定链解释原样（围栏区外访问等；仅呈现不转述） */
+    reason: z.string().optional(),
   }),
   "approval/decided": z.object({
     turn: z.string().min(1),

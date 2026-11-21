@@ -268,12 +268,13 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(result.body, result.status as 200);
   });
 
-  // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动）──
+  // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动。scope:'session' = 会话级允许，
+  // E6：decided{scope} 落账 → 同工具后续调用免 ask——tools-approval §3.1）──
   app.post("/api/sessions/:id/approvals/:requestId", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
-      .object({ decision: z.enum(DECISIONS) })
+      .object({ decision: z.enum(DECISIONS), scope: z.enum(["session"]).optional() })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: `decision must be one of ${DECISIONS.join("/")}` }, 400);
@@ -283,6 +284,7 @@ export function createApp(deps: AppDeps): Hono {
       kind: "approval",
       requestId,
       decision: parsed.data.decision,
+      ...(parsed.data.scope !== undefined ? { scope: parsed.data.scope } : {}),
     });
     return c.json({ applied });
   });

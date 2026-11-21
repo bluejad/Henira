@@ -124,7 +124,7 @@ const askOpts = (floor?: "ask", signal?: AbortSignal): ApprovalOptions => ({ flo
 
 type Approval = {
   requestPermission(
-    req: { tool: string; args?: unknown },
+    req: { tool: string; args?: unknown; reason?: string },
     opts?: ApprovalOptions,
   ): Promise<Decision>;
 };
@@ -300,7 +300,8 @@ describe("判定链全序（tools-approval §3）", () => {
     ]);
     const { harness, ctx } = await startedHarness(interaction);
     const session = sessionOf(ctx);
-    // 手工落一对 scope:'session' 的审计（真实链路 = answerer 带 scope 时落；此处直写日志验证折叠）
+    // 手工落一对 scope:'session' 的审计（真实链路端到端见 E6 describe「生产者端到端」用例；
+    // 此处直写日志验证折叠本体）
     await session.append({ type: "turn/start", data: { turn: "t0" } });
     await session.append({
       type: "approval/asked",
@@ -337,6 +338,84 @@ describe("判定链全序（tools-approval §3）", () => {
     const ctx = asHeniraContext(harness.context);
     // 不广播 turn/start → approval 不知回合
     expect(await approvalOf(ctx).requestPermission({ tool: "read", args: {} })).toBe("unavailable");
+    await harness.dispose();
+  });
+});
+
+describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", () => {
+  it("settle 带 scope:'session' → decided{scope} 落账 → 同工具第二次免问（真实链路）", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "session",
+      }),
+      new Error("must not be asked again"),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    const first = await approvalOf(ctx).requestPermission(
+      { tool: "write", args: { file_path: "a.txt", content: "x" } },
+      askOpts("ask"),
+    );
+    expect(first).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(1);
+    const decidedEvent = sessionOf(ctx)
+      .events()
+      .find((e) => e.type === "approval/decided");
+    if (decidedEvent === undefined) throw new Error("decided event missing");
+    const decidedData = decidedEvent.data as { scope?: string };
+    expect(decidedData.scope).toBe("session");
+    // 第二次同工具：折叠命中免问（脚本第二项是抛错——若被问到会 unavailable）
+    const second = await approvalOf(ctx).requestPermission(
+      { tool: "write", args: { file_path: "b.txt", content: "y" } },
+      askOpts("ask"),
+    );
+    expect(second).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(1);
+    await harness.dispose();
+  });
+
+  it("approval/asked 落 args/reason 全文（D-046「审计事件对照记全文」归位）+ digest 保留", async () => {
+    const { harness, ctx } = await startedHarness(
+      interactionStub([
+        (req) => ({ kind: "approval", requestId: req.requestId, decision: "rejected" }),
+      ]),
+    );
+    await approvalOf(ctx).requestPermission(
+      {
+        tool: "edit",
+        args: { file_path: "f.ts", old_string: "a", new_string: "b" },
+        reason: "path is outside the session workspace: X",
+      },
+      askOpts("ask"),
+    );
+    const asked = sessionOf(ctx)
+      .events()
+      .find((e) => e.type === "approval/asked");
+    expect(asked).toBeDefined();
+    const data = asked?.data as { args?: unknown; reason?: string; argsDigest?: string };
+    expect(data.args).toEqual({ file_path: "f.ts", old_string: "a", new_string: "b" });
+    expect(data.reason).toBe("path is outside the session workspace: X");
+    expect(data.argsDigest).toEqual(expect.any(String));
+    await harness.dispose();
+  });
+
+  it("answerer 不合规 scope → unavailable（fail-closed 形状校验）", async () => {
+    const { harness, ctx } = await startedHarness(
+      interactionStub([
+        (req) =>
+          ({
+            kind: "approval",
+            requestId: req.requestId,
+            decision: "allowed-once",
+            scope: "project",
+          }) as unknown as InteractionAnswer,
+      ]),
+    );
+    expect(
+      await approvalOf(ctx).requestPermission({ tool: "write", args: {} }, askOpts("ask")),
+    ).toBe("unavailable");
     await harness.dispose();
   });
 });

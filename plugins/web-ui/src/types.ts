@@ -4,6 +4,7 @@
 
 import type { Disposable } from "@henira/kernel";
 import type {
+  ApprovalRow,
   Decision,
   DirBrowse,
   PromptReceipt,
@@ -39,7 +40,13 @@ export interface HeniraClientLike {
   /** 恢复中断冻结的队列冲刷（可选——旧嵌入方缺省时「继续发送」钮禁用） */
   resumeQueue?(sessionId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
-  settleApproval(sessionId: string, requestId: string, decision: Decision): Promise<boolean>;
+  /** scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask） */
+  settleApproval(
+    sessionId: string,
+    requestId: string,
+    decision: Decision,
+    scope?: "session",
+  ): Promise<boolean>;
   events(): AsyncIterable<ServerFrame>;
   /** 界面资产清单（D-059：已装语言包/主题包） */
   listUiAssets(): Promise<UiAssets>;
@@ -227,8 +234,18 @@ export type WebPart = (ctx: WebPartContext) => ReactNode;
 /** keyed 工具卡视图（tool.call.view.<工具名>，D-057）：件拿得到行数据（工具名/参数/输出/状态） */
 export type ToolCallView = (args: { ctx: WebPartContext; row: ToolRow }) => ReactNode;
 
-/** 槽位件联合：区域槽/追加位 = WebPart；keyed 工具卡 = ToolCallView（消费侧按槽种收窄） */
-export type SlotPart = WebPart | ToolCallView;
+/** keyed 审批卡视图（approval.view.<工具名>，E6/D-057 延伸）：件拿得到审批行（toolName/args
+ * 完整原样/reason）与队列计数；官方默认件经 module.ts defaultApprovalViews 注册进缝，插件
+ * replaceSlot 顶替、卸载回落通用卡 */
+export type ApprovalCardView = (args: {
+  ctx: WebPartContext;
+  row: ApprovalRow;
+  queueTotal?: number;
+}) => ReactNode;
+
+/** 槽位件联合：区域槽/追加位 = WebPart；keyed 工具卡 = ToolCallView；keyed 审批卡 =
+ * ApprovalCardView（消费侧按槽种收窄） */
+export type SlotPart = WebPart | ToolCallView | ApprovalCardView;
 
 /** 宿主槽位词表·区域级（D-033 三名 + D-062 结构性两名：layout 整页框架槽 / sidebar.right 右栏；
  * 追加位与行级槽走开放 string 名，不在此联合里）；未装件的槽位收起 */

@@ -119,6 +119,15 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 - **显示归界面 UI**：折叠 / 展开 / 高亮是**展示裁剪**，不是转述——卡上可以只露"写入 bar.ts（约 2000 行）+ 头部预览 + 展开按钮"，数据全文永远在载荷里；引擎层造摘要没有一家做（摘要是转述层，写错 = 骗批准）；
 - **挂起请求自足可渲染**（args 在载荷里）：断线重连、多窗口重放同一张卡（P5 既有设计）；
 - `displayReason`（dsh `user-approval/types.ts:72`，仅展示不入审计）不进 v1 载荷——M2 落码时按卡片可读性再定是否补可选字段。
+- **落码归位（E6，2026-11-21）**：实现初版把 `approval/asked` 落成 12 位 digest（偏离本条备注），E6 批对齐——**审计事件对照记全文**（`args` 完整原样 + `reason`），digest 保留作关联指纹；凭据经架构保证不进 args（`${credential}` 展开只在 MCP 配置装载），`tool/call.arguments` 全文进账本早已是既有实践，D-030 面不新增。**「挂起请求自足可渲染」自此成立**：行模型携带 args 全文，断线重连 / 多窗口重放同一张卡。
+
+### 3.4 审批卡呈现（定稿 · 2026-11-21，E6）
+
+- **per-tool 预览体**（四仓对照：CC 每工具一个权限对话框且复用工具卡 diff 组件、ZCode 权限弹窗复用聊天 renderer；dsh 零参数反例已被 D-046 否决）：edit/write → diff 预览（E5 `buildDiffRows` 同机器——CC「同组件复用」行为层）、bash/powershell → 全命令行、read/glob/grep → 路径 / 模式摘要、未知工具（含 MCP）→ JSON 预览；**字段窄化校验不过一律回落 JSON 预览**（E5「宁缺毋滥」纪律），绝不渲染坏预览。
+- **选项集三钮**：允许（once）/ **本会话允许**（`scope:'session'`——§3.1 两层存储的会话层自此有 UI 生产者；decided{scope} 落账 → 折叠集生效，同工具后续调用免 ask）/ 拒绝。**bash / powershell 卡不提供本会话允许**——工具级整会话放行过宽（CC/ZCode 对 bash 只给前缀级；前缀级规则随 permissions.json 写路径挂账）。
+- **队列**：并发挂起只渲染**队首一张** + 「待审批 N」计数（CC/ZCode FIFO 同款；多卡各挂键盘监听器导致一次 Enter 全中——E6 前真 bug，随单卡化消除）。Enter=允许 / Esc=拒绝（拒绝通道非中断，CC/ZCode 同款）。
+- **keyed 缝 `approval.view.<工具名>`**（词表 10→11，D-057 延伸）：官方 per-tool 审批卡八键注册进缝（edit/write/bash/powershell/read/glob/grep/mcp），插件 `replaceSlot` 顶替、卸载回落通用卡；未知工具回落通用卡（非代码级 fallback）。
+- **挂账**：跨会话「始终允许」写 permissions.json（新端点 + 配置写入）；审批撤销 UI（`approval/revoked` 无生产者）；bash 前缀级规则与 always 固化预览文案（opencode 样板：save[] 预计算 + 二段确认）。
 
 _已定稿：凭据硬拒清单 → 官方 approval 插件承担（D-012④，2026-11-11）。_
 _已定稿：审批事件对在回合内 + 先落 decided 再执行；权限两层存储（2026-11-12）。_

@@ -28,7 +28,7 @@ function asMeta(row: ToolRow, kind: string): Record<string, unknown> | null {
   return m as Record<string, unknown>;
 }
 
-function str(v: unknown): string | null {
+export function str(v: unknown): string | null {
   return typeof v === "string" ? v : null;
 }
 
@@ -51,8 +51,8 @@ function parseInput(row: ToolRow): Record<string, unknown> | null {
   }
 }
 
-/** 结果文本若是 JSON（对象/数组开头且可解析）→ 格式化；否则 null */
-function tryFormatJson(text: string): string | null {
+/** 结果文本若是 JSON（对象/数组开头且可解析）→ 格式化；否则 null（E6 审批预览复用） */
+export function tryFormatJson(text: string): string | null {
   const t = text.trim();
   if (!(t.startsWith("{") || t.startsWith("["))) return null;
   try {
@@ -294,8 +294,9 @@ interface DiffRow {
 }
 
 /** 超限整体替换 fallback 的行数上限：大文本一次性挂全部行会撑爆 DOM（MonoBlock 的
- * maxHeight 管不住行数本身），超限截断 + 注记（注记文案调用方按语言包补） */
-const DIFF_FALLBACK_MAX_LINES = 1000;
+ * maxHeight 管不住行数本身），超限截断 + 注记（注记文案调用方按语言包补）。
+ * E6 审批 write 预览同闸复用。 */
+export const DIFF_FALLBACK_MAX_LINES = 1000;
 
 /** jsdiff structuredPatch → 行序列。jsdiff 对字符串按行 token 跑 Myers——总编辑长度
  * （删+增行数）超 maxEditLength 时返回 undefined（不产部分结果，审查 F7 机制勘误）——
@@ -372,8 +373,9 @@ const gutterStyle = (width: string): React.CSSProperties => ({
   paddingRight: "6px",
 });
 
-/** diff 行序列渲染（行号双 gutter + 着色；note 行弱色——jsdiff 的 No-newline 标记） */
-function DiffRowsView({ rows }: { rows: DiffRow[] }): React.ReactNode {
+/** diff 行序列渲染（行号双 gutter + 着色；note 行弱色——jsdiff 的 No-newline 标记）。
+ * E6 审批 edit/write 预览复用（CC 权限对话框复用工具卡 diff 组件同款行为层）。 */
+export function DiffRowsView({ rows }: { rows: DiffRow[] }): React.ReactNode {
   const width = "3ch";
   return (
     <div
@@ -415,7 +417,13 @@ function DiffRowsView({ rows }: { rows: DiffRow[] }): React.ReactNode {
 }
 
 /** ±N 计数（dsh diff totals：摘要后缀通道，窄行先吃摘要再吃后缀——计数要可见） */
-function DiffTotals({ added, removed }: { added: number; removed: number }): React.ReactNode {
+export function DiffTotals({
+  added,
+  removed,
+}: {
+  added: number;
+  removed: number;
+}): React.ReactNode {
   return (
     <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
       <span style={{ color: "var(--henira-ok-text)" }}>+{added}</span>{" "}

@@ -77,10 +77,18 @@ export interface ApprovalRow {
   step: number;
   requestId: string;
   toolName: string;
-  /** argsDigest（账本原样——摘要不原文，凭据纪律 D-030） */
+  /** argsDigest（关联指纹，chain.test 锁定语义——同参同摘要） */
   argsSummary?: string;
+  /** 审批载荷 args 完整原样（approval/asked 投影，E6——D-046「挂起请求自足可渲染」落地：
+   * 断线重连 / 多窗口重放同一张卡；per-tool 预览体的唯一数据源。凭据经架构保证不进 args
+   * （${credential} 展开只在 MCP 配置装载），且 approval/* 不进 derive——模型上下文不可达 */
+  args?: unknown;
+  /** 审批请求解释（引擎判定链 reason 原样——围栏区外访问等；仅呈现） */
+  reason?: string;
   status: "pending" | "settled";
   decision?: Decision;
+  /** 会话级允许标记（decided{scope:'session'} 投影——settled 留痕「· 本会话」） */
+  scope?: "session";
 }
 
 export interface ErrorRow {

@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";
 import { webUiModule } from "./module.js";
-import { ApprovalCard, ApprovalSettledRow } from "./parts/approval-card.js";
+import { ApprovalCard, ApprovalQueueCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import { Conversation } from "./parts/conversation.js";
 import { HeniraSelect } from "./parts/dropdown.js";
@@ -678,6 +678,79 @@ describe("ApprovalCard", () => {
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once");
   });
 
+  it("非 bash 工具三选项：本会话允许走 settleApproval 带 scope:'session'（E6）", async () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={ctx} />);
+    fireEvent.click(screen.getByText(t("approval.sessionAllow")));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
+  });
+
+  it("bash 族不提供本会话允许（工具级整会话放行过宽——E6 四仓对照裁定）", () => {
+    const ctx = fixtureCtx();
+    render(<ApprovalCard row={{ ...pendingRow, toolName: "bash" } as ApprovalRow} ctx={ctx} />);
+    expect(screen.getByText(t("approval.allow"))).toBeDefined();
+    expect(screen.queryByText(t("approval.sessionAllow"))).toBeNull();
+  });
+
+  it("per-tool 预览体（E6）：edit 显示 diff 行；bash 显示命令行；args 缺 → 通用回落", () => {
+    const editCtx = fixtureCtx();
+    render(
+      <ApprovalCard
+        row={
+          {
+            ...pendingRow,
+            toolName: "edit",
+            args: { file_path: "f.ts", old_string: "alpha\nbeta", new_string: "alpha\nBETA" },
+          } as ApprovalRow
+        }
+        ctx={editCtx}
+      />,
+    );
+    expect(screen.getByText("f.ts")).toBeDefined();
+    expect(screen.getByText("BETA")).toBeDefined();
+
+    cleanup();
+    const bashCtx = fixtureCtx();
+    render(
+      <ApprovalCard
+        row={
+          {
+            ...pendingRow,
+            toolName: "bash",
+            args: { command: "echo hi" },
+          } as ApprovalRow
+        }
+        ctx={bashCtx}
+      />,
+    );
+    expect(screen.getByText("echo hi")).toBeDefined();
+
+    cleanup();
+    const legacyCtx = fixtureCtx();
+    render(<ApprovalCard row={pendingRow} ctx={legacyCtx} />); // 无 args（旧账本）→ digest-only 原观感
+    expect(screen.queryByText("f.ts")).toBeNull();
+  });
+
+  it("队列计数徽标（E6）：queueTotal > 1 时显示「待审批 N」", () => {
+    const ctx = fixtureCtx();
+    render(<ApprovalCard row={pendingRow} ctx={ctx} queueTotal={3} />);
+    expect(screen.getByText(`${t("approval.queueCount")} 3`)).toBeDefined();
+  });
+
+  it("队首单卡路由（E6 keyed 缝 approval.view.<工具名>）：槽件顶替生效、缺席回落通用卡", () => {
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["approval.view.demo-write", [() => "审批顶替件甲"]],
+    ]);
+    const ctx = fixtureCtx({ slots } as Partial<WebPartContext>);
+    render(<ApprovalQueueCard row={pendingRow} ctx={ctx} queueTotal={1} />);
+    expect(screen.getByText("审批顶替件甲")).toBeDefined();
+
+    const plainCtx = fixtureCtx();
+    render(<ApprovalQueueCard row={pendingRow} ctx={plainCtx} queueTotal={1} />);
+    expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
+  });
+
   it("pending 审批接管 composer dock：卡渲染于输入卡上方，Enter 让位不发送", () => {
     const approvalRows: Row[] = [pendingRow];
     const ctx = fixtureCtx({
@@ -693,7 +766,7 @@ describe("ApprovalCard", () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
-  it("settled 行走 ApprovalSettledRow：决策原文在场", () => {
+  it("settled 行走 ApprovalSettledRow：决策原文在场；scope:'session' 显示「· 本会话」", () => {
     const ctx = fixtureCtx();
     render(
       <ApprovalSettledRow
@@ -702,6 +775,22 @@ describe("ApprovalCard", () => {
       />,
     );
     expect(screen.getByText("rejected")).toBeDefined();
+
+    cleanup();
+    render(
+      <ApprovalSettledRow
+        row={
+          {
+            ...pendingRow,
+            status: "settled",
+            decision: "allowed-once",
+            scope: "session",
+          } as ApprovalRow
+        }
+        ctx={ctx}
+      />,
+    );
+    expect(screen.getByText("allowed-once · 本会话")).toBeDefined();
   });
 });
 
@@ -897,7 +986,16 @@ describe("行级挂载点（D-057）", () => {
     });
     // D-062 UI 侧子项：layout 框架件 + sidebar.right 右栏件随骨架批入列（区域级五名）
     // E5：defaultToolViews 七工具键 + mcp 总缝，官方 keyed 注册示范（D-057 全语义闭环）
+    // E6：defaultApprovalViews 八审批键（approval.view.<工具名>，词表 10→11）
     expect([...registered].sort()).toEqual([
+      "approval.view.bash",
+      "approval.view.edit",
+      "approval.view.glob",
+      "approval.view.grep",
+      "approval.view.mcp",
+      "approval.view.powershell",
+      "approval.view.read",
+      "approval.view.write",
       "composer",
       "conversation",
       "layout",
@@ -917,7 +1015,9 @@ describe("行级挂载点（D-057）", () => {
         (n) =>
           (
             ["layout", "sidebar", "conversation", "composer", "sidebar.right"] as WebSlotName[]
-          ).includes(n as WebSlotName) || n.startsWith("tool.call.view."),
+          ).includes(n as WebSlotName) ||
+          n.startsWith("tool.call.view.") ||
+          n.startsWith("approval.view."),
       ),
     ).toBe(true);
   });

@@ -205,6 +205,60 @@ describe("账本回放 → 快照", () => {
     expect(p.rows[0]).toMatchObject({ status: "settled", decision: "rejected", toolName: "shell" });
   });
 
+  it("审批载荷透传（E6）：asked args/reason 投影原样；decided scope 保留（缺省不带键）", () => {
+    const p = new Projection();
+    p.ingest(
+      ev(1, "approval/asked", {
+        turn: "t-1",
+        step: 1,
+        requestId: "r-2",
+        callId: "r-2",
+        tool: "edit",
+        argsDigest: "sha:ef01",
+        args: { file_path: "f.ts", old_string: "a", new_string: "b" },
+        reason: "path is outside the session workspace: X",
+      }),
+    );
+    expect(p.rows[0]).toMatchObject({
+      args: { file_path: "f.ts", old_string: "a", new_string: "b" },
+      reason: "path is outside the session workspace: X",
+    });
+    // decided 带 scope → 保留（settled 显示「· 本会话」的数据源）；args/reason 沿用 pending 行
+    p.ingest(
+      ev(2, "approval/decided", {
+        turn: "t-1",
+        step: 1,
+        requestId: "r-2",
+        decision: "allowed-once",
+        scope: "session",
+      }),
+    );
+    expect(p.rows[0]).toMatchObject({
+      status: "settled",
+      decision: "allowed-once",
+      scope: "session",
+      args: { file_path: "f.ts" },
+      reason: "path is outside the session workspace: X",
+    });
+    // 缺 scope 的 decided → 不带键（形状稳定断言）
+    const q = new Projection();
+    q.ingest(
+      ev(1, "approval/asked", {
+        turn: "t",
+        step: 1,
+        requestId: "r-3",
+        callId: "r-3",
+        tool: "bash",
+        argsDigest: "d",
+      }),
+    );
+    q.ingest(
+      ev(2, "approval/decided", { turn: "t", step: 1, requestId: "r-3", decision: "rejected" }),
+    );
+    expect("scope" in (q.rows[0] as object)).toBe(false);
+    expect("args" in (q.rows[0] as object)).toBe(false);
+  });
+
   it("无投影事件：system/message / request/header / approval/revoked / assistant/attempt 不产行不产增量（step/end 无 assistant 行时不投影）", () => {
     const p = new Projection();
     const deltas = [

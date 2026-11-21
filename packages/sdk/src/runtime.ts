@@ -562,11 +562,14 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       await requireSession(sessions, sessionId).ctx.get("loop").interrupt();
     },
 
-    async settleApproval(sessionId, requestId, decision) {
+    async settleApproval(sessionId, requestId, decision, scope) {
       const session = requireSession(sessions, sessionId);
-      return session.ctx
-        .get("interaction")
-        .settle(requestId, { kind: "approval", requestId, decision });
+      return session.ctx.get("interaction").settle(requestId, {
+        kind: "approval",
+        requestId,
+        decision,
+        ...(scope !== undefined ? { scope } : {}),
+      });
     },
 
     async getSettings() {

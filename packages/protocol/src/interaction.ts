@@ -17,6 +17,9 @@ export type InteractionAnswer = {
   kind: "approval";
   requestId: string;
   decision: Decision;
+  /** 会话级允许（E6）：settle 携带 → decided{scope:'session'} 落账 → 同工具后续调用免 ask
+   * （tools-approval §3.1 折叠）。缺省不带键——once 语义与既有字节面等价 */
+  scope?: "session";
 };
 
 export interface InteractionService {
