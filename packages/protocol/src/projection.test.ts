@@ -39,6 +39,24 @@ describe("账本回放 → 快照", () => {
     expect(p.state.lastTurnId).toBe("t-1");
   });
 
+  it("busySince（R173 计时续表）：turn/start 置事件 time、turn/end 清除、重放重建恢复", () => {
+    const events = [
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "hi", source: "send" }, 1_000),
+      ev(2, "turn/start", { turn: "t-1" }, 1_200),
+    ];
+    const p = new Projection();
+    for (const e of events) p.ingest(e);
+    expect(p.state.busy).toBe(true);
+    expect(p.state.busySince).toBe(1_200); // 权威起点 = turn/start 事件 time
+    p.ingest(ev(3, "turn/end", { turn: "t-1", reason: "completed" }, 5_000));
+    expect(p.state.busy).toBe(false);
+    expect(p.state.busySince).toBeUndefined();
+    // 刷新/重连 = 快照从账本重建：busySince 自愈恢复（计时续上不归零）
+    const rebuilt = rebuildProjection(events);
+    expect(rebuilt.state.busy).toBe(true);
+    expect(rebuilt.state.busySince).toBe(1_200);
+  });
+
   it("工具回合全序：assistant 落定 → tool running → done（output 落定），行序 = 账本序", () => {
     const p = rebuildProjection([
       ev(1, "user/message", { turn: "t-1", step: 0, content: "列目录", source: "send" }),

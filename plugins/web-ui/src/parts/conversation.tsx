@@ -99,13 +99,16 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     }
     setBusySince(undefined);
     return undefined;
-  }, [busy]);
+  }, [busy, ctx.sessionId]); // 切会话重置兜底表（服务端 busySince 是权威——兜底只管无字段老快照）
   const hasActiveTools = useMemo(
     () => snapshot.rows.some((r) => r.kind === "tool" && r.status === "running"),
     [snapshot.rows],
   );
   const stalled = busy && !hasActiveTools && Date.now() - lastActivityRef.current > 3000;
-  const busySeconds = busySince !== undefined ? Math.floor((Date.now() - busySince) / 1000) : 0;
+  // 计时起点：服务端 busySince 权威（R173——turn/start 事件 time，快照重建自愈），
+  // 刷新/重连/换窗口续同一块表；无字段（老快照）才兜底本地起表
+  const since = busy ? (snapshot.state.busySince ?? busySince) : undefined;
+  const busySeconds = since !== undefined ? Math.floor((Date.now() - since) / 1000) : 0;
 
   const commitFollowing = (on: boolean): void => {
     followingRef.current = on;

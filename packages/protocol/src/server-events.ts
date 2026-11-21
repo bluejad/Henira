@@ -116,6 +116,9 @@ export interface SessionState {
   queue?: QueuedPrompt[];
   /** 中断冻结（队列非空时中断不冲刷，等 resume 恢复；投影态非账本事实，与 queue 键同批并线） */
   queuePaused?: boolean;
+  /** 当前 busy 段的真实起点（R173：回合 turn/start 事件 time；turn/end 清除；账本重放
+   *  重建自愈——刷新/重连/换窗口计时续上不归零。前端无此字段时兜底本地起表。 */
+  busySince?: number;
   /** 回合耗时（E3 生命感回合头：事件时间戳取数——账本 turn/start·turn/end 的 time 差，
    * 重放重建/重载后仍在；保留最近 50 轮，键 = turn id。endedAt = turn/end 时刻（轮尾
    * 时间戳）；forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive） */

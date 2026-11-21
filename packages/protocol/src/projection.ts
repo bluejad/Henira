@@ -80,6 +80,7 @@ export class Projection {
         if (this.state.busy && this.state.lastTurnId === turn) return [];
         this.state.busy = true;
         this.state.lastTurnId = turn;
+        this.state.busySince = event.time; // R173 计时权威起点（刷新/重连续表）
         return [{ op: "state.updated", state: { ...this.state } }];
       }
       case "turn/end": {
@@ -147,6 +148,7 @@ export class Projection {
         }
         if (this.state.busy) {
           this.state.busy = false;
+          this.state.busySince = undefined; // R173：busy 段结束清表
           deltas.push({ op: "state.updated", state: { ...this.state } });
         }
         return deltas;

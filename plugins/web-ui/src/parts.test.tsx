@@ -2298,6 +2298,14 @@ describe("生命感（E3）", () => {
     expect(c2.querySelector(".henira-loading-dots")).toBeNull();
   });
 
+  it("busy 计时权威起点（R173）：state.busySince 在场时从服务端起点续算，刷新不归零", () => {
+    const ctx = ctxWithState([], { busy: true, busySince: Date.now() - 30_000 });
+    const { container } = render(<Conversation {...ctx} />);
+    const m = container.textContent?.match(/思考中… · (\d+)s/);
+    expect(m).not.toBeNull();
+    expect(Number(m?.[1])).toBeGreaterThanOrEqual(28); // 续表 ≥28s（tick 容差）——而非从 0 重数
+  });
+
   // 审查批（2026-11-21）：空文本步级行分两档——纯空行剔除；带可视内容（步级 usage/
   // reasoning/中断徽章）为透明行随组携带不拆组，展开按原序可见
   const mkStep = (
