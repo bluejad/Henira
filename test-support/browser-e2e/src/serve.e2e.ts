@@ -451,3 +451,83 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
   await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toHaveCount(0);
   await shot(page, "e6-02-session-allowed.png");
 });
+
+// ── 用例 ⑦（R176）：流式期间列表零请求 + 双窗口列表/busy 推送同步 ──────
+// 独立 server（llm 脚本按调用次序消费——不占共享剧本）：断言网络面板事实，
+// 不信「界面看起来对」：首载后一整回合 /api/sessions 与 /api/dirs 计数必须零增长。
+
+test("R176: zero list requests while streaming + cross-window push sync", async ({ page }) => {
+  const dir = await fs.mkdtemp(path.join(tmpdir(), "henira-e2e-r176-"));
+  const globalDir = await fs.mkdtemp(path.join(tmpdir(), "henira-e2e-r176-config-"));
+  await fs.writeFile(
+    path.join(globalDir, "settings.json"),
+    JSON.stringify({ version: 1, model: "mock/mock-1" }),
+    "utf8",
+  );
+  const r176Mock = mockLlm([finalStream(), finalStream()]);
+  const srv = await createServer({
+    dataDir: dir,
+    globalDir,
+    llm: { name: "llm", start: () => r176Mock.service },
+    port: 0,
+  });
+  const entry = await srv.registry.create({ cwd: dir });
+  const listHits: string[] = [];
+  page.on("request", (req) => {
+    const pathname = new URL(req.url()).pathname;
+    if (pathname === "/api/sessions" || pathname === "/api/dirs") listHits.push(pathname);
+  });
+  let page2: Page | undefined;
+  try {
+    await page.goto(srv.url);
+    const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+    await expect(textarea).toBeVisible();
+    // 首载请求落定（SSE 长连接使 networkidle 永不成立——短等后取基线）
+    await page.waitForTimeout(700);
+    const baseline = listHits.length;
+    expect(baseline).toBeGreaterThan(0); // 开局各拉一次（会话 + 目录）
+
+    // ① 本窗流式回合：全程列表零请求
+    await textarea.fill("stream please");
+    await textarea.press("Enter");
+    await expect(page.locator(".henira-streaming")).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(listHits.length).toBe(baseline);
+    await expect(page.getByText(FINAL_TEXT)).toBeVisible();
+    expect(listHits.length).toBe(baseline); // 回合结束仍零增长（流式增量不碰列表）
+    await shot(page, "r176-01-zero-list-requests.png");
+
+    // ② 双窗口：页 B 建会话 → 页 A 靠 sessions.changed 恰好重载一次
+    page2 = await page.context().newPage();
+    await page2.goto(srv.url);
+    await expect(page2.getByPlaceholder(zh["composer.placeholder"])).toBeVisible();
+    const before = await page.locator(".henira-sessions li").count();
+    await page2.getByRole("button", { name: zh["sessions.new"] }).click();
+    await expect(page.locator(".henira-sessions li")).toHaveCount(before + 1);
+    await page.waitForTimeout(400);
+    expect(listHits.length - baseline).toBe(2); // 一束信号一枪 = 会话+目录各一
+
+    // ③ 页 B 跑回合 → 页 A busy 点推送翻内存（零列表请求）
+    const hitsBeforeStream = listHits.length;
+    const textarea2 = page2.getByPlaceholder(zh["composer.placeholder"]);
+    await textarea2.fill("stream in window two");
+    await textarea2.press("Enter");
+    await expect(page.getByLabel(zh["sessions.busy"])).toBeVisible(); // 页 A 收到状态推送
+    await expect(page2.getByText(FINAL_TEXT)).toBeVisible();
+    await expect(page.getByLabel(zh["sessions.busy"])).toHaveCount(0);
+    expect(listHits.length).toBe(hitsBeforeStream); // 跨窗流式同样零请求
+    await shot(page, "r176-02-cross-window.png");
+
+    // ④ 双窗口删除：页 A 跟随列表事实（会话消失）
+    const victim = (await srv.registry.list()).find((s) => s.id !== entry.id)?.id;
+    expect(victim).toBeDefined();
+    const del = await fetch(`${srv.url}/api/sessions/${victim as string}`, { method: "DELETE" });
+    expect(del.status).toBe(200);
+    await expect(page.locator(".henira-sessions li")).toHaveCount(before);
+  } finally {
+    await page2?.close();
+    await srv.stop();
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(globalDir, { recursive: true, force: true }).catch(() => {});
+  }
+});

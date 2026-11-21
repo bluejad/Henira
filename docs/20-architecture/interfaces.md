@@ -865,11 +865,14 @@ type Delta =
   | { op: "row.upserted"; row: Row } // 行整体替换（账本权威落定 / 状态迁移）
   | { op: "state.updated"; state: SessionState }; // 键级整体替换，键内绝不深合并
 
-// SSE 帧信封（GET /api/events；帧序 = connected → 逐会话快照帧 → 增量帧混排）
+// SSE 帧信封（GET /api/events；帧序 = connected → 逐会话快照帧 → 增量帧 / 列表信号混排）
 type ServerFrame =
   | { kind: "connected"; server: { version: string; startedAt: number } }
   | { kind: "snapshot"; sessionId: string; snapshot: SessionSnapshot }
-  | { kind: "delta"; sessionId: string; seq: number; delta: Delta };
+  | { kind: "delta"; sessionId: string; seq: number; delta: Delta }
+  // 列表信号（R176）：会话/目录列表事实变了（新建 / 删除 / fork / 懒挂载 / 目录增删）——
+  // 全局帧，无 sessionId、无 seq；消费者自行去抖重载。流式 token 增量绝不发此帧。
+  | { kind: "sessions.changed" };
 ```
 
 **客户端纪律（断档不猜）**：每会话记 `lastSeq`；增量帧仅当 `seq === lastSeq + 1` 时应用，否则调 snapshot 端点整体替换并重置水位——客户端永不猜中间态。
@@ -890,6 +893,7 @@ type ServerFrame =
 ### SSE 传输形状
 
 - 单端点 `GET /api/events`；首帧 `connected`，随后**逐会话快照帧**，之后增量帧按会话混排；
+- **列表信号帧**（R176）：`sessions.changed` 是全局帧（无 sessionId / 无 seq），只在列表事实变化时发（建 / 删 / fork / 懒挂载 / 目录增删）——**流式增量绝不发**；消费者（侧栏列表）按「装载一次 + 信号驱动重载」消费，服务端不推送列表内容本体；
 - 心跳：15s 注释帧（传输层）；每订阅者有界队列，溢出断开（客户端重连 = 重拉快照）；
 - **volatile 显式声明**（无 Last-Event-ID）：断线期间的帧不补发，重连 = connected + 全量快照——判据②的审批卡重放由快照携带挂起审批行天然达成。
 
@@ -959,7 +963,7 @@ interface HeniraFacade {
   putUiState(doc: GlobalUiState): Promise<void>;
   getSessionUiState(sessionId: string): Promise<SessionUiState>; // 选中会话时拉取回填
   putSessionUiState(sessionId: string, doc: SessionUiState): Promise<void>; // 整份原子重写，后写者赢
-  events(): AsyncIterable<ServerFrame>; // 全局帧流（connected/快照/增量），
+  events(): AsyncIterable<ServerFrame>; // 全局帧流（connected / 快照 / 增量 / sessions.changed），
   //   内置断档不猜纪律与重连
 }
 
@@ -1027,6 +1031,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
   - 布局与部件基线（批 A3，2026-11-17 用户拍板照 ZCode 形态）：**会话列表按工作目录分组**（折叠组头 = caret + 目录名 + 会话数徽标，活跃会话所在组自动展开——ZCode projects view 行为层）；**设置齿轮住侧栏左下**固定行（ZCode WorkspaceSidebarFooter 行为层）；**输入卡两层**（输入行上 / 工具排下；卡 focus-within 边框变 accent + 底色提亮、内部无独立焦点环），工具排左 = 模型选择器（宿主设置/目录面齐备时渲染，值变更写会话级记忆 updateUiState；**触发钮只显示模型显示名**——厂商 id 不进按钮，绑定值目录里失效即回落清单首个，2026-11-19）、右 = 圆形发送钮；**发送/停止语义 = ZCode**（忙+有草稿 = 发送排队、忙+空草稿 = 停止——有字时圆钮恒为发送）；prompt 失败回填草稿 + 行内错误提示（不静默）；**对话列宽三档**（列含内衬默认 808px → 视口 ≥1124px 896 → ≥1540px 1152，对话列与输入 dock 同档——ZCode conversationLayout 672/896/1152 行为层）；**滚动条细圆条**（14px 槽 / thumb 3px 透明边 padding-box 胶囊 / track 透明 / 色=border 派生档，对话列 `scrollbar-gutter: stable`——ZCode styles.css 数值档行为层，实现自家写法）；usage 徽章全 0 不渲染；
   - **长会话渲染（批 A'，2026-11-18——D-061）**：对话时间线虚拟滚动（tanstack react-virtual——ZCode 同款；虚拟单位 = 轮，turn 相同行不拆散；measureElement 动态测高、estimateSize 一屏兜底、overscan 2；会话切换以 sessionId 为内层 React key 重挂换测高缓存）；**bottom-follow**（上滚手势 wheel/touchmove/方向键 capture 解除 + 落点贴底 48px 恢复 + 回底按钮——dsh 显式按钮不取）；**滚顶翻页**（scrollTop < 64 且 hasOlder → `sessionRows(before=窗口首行 rowSeq)` → store 前插合并（只收窗口首行之前 + rowId 去重）+ scrollTop 补位防跳顶；宿主缺 sessionRows = 静态窗口）；**行引用契约**（store：未变行同引用、变化行新对象）+ RowView/SessionRow memo（比较函数拆稳定子集 row+t+host+slots——ctx 本体每渲染新对象不可比）；jsdom 无 ResizeObserver 降级全量渲染；
   - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——确认弹窗 + busy 前置守卫）；
+  - **会话列表刷新契约（R176，2026-11-22——五家 0/5 铁律落码）**：列表**装载一次 + `sessions.changed` 信号驱动**（建 / 删 / fork / 懒挂载 / 目录增删）——250ms 去抖 + 单飞（在飞只标脏、落定恰补一枪）+ 失败保旧列表**不自动重试**（下个信号再来）；`state.updated` 帧就地翻 busy 点（零请求）；重连快照对未知会话补一次重载。**流式 token 增量绝不触发列表请求**（行 store 通知不再接列表刷新）；e2e 以网络面板计数断言「流式回合列表零请求」；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；**字重规范（基础件批 2026-11-20）= UI chrome 静态图标 bold + 操作钮 14px**（regular 细笔画在 ≤14px 操作钮尺寸糊成「小点/空方块」——用户实拍根因；Horse 用 fill、Spinner 保持 regular）；小图标操作钮统一 `.henira-iconbtn` 基类（透明重置全局按钮基线，muted 常态 hover 升 strong + surface-hover）；**统一下拉弹层件 `HeniraSelect`**（`parts/dropdown.tsx`，原生 `<select>` 系统菜单退场——受控单选 + 键盘 ↑↓/Home/End/Enter + `useDismiss` 统一外点/Esc 收，思考档 / 设置主题 / 设置语言三处已换装；复合面板 ModelSelect 保留自研但接 useDismiss + 键盘导航）；排队卡行操作钮 / 右栏 tab 关闭钮 hover·focus-within 浮现（opacity-only）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
   - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）；
   - 界面资产缝（D-059，**已落码，M4 批 A**）：插件包可带 `locales/<lang>.json` 语言包（缺 key 回落官方 zh，不 fail-loud）与 `themes/<名>.css` 主题包（变量组追加进设置下拉，官方 light / dark 两档永在不可覆盖）；读者 = 官方界面件；`settings.ui.theme` / `ui.locale` 扩为任意已装 id；安全模式回落官方默认组合；清单与伺服走 `GET /api/ui-assets` 两端点（scanUiAssets 住 config-loader）。
@@ -1049,7 +1054,8 @@ interface PluginUiHost {
   sendPrompt(text: string): Promise<TurnReceipt>; // ✓ M3
   subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable; // ✓ M3
   //   EventFilter = { sessionId?: string; types?: string[] } —— 行词表帧流（ServerFrame）；
-  //   M3 实装 = sessionId 过滤（帧级客户端过滤，无背压队列）；types 过滤随插件批补
+  //   M3 实装 = sessionId 过滤（帧级客户端过滤，无背压队列）；types 过滤随插件批补；
+  //   R176：全局列表信号 sessions.changed 只投给不带 sessionId 过滤的订阅者（不属于任何会话）
   onTurnFinished(receipt: TurnReceipt, cb: (result: TurnResult) => void): Disposable; // ✓ M3（终局便捷回调）
   //   M3 实装 = 简版：会话 busy 沿（true→false）即通知、恒 {ok:true}、无 own-receipt 过滤——
   //   receipt 形（恰一次/终局映射 interrupted|error|submit_failed）随插件批升级（现无消费者）

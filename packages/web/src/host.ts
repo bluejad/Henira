@@ -380,7 +380,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     subscribe(filter: { sessionId?: string }, cb: (frame: ServerFrame) => void): () => void {
       const listener = (frame: ServerFrame): void => {
         if (frame.kind === "connected") return;
-        if (filter.sessionId !== undefined && frame.sessionId !== filter.sessionId) return;
+        if (filter.sessionId !== undefined) {
+          // 全局列表信号（sessions.changed）不属于任何会话——带会话过滤的订阅者不收
+          if (frame.kind === "sessions.changed" || frame.sessionId !== filter.sessionId) return;
+        }
         cb(frame);
       };
       frameListeners.add(listener);

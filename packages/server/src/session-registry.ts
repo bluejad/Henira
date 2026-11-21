@@ -832,6 +832,7 @@ export class SessionRegistry {
       await entry.harness.dispose().catch(() => {});
       this.#entries.delete(id);
     }
+    this.#opts.fanout.sessionsChanged(); // 列表事实变（R176）
     return true;
   }
 
@@ -861,6 +862,7 @@ export class SessionRegistry {
       maxRetries: 5,
       retryDelay: 100,
     });
+    this.#opts.fanout.sessionsChanged(); // 列表事实变（R176）
   }
 
   /** 磁盘会话目录定位（projects/<key>/sessions/<id> 逐 key 扫；历史会话删除用） */
@@ -884,9 +886,11 @@ export class SessionRegistry {
     return this.get(id)?.directory ?? (await this.#findSessionDir(id));
   }
 
-  /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号） */
+  /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号）；
+   *  列表事实同步变（busy 可从 false 翻 true / 新行上屏）→ 全局 sessions.changed（R176） */
   #announce(entry: SessionEntry): void {
     this.#opts.fanout.deliverSnapshot(entry.id, this.snapshotOf(entry));
+    this.#opts.fanout.sessionsChanged();
   }
 
   /** 轮尾分叉（E4；session.md §6 引擎语义已定稿）：按账本 seq 前缀复制出新会话。走

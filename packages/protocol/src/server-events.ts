@@ -154,7 +154,11 @@ export type Delta =
 export type ServerFrame =
   | { kind: "connected"; server: { version: string; startedAt: number } }
   | { kind: "snapshot"; sessionId: string; snapshot: SessionSnapshot }
-  | { kind: "delta"; sessionId: string; seq: number; delta: Delta };
+  | { kind: "delta"; sessionId: string; seq: number; delta: Delta }
+  /** 会话/目录**列表**事实变了（新建 / 删除 / fork / 懒挂载 / 目录登记增删）——全局帧，
+   *  无 sessionId、无 seq：不是行投影增量，消费者（侧栏列表）自行去抖重载。流式 token
+   *  增量绝不发此帧（R176 五家铁律：列表管道与高频增量彻底分家）。 */
+  | { kind: "sessions.changed" };
 
 export interface SessionSummary {
   id: string;

@@ -144,7 +144,9 @@ const forms: {
 ];
 
 function framesOf(sink: ServerFrame[], sessionId: string): ServerFrame[] {
-  return sink.filter((f) => f.kind !== "connected" && f.sessionId === sessionId);
+  return sink.filter(
+    (f) => (f.kind === "snapshot" || f.kind === "delta") && f.sessionId === sessionId,
+  );
 }
 
 /** 轮询等待谓词成立（CI 纪律：异步断言禁固定 sleep；fn 可同步可异步——async 返回值必须
@@ -194,6 +196,43 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     expect(snapshot.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
     expect(snapshot.state.busy).toBe(false);
     void frames;
+  });
+
+  it("R176：列表事实变化 → 全局 sessions.changed（双形态同形；流式增量不发）", async () => {
+    const { facade } = await form.make([
+      [mockText("回复正文"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    void (async () => {
+      try {
+        for await (const frame of facade.events()) sink.push(frame);
+      } catch {
+        // stop 时流自然结束
+      }
+    })();
+    await waitFor(() => (sink.some((f) => f.kind === "connected") ? true : undefined));
+    // 建会话 → 列表事实变
+    const session = await facade.createSession();
+    await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+    // 流式回合期间不得再发列表信号
+    sink.length = 0;
+    await facade.prompt(session.id, "问一句");
+    await waitFor(() => {
+      const ended = framesOf(sink, session.id).some(
+        (f) => f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+      );
+      return ended ? true : undefined;
+    });
+    expect(sink.some((f) => f.kind === "sessions.changed")).toBe(false);
+    // 目录登记增 → 信号
+    sink.length = 0;
+    const cwd = await fs.mkdtemp(path.join(root, "r176-dir-"));
+    await facade.addDir(cwd);
+    await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+    // 删会话 → 信号
+    sink.length = 0;
+    await facade.deleteSession(session.id);
+    await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
   });
 
   it("settleApproval：未知 requestId → 分型（R175）；挂起审批 → 收答放行", async () => {

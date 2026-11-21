@@ -108,26 +108,102 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     ctx.client.deleteSession !== undefined;
   const canDeleteSession = ctx.client.deleteSession !== undefined;
 
+  // R176 列表保鲜（五家共识：装载一次 + 生命周期信号驱动；流式增量绝不碰列表）：
+  // 单飞 + 脏标记（在飞时只标脏，落定后恰补一次——ZCode flight+dirty / opencode single-flight
+  // 行为层）+ 250ms 去抖（一束信号一枪）+ 失败静默保旧列表不自动重试（列表 GET 0/5 重试铁律）。
+  const inFlightRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const mountedRef = useRef(true);
+  const sessionsRef = useRef<readonly SessionSummary[]>([]);
+  const refreshRef = useRef<(() => void) | undefined>(undefined);
+
   const refresh = useCallback((): void => {
-    void ctx.client
-      .listSessions()
-      .then(setSessions)
-      .catch(() => {}); // 拉取失败静默保留上次列表（下次帧再来）
-    const listDirs = ctx.client.listDirs;
-    if (listDirs !== undefined) {
-      void listDirs()
-        .then(setDirs)
-        .catch(() => {});
+    if (inFlightRef.current) {
+      dirtyRef.current = true;
+      return;
     }
+    inFlightRef.current = true;
+    const listDirs = ctx.client.listDirs;
+    const requests: Promise<unknown>[] = [
+      ctx.client.listSessions().then(
+        (next) => {
+          if (mountedRef.current) setSessions(next);
+        },
+        () => {}, // 失败：保旧列表，不重试（下一个信号再来）
+      ),
+    ];
+    if (listDirs !== undefined) {
+      requests.push(
+        listDirs().then(
+          (next) => {
+            if (mountedRef.current) setDirs(next);
+          },
+          () => {},
+        ),
+      );
+    }
+    void Promise.allSettled(requests).then(() => {
+      inFlightRef.current = false;
+      if (dirtyRef.current) {
+        dirtyRef.current = false;
+        refreshRef.current?.();
+      }
+    });
   }, [ctx.client]);
+  refreshRef.current = refresh;
+
+  const scheduleRefresh = useCallback((): void => {
+    if (timerRef.current !== undefined) return;
+    timerRef.current = setTimeout(() => {
+      timerRef.current = undefined;
+      refreshRef.current?.();
+    }, 250);
+  }, []);
 
   useEffect(() => {
-    refresh();
-    const off = ctx.store.subscribe(refresh); // busy 变化等经帧流触发刷新
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  // 列表信号订阅（先订阅再首载：装载窗口内的变化不丢）：
+  // sessions.changed = 列表事实变 → 去抖重载；state.updated = busy 推送翻内存（零请求）；
+  // snapshot = 重连自愈（已知会话翻 busy；未知会话 = 断线期间新建 → 补一次重载）。
+  useEffect(() => {
+    mountedRef.current = true;
+    const off = ctx.host.subscribe({}, (frame) => {
+      if (frame.kind === "sessions.changed") {
+        scheduleRefresh();
+        return;
+      }
+      if (frame.kind === "delta") {
+        if (frame.delta.op !== "state.updated") return; // 流式 token / 工具行增量一律不碰列表
+        const busy = frame.delta.state.busy;
+        setSessions((prev) =>
+          prev.map((s) => (s.id === frame.sessionId && s.busy !== busy ? { ...s, busy } : s)),
+        );
+        return;
+      }
+      if (frame.kind === "snapshot") {
+        const busy = frame.snapshot.state.busy;
+        if (!sessionsRef.current.some((s) => s.id === frame.sessionId)) {
+          scheduleRefresh();
+          return;
+        }
+        setSessions((prev) =>
+          prev.map((s) => (s.id === frame.sessionId && s.busy !== busy ? { ...s, busy } : s)),
+        );
+      }
+    });
+    refreshRef.current?.();
     return () => {
+      mountedRef.current = false;
       off();
+      if (timerRef.current !== undefined) {
+        clearTimeout(timerRef.current);
+        timerRef.current = undefined;
+      }
     };
-  }, [refresh, ctx.store]);
+  }, [ctx.host, scheduleRefresh]);
 
   // 初始折叠种子：刷新/重启后只保证「选中会话所在组展开、其余组收起」。播一次即完——
   // 此后用户想折叠想展开随他，不落盘也不跨刷新还原（用户裁决 2026-11-18）
@@ -164,20 +240,20 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     void ctx.client
       .createSession()
       .then((session) => {
-        refresh();
+        scheduleRefresh();
         ctx.selectSession(session.id); // 建完即切（「新会话」= 开始在那聊，不切反直觉）
       })
       .catch(() => {});
-  }, [ctx.client, ctx.selectSession, refresh]);
+  }, [ctx.client, ctx.selectSession, scheduleRefresh]);
 
   const createIn = useCallback(
     (cwd: string): void => {
       void ctx.client
         .createSession({ cwd })
-        .then(() => refresh())
+        .then(() => scheduleRefresh())
         .catch(() => {});
     },
-    [ctx.client, refresh],
+    [ctx.client, scheduleRefresh],
   );
 
   const toggle = useCallback((cwd: string): void => {
@@ -372,7 +448,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
           }}
           onDone={() => {
             setPending(null);
-            refresh();
+            scheduleRefresh();
           }}
         />
       ) : null}
@@ -380,7 +456,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         <DirectoryDialog
           ctx={ctx}
           onAdded={() => {
-            refresh();
+            scheduleRefresh();
           }}
           onClose={() => {
             setAddOpen(false);

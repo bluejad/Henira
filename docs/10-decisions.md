@@ -820,3 +820,16 @@
   7. **故障分型认账**：交付后的问题归「没取证 / 接缝 / 发明 / 环境」；「没取证」复犯视为流程失职。
 - **理由**：清单式整改以「我想到的」为边界，盲区不可枚举；参照实现已覆盖绝大多数机制先例。把「看」升为工序固定步并配计划首节硬闸，才能从「靠灵感」换成「靠流程」。接缝 / 发明 / 环境 / 长尾四类无法靠参照消除，只能靠声明 + 加倍验收 + 分型让风险可预测、不隐形。
 - **备注**：落点 = AGENTS.md 两段（干活顺序 / 裁决与验收）。既有验收闸（语义钉子测试 / 反向核对 / 报告带扫描范围）不变；与类型化清单冲突处以本节为准。
+
+## D-067 会话列表保鲜：全局 sessions.changed 信号帧 + 装载一次/去抖/单飞（R176 洪泛修复）
+
+- **状态**：已定 · 2026-11-22 · 直播事故修复批；✓ 同日落码
+- **背景**：聊天中控制台数百条 `net::ERR_INSUFFICIENT_RESOURCES`——`/api/dirs` 与 `/api/sessions` 成对失败。根因：官方件会话列表把行 store 的每次通知当刷新信号（`store.subscribe(refresh)`），而 store 每个流式 token 帧都通知；无单飞 / 去抖 / 退避 → 约 60 次/秒 × 2 请求，浏览器每源连接池被打穿。五家取证（dsh / ZCode / opencode / CC 与闭源产品行为层，D-004 / D-047）铁律：列表 0/5 轮询、流式增量 0/5 触发列表 HTTP、列表 GET 失败 0/5 自动重试。
+- **决定**：
+  1. **协议加全局帧** `ServerFrame.sessions.changed`（无 sessionId / 无 seq）——只在列表事实变化时发：建会话 / 删会话 / fork / 懒挂载（`#announce` 共点）/ 目录登记增删；**流式增量绝不发**。fanout 只开 `sessionsChanged()` 专用方法（不开放通用 broadcast——行增量必须走 publish 保 seq）。
+  2. **双形态同形**：server 路由与 sdk runtime 的 create / delete / dir 变更点各发一次；SDK client 透传不变。
+  3. **官方会话列表消费契约**：装载一次 + 信号驱动——250ms 去抖 + 单飞（在飞只标脏、落定恰补一枪）+ 失败保旧列表不自动重试；`state.updated` 帧就地翻 busy（零请求）；重连快照对未知会话补一次重载；**行 store 通知不再接列表刷新**。
+  4. **验收面含资源行为**：e2e 以网络面板计数断言流式回合 `/api/sessions` + `/api/dirs` 零增长；双页建 / 删 / 忙同步各零请求或恰一枪。
+- **理由**：结构取 dsh（列表一次装载 + 生命周期推送，token 增量走独立管道）；去抖 / 单飞 / 失败不重试参数取 opencode / ZCode 行为层；busy 翻内存取 dsh 与闭源产品的 status 事件语义。全局信号是自主发明（五家分别用 upsert / removed / status / invalidate——无同形）：不推列表本体，保持 REST 列表为唯一真相源，信号频率极低且天然幂等。
+- **非目标（挂账）**：`/api/sessions`、`/api/dirs` 的全量扫盘 / 整文件读优化；服务端 batcher 多事件合并；客户端全局并发队列（opencode 4 槽先例）。根因消除后列表调用归零级，以上仅未来加固。
+- **备注**：落点 = interfaces.md（ServerFrame / SSE 传输形状 / sdk events / web 侧栏刷新契约 / PluginUiHost.subscribe 过滤语义）；测试 = web-ui 6 例 + server SSE 1 例 + facade 双形态 1 例 + e2e 网络计数/双页 1 例。

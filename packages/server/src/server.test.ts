@@ -128,7 +128,9 @@ async function waitFor<RT>(
 }
 
 function framesFor(sink: ServerFrame[], sessionId: string): ServerFrame[] {
-  return sink.filter((f) => f.kind !== "connected" && f.sessionId === sessionId);
+  return sink.filter(
+    (f) => (f.kind === "snapshot" || f.kind === "delta") && f.sessionId === sessionId,
+  );
 }
 
 async function createSession(base: string, cwd?: string): Promise<string> {
@@ -255,6 +257,52 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
       expect(sinkA.some((f) => f.kind === "delta")).toBe(true);
       expect(sinkB.some((f) => f.kind === "delta")).toBe(true);
     } finally {
+      await cleanup();
+    }
+  });
+
+  it("R176：sessions.changed 只随列表事实变化发（建/删/目录），流式增量不发", async () => {
+    const { base, cleanup } = await makeServer([[mockText("回复"), mockFinish("stop")]]);
+    const sink: ServerFrame[] = [];
+    const controller = new AbortController();
+    try {
+      subscribe(base, sink, controller.signal);
+      await waitFor(() => (sink.some((f) => f.kind === "connected") ? true : undefined));
+      // 建会话 → 列表事实变（快照之外另有全局信号）
+      const id = await createSession(base);
+      await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+      // 流式窗口清零：此后只该有增量帧，列表信号一帧都不许有
+      sink.length = 0;
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "问一句" }),
+      });
+      await waitFor(() => {
+        const ended = framesFor(sink, id).some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+        );
+        return ended ? true : undefined;
+      });
+      expect(sink.some((f) => f.kind === "sessions.changed")).toBe(false);
+      // 删会话 → 信号
+      sink.length = 0;
+      const del = await fetch(`${base}/api/sessions/${id}`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+      // 目录登记增 → 信号
+      sink.length = 0;
+      const cwd = await fs.mkdtemp(path.join(root, "r176-dir-"));
+      const addRes = await fetch(`${base}/api/dirs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cwd }),
+      });
+      expect(addRes.status).toBe(200);
+      await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+    } finally {
+      controller.abort();
       await cleanup();
     }
   });

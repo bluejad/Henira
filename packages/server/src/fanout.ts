@@ -44,6 +44,13 @@ export class Fanout {
     });
   }
 
+  /** 会话/目录列表事实变了（新建 / 删除 / fork / 懒挂载 / 目录增删）——全局信号帧，
+   *  无会话 id、无 seq。只开这一个专用方法（不开放通用 broadcast）：行投影增量必须走
+   *  publish 保 seq 单调，列表信号不得绕道（R176）。 */
+  sessionsChanged(): void {
+    this.#deliver({ kind: "sessions.changed" });
+  }
+
   /** 订阅；返回退订函数。同一 push 的重复订阅以同一 key 去重 */
   subscribe(key: object, sink: FrameSink): () => void {
     this.#subscribers.set(key, sink);

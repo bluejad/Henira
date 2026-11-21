@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 // 官方件测试（jsdom）：locale 取字 / 交互回调 / 哑渲染。件纯呈现——数据经承重缝注入。
 
-import type { ApprovalRow, AssistantRow, Row, ServerFrame, ToolRow } from "@henira/protocol";
+import type {
+  ApprovalRow,
+  AssistantRow,
+  Row,
+  ServerFrame,
+  SessionSummary,
+  ToolRow,
+} from "@henira/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { zh } from "./locales/zh.js";
@@ -85,6 +92,33 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
 
 afterEach(cleanup);
 
+/** R176：可控帧流宿主——fixtureCtx 的 host.subscribe 换成可推帧的发射器 */
+function signalFixture(overrides?: Partial<WebPartContext>): {
+  ctx: WebPartContext;
+  emit: (frame: ServerFrame) => void;
+} {
+  const listeners = new Set<(frame: ServerFrame) => void>();
+  const base = fixtureCtx(overrides);
+  const ctx: WebPartContext = {
+    ...base,
+    host: {
+      ...base.host,
+      subscribe: (_filter: { sessionId?: string }, cb: (frame: ServerFrame) => void) => {
+        listeners.add(cb);
+        return () => {
+          listeners.delete(cb);
+        };
+      },
+    },
+  };
+  return {
+    ctx,
+    emit: (frame) => {
+      for (const cb of [...listeners]) cb(frame);
+    },
+  };
+}
+
 describe("SessionList", () => {
   it("列出会话（busy 点）+ 新会话按钮走 client.createSession", async () => {
     const ctx = fixtureCtx();
@@ -95,6 +129,105 @@ describe("SessionList", () => {
     const newButton = screen.getByText(`+ ${t("sessions.new")}`);
     fireEvent.click(newButton);
     expect(createSession).toHaveBeenCalledOnce();
+  });
+
+  it("R176：行 store 通知不再拉列表（流式增量不碰列表）", async () => {
+    const storeListeners = new Set<() => void>();
+    const ctx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: [], state: { busy: false } }),
+        subscribe: (cb: () => void) => {
+          storeListeners.add(cb);
+          return () => {
+            storeListeners.delete(cb);
+          };
+        },
+      },
+    });
+    const listSessions = vi.spyOn(ctx.client, "listSessions");
+    render(<SessionList {...ctx} />);
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1));
+    for (let i = 0; i < 100; i++) {
+      for (const cb of [...storeListeners]) cb();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(listSessions).toHaveBeenCalledTimes(1); // 首载之外零请求
+    expect(storeListeners.size).toBe(0); // 根本不再订阅 store
+  });
+
+  it("R176：sessions.changed 信号风暴 → 250ms 去抖后恰一枪", async () => {
+    const { ctx, emit } = signalFixture();
+    const listSessions = vi.spyOn(ctx.client, "listSessions");
+    render(<SessionList {...ctx} />);
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1));
+    for (let i = 0; i < 10; i++) emit({ kind: "sessions.changed" });
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(listSessions).toHaveBeenCalledTimes(2); // 一束信号只发一枪
+  });
+
+  it("R176：在飞时信号只标脏，落定后恰补一枪", async () => {
+    const { ctx, emit } = signalFixture();
+    const pending: ((rows: SessionSummary[]) => void)[] = [];
+    const listSessions = vi.spyOn(ctx.client, "listSessions").mockImplementation(
+      () =>
+        new Promise<SessionSummary[]>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    render(<SessionList {...ctx} />);
+    await waitFor(() => expect(pending).toHaveLength(1)); // 首载在飞
+    emit({ kind: "sessions.changed" });
+    await new Promise((resolve) => setTimeout(resolve, 300)); // 去抖到点：在飞 → 只标脏
+    expect(pending).toHaveLength(1);
+    pending[0]?.([{ id: "s-1", cwd: "C:\\demo", updatedAt: 1, busy: false }]);
+    await waitFor(() => expect(pending).toHaveLength(2)); // 落定后补恰一枪
+    pending[1]?.([]);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(pending).toHaveLength(2); // 无更多补发
+    expect(listSessions).toHaveBeenCalledTimes(2);
+  });
+
+  it("R176：列表拉取失败 → 保旧列表、不自动重试（等下个信号）", async () => {
+    const { ctx, emit } = signalFixture();
+    const listSessions = vi.spyOn(ctx.client, "listSessions").mockRejectedValue(new Error("boom"));
+    render(<SessionList {...ctx} />);
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1));
+    emit({ kind: "sessions.changed" });
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(listSessions).toHaveBeenCalledTimes(2); // 失败不重试
+  });
+
+  it("R176：state.updated 就地翻 busy 点（零列表请求）", async () => {
+    const { ctx, emit } = signalFixture();
+    const listSessions = vi.spyOn(ctx.client, "listSessions");
+    render(<SessionList {...ctx} />);
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText(t("sessions.busy"))).toBeDefined());
+    emit({
+      kind: "delta",
+      sessionId: "s-1",
+      seq: 7,
+      delta: { op: "state.updated", state: { busy: false } },
+    });
+    await waitFor(() => expect(screen.getByLabelText(t("sessions.idle"))).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(listSessions).toHaveBeenCalledTimes(1); // 推送翻内存，零请求
+  });
+
+  it("R176：sessions.changed → 新会话上屏（列表事实变重载）", async () => {
+    const { ctx, emit } = signalFixture();
+    const listSessions = vi
+      .spyOn(ctx.client, "listSessions")
+      .mockResolvedValueOnce([{ id: "s-1", cwd: "C:\\demo", updatedAt: 1, busy: false }]);
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1));
+    expect(container.querySelectorAll("button.henira-session-group")).toHaveLength(1);
+    emit({ kind: "sessions.changed" });
+    await waitFor(() => {
+      expect(container.querySelectorAll("button.henira-session-group")).toHaveLength(2);
+    });
   });
 
   it("点会话条目 → selectSession 回调（承重缝）", async () => {

@@ -528,6 +528,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         state: stateWithQueue(projection.state, session.ctx),
       },
     });
+    deliver({ kind: "sessions.changed" }); // 列表事实变（R176；与 server 同形）
     return session;
   };
 
@@ -923,7 +924,9 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const stat = await fs.stat(resolved).catch(() => undefined);
       if (stat === undefined) throw new Error("path does not exist or is not accessible");
       if (!stat.isDirectory()) throw new Error("path exists but is not a directory");
-      return dirs.upsert(resolved);
+      const dir = await dirs.upsert(resolved);
+      deliver({ kind: "sessions.changed" }); // 目录列表事实变（R176）
+      return dir;
     },
 
     async deleteDir(id) {
@@ -944,6 +947,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       await fs.rm(path.join(dataDir, "projects", dir.key), { recursive: true, force: true });
       await fs.rm(path.join(dataDir, "checkpoints", dir.key), { recursive: true, force: true });
       await dirs.remove(id);
+      deliver({ kind: "sessions.changed" }); // 目录与辖下会话列表事实变（R176）
     },
 
     async browseDirs(path) {
@@ -966,6 +970,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         await session.harness.dispose().catch(() => {});
         sessions.delete(id);
       }
+      deliver({ kind: "sessions.changed" }); // 列表事实变（R176）
     },
 
     async getUiState() {

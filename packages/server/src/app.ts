@@ -388,6 +388,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: "path does not exist or is not accessible" }, 400);
     if (!stat.isDirectory()) return c.json({ error: "path exists but is not a directory" }, 400);
     const dir = await deps.dirs.upsert(resolved);
+    deps.fanout.sessionsChanged(); // 目录列表事实变（R176）
     return c.json({ ok: true, dir });
   });
 
@@ -412,6 +413,7 @@ export function createApp(deps: AppDeps): Hono {
         500,
       );
     }
+    deps.fanout.sessionsChanged(); // 目录与辖下会话列表事实变（R176）
     return c.json({ ok: true });
   });
 
