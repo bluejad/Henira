@@ -65,7 +65,7 @@
 
 - `name` **必填且必须与目录名一致**；`version` 写了必须与版本目录名一致、缺省取目录名（不一致 → 跳过并告警）；其余可选；
 - 解析口径：**缺省救缺失，写错丢整段**；清单缺失 / 损坏 → 跳过该插件并告警，**不挡启动**（坏插件不该让整个软件打不开；真缺关键插件跑不起来，内核报错兜底——"loop 需要槽位 'llm'，没有插件提供它"）；
-- `ui` 段（D-021 / D-031）：`entry` 可选（相对版本目录的 ESM 入口，**缺省 `ui/main.js`**）、`title` 可选（插件列表展示）、`slots` **可选**（声明计划挂载点，供插件页提前展示 / 加载前校验 / AI 自测；v1 取值见 §4 挂载点词表——结构性 / 区域级五个 ＋ 行级五个（D-057 / D-062）；keyed 槽声明写实际要注册的全名，如 `tool.call.view.search`）；**实际挂载仍以 `ctx.registerSlot` 为准**，字段名是 `ui.slots` 不是 `slot`。
+- `ui` 段（D-021 / D-031）：`entry` 可选（相对版本目录的 ESM 入口，**缺省 `ui/main.js`**）、`title` 可选（插件列表展示）、`slots` **可选**（声明计划挂载点，供插件页提前展示 / 加载前校验 / AI 自测；v1 取值见 §4 挂载点词表——结构性 / 区域级五个 ＋ 行级六个（D-057 / D-062 / E6 审批卡缝）；keyed 槽声明写实际要注册的全名，如 `tool.call.view.search`）；**实际挂载仍以 `ctx.registerSlot` 为准**，字段名是 `ui.slots` 不是 `slot`。
 - `engine` 段（D-048）：`entry` 可选（相对版本目录的 ESM 入口，**缺省 `engine/main.js`**）；顶层可选字符串字段 **`engines`**（如 `"engines": "^0.1"`；2026-11-19 定名——原名 `engine` 与段名撞 key，JSON 无法同义）声明兼容的引擎版本，装载时校验、不符跳过 + 告警（兼容门）。注入哪些能力服务由**引擎模块导出**声明（`export const inject = [...]`，D-049），manifest 不复写——单一事实源。
 
 ## 4. 槽位文件格式
@@ -146,13 +146,13 @@
 - **源码随包走**：需要构建的界面件，源码可住在 `ui/src/`（自由区：TS 源文件、package.json、开发用 node_modules、构建配置），AI 写完在原地构建、产物进 `ui/` 根；**宿主只加载 `ui.entry` 产物**，源码与开发依赖不加载、不解析；更新写新版本目录时源码随版本一起拷——源码与产物永远同版本（D-024），不漂移；分发 / 备份不带 node_modules（开发脚手架，到场要改时 AI `pnpm install` 重装即可）；
 - **禁止**：Node API、自带 React、改写应用根节点 / `document.body`、读别的插件的 DOM / 样式；
 - **ctx 门面**：`registerSlot(name, component, { order? }) → disposer` ＋ `replaceSlot(name, component) → disposer`（顶替官方默认件 / 自家重入；同 key 已有**其他第三方件**才报错不装载 ＋ 告警——占用语义见下）＋ **`host: PluginUiHost`**（13 方法，见下）；样式 / 监听 / 定时器在 `apply` 内注册，随页面卸载撤销；
-- **挂载点 v1 十个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18）**：
+- **挂载点 v1 十一个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18 ＋ E6 审批卡缝 2026-11-21）**：
   - **结构性一个**：`layout`——**整页框架槽**；官方框架件（左中右框架本体，现 web Shell 拆出）默认占用，并在占槽的同一注册里声明子槽（**槽套槽**：声明 = 独占渲染权，dsh AppFrame 理念行为层）；`replaceSlot("layout")` = **整页重排**（风险标注同 dsh root 槽：影子化官方 UI——官方区域槽声明随框架件消失；安全模式回落官方框架）；
   - **区域级四个**：`sidebar`（左栏）· `conversation`（中柱）· `composer`（输入区）· `sidebar.right`（右栏；官方默认件 = tab 框架，见下行）；D-062 起三名正名与宿主代码一致（原 D-033 名 `session.top` / `composer.above` / `sidebar.right` 作废——按文档写插件从"静默忽略"变"直接生效"）；
   - **行级六个**：`tool.call.view.<工具名>`（**工具卡自定义渲染**，按工具名 keyed——插件给自家工具定制卡片、或顶替官方工具卡。E5 起官方 per-tool 卡（终端/diff/新建/读取/搜索/MCP）自己也经 `webUiModule` 走本缝注册——官方 keyed 注册示范；MCP 工具动态名走 `tool.call.view.mcp` 总缝前缀路由）· `approval.view.<工具名>`（**审批卡自定义渲染**，E6——官方 per-tool 审批卡（edit/write diff 预览、bash 命令行、read/glob/grep 路径摘要、未知工具 JSON 预览）同经 `webUiModule` 注册进缝；数据源 = 审批载荷 args 全文（D-046）；插件 replaceSlot 顶替、卸载回落通用卡）· `conversation.images`（**消息图片画廊**，单槽；官方默认件渲染行内图片组）· `turn.tail`（**回合尾追加位**——回合结束后追加呈现块：交付卡 / 富结果卡；追加不改写回复正文）· `sidebar.right.tab`（**右栏 tab 追加位**——一件 = 一个 tab 面板，加号 / 下拉列已注册面板；官方 tab 与插件 tab 并存）· `sidebar.right.preview.<扩展名>`（**侧栏文件预览实现**，按扩展名 keyed——docx / pptx / pdf / 表格 / 视频 / 图片等富预览由此扩；文件预览 tab 的 body 实现缝）；
-  - **槽位词表按宿主定义**（D-033）：行级三条 `turn.tail` / `conversation.images` / `tool.call.view.*` 是 web 系共享核心；`layout`、区域四名与三个 `sidebar.right.*` 属桌面 web 宿主词表；
-  - **落码状态**：行级三条已生效（M4 批 A——`tool.call.view.` / `conversation.images` / `turn.tail` 宿主已接受、对话流已消费）；**三栏骨架批已生效（2026-11-18，先行于批 C，D-063 先例）**：`layout` 槽（官方框架件占槽 + 同一注册声明子槽，宿主 root 只挂 layout）· `sidebar.right` 区域槽（官方默认件 = tab 框架：⌄ 已开面板清单 + tab 条横滚 + ＋ 空白面板展位 + ⤢ 最大化；`rightPanel{open,active,tabs}` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（宿主接受、框架消费——注册件各成一 tab，标签暂取件名）；`sidebar.right.preview.` 前缀宿主已接受、渲染挂点仍缺（随批 C / 桌面批）；批 C 余项（第三方 UI 装载通道 / 插件管理面 / useResource / listPlugins / D-048 确认卡）不变；
-- **keyed 词表按前缀识别（D-057）**：`tool.call.view.` / `sidebar.right.preview.` 前缀合法、后缀自由（工具名 / 扩展名——含插件自家工具名）；`sidebar.right.tab` / `turn.tail` 是追加位非 keyed（`registerSlot` 多件共存，`order` 排序）；未知前缀照 D-033 处置（别的宿主词表 → 静默忽略，完全未知 → 丢弃告警）；
+  - **槽位词表按宿主定义**（D-033）：行级四条 `turn.tail` / `conversation.images` / `tool.call.view.*` / `approval.view.*`（E6）是 web 系共享核心；`layout`、区域四名与三个 `sidebar.right.*` 属桌面 web 宿主词表；
+  - **落码状态**：行级三条已生效（M4 批 A——`tool.call.view.` / `conversation.images` / `turn.tail` 宿主已接受、对话流已消费）；**E6 审批卡缝已生效（2026-11-21）**：`approval.view.` 宿主已接受、composer dock 已消费（官方八键注册进缝）；**三栏骨架批已生效（2026-11-18，先行于批 C，D-063 先例）**：`layout` 槽（官方框架件占槽 + 同一注册声明子槽，宿主 root 只挂 layout）· `sidebar.right` 区域槽（官方默认件 = tab 框架：⌄ 已开面板清单 + tab 条横滚 + ＋ 空白面板展位 + ⤢ 最大化；`rightPanel{open,active,tabs}` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（宿主接受、框架消费——注册件各成一 tab，标签暂取件名）；`sidebar.right.preview.` 前缀宿主已接受、渲染挂点仍缺（随批 C / 桌面批）；批 C 余项（第三方 UI 装载通道 / 插件管理面 / useResource / listPlugins / D-048 确认卡）不变；
+- **keyed 词表按前缀识别（D-057）**：`tool.call.view.` / `approval.view.`（E6）/ `sidebar.right.preview.` 前缀合法、后缀自由（工具名 / 扩展名——含插件自家工具名）；`sidebar.right.tab` / `turn.tail` 是追加位非 keyed（`registerSlot` 多件共存，`order` 排序）；未知前缀照 D-033 处置（别的宿主词表 → 静默忽略，完全未知 → 丢弃告警）；
 - **区域替换（D-043）**：`replaceSlot(name, component)` 替换该区域的官方默认件；同区冲突报错（D-022 同款）；没装东西的框**收起**（不渲染不占宽，不留空白）；装法可自定义（件挂哪个槽可配置）；`layout` 槽替换 = 整页重排（风险标注见挂载点词表块）；
 - **keyed 槽占用语义（D-057）**：官方内置件默认占用（工具卡 / 预览 / 审批卡各有官方默认实现——E5 起工具卡官方默认实现 = per-tool 卡真实注册进缝、E6 起审批卡同款八键注册，均非代码级 fallback）；插件 `replaceSlot` 顶替，卸载 / 停用自动回落官方；同 key 第二家顶替 → 报错不装载 ＋ 告警（与 D-022 唯一占用、D-048 回落官方同语义）；`conversation.images` 同理可顶替；`turn.tail` 纯追加（`registerSlot` 多件共存，`order` 排序）；**安全模式**（双击 Alt / `?ui=safe`）行级缝全部收起、回落官方默认渲染（编译期出口 defaultParts + defaultToolViews 占位——per-tool 卡安全模式同形）；`sidebar.right` 官方默认件 = tab 框架（ZCode 式 tab 条 + 加号 / 下拉列已注册面板——dsh tab 注册制 extension 优先 builtin 行为层，v1 简化：插件 tab 追加共存，preview 的 keyed 顶替缝不变）；顶替 `sidebar.right` 本体 = 整条右栏替换（tab 框架一并换）；
 - **标准件出口（D-043）**：官方界面件（**整页框架件** / 会话列表 / 对话面板 / 输入框 / 审批卡…）经宿主标准件出口（import map，与 react 同口子）供插件 import——同一份同版本件，插件间禁止私拉直连；件与**会话上下文**一起给（承重缝，M3 定稿）；插件可 import 官方件复用（站在官方件上写自己的），不强制从零造；
@@ -304,7 +304,7 @@
 ### 7.2 宿主槽位词表（D-033）
 
 - **v1 十一个（D-057 行级四缝 ＋ D-062 结构性 / 右栏 tab / 词表正名，2026-11-18 ＋ E6 审批卡缝，2026-11-21）**：结构性一个 `layout`（整页框架槽——官方框架件默认占用并在同一注册里声明子槽，`replaceSlot` = 整页重排，风险标注见 §4）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（输入区）/ `sidebar.right`（右栏，官方默认件 = tab 框架）＋ 行级六个 `tool.call.view.<工具名>` / `approval.view.<工具名>`（审批卡 keyed，E6）/ `conversation.images` / `turn.tail` / `sidebar.right.tab`（右栏 tab 追加位）/ `sidebar.right.preview.<扩展名>`（语义见 §4 挂载点词表）；
-- **共享核心三条**：`turn.tail`、`conversation.images`、`tool.call.view.*` 在所有 web 系宿主（桌面 / 手机网页 / 云网页）语义一致；
+- **共享核心四条**：`turn.tail`、`conversation.images`、`tool.call.view.*`、`approval.view.*`（E6——审批卡按工具名 keyed，dock 语义宿主无关）在所有 web 系宿主（桌面 / 手机网页 / 云网页）语义一致；
 - **桌面 web 宿主词表七个**：`layout`、四个区域级、两个 `sidebar.right.*`（tab / preview）仅桌面 Web；移动端单栏没有多栏框架与右侧栏，不得硬造等价物；
 - **移动端词表等移动 UI 设计时再定**：可复用共享核心，具体名字（如 `mobile.sheet` / `mobile.drawer`）按真实布局定；
 - **桌面扩展按需加**：`titlebar` / `session.bottom` 等只在真实插件需要时逐个加；每次都是 Web 宿主的 UI 改动，不动内核；结构性槽逐个拍板入表、不预造矩阵（D-033 第 1 条修订随 D-062）；

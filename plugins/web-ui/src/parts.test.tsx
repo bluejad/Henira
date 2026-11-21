@@ -728,7 +728,7 @@ describe("ApprovalCard", () => {
 
     cleanup();
     const legacyCtx = fixtureCtx();
-    render(<ApprovalCard row={pendingRow} ctx={legacyCtx} />); // 无 args（旧账本）→ digest-only 原观感
+    render(<ApprovalCard row={pendingRow} ctx={legacyCtx} />); // 无 args（旧账本/超尺寸闸）→ digest 弱色行回落
     expect(screen.queryByText("f.ts")).toBeNull();
   });
 

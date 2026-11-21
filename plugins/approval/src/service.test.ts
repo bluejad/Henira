@@ -401,6 +401,38 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
     await harness.dispose();
   });
 
+  it("args 尺寸闸（审查 F4）：超 256KB → asked 只落 digest；rejected 带 scope → decided 无 scope（审查 F5）", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "rejected",
+        scope: "session",
+      }),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    const decision = await approvalOf(ctx).requestPermission(
+      { tool: "write", args: { blob: "z".repeat(300 * 1024) } },
+      askOpts("ask"),
+    );
+    expect(decision).toBe("rejected");
+    const askedEvent = sessionOf(ctx)
+      .events()
+      .find((e) => e.type === "approval/asked");
+    if (askedEvent === undefined) throw new Error("asked event missing");
+    const askedData = askedEvent.data as { args?: unknown; argsDigest?: string };
+    expect(askedData.args).toBeUndefined(); // 超闸丢弃（digest-only 回落形状）
+    expect(askedData.argsDigest).toEqual(expect.any(String));
+    const decidedEvent = sessionOf(ctx)
+      .events()
+      .find((e) => e.type === "approval/decided");
+    if (decidedEvent === undefined) throw new Error("decided event missing");
+    const decidedData = decidedEvent.data as { decision?: string; scope?: string };
+    expect(decidedData.decision).toBe("rejected");
+    expect(decidedData.scope).toBeUndefined(); // rejected 不落 scope（审查 F5：settled 无「· 本会话」）
+    await harness.dispose();
+  });
+
   it("answerer 不合规 scope → unavailable（fail-closed 形状校验）", async () => {
     const { harness, ctx } = await startedHarness(
       interactionStub([

@@ -36,7 +36,7 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function bool(v: unknown): boolean | undefined {
+export function bool(v: unknown): boolean | undefined {
   return typeof v === "boolean" ? v : undefined;
 }
 

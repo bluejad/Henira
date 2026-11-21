@@ -8,6 +8,7 @@ import type { ApprovalRow } from "@henira/protocol";
 import type { ReactNode } from "react";
 import type { WebPartContext } from "../types.js";
 import {
+  bool,
   buildDiffRows,
   DIFF_FALLBACK_MAX_LINES,
   DiffRowsView,
@@ -66,7 +67,9 @@ function JsonPreview({ args }: { args: unknown }): ReactNode {
   );
 }
 
-/** edit 审批预览：old/new diff（E5 buildDiffRows 复用；缺字段/两串相同 → null 回落通用） */
+/** edit 审批预览：old/new diff（E5 buildDiffRows 复用；缺字段/两串相同 → null 回落通用）。
+ * replace_all=true → 注记行（审查 F7：diff 只显单份，批准的实际效应是全量替换——裁决入口
+ * 必须诚实；与 E5 工具卡「单份 diff+计数徽章」同族裁决） */
 function EditPreview({
   args,
   ctx,
@@ -80,15 +83,16 @@ function EditPreview({
   if (filePath === null || oldText === null || newText === null) return null;
   const diff = buildDiffRows(oldText, newText);
   if (diff === null) return null;
+  const notes: string[] = [];
+  if (diff.truncated === true) notes.push(ctx.t("tool.diffTruncated"));
+  if (bool(args.replace_all) === true) notes.push(ctx.t("approval.replaceAllNote"));
   return (
     <>
       <PathLine text={filePath} />
       <DiffTotals added={diff.added} removed={diff.removed} />
       <DiffRowsView
         rows={
-          diff.truncated === true
-            ? [...diff.rows, { kind: "note", text: ctx.t("tool.diffTruncated") }]
-            : diff.rows
+          notes.length > 0 ? [...diff.rows, { kind: "note", text: notes.join(" · ") }] : diff.rows
         }
       />
     </>

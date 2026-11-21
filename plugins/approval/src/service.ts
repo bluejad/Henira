@@ -18,6 +18,18 @@ import {
 import { argsDigest, isCredentialAccess, isDisasterCommand, matchesRule } from "./chain.js";
 import { sessionAllowedTools } from "./session-allow.js";
 
+/** args 全文的尺寸闸（审查 F4，对照 __meta 256KB 同款）：超限/不可序列化 = 丢 args 只留
+ * digest（UI 有 digest-only 回落形状；args 全文仍在 tool/call.arguments 可查） */
+const ARGS_MAX_BYTES = 256 * 1024;
+
+function withinArgsCap(args: unknown): boolean {
+  try {
+    return JSON.stringify(args ?? null).length <= ARGS_MAX_BYTES;
+  } catch {
+    return false;
+  }
+}
+
 export function approvalPlugin(): ServiceDefinition<ApprovalService> {
   return {
     name: "approval",
@@ -54,8 +66,9 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
                 tool: req.tool,
                 argsDigest: argsDigest(req.args),
                 // args 完整原样（E6，D-046「审计事件对照记全文」落码归位）：挂起卡自足可渲染
-                // （断线重连/多窗口重放），per-tool 预览体唯一数据源；digest 保留作关联指纹
-                ...(req.args !== undefined ? { args: req.args } : {}),
+                // （断线重连/多窗口重放），per-tool 预览体唯一数据源；digest 保留作关联指纹；
+                // 尺寸闸超限丢 args 留 digest（卡回落 digest-only，args 全文在 tool/call 可查）
+                ...(req.args !== undefined && withinArgsCap(req.args) ? { args: req.args } : {}),
                 ...(req.reason !== undefined ? { reason: req.reason } : {}),
               },
             });
@@ -132,7 +145,9 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
             // 缺席 / 抛错 → unavailable；abort 竞速 → cancelled（先答者赢的迟到异常不算）
             answer = signal?.aborted ? "cancelled" : "unavailable";
           }
-          await decided(answer, answerScope);
+          // scope 仅在真放行时落账（审查 F5）：rejected/cancelled 带 scope 是语义噪音
+          // ——settled 行不该出现「rejected · 本会话」
+          await decided(answer, answer === "allowed-once" ? answerScope : undefined);
           return answer;
         },
       };

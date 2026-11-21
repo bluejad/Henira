@@ -89,6 +89,7 @@ export const zh = {
   "approval.settled": "已处理",
   "approval.queueCount": "待审批",
   "approval.scopeSession": "本会话",
+  "approval.replaceAllNote": "替换将应用于文件中的全部匹配出现",
   "error.title": "出错了",
   "error.noCredentialHint": "该厂商还没有配置密钥——请在 设置 → 模型管理 里连接后再试。",
   "error.noBaseUrlHint":

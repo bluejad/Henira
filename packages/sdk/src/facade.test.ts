@@ -814,11 +814,14 @@ describe.each(forms.map((f) => [f.name, f] as const))("排队卡（E1）双形�
     const promoted = await facade.prompt(session.id, "被提升条目");
     expect(await facade.promoteQueueEntry(session.id, promoted.id as string)).toBe(true);
     expect(await facade.promoteQueueEntry(session.id, "q-none")).toBe(false);
-    // 完成判据 = 两条回复都在场（提升回合 + 续冲回合）
+    // 完成判据 = 两条回复在场 **且** busy 翻 false（同一等待窗——行先到、turn/end 晚到时
+    // busy 断言会伪红：慢机负载下实测，审查批 R164 续加固）
     await waitFor(async () => {
       const snap = await facade.snapshot(session.id);
       const texts = snap.rows.filter((r) => r.kind === "assistant").map((r) => r.text);
-      return texts.includes("被提升回复") && texts.includes("留守回复") ? true : undefined;
+      return texts.includes("被提升回复") && texts.includes("留守回复") && snap.state.busy === false
+        ? true
+        : undefined;
     }, 15_000);
     const done = await facade.snapshot(session.id);
     const userTexts = done.rows.filter((r) => r.kind === "user").map((r) => r.text);

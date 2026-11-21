@@ -17,6 +17,9 @@ import { SlotBoundary } from "./slot-boundary.js";
 
 type Decision = "allowed-once" | "rejected";
 
+/** 键盘直选的模块级互斥登记（审查 F8）：同屏多 Shell 时后挂者胜——Enter/Esc 只命中一张 */
+let activeKeyHandler: ((e: KeyboardEvent) => void) | undefined;
+
 /** 工具族 → 是否提供「本会话允许」（bash/powershell 不提供——四仓一致谨慎：CC/ZCode 对
  * bash 只给前缀级规则，工具级整会话放行过宽；前缀级随 permissions.json 写路径挂账） */
 function sessionAllowable(toolName: string): boolean {
@@ -51,8 +54,9 @@ export function ApprovalCardShell(props: {
       .catch(() => setSettling(false)); // 网络失败回到待处理（重试语义）
   };
 
-  // 键盘直选（队首单卡——composer 只渲染一张，监听器唯一；多卡并存的历史 bug 不复现）：
-  // Enter=允许一次、Esc=拒绝（CC/ZCode 同款：Esc 是拒绝通道不是中断）
+  // 键盘直选（队首单卡——composer 只渲染一张）：Enter=允许一次、Esc=拒绝（CC/ZCode 同款：
+  // Esc 是拒绝通道不是中断）。模块级互斥（审查 F8）：Shell 是导出件，同屏多 Shell 时
+  // 后挂者胜、先挂者被摘——Enter/Esc 永远只命中一张卡，多卡全中 bug 在机制上不可复活。
   useEffect(() => {
     if (!pending) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -65,8 +69,13 @@ export function ApprovalCardShell(props: {
         decide("rejected");
       }
     };
+    if (activeKeyHandler !== undefined) {
+      window.removeEventListener("keydown", activeKeyHandler);
+    }
+    activeKeyHandler = onKey;
     window.addEventListener("keydown", onKey);
     return () => {
+      if (activeKeyHandler === onKey) activeKeyHandler = undefined;
       window.removeEventListener("keydown", onKey);
     };
   });
@@ -164,8 +173,8 @@ export function ApprovalCardShell(props: {
   );
 }
 
-/** 通用审批卡（fallback）：外壳 + per-tool 预览体（args 在场才渲染——旧账本/无载荷事件回落
- * digest-only 形状，即 E6 前观感） */
+/** 通用审批卡（fallback）：外壳 + per-tool 预览体。args 缺（旧账本/超尺寸闸丢弃）→
+ * digest 弱色行（「digest 保留作关联指纹」的数据通道承诺对齐——审查 F6） */
 export function ApprovalCard(props: {
   row: ApprovalRow;
   ctx: WebPartContext;
@@ -184,13 +193,27 @@ export function ApprovalCard(props: {
         >
           <ApprovalPreview row={props.row} ctx={props.ctx} />
         </div>
+      ) : props.row.argsSummary !== undefined ? (
+        <div
+          className="henira-mono"
+          style={{
+            fontSize: "var(--henira-fs-sm)",
+            color: "var(--henira-text-muted)",
+            marginBottom: props.row.status === "pending" ? "var(--henira-space-2)" : 0,
+            wordBreak: "break-all",
+          }}
+        >
+          {props.row.argsSummary}
+        </div>
       ) : null}
     </ApprovalCardShell>
   );
 }
 
 /** 队首审批卡路由（E6 keyed 缝 approval.view.<工具名>）：精确 key → 通用卡兜底。composer
- * 只渲染队首一张（FIFO，CC/ZCode 同款）；SlotBoundary 行级隔离——顶替件崩溃不拖垮输入区。 */
+ * 只渲染队首一张（FIFO，CC/ZCode 同款）；SlotBoundary 行级隔离 + **崩溃回落官方卡**（审查
+ * F1：审批 dock 是唯一应答通道，顶替件崩溃渲染 null = composer 被无卡永久阻塞——必须回落）。
+ * 队首更替由 composer 的 key={rowId} 重挂复位崩溃态。 */
 export function ApprovalQueueCard(props: {
   row: ApprovalRow;
   ctx: WebPartContext;
@@ -202,7 +225,12 @@ export function ApprovalQueueCard(props: {
   if (view !== undefined) {
     const View = view; // 组件渲染（hooks 合法）
     return (
-      <SlotBoundary label={`approval.view.${props.row.toolName}`}>
+      <SlotBoundary
+        label={`approval.view.${props.row.toolName}`}
+        fallback={() => (
+          <ApprovalCard row={props.row} ctx={props.ctx} queueTotal={props.queueTotal} />
+        )}
+      >
         <View ctx={props.ctx} row={props.row} queueTotal={props.queueTotal} />
       </SlotBoundary>
     );

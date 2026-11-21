@@ -403,7 +403,7 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
   await textarea.fill("edit two files please");
   await textarea.press("Enter");
 
-  // 审批卡：edit 形状参数 → per-tool 预览体（diff add 行）+ 三选项集（本会话允许在 bash 族才有）
+  // 审批卡：edit 形状参数 → per-tool 预览体（diff add 行）+ 三选项集（bash 族才不提供本会话允许）
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
   await expect(card.getByText("e6-demo.txt")).toBeVisible();

@@ -95,5 +95,22 @@ describe("protocol 契约", () => {
     expect(svc.settle("r1", second)).toBe(false); // 先答者赢
     expect(svc.settle("unknown", second)).toBe(false);
     expect(svc.listPending()).toHaveLength(0);
+
+    // scope:'session' 透传（E6）：settle 值形状到 ask resolve 的字节面——会话级允许的契约载体
+    const req2: InteractionRequest = {
+      kind: "approval",
+      requestId: "r2",
+      toolName: "edit",
+      args: {},
+    };
+    const asking2 = svc.ask(req2);
+    const scoped: InteractionAnswer = {
+      kind: "approval",
+      requestId: "r2",
+      decision: "allowed-once" as Decision,
+      scope: "session",
+    };
+    expect(svc.settle("r2", scoped)).toBe(true);
+    await expect(asking2).resolves.toEqual(scoped);
   });
 });

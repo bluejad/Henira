@@ -394,12 +394,12 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
           inputSchema: { type: "object", properties: {} },
           execute: async () => ({ content: "edited" }),
         });
+      subscribe(base, sink); // 先订后发（审查 F12）：asked 抢在连接完成前也走快照帧外的 delta
       await fetch(`${base}/api/sessions/${id}/prompt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text: "改文件" }),
       });
-      subscribe(base, sink);
       const pendingRow = await waitFor(() => {
         for (const f of framesFor(sink, id)) {
           if (
@@ -704,7 +704,11 @@ describe("立即发送抢占全链（promote）", () => {
           (r) => r.kind === "assistant" && r.text === "被提升回复",
         );
         const hasKept = assistantRows.some((r) => r.kind === "assistant" && r.text === "留守回复");
-        return hasInterrupted && hasPromoted && hasKept ? true : undefined;
+        const busyFalse = framesFor(sink, id).some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+        );
+        return hasInterrupted && hasPromoted && hasKept && busyFalse ? true : undefined;
       });
       // 全程无冻结横幅：queuePaused 从未推 true（抢占瞬态不出去——发布在 clearPause 之后）
       const pausedFrames = framesFor(sink, id).filter(
