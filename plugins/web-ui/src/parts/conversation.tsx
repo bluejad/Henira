@@ -80,10 +80,13 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   const [busySince, setBusySince] = useState<number | undefined>(undefined);
   const [, setTick] = useState(0);
   const lastActivityRef = useRef(Date.now());
-  // biome-ignore lint/correctness/useExhaustiveDependencies: snapshot 即活动信号本体（stalled 判定的依赖是故意的）
-  useEffect(() => {
+  // 快照即活动信号本体：渲染期同步判定（effect 后置会让快照恰落 3~4s 死区时「响应停滞」
+  // 误亮至下一秒 tick——审查批 F2）。守卫 = 快照引用比对，幂等（StrictMode 双渲安全）
+  const lastSnapshotRef = useRef(snapshot);
+  if (lastSnapshotRef.current !== snapshot) {
+    lastSnapshotRef.current = snapshot;
     lastActivityRef.current = Date.now(); // 任何快照变化（行/增量落地）= 有活动
-  }, [snapshot]);
+  }
   useEffect(() => {
     if (busy) {
       setBusySince((prev) => prev ?? Date.now()); // 边沿起表；StrictMode 重渲不重置
@@ -226,7 +229,6 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
             style={{
               margin: "var(--henira-space-3) 0",
               fontSize: "var(--henira-fs-base)",
-              ...(stalled ? {} : { color: undefined }),
             }}
           >
             <span>·</span>
@@ -351,12 +353,27 @@ function ConversationTimeline(props: {
  * ConsecutiveSummaryGroup 形态：组头「N 个工具 · 最近一条」，点开全部子行） */
 type TurnItem = { kind: "row"; row: Row } | { kind: "group"; rows: Row[] };
 
-/** 分组纯派生（TurnBlock useMemo）：连续 kind==="tool" 行成组，≥3 折叠；其他行中断重置 */
+/** 空文本步级行是否携带可视内容：步级 usage 徽章（E5）/ reasoning 折叠块（工具轮 reasoning
+ * 回传）/ 中断徽章（中断可见性）——任一在场都不容被聚合吞掉（审查批实锤：零文本中断行被
+ * 空行折叠吞掉 = 中断零痕迹；步级 usage 同族被吞 = E5 UI 面回归） */
+function assistantStepHasVisual(row: AssistantRow): boolean {
+  if (row.interrupted === true) return true;
+  if (row.reasoning !== undefined && row.reasoning !== "") return true;
+  if (row.reasoningEffort !== undefined && row.reasoningEffort !== "off") return true;
+  const usage = row.usage;
+  return usage !== undefined && (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) > 0;
+}
+
+/** 分组纯派生（TurnBlock useMemo）：连续 tool 行成组，≥3 折叠（计数按工具行）；其他行中断
+ * 重置。空文本步级行（finish=tool-calls 的载体）不中断连续组——参照物过滤同款，分两档：
+ * 纯空行（无任何可视内容）剔除；带可视内容的步级行为「透明行」随组携带不拆组（参照物
+ * thinking defer 不拆组同思想）——展开时按原序可见，散行态（<3 工具）照常独立渲染。 */
 function buildTurnItems(rows: readonly Row[]): TurnItem[] {
   const items: TurnItem[] = [];
   let run: Row[] = [];
   const flush = (): void => {
-    if (run.length >= 3) items.push({ kind: "group", rows: run });
+    const toolCount = run.reduce((n, r) => (r.kind === "tool" ? n + 1 : n), 0);
+    if (toolCount >= 3) items.push({ kind: "group", rows: run });
     else for (const r of run) items.push({ kind: "row", row: r });
     run = [];
   };
@@ -365,9 +382,10 @@ function buildTurnItems(rows: readonly Row[]): TurnItem[] {
       run.push(row);
       continue;
     }
-    // 空 assistant 行（finish=tool-calls 的步级载体，文本空）不中断工具连续组——ZCode
-    // buildAssistantWorkRenderItems 同款过滤（无文本的流式行剔除）
-    if (row.kind === "assistant" && row.text === "" && row.streaming !== true) continue;
+    if (row.kind === "assistant" && row.text === "" && row.streaming !== true) {
+      if (assistantStepHasVisual(row)) run.push(row);
+      continue;
+    }
     flush();
     items.push({ kind: "row", row });
   }
@@ -379,10 +397,10 @@ function buildTurnItems(rows: readonly Row[]): TurnItem[] {
  * ZCode active 形态），点开 = 全部子行（RowView 行引用与 key 原样保留——memo 契约不破） */
 function ToolGroupItem({ rows, ctx }: { rows: Row[]; ctx: WebPartContext }) {
   const [open, setOpen] = useState(false);
-  const running = rows.find((r) => r.kind === "tool" && r.status === "running") as
-    | (typeof rows)[number]
-    | undefined;
-  const last = (running ?? rows[rows.length - 1]) as Row & { name?: string };
+  // 组内可能携带透明步级行（usage/reasoning 随组不拆组）——计数与「最近」都按工具行算
+  const tools = rows.filter((r): r is ToolRow => r.kind === "tool");
+  const running = tools.find((r) => r.status === "running");
+  const last = running ?? tools[tools.length - 1];
   return (
     <>
       <button
@@ -405,9 +423,9 @@ function ToolGroupItem({ rows, ctx }: { rows: Row[]; ctx: WebPartContext }) {
         }}
       >
         <span className={running !== undefined ? "henira-sweep" : undefined}>
-          {`${rows.length} ${ctx.t("tools.groupSuffix")}`}
+          {`${tools.length} ${ctx.t("tools.groupSuffix")}`}
         </span>
-        <span className="henira-mono">{last.name ?? ""}</span>
+        <span className="henira-mono">{last?.name ?? ""}</span>
         <span
           className="henira-row-caret"
           style={{ transform: open ? "rotate(90deg)" : undefined }}

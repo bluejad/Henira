@@ -2225,4 +2225,79 @@ describe("生命感（E3）", () => {
     const { container: c2 } = render(<Conversation {...idle} />);
     expect(c2.querySelector(".henira-loading-dots")).toBeNull();
   });
+
+  // 审查批（2026-11-21）：空文本步级行分两档——纯空行剔除；带可视内容（步级 usage/
+  // reasoning/中断徽章）为透明行随组携带不拆组，展开按原序可见
+  const mkStep = (
+    step: number,
+    seq: number,
+    usage?: { inputTokens?: number; outputTokens?: number },
+    interrupted?: boolean,
+  ): Row =>
+    ({
+      kind: "assistant",
+      rowId: `a:t-1:${step}`,
+      rowSeq: seq,
+      turn: "t-1",
+      step,
+      text: "",
+      streaming: false,
+      ...(usage !== undefined ? { usage } : {}),
+      ...(interrupted === true ? { interrupted: true } : {}),
+    }) as Row;
+
+  it("透明步级行：带 usage 的空文本步级行不拆组（仍折叠 3 个工具），展开后步级用量徽章按原序可见", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkStep(1, 2, { inputTokens: 10, outputTokens: 5 }),
+      mkTool("c1", "bash", 3),
+      mkStep(2, 4, { inputTokens: 20, outputTokens: 6 }),
+      mkTool("c2", "grep", 5),
+      mkStep(3, 6, { inputTokens: 30, outputTokens: 7 }),
+      mkTool("c3", "glob", 7),
+    ];
+    const ctx = ctxWithState(rows, { busy: false });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(screen.getByText(`3 ${t("tools.groupSuffix")}`)).toBeDefined();
+    expect(screen.queryByText("10↑ 5↓")).toBeNull(); // 折叠中透明行一并收起
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("tools.groupSuffix")) }));
+    expect(screen.getByText("10↑ 5↓")).toBeDefined(); // 展开后步级用量可见（E5 UI 面不丢）
+    expect(screen.getByText("30↑ 7↓")).toBeDefined();
+    // 子行 = DisclosureRow 默认收起——组展开后再逐行点开（renderCard 同款先例）
+    for (const btn of [...container.querySelectorAll('button[aria-expanded="false"]')]) {
+      fireEvent.click(btn);
+    }
+    expect(screen.getByText("bash body")).toBeDefined();
+  });
+
+  it("纯空步级行剔除：无任何可视内容的空文本行不拆组也不残留渲染", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkStep(1, 2),
+      mkTool("c1", "bash", 3),
+      mkStep(2, 4),
+      mkTool("c2", "grep", 5),
+      mkStep(3, 6),
+      mkTool("c3", "glob", 7),
+    ];
+    const ctx = ctxWithState(rows, { busy: false });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(screen.getByText(`3 ${t("tools.groupSuffix")}`)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("tools.groupSuffix")) }));
+    // 子行 = DisclosureRow 默认收起——组展开后再逐行点开
+    for (const btn of [...container.querySelectorAll('button[aria-expanded="false"]')]) {
+      fireEvent.click(btn);
+    }
+    expect(screen.getByText("glob body")).toBeDefined();
+  });
+
+  it("中断可见性：零文本中止行（推理期打断）不被空行折叠吞掉——interrupted 徽章在场", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "写一段", source: "send" },
+      mkStep(1, 2, undefined, true),
+    ];
+    const ctx = ctxWithState(rows, { busy: false });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain(t("row.interrupted"));
+  });
 });
