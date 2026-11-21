@@ -393,7 +393,8 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
   await expect(page.getByText("fs flow complete")).toBeVisible({ timeout: 15_000 });
   // read 工具行折叠体默认不挂 DOM（row-chrome 展开才渲染）→ 点开 read 行再断言内容。
   // E5 读取卡把 `N\t` 格式拆成行号 gutter + 内容列（两个 span）——按内容文本断言
-  await page.locator("[aria-expanded]").filter({ hasText: "read" }).first().click();
+  // R171 工具行标题中文化：锚词表标题（痕迹行 meta 是 wire 名不含中文——唯一命中工具行）
+  await page.locator("[aria-expanded]").filter({ hasText: zh["tool.title.read"] }).first().click();
   await expect(page.getByText("alpha")).toBeVisible();
   await expect(page.getByText("beta")).toBeVisible();
   await shot(page, "fs-02-tool-rows.png");
@@ -416,8 +417,10 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
   await expect(page.getByText("shell flow complete")).toBeVisible({ timeout: 15_000 });
   // TerminalCard（tool.call.view.bash 官方注册）：命令 prompt 行 + stdout（meta 分色通道）。
   // stdout 是真 spawn 回执（"henira-e5-done\r\n"）——exact 断言只命中输出 pre，不误配命令行
-  await page.locator("[aria-expanded]").filter({ hasText: "bash" }).first().click();
-  await expect(page.getByText("echo henira-e5-done")).toBeVisible();
+  // R171 同款：终端行锚中文标题
+  await page.locator("[aria-expanded]").filter({ hasText: zh["tool.title.bash"] }).first().click();
+  // R171 头行/痕迹行摘要让命令文本出现三处（摘要+展开体+痕迹行）——exact 锚展开体 $ 前缀行
+  await expect(page.getByText("$ echo henira-e5-done")).toBeVisible();
   await expect(page.getByText("henira-e5-done", { exact: true })).toBeVisible();
   await shot(page, "e5-01-terminal-card.png");
 });
@@ -444,7 +447,7 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
   await expect(page.getByText("e6 approval flow complete")).toBeVisible({ timeout: 15_000 });
 
   // settled 留痕：决策原文 + 「· 本会话」标记；折叠生效 = 无第二张审批卡
-  await expect(page.getByText("allowed-once · 本会话")).toBeVisible();
+  await expect(page.getByText(zh["approval.decision.session"])).toBeVisible(); // 痕迹行中文决策词（R171）
   await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toHaveCount(0);
   await shot(page, "e6-02-session-allowed.png");
 });

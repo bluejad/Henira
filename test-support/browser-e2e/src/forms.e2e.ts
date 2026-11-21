@@ -138,7 +138,7 @@ test("审批拒绝：deny → settled rejected → 回合继续", async ({ page 
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: zh["approval.deny"] }).click();
   await expect(page.getByText("Denied as requested.")).toBeVisible();
-  await expect(page.getByText("rejected", { exact: true })).toBeVisible(); // settled 卡 decision
+  await expect(page.getByText(zh["approval.decision.rejected"], { exact: true })).toBeVisible(); // settled 痕迹行中文决策词（R171 词表化）
   await shot(page, "12-denied.png");
   await stop();
 });

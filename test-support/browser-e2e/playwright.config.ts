@@ -7,6 +7,9 @@ export default defineConfig({
   outputDir: "test-results",
   forbidOnly: !!process.env.CI,
   retries: 0,
+  // 单 worker：共享 server + 共享 mock 剧本（严格顺序 cursor）——并行即竞态（R171 实锤：
+  // 多 worker 下后例拿到错位剧本段）。e2e 是语义锁不是速度赛。
+  workers: 1,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     headless: true,
