@@ -99,6 +99,33 @@ export class Projection {
           }
           this.streamingByTurn.delete(turn);
         }
+        // 首个碎片前中止（delta 前中止档）：流式行从未创建，回合零痕迹——按当前步合成一条
+        // 零文本中断行。rowId 从账本事实派生（回放重建同形）；合成只进投影，账本不写事件。
+        // 步号不可信（未见 turn/start）或目标步已有落定行时不猜、不覆盖。
+        const step = this.cursor.turn === turn ? this.cursor.step : undefined;
+        if (
+          reason === "aborted" &&
+          !pending &&
+          step !== undefined &&
+          !this.byId.has(rowId.assistant(turn, step))
+        ) {
+          const effortKey = `${turn}:${step}`;
+          const effort = this.effortByStep.get(effortKey);
+          this.effortByStep.delete(effortKey);
+          const row: AssistantRow = {
+            kind: "assistant",
+            rowId: rowId.assistant(turn, step),
+            rowSeq: this.#lastSeq,
+            turn,
+            step,
+            text: "",
+            streaming: false,
+            interrupted: true,
+            ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+          };
+          this.push(row);
+          deltas.push({ op: "row.appended", row });
+        }
         this.cursor = {};
         // 回合耗时结算（E3 回合头，事件时间戳取数）：保留最近 50 轮
         const startedAt = this.turnStartTimes.get(turn);

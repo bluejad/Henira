@@ -1,5 +1,5 @@
 // 投影器测试：账本回放 → 行（确定性 / 形状 / 全序）、审批对、流式直播 + 步边界自愈、
-// 中止冻结、直播与回放 rowId 一致、surfaceOp replace 重建标记。
+// 中止冻结、delta 前中止合成中断行、直播与回放 rowId 一致、surfaceOp replace 重建标记。
 // 事件形状 = plugins/session/src/validators.ts 的官方 15 变体（账本唯一事实源）。
 
 import { describe, expect, it } from "vitest";
@@ -391,6 +391,104 @@ describe("流式直播（总线打字机碎片）", () => {
     expect(upserts).toHaveLength(1);
     expect(p.rows[0]).toMatchObject({ text: "写到一半", streaming: false, interrupted: true });
     expect(p.state.busy).toBe(false);
+  });
+});
+
+describe("delta 前中止：合成零文本中断行（投影合成，账本不写事件）", () => {
+  const gapLedger = () => [
+    ev(1, "user/message", { turn: "t-1", step: 0, content: "写散文", source: "send" }),
+    ev(2, "turn/start", { turn: "t-1" }),
+    ev(3, "step/start", { turn: "t-1", step: 1 }),
+    ev(4, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }),
+  ];
+
+  it("缺口复现（直播路径）：无任何碎片的中止回合合成零文本中断行，busy 落 false", () => {
+    const p = new Projection();
+    p.ingest(ev(1, "user/message", { turn: "t-1", step: 0, content: "写散文", source: "send" }));
+    p.ingest(ev(2, "turn/start", { turn: "t-1" }));
+    p.ingest(ev(3, "step/start", { turn: "t-1", step: 1 }));
+    const deltas = p.ingest(ev(4, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }));
+    expect(deltas.map((d) => d.op)).toEqual(["row.appended", "state.updated"]);
+    expect(p.rows.map((r) => r.rowId)).toEqual(["u:1", "a:t-1:1"]);
+    expect(p.rows[1]).toMatchObject({
+      rowId: "a:t-1:1",
+      rowSeq: 4,
+      turn: "t-1",
+      step: 1,
+      text: "",
+      streaming: false,
+      interrupted: true,
+    });
+    expect(p.rows[1]).not.toHaveProperty("reasoning");
+    expect(p.state.busy).toBe(false);
+  });
+
+  it("回放一致性：同账本 rebuild 产出同 rowId 同形状（直播与回放行深相等）", () => {
+    const ledger = gapLedger();
+    const live = new Projection();
+    for (const e of ledger) live.ingest(e);
+    const replay = rebuildProjection(ledger);
+    expect(replay.rows).toEqual(live.rows);
+  });
+
+  it("正常完成回合零碎片不合成", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "hi", source: "send" }),
+      ev(2, "turn/start", { turn: "t-1" }),
+      ev(3, "step/start", { turn: "t-1", step: 1 }),
+      ev(4, "turn/end", { turn: "t-1", reason: "completed" }),
+    ]);
+    expect(p.rows.map((r) => r.kind)).toEqual(["user"]);
+  });
+
+  it("带流式行的中止只冻结不合成（既有行为不变）", () => {
+    const p = new Projection();
+    p.ingest(ev(1, "turn/start", { turn: "t-1" }));
+    p.ingest(ev(2, "step/start", { turn: "t-1", step: 1 }));
+    p.applyStreamDelta({ field: "text", text: "写到一半" });
+    p.ingest(ev(3, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }));
+    expect(p.rows).toHaveLength(1);
+    expect(p.rows[0]).toMatchObject({ text: "写到一半", interrupted: true });
+  });
+
+  it("目标步已有落定行（assistant/message 已落账）不覆盖", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "hi", source: "send" }),
+      ev(2, "turn/start", { turn: "t-1" }),
+      ev(3, "step/start", { turn: "t-1", step: 1 }),
+      ev(4, "assistant/message", {
+        turn: "t-1",
+        step: 1,
+        content: "",
+        model: "m",
+        finishReason: "stop",
+      }),
+      ev(5, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }),
+    ]);
+    expect(p.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
+    expect(p.rows[1]).toMatchObject({ rowId: "a:t-1:1", text: "", streaming: false });
+    expect(p.rows[1]).not.toHaveProperty("interrupted");
+  });
+
+  it("request/header 已记账 → 合成行附思考档（read-and-delete 同 assistant/message 语义）", () => {
+    const p = new Projection();
+    p.ingest(ev(1, "turn/start", { turn: "t-1" }));
+    p.ingest(ev(2, "step/start", { turn: "t-1", step: 1 }));
+    p.ingest(ev(3, "request/header", { turn: "t-1", step: 1, params: { reasoningEffort: "low" } }));
+    p.ingest(ev(4, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }));
+    expect(p.rows[0]).toMatchObject({
+      rowId: "a:t-1:1",
+      text: "",
+      interrupted: true,
+      reasoningEffort: "low",
+    });
+  });
+
+  it("未见 turn/start（步号不可信）不猜不合成", () => {
+    const p = new Projection();
+    p.ingest(ev(1, "step/start", { turn: "t-9", step: 1 }));
+    p.ingest(ev(2, "turn/end", { turn: "t-1", reason: "aborted", cause: "user" }));
+    expect(p.rows).toEqual([]);
   });
 });
 

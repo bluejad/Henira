@@ -782,7 +782,7 @@ interface AssistantRow {
   model?: string;
   finishReason?: string;
   usage?: TokenUsage; // 步级用量（step/end 落账投影；词表同 llm 槽位 TokenUsage）
-  interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）
+  interrupted?: boolean; // true = 该步被中断掐停（turn/end{reason:"aborted"} 投影；部分文本定格，无权威落定）。回合从未产生流式碎片时合成零文本中断行（rowId 从账本事实派生，回放同形；只进投影不落账）
   reasoningEffort?: ReasoningEffort; // 本步实际生效思考档（request/header.params 投影——行上档位可见性，骨架批）
 }
 interface ToolRowOutput {
