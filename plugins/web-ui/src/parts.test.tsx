@@ -474,9 +474,10 @@ describe("SessionList", () => {
     expect(screen.queryByRole("button", { name: t("dirs.add") })).toBeNull();
   });
 
-  it("目录行 hover ＋ → 该目录新建会话（createSession({cwd})——服务端自动登记）", async () => {
+  it("目录行 hover ＋ → 该目录新建会话（createSession({cwd})——服务端自动登记）+ 建完即切", async () => {
     const client: HeniraClientLike = {
       ...fixtureCtx().client,
+      createSession: async () => ({ id: "s-new", cwd: "C:\\demo", updatedAt: 0, busy: false }),
       listDirs: async () => [
         {
           id: "d1",
@@ -513,6 +514,10 @@ describe("SessionList", () => {
       container.querySelector(`button[aria-label='${t("menu.newSession")}']`) as HTMLButtonElement,
     );
     expect(createSession).toHaveBeenCalledWith({ cwd: "C:\\demo" });
+    // R185 活体抓的回归：组内 ＋ 只建不切（R150 只修了顶部按钮）——建完必须 selectSession
+    await waitFor(() => {
+      expect(ctx.selectSession).toHaveBeenCalledWith("s-new");
+    });
   });
 
   it("右键目录 → 菜单（新建会话/复制路径/删除目录）→ 删除确认弹窗 → deleteDir(id) + 刷新", async () => {

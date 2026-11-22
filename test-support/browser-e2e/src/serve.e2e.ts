@@ -305,6 +305,8 @@ test("directory area: add dir dialog, per-dir session, right-click delete", asyn
     await groupRow.getByRole("button", { name: zh["menu.newSession"] }).click();
     const pickSession = page.locator(".henira-sessions li").filter({ hasText: pickBase });
     await expect(pickSession).toHaveCount(1);
+    // R185 活体抓的回归：组内 ＋ 建完即切——新行当场选中（data-active；此前只建不切）
+    await expect(pickSession.getByRole("button")).toHaveAttribute("data-active", "true");
     await shot(page, "07-directory-session.png");
 
     // 右键会话 → 删除 → 确认弹窗（「永久删除」）→ 行消失

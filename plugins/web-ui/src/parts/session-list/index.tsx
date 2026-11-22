@@ -174,10 +174,14 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     (cwd: string): void => {
       void ctx.client
         .createSession({ cwd })
-        .then(() => scheduleRefresh())
+        .then((session) => {
+          scheduleRefresh();
+          // 与顶部「＋新会话」同语义：建完即切（R185 活体：组内 ＋ 只建不切——R150 只修了顶部按钮）
+          ctx.selectSession(session.id);
+        })
         .catch(() => {});
     },
-    [ctx.client, scheduleRefresh],
+    [ctx.client, ctx.selectSession, scheduleRefresh],
   );
 
   const toggle = useCallback((cwd: string): void => {
