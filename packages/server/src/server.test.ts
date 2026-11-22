@@ -543,16 +543,24 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
         return settled.length === 2 ? true : undefined;
       });
 
-      const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
-        rows: {
-          kind: string;
-          status?: string;
-          outcome?: string;
-          answers?: unknown;
-          name?: string;
-          output?: { isError: boolean; meta?: Record<string, unknown> };
-        }[];
-      };
+      // 等两个工具结果落账再拍快照：插件先 append question/settled 再返回工具结果（tool/result
+      // 更晚），只等两个 settled 行时快照可能只见第二次 tool/call 行——CI 慢机实锤 flake（R185 审查）
+      const snap = await waitFor(async () => {
+        const body = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: {
+            kind: string;
+            status?: string;
+            outcome?: string;
+            answers?: unknown;
+            name?: string;
+            output?: { isError: boolean; meta?: Record<string, unknown> };
+          }[];
+        };
+        const toolRows = body.rows.filter((r) => r.kind === "tool" && r.name === "ask_user");
+        return toolRows.length === 2 && toolRows.every((r) => r.output !== undefined)
+          ? body
+          : undefined;
+      });
       const questions = snap.rows.filter((r) => r.kind === "question");
       expect(questions).toHaveLength(2);
       expect(questions[0]).toMatchObject({
