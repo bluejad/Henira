@@ -283,8 +283,9 @@ export function QuestionCard(props: {
               aria-selected={current.multiSelect === true ? undefined : selected}
               disabled={!pending}
               onClick={() => {
+                // 不把焦点收回卡片：按钮保留焦点，Space 连选 / ↓ 逐项才走得通（R185 审查——
+                // 收回后 ArrowDown 对容器 indexOf 得 -1，永远跳回第一项）
                 toggleOption(current, option.label);
-                cardRef.current?.focus();
               }}
               onKeyDown={(e) => {
                 onOptionKeyDown(e, option.label);

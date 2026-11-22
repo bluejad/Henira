@@ -159,7 +159,13 @@ const schemas: Record<string, z.ZodType> = {
         z.object({
           id: z.string().min(1),
           question: z.string().min(1),
-          header: z.string().min(1).max(12).optional(),
+          // 按码点计长（与工具运行时 / JSON Schema maxLength 同口径；zod .max 数 UTF-16
+          // 单元，emoji header 会过模型闸栽在账本闸——R185 审查）
+          header: z
+            .string()
+            .min(1)
+            .refine((value) => [...value].length <= 12, "header must be at most 12 characters")
+            .optional(),
           options: z
             .array(
               z.object({

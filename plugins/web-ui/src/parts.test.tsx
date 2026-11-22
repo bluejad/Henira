@@ -1140,6 +1140,41 @@ describe("提问卡（R184）", () => {
     });
   }
 
+  it("接管出现后焦点落在提问卡内——卡级键盘通道当场可达（不被接管容器回焦盖掉，R185）", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    ctx.client.settleQuestion = vi.fn(async () => true);
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+    // 卡级 onKeyDown（Enter/Esc/Arrow）只在焦点位于卡内时可达；dock 父级 effect 后跑，
+    // 若无条件 focus 接管容器就会把卡的自聚焦顶掉——键盘提示全成假话
+    expect(card.contains(document.activeElement)).toBe(true);
+  });
+
+  it("点选后焦点留在选项上——Space 连选 / ↓ 逐项依赖选项焦点（R185）", () => {
+    const multiRow = {
+      ...questionRow,
+      requestId: "r-focus",
+      rowId: "q:r-focus",
+      questions: [
+        {
+          id: "a",
+          question: "要哪些能力？",
+          multiSelect: true,
+          options: [{ label: "搜索" }, { label: "写作" }],
+        },
+      ],
+    } as QuestionRow;
+    const ctx = questionCtx([multiRow]);
+    ctx.client.settleQuestion = vi.fn(async () => true);
+    render(<ComposerDock {...ctx} />);
+    const first = screen.getAllByRole("checkbox")[0] as HTMLButtonElement;
+    first.focus();
+    fireEvent.click(first);
+    // 点击处理器不得把焦点收回卡容器：否则 ArrowDown 的 indexOf 见 -1，永远跳回第一项
+    expect(document.activeElement).toBe(first);
+  });
+
   it("单选 + 提交：settleQuestion 收逐题答案；乐观摘卡后 bar 回来", async () => {
     const rows: Row[] = [questionRow];
     const ctx = questionCtx(rows);

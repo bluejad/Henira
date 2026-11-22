@@ -509,7 +509,7 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
   await shot(page, "e6-02-session-allowed.png");
 });
 
-// ── 用例 ⑦（R184）：ask_user 提问卡——答题收答 + 痕迹行 + 取消路径 ──────
+// ── 用例 ⑧（R184）：ask_user 提问卡——答题收答 + 痕迹行 + 取消路径 ──────
 
 test("R184 ask_user: question card answer and cancel", async ({ page }) => {
   await page.goto(server.url);
@@ -525,9 +525,12 @@ test("R184 ask_user: question card answer and cancel", async ({ page }) => {
   await expect(card.getByText("Pick one option?")).toBeVisible();
   await shot(page, "r184-01-question-card.png");
 
-  // 单选：点选高亮 + 提交 → 卡离场、回合继续
-  await card.getByRole("option", { name: /Alpha/ }).click();
-  await card.getByRole("button", { name: zh["question.submit"] }).click();
+  // 单选：键盘链到卡即通（R185——焦点在卡内，↑↓/Space/Enter 不靠鼠标）：
+  // ↓ 落到第一个选项 → Space 选中 → Enter 末题提交 → 卡离场、回合继续
+  await expect.poll(() => card.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Enter");
   await expect(card).toBeHidden();
   await expect(page.getByText("question flow complete")).toBeVisible({ timeout: 15_000 });
 

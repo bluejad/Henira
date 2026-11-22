@@ -190,8 +190,10 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
   );
   const takeoverKey = elected === null ? null : `${elected.entry.id}:${elected.matched.key}`;
 
-  // 焦点：接管出现 → 接管容器（tabIndex=-1，条目内部再落到卡/选项）；接管结束 → 输入框。
-  // 只在焦点仍在座位内/body（用户没去点设置等别处）时才回焦，不抢用户焦点。
+  // 焦点：接管出现 → 接管容器（tabIndex=-1）；条目已自聚焦（提问卡）时不夺焦——父 effect
+  // 后于子 effect 执行，无条件 focus 容器会把卡级键盘通道（Enter/Esc/Arrow）顶掉（R185 审查：
+  // 到卡时键盘全盲，只能点进去）。接管结束 → 输入框。只在焦点仍在座位内/body（用户没去点
+  // 设置等别处）时才回焦，不抢用户焦点。
   const dockRef = useRef<HTMLDivElement>(null);
   const wasTakeover = useRef(false);
   // 回焦走登记输入框（runtime.focus）而不是 querySelector("textarea")：composer.dock 也是
@@ -200,7 +202,14 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
   useEffect(() => {
     if (takeoverKey !== null) {
       wasTakeover.current = true;
-      dockRef.current?.querySelector<HTMLElement>(".henira-composer-takeover")?.focus();
+      const takeover = dockRef.current?.querySelector<HTMLElement>(".henira-composer-takeover");
+      if (
+        takeover !== null &&
+        takeover !== undefined &&
+        !takeover.contains(document.activeElement)
+      ) {
+        takeover.focus();
+      }
       return;
     }
     if (!wasTakeover.current) return;

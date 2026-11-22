@@ -358,6 +358,35 @@ describe("重启收口（R175）：seq 外科重排 + 孤儿挂起补写", () =>
     open.pop();
   });
 
+  it("header 按码点计长：emoji 12 码点内放行（与工具运行时同口径，R185 审查）", async () => {
+    const dir = path.join(root, "question-header-cp");
+    const s = await createSession({ dir, cwd: root, id: "s-q-cp" });
+    await s.append(user("t1", "hi"));
+    await s.append(turnStart("t1"));
+    const header = "🎯".repeat(7); // 7 码点 / 14 UTF-16 单元——zod .max 会误杀
+    await expect(
+      s.append({
+        type: "question/asked",
+        data: {
+          turn: "t1",
+          step: 1,
+          requestId: "q-cp",
+          callId: "q-cp",
+          questions: [
+            {
+              id: "a",
+              question: "继续？",
+              header,
+              options: [{ label: "是" }, { label: "否" }],
+            },
+          ],
+        },
+      }),
+    ).resolves.toBeDefined();
+    await s.close();
+    open.pop();
+  });
+
   it("老账本形态（回合已被旧代码收口、审批仍挂）：repair 通道绕回合包裹闸补 invalidated", async () => {
     const dir = path.join(root, "stale-orphan");
     {
