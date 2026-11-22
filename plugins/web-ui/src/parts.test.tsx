@@ -11,19 +11,23 @@ import type {
 } from "@henira/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineChainEntry } from "./chain.js";
 import { zh } from "./locales/zh.js";
-import { webUiModule } from "./module.js";
+import { defaultToolViews, webUiModule } from "./module.js";
 import { ApprovalCard, ApprovalQueueCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
+import { approvalTakeover, ComposerDock } from "./parts/composer-dock.js";
 import { Conversation } from "./parts/conversation.js";
 import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
+import { ModelSeat } from "./parts/model-seat.js";
 import { ModelSelect } from "./parts/model-select.js";
+import { QueueDock } from "./parts/queue-dock.js";
 import { QueuePanel } from "./parts/queue-panel.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import { SettingsModal } from "./parts/settings-modal.js";
-import { McpCard } from "./parts/tool-cards.js";
+import { McpCard, ReadCard } from "./parts/tool-cards.js";
 import type {
   HeniraClientLike,
   RowStoreLike,
@@ -38,6 +42,72 @@ const t = (key: string): string => {
   if (value === undefined) throw new Error(`missing locale key: ${key}`); // fail-loud（D-050）
   return value;
 };
+
+/** R182 chain 通用性测试件（模块级：组件不随 render 重建） */
+function DemoTakeover({
+  matched,
+}: {
+  ctx: WebPartContext;
+  matched: { key: string; label: string };
+  owner: unknown;
+}) {
+  return <div data-testid="demo-takeover">{matched.label}</div>;
+}
+
+/** R183 左席探针：经 ComposerApi 写草稿 + 聚焦（座位件不私存状态） */
+function LeftSeatProbe(props: WebPartContext) {
+  const api = props.composer;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        api?.setDraft("左席插入");
+        api?.focus();
+      }}
+    >
+      左席
+    </button>
+  );
+}
+
+/** R183 右席探针：读 busy、经 API 发送 */
+function RightSeatProbe(props: WebPartContext) {
+  const api = props.composer;
+  return (
+    <button type="button" onClick={() => api?.submit("右席发送")}>
+      {api?.busy === true ? "忙" : "闲"}
+    </button>
+  );
+}
+
+/** R183 模型席顶替件：显示绑定、点击写绑定（same ComposerApi） */
+function ModelSeatProbe(props: WebPartContext) {
+  const api = props.composer;
+  return (
+    <button type="button" onClick={() => api?.setModel("probe/model")}>
+      {api?.model === "" ? "empty" : api?.model}
+    </button>
+  );
+}
+
+/** R183 dock 条目探针：读审批面 + 乐观摘卡回调 */
+function DockProbe(props: WebPartContext) {
+  const api = props.composer;
+  const pending = api?.pendingApproval;
+  return (
+    <div>
+      <span data-testid="dock-probe-state">{pending === undefined ? "none" : "pending"}</span>
+      <button
+        type="button"
+        onClick={() => {
+          if (api !== undefined && pending !== undefined) api.onApprovalDecided(pending.requestId);
+        }}
+      >
+        dock决定
+      </button>
+    </div>
+  );
+}
 
 function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
   const client: HeniraClientLike = {
@@ -71,6 +141,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     theme: "light",
     store,
     slots: new Map<string, readonly SlotPart[]>(),
+    chains: new Map(),
     host: {
       sendPrompt: async () => ({ messageId: null, sessionId: "s-1" }),
       subscribe: () => () => {},
@@ -91,6 +162,39 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
 }
 
 afterEach(cleanup);
+
+/** R182/R183：输入座位组合（bar + 四席官方默认件 + 审批条目）——Composer 单件已不含接管，
+ *  草稿/模型状态在 ComposerDock 运行时；单件测试一律经整座渲染。 */
+function dockCtx(overrides?: Partial<WebPartContext>): WebPartContext {
+  const base = fixtureCtx(overrides);
+  return {
+    ...base,
+    slots: new Map<string, readonly SlotPart[]>([
+      ...base.slots,
+      ["composer.bar", [Composer]],
+      ["composer.model", [ModelSeat]],
+      ["composer.dock", [QueueDock]],
+    ]),
+    chains: new Map([["composer.takeover", [approvalTakeover]]]),
+  };
+}
+
+/** 整座渲染（保留调用方 spy 的 ctx 对象）：<Composer/> 不再接受单独装配 */
+function renderComposer(ctx: WebPartContext) {
+  return render(
+    <ComposerDock
+      {...ctx}
+      slots={
+        new Map<string, readonly SlotPart[]>([
+          ...ctx.slots,
+          ["composer.bar", [Composer]],
+          ["composer.model", [ModelSeat]],
+          ["composer.dock", [QueueDock]],
+        ])
+      }
+    />,
+  );
+}
 
 /** R176：可控帧流宿主——fixtureCtx 的 host.subscribe 换成可推帧的发射器 */
 function signalFixture(overrides?: Partial<WebPartContext>): {
@@ -523,7 +627,7 @@ describe("Composer", () => {
   it("Enter 发送走 client.prompt；busy+空草稿 显示停止", async () => {
     const ctx = fixtureCtx();
     const prompt = vi.spyOn(ctx.client, "prompt");
-    const { container } = render(<Composer {...ctx} />);
+    const { container } = renderComposer(ctx);
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "你好" } });
     fireEvent.keyDown(area, { key: "Enter" });
@@ -540,9 +644,72 @@ describe("Composer", () => {
       },
     });
     cleanup();
-    render(<Composer {...busyCtx} />);
+    renderComposer(busyCtx);
     expect(screen.getByRole("button", { name: t("composer.stop") })).toBeDefined();
-    expect(screen.getByText(t("composer.steerHint"))).toBeDefined();
+    // R182：忙态常驻提示退场，占位改为排队文案
+    expect((screen.getByTestId("composer-input") as HTMLTextAreaElement).placeholder).toBe(
+      t("composer.placeholder.queue"),
+    );
+  });
+
+  it("R182 占位三态：空会话=新提问 / 有历史=追问 / 忙=排队", () => {
+    const placeholderOf = (container: HTMLElement): string =>
+      (container.querySelector("[data-testid='composer-input']") as HTMLTextAreaElement)
+        .placeholder;
+    const empty = renderComposer(fixtureCtx());
+    expect(placeholderOf(empty.container)).toBe(t("composer.placeholder"));
+    empty.unmount();
+    const historyRow: Row = {
+      kind: "user",
+      rowId: "u:1",
+      rowSeq: 1,
+      turn: "t-1",
+      text: "问",
+      source: "send",
+    };
+    const historyRows = [historyRow];
+    const history = renderComposer(
+      fixtureCtx({
+        store: {
+          getSession: () => ({ rows: historyRows, state: { busy: false } }),
+          subscribe: () => () => {},
+        },
+      }),
+    );
+    expect(placeholderOf(history.container)).toBe(t("composer.placeholder.followUp"));
+    history.unmount();
+    const busy = renderComposer(
+      fixtureCtx({
+        store: {
+          getSession: () => ({ rows: historyRows, state: { busy: true } }),
+          subscribe: () => () => {},
+        },
+      }),
+    );
+    expect(placeholderOf(busy.container)).toBe(t("composer.placeholder.queue"));
+  });
+
+  it("R182 chain 槽通用选举：非审批条目同样接管，fallback bar 隐藏但挂载", () => {
+    const entry = defineChainEntry<unknown, { key: string; label: string }>({
+      id: "demo",
+      priority: 0,
+      select: () => ({ key: "demo-1", label: "接管件" }),
+      Component: DemoTakeover,
+    });
+    const ctx = dockCtx();
+    const { container } = render(
+      <ComposerDock {...ctx} chains={new Map([["composer.takeover", [entry]]])} />,
+    );
+    expect(screen.getByTestId("demo-takeover").textContent).toBe("接管件");
+    expect(
+      (container.querySelector(".henira-composer-bar-slot") as HTMLElement).style.display,
+    ).toBe("none");
+    cleanup();
+    // 无条目当选 → fallback 输入栏可见
+    const plain = render(<ComposerDock {...dockCtx()} />);
+    expect(
+      (plain.container.querySelector(".henira-composer-bar-slot") as HTMLElement).style.display,
+    ).toBe("");
   });
 
   it("ZCode 语义：忙+有草稿=发送钮（排队插话）而非停止——点击发送走 prompt（E1：忙时钮文案=排队发送）", async () => {
@@ -556,7 +723,7 @@ describe("Composer", () => {
         subscribe: () => () => {},
       },
     });
-    const { container } = render(<Composer {...busyCtx} />);
+    const { container } = renderComposer(busyCtx);
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "排队的话" } });
     // 有草稿 → 停止钮不在场，发送钮点亮（E1：忙时 aria-label=排队发送）
@@ -576,7 +743,7 @@ describe("Composer", () => {
   it("E1 发送模式：Ctrl+Enter=插话入队（prompt 携带 steer:true）；普通 Enter 照旧", async () => {
     const ctx = fixtureCtx();
     const promptSpy = vi.spyOn(ctx.client, "prompt");
-    const { container } = render(<Composer {...ctx} />);
+    const { container } = renderComposer(ctx);
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "插话的话" } });
     fireEvent.keyDown(area, { key: "Enter", ctrlKey: true });
@@ -598,7 +765,7 @@ describe("Composer", () => {
     );
   });
 
-  it("E1 排队卡：忙时队列可见（计数头+文本行），steer 条目带插话徽章；空队列不渲染", () => {
+  it("E1 排队卡：忙时队列可见（静音列表，无标题/计数头），steer 条目带插话徽章；空队列不渲染", () => {
     const queue = [
       { id: "q1", text: "第一条排队", steer: false },
       { id: "q2", text: "插话条目", steer: true },
@@ -613,7 +780,9 @@ describe("Composer", () => {
     expect(screen.getByRole("list", { name: t("composer.queue.title") })).toBeDefined();
     expect(screen.getByText("第一条排队")).toBeDefined();
     expect(screen.getByText(t("composer.queue.badgeSteer"))).toBeDefined();
-    expect(container.querySelector(".henira-queue-count")?.textContent).toBe("2");
+    expect(container.querySelectorAll(".henira-queue-row")).toHaveLength(2);
+    expect(container.querySelector(".henira-queue-head")).toBeNull();
+    expect(container.querySelector(".henira-queue-count")).toBeNull();
     // 空队列 → null
     const emptyCtx = fixtureCtx();
     const empty = render(<QueuePanel ctx={emptyCtx} />);
@@ -721,7 +890,7 @@ describe("Composer", () => {
   it("prompt 失败不静默：草稿回填 + 行内错误提示", async () => {
     const ctx = fixtureCtx();
     vi.spyOn(ctx.client, "prompt").mockRejectedValueOnce(new Error("boom"));
-    const { container } = render(<Composer {...ctx} />);
+    const { container } = renderComposer(ctx);
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "会失败的话" } });
     fireEvent.keyDown(area, { key: "Enter" });
@@ -769,7 +938,7 @@ describe("Composer", () => {
       },
       openSettings,
     });
-    const { container } = render(<Composer {...ctx} />);
+    const { container } = renderComposer(ctx);
     const trigger = (await screen.findByRole("button", {
       name: t("composer.model"),
     })) as HTMLButtonElement;
@@ -789,6 +958,87 @@ describe("Composer", () => {
     fireEvent.click(await screen.findByRole("button", { name: t("composer.manageModels") }));
     expect(openSettings).toHaveBeenCalledWith("models");
     void container;
+  });
+});
+
+describe("输入座位四席 + Composer API（R183）", () => {
+  const readyClient = (): HeniraClientLike => ({
+    ...fixtureCtx().client,
+    getSettings: async () => ({ version: 1 }),
+    listModels: async () => ({ providers: {} }),
+  });
+
+  it("composer.model 单槽：官方席渲染模型触发钮；顶替件拿同一 API（写会话绑定）", () => {
+    const updateUiState = vi.fn();
+    const ctx = dockCtx({ updateUiState, client: readyClient() });
+    const official = render(<ComposerDock {...ctx} />);
+    expect(screen.getByRole("button", { name: t("composer.model") })).toBeDefined();
+    official.unmount();
+
+    const slots = new Map(ctx.slots);
+    slots.set("composer.model", [ModelSeatProbe]);
+    render(<ComposerDock {...ctx} slots={slots} />);
+    expect(screen.queryByRole("button", { name: t("composer.model") })).toBeNull(); // 官方席已让位
+    fireEvent.click(screen.getByRole("button", { name: "empty" }));
+    expect(updateUiState).toHaveBeenCalledWith({ model: "probe/model" });
+  });
+
+  it("composer.left / composer.right：追加件在工具排渲染，经 API 写草稿/聚焦/发送", async () => {
+    const ctx = dockCtx();
+    const prompt = vi.spyOn(ctx.client, "prompt");
+    const slots = new Map(ctx.slots);
+    slots.set("composer.left", [LeftSeatProbe]);
+    slots.set("composer.right", [RightSeatProbe]);
+    const { container } = render(<ComposerDock {...ctx} slots={slots} />);
+    fireEvent.click(screen.getByRole("button", { name: "左席" }));
+    const area = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(area.value).toBe("左席插入"); // 草稿真源在运行时
+    expect(document.activeElement).toBe(area); // api.focus() 落输入框
+    fireEvent.click(screen.getByRole("button", { name: "闲" }));
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith("s-1", "右席发送", {
+        steer: undefined,
+        modelId: undefined,
+        reasoningEffort: undefined,
+      }),
+    );
+  });
+
+  it("composer.dock：排队面板在 bar 外；审批接管时 dock 仍可见、bar 槽隐藏；dock 件拿审批面", () => {
+    const approvalRow = {
+      kind: "approval",
+      rowId: "p:r-1",
+      turn: "t-1",
+      step: 1,
+      requestId: "r-1",
+      toolName: "demo-write",
+      status: "pending",
+    } as ApprovalRow;
+    const queue = [{ id: "q1", text: "排队的话", steer: false }];
+    // 快照引用必须稳定（useSyncExternalStore 语义：每次新数组会死循环）
+    const approvalRows: Row[] = [approvalRow];
+    const sessionState = { busy: true, queue };
+    const ctx = dockCtx({
+      store: {
+        getSession: () => ({ rows: approvalRows, state: sessionState }),
+        subscribe: () => () => {},
+      },
+    });
+    const slots = new Map(ctx.slots);
+    slots.set("composer.dock", [QueueDock, DockProbe]);
+    const { container } = render(<ComposerDock {...ctx} slots={slots} />);
+
+    const barSlot = container.querySelector(".henira-composer-bar-slot") as HTMLElement;
+    const queueEl = container.querySelector(".henira-queue") as HTMLElement;
+    expect(barSlot.style.display).toBe("none"); // 接管中
+    expect(queueEl).not.toBeNull();
+    expect(barSlot.contains(queueEl)).toBe(false); // 排队面板不在被隐藏的 bar 子树里
+    expect(screen.getByTestId("dock-probe-state").textContent).toBe("pending"); // API 审批面
+
+    // 乐观摘卡：dock 条目点决定 → pending 让位（bar 回来）；settle 结果不影响本断言
+    fireEvent.click(screen.getByRole("button", { name: "dock决定" }));
+    expect(screen.getByTestId("dock-probe-state").textContent).toBe("none");
+    expect(barSlot.style.display).toBe("");
   });
 });
 
@@ -903,31 +1153,34 @@ describe("ApprovalCard", () => {
     expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
   });
 
-  it("pending 审批接管 composer dock：卡渲染于输入卡上方，Enter 让位不发送", () => {
+  it("pending 审批接管 composer dock（R182 chain）：输入栏让位（隐藏但挂载），Enter 不发送", () => {
     const approvalRows: Row[] = [pendingRow];
-    const ctx = fixtureCtx({
+    const ctx = dockCtx({
       store: {
         getSession: () => ({ rows: approvalRows, state: { busy: false } }),
         subscribe: () => () => {},
       },
     });
     const prompt = vi.spyOn(ctx.client, "prompt");
-    const { container } = render(<Composer {...ctx} />);
+    const { container } = render(<ComposerDock {...ctx} />);
     expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
+    // 输入栏仍在 DOM（草稿/DOM 态不丢），但被 display:none 藏起
+    const barSlot = container.querySelector(".henira-composer-bar-slot") as HTMLElement;
+    expect(barSlot.style.display).toBe("none");
     fireEvent.keyDown(container.querySelector("textarea") as HTMLTextAreaElement, { key: "Enter" });
     expect(prompt).not.toHaveBeenCalled();
   });
 
   it("点击即退场（R171）：点允许卡立即离场不等回传；settle 失败回滚可重试", async () => {
     const approvalRows: Row[] = [pendingRow];
-    const ctx = fixtureCtx({
+    const ctx = dockCtx({
       store: {
         getSession: () => ({ rows: approvalRows, state: { busy: false } }),
         subscribe: () => () => {},
       },
     });
     const settle = vi.spyOn(ctx.client, "settleApproval").mockRejectedValueOnce(new Error("net"));
-    render(<Composer {...ctx} />);
+    render(<ComposerDock {...ctx} />);
     expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
     fireEvent.click(screen.getByText(t("approval.allow")));
     // 点击瞬间卡已离场（乐观移除——不等 SSE settled）
@@ -946,9 +1199,24 @@ describe("ApprovalCard", () => {
     expect(settle).toHaveBeenCalledTimes(2);
   });
 
+  it("审批卡键盘守卫（R180）：焦点在输入框时 Enter/Esc 不抢——打字不误放行/误拒绝", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <>
+        <ApprovalCard row={pendingRow} ctx={ctx} />
+        <textarea aria-label="probe" />
+      </>,
+    );
+    const probe = screen.getByLabelText("probe");
+    fireEvent.keyDown(probe, { key: "Enter" });
+    fireEvent.keyDown(probe, { key: "Escape" });
+    expect(settle).not.toHaveBeenCalled();
+  });
+
   it("404 不回滚（R175）：审批对象已不存在（服务重启收口）——卡保持离场当已解决", async () => {
     const approvalRows: Row[] = [pendingRow];
-    const ctx = fixtureCtx({
+    const ctx = dockCtx({
       store: {
         getSession: () => ({ rows: approvalRows, state: { busy: false } }),
         subscribe: () => () => {},
@@ -959,7 +1227,7 @@ describe("ApprovalCard", () => {
       status: 404,
     });
     const settle = vi.spyOn(ctx.client, "settleApproval").mockRejectedValueOnce(notFound);
-    render(<Composer {...ctx} />);
+    render(<ComposerDock {...ctx} />);
     expect(screen.getByRole("dialog", { name: t("approval.title") })).toBeDefined();
     fireEvent.click(screen.getByText(t("approval.allow")));
     expect(screen.queryByRole("dialog", { name: t("approval.title") })).toBeNull();
@@ -1071,9 +1339,10 @@ describe("行级挂载点（D-057）", () => {
     expect(screen.queryByText("read")).toBeNull(); // 官方工具卡被顶替
   });
 
-  it("keyed 槽缺席 → 回落官方默认工具卡（卸载即回落同一语义）", () => {
-    render(<Conversation {...ctxWithRows([toolRow], new Map())} />);
-    expect(screen.getByText("读取")).toBeDefined(); // 官方卡渲染中文标题
+  it("官方默认读写卡可经 keyed 槽渲染（卸载即回落同一语义）", () => {
+    const slots = new Map<string, readonly SlotPart[]>([["tool.call.view.read", [ReadCard]]]);
+    render(<Conversation {...ctxWithRows([toolRow], slots)} />);
+    expect(screen.getByText("已读取")).toBeDefined();
   });
 
   it("MCP 工具路由（E5）：精确 wire 名无注册 → 查 tool.call.view.mcp 总缝渲染官方 MCP 卡", () => {
@@ -1096,12 +1365,14 @@ describe("行级挂载点（D-057）", () => {
     };
     const slots = new Map<string, readonly SlotPart[]>([["tool.call.view.mcp", [McpCard]]]);
     render(<Conversation {...ctxWithRows([mcpRow], slots)} />);
-    // 拆名显示：tool 名做标题 + server 名进摘要（wire 名不直接做标题）
-    expect(screen.getByText("read_doc")).toBeDefined();
+    // 类别词 MCP + server 弱信息 + 工具名 Title Case（wire 名只走 title）
+    expect(screen.getByText("MCP")).toBeDefined();
+    expect(screen.getByText("Read Doc")).toBeDefined();
     expect(screen.getByText("office")).toBeDefined();
+    expect(screen.queryByText("read_doc")).toBeNull();
   });
 
-  it("MCP 工具总缝也缺席 → ToolView 通用卡兜底（wire 名原样）", () => {
+  it("MCP 工具总缝也缺席 → ToolView 通用卡兜底（工具名人类化）", () => {
     const mcpRow: Row = {
       kind: "tool",
       rowId: "t:t-1:1:m2",
@@ -1115,7 +1386,8 @@ describe("行级挂载点（D-057）", () => {
       output: { content: "body", isError: false, durationMs: 3 },
     };
     render(<Conversation {...ctxWithRows([mcpRow], new Map())} />);
-    expect(screen.getByText("mcp__fs__read_file")).toBeDefined();
+    expect(screen.getByText("Fs Read File")).toBeDefined();
+    expect(screen.queryByText("mcp__fs__read_file")).toBeNull();
   });
 
   it("MCP 总缝渲染槽内件本身（审查 F1 回归）：第三方顶替件生效，不是硬编码官方卡", () => {
@@ -1157,7 +1429,7 @@ describe("行级挂载点（D-057）", () => {
     ]);
     render(<Conversation {...ctxWithRows([literalRow], slots)} />);
     expect(screen.queryByText("总缝顶替件甲")).toBeNull();
-    expect(screen.getByText("mcp")).toBeDefined(); // ToolView 通用卡兜底渲染工具名
+    expect(screen.getByText("Mcp")).toBeDefined(); // ToolView 通用卡兜底渲染工具名人类化
   });
 
   it("turn.tail 追加位：行列表之后渲染全部件（官方无默认件）", () => {
@@ -1187,8 +1459,8 @@ describe("行级挂载点（D-057）", () => {
     expect(screen.getByText("画廊位在场")).toBeDefined();
   });
 
-  it("usage 徽章：有值渲染 12↑4↓；全 0（中断回合）不渲染（R125 糙点③）", () => {
-    const base = {
+  it("usage 不上屏：token 数不进对话区（数据仍留在行上）", () => {
+    const row: Row = {
       kind: "assistant",
       rowId: "a:t-1:1",
       rowSeq: 3,
@@ -1196,22 +1468,16 @@ describe("行级挂载点（D-057）", () => {
       step: 1,
       text: "答",
       streaming: false,
-    } as const;
-    const withUsage: Row = { ...base, usage: { inputTokens: 12, outputTokens: 4 } };
-    const { container } = render(<Conversation {...ctxWithRows([withUsage], new Map())} />);
-    expect(container.textContent).toContain("12↑ 4↓");
-    cleanup();
-    const zeroUsage: Row = {
-      ...base,
-      rowId: "a:t-1:2",
-      usage: { inputTokens: 0, outputTokens: 0 },
+      usage: { inputTokens: 12, outputTokens: 4 },
     };
-    const zero = render(<Conversation {...ctxWithRows([zeroUsage], new Map())} />);
-    expect(zero.container.textContent).not.toContain("↑");
+    const { container } = render(<Conversation {...ctxWithRows([row], new Map())} />);
+    expect(container.textContent).not.toContain("↑");
+    expect(container.textContent).not.toContain("12");
   });
 
   it("官方模块注册区域槽 + per-tool keyed 卡（E5 起官方自己消费 keyed 缝；插件通道与安全模式同形）", () => {
     const registered: string[] = [];
+    const chainRegistered: string[] = [];
     const host = fixtureCtx().host;
     webUiModule({
       registerSlot: (name) => {
@@ -1219,11 +1485,19 @@ describe("行级挂载点（D-057）", () => {
         return () => {};
       },
       replaceSlot: () => () => {},
+      registerChainSlot: (name, entry) => {
+        chainRegistered.push(`${name}#${entry.id}`);
+        return () => {};
+      },
+      replaceChainSlot: () => () => {},
       host,
     });
     // D-062 UI 侧子项：layout 框架件 + sidebar.right 右栏件随骨架批入列（区域级五名）
     // E5：defaultToolViews 七工具键 + mcp 总缝，官方 keyed 注册示范（D-057 全语义闭环）
     // E6：defaultApprovalViews 八审批键（approval.view.<工具名>，词表 10→11）
+    // R182：composer 座位拆出 composer.bar（fallback）+ composer.takeover chain（审批条目）
+    // R183：四席官方默认件 = composer.model（单槽模型席）+ composer.dock（排队面板）；
+    //       composer.left/right 官方空不注册
     expect([...registered].sort()).toEqual([
       "approval.view.bash",
       "approval.view.edit",
@@ -1234,6 +1508,9 @@ describe("行级挂载点（D-057）", () => {
       "approval.view.read",
       "approval.view.write",
       "composer",
+      "composer.bar",
+      "composer.dock",
+      "composer.model",
       "conversation",
       "layout",
       "sidebar",
@@ -1247,12 +1524,16 @@ describe("行级挂载点（D-057）", () => {
       "tool.call.view.read",
       "tool.call.view.write",
     ]);
+    expect(chainRegistered).toEqual(["composer.takeover#approval"]);
     expect(
       registered.every(
         (n) =>
           (
             ["layout", "sidebar", "conversation", "composer", "sidebar.right"] as WebSlotName[]
           ).includes(n as WebSlotName) ||
+          n === "composer.bar" ||
+          n === "composer.model" ||
+          n === "composer.dock" ||
           n.startsWith("tool.call.view.") ||
           n.startsWith("approval.view."),
       ),
@@ -1396,8 +1677,8 @@ describe("界面绑定状态（D-063）", () => {
     const prompt = vi.fn(async () => ({ queued: false, id: null }));
     const ctx = fixtureCtx({ uiState: { draft: "上次的草稿" }, updateUiState });
     ctx.client.prompt = prompt;
-    render(<Composer {...ctx} />);
-    const area = screen.getByPlaceholderText(t("composer.placeholder")) as HTMLTextAreaElement;
+    renderComposer(ctx);
+    const area = screen.getByTestId("composer-input") as HTMLTextAreaElement;
     await waitFor(() => expect(area.value).toBe("上次的草稿")); // 回填
     fireEvent.change(area, { target: { value: "新输入" } });
     expect(updateUiState).toHaveBeenCalledWith({ draft: "新输入" });
@@ -1769,6 +2050,19 @@ describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JS
     expect(openSettings).toHaveBeenCalled(); // 缺省分区由宿主定（默认主题页）
   });
 
+  it("conversation 区域槽可整块顶替（「一切皆插件」不回退）", () => {
+    const stub: WebPart = () => <div data-stub="part" />;
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["sidebar", [stub]],
+      ["conversation", [() => "自定义会话区"]],
+      ["composer", [stub]],
+      ["sidebar.right", [RightPanel]],
+    ]);
+    const { container } = render(<LayoutFrame {...frameCtx({ slots })} />);
+    expect(container.textContent).toContain("自定义会话区");
+    expect(container.querySelector(".henira-conversation")).toBeNull(); // 官方 Conversation 未渲染
+  });
+
   it("layout=composer：只渲染输入区（D-043 挑件语义——无 header/侧栏）", () => {
     const { container } = render(<LayoutFrame {...frameCtx({ layout: "composer" })} />);
     expect(container.querySelector(".henira-header")).toBeNull();
@@ -1914,7 +2208,7 @@ describe("思考档按次绑定（骨架批）", () => {
         }),
       },
     });
-    const { container } = render(<Composer {...noneCtx} />);
+    const { container } = renderComposer(noneCtx);
     await waitFor(() => {
       if (container.querySelector(".henira-thinking-select[data-disabled='true']") === null) {
         throw new Error("thinking control not grayed");
@@ -1945,7 +2239,7 @@ describe("思考档按次绑定（骨架批）", () => {
         }),
       },
     });
-    const glm = render(<Composer {...glmCtx} />);
+    const glm = renderComposer(glmCtx);
     // 数据驱动档位：effort 值直通——关/低/高/最高 四档（max 独立成档，不归并）；
     // 点开自制面板断言选项排（原生 select 退场）
     fireEvent.click(await screen.findByRole("button", { name: t("composer.thinking") }));
@@ -1983,7 +2277,7 @@ describe("思考档按次绑定（骨架批）", () => {
         }),
       },
     });
-    render(<Composer {...agnesCtx} />);
+    renderComposer(agnesCtx);
     fireEvent.click(await screen.findByRole("button", { name: t("composer.thinking") }));
     const agnesOptions = await screen.findAllByRole("option");
     expect(agnesOptions.map((o) => o.textContent)).toEqual([
@@ -2022,7 +2316,7 @@ describe("思考档按次绑定（骨架批）", () => {
         }),
       },
     });
-    const { container } = render(<Composer {...ctx} />);
+    const { container } = renderComposer(ctx);
     // 会话绑定优先于全局默认（触发钮显示 glm）
     const trigger = await screen.findByRole("button", { name: t("composer.model") });
     await waitFor(() => expect(trigger.textContent).toContain("GLM-5.3-Flash"));
@@ -2030,7 +2324,7 @@ describe("思考档按次绑定（骨架批）", () => {
     fireEvent.click(thinkTrigger);
     fireEvent.click(await screen.findByRole("option", { name: t("composer.thinking.high") }));
     expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "high" });
-    const area = screen.getByPlaceholderText(t("composer.placeholder")) as HTMLTextAreaElement;
+    const area = screen.getByTestId("composer-input") as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: "问一句" } });
     fireEvent.keyDown(area, { key: "Enter" });
     await waitFor(() =>
@@ -2066,15 +2360,15 @@ describe("思考档按次绑定（骨架批）", () => {
         }),
       },
     });
-    render(<Composer {...ctx} />);
+    renderComposer(ctx);
     await waitFor(() => expect(updateUiState).toHaveBeenCalledWith({ reasoningEffort: "medium" }));
     // 触发钮显示为「开」（medium 的 toggle 文案）
     const thinkTrigger = await screen.findByRole("button", { name: t("composer.thinking") });
     await waitFor(() => expect(thinkTrigger.textContent).toContain(t("composer.thinking.on")));
   });
 
-  it("思考档行上徽章（AssistantRow.reasoningEffort 投影；off 不渲染）", () => {
-    const base = {
+  it("思考档不上屏：行上徽章移除（档位只在 composer 控件）", () => {
+    const row: Row = {
       kind: "assistant",
       rowId: "a:t-1:1",
       rowSeq: 1,
@@ -2082,16 +2376,10 @@ describe("思考档按次绑定（骨架批）", () => {
       step: 1,
       text: "答",
       streaming: false,
-    } as const;
-    const high: Row = { ...base, reasoningEffort: "high" };
-    render(<Conversation {...ctxWithRows([high])} />);
-    expect(screen.getByTitle(t("composer.thinking")).textContent).toContain(
-      t("composer.thinking.high"),
-    );
-    cleanup();
-    const off: Row = { ...base, reasoningEffort: "off" };
-    render(<Conversation {...ctxWithRows([off])} />);
-    expect(screen.queryByTitle(t("composer.thinking"))).toBeNull(); // off = 缺省语义不渲染
+      reasoningEffort: "high",
+    };
+    render(<Conversation {...ctxWithRows([row])} />);
+    expect(screen.queryByTitle(t("composer.thinking"))).toBeNull();
   });
 });
 
@@ -2359,6 +2647,15 @@ describe("统一下拉基础件（基础件批 2026-11-20）", () => {
 // ── 生命感（E3）：回合头 / 相邻工具聚合 / busy 计时行 ──
 
 describe("生命感（E3）", () => {
+  const toolInput = (name: string): string => {
+    if (name === "bash" || name === "powershell") return JSON.stringify({ command: "echo" });
+    if (name === "read") return JSON.stringify({ file_path: "x.txt" });
+    if (name === "edit") {
+      return JSON.stringify({ file_path: "x.txt", old_string: "a", new_string: "b" });
+    }
+    if (name === "write") return JSON.stringify({ file_path: "x.txt", content: "x" });
+    return JSON.stringify({ pattern: "x" });
+  };
   const mkTool = (callId: string, name: string, seq: number, status = "done"): Row =>
     ({
       kind: "tool",
@@ -2369,7 +2666,7 @@ describe("生命感（E3）", () => {
       callId,
       name,
       status: status as "running" | "done" | "error",
-      input: "{}",
+      input: toolInput(name),
       output:
         status === "running"
           ? undefined
@@ -2378,15 +2675,21 @@ describe("生命感（E3）", () => {
 
   function ctxWithState(rows: Row[], state: Record<string, unknown>): WebPartContext {
     const snapshot = { rows, state }; // 引用稳定——useSyncExternalStore 语义（每调用新对象=无限重渲）
+    // 生产里官方 per-tool 卡经 webUiModule 注册进 keyed 槽；测试同形注入，
+    // 让对话组织的断言跑在真实卡上而不是通用兜底卡。
+    const slots = new Map<string, readonly SlotPart[]>(
+      Object.entries(defaultToolViews).map(([key, view]) => [key, [view]]),
+    );
     return fixtureCtx({
       store: {
         getSession: () => snapshot,
         subscribe: () => () => {},
       },
+      slots,
     } as unknown as Partial<WebPartContext>);
   }
 
-  it("回合头：settled 轮含工具行且有 turnTimings → 已完成 · 用时 · N 个工具；无 timing 不渲染", () => {
+  it("回合头：settled 轮有 turnTimings → 已工作 4 秒；无 timing → 已处理；都不带工具数", () => {
     const rows: Row[] = [
       { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
       mkTool("c1", "bash", 2),
@@ -2405,17 +2708,18 @@ describe("生命感（E3）", () => {
       turnTimings: { "t-1": { durationMs: 4000, endedAt: 1_700_000_060_000, forkSeq: 3 } },
     });
     const { container } = render(<Conversation {...ctx} />);
-    expect(container.textContent).toContain("已完成");
-    expect(container.textContent).toContain("4s");
-    expect(container.textContent).toContain("1 个工具");
+    expect(container.textContent).toContain(`${t("turn.worked")} 4 ${t("tool.unitSec")}`);
+    expect(container.textContent).not.toContain(t("turn.toolsSuffix"));
+    expect(container.textContent).not.toContain("用时");
 
     cleanup();
     const noTiming = ctxWithState(rows, { busy: false });
     const { container: c2 } = render(<Conversation {...noTiming} />);
-    expect(c2.textContent?.includes("已完成")).toBe(false);
+    expect(c2.textContent).toContain(t("turn.processed"));
+    expect(c2.textContent).not.toContain("用时");
   });
 
-  it("相邻工具聚合：≥3 连续 tool 行折叠组头；点开 = 全部子行；2 行不折叠", () => {
+  it("相邻工具聚合：≥2 连续工具按类别折叠组头；点开 = 全部子行", () => {
     const rows: Row[] = [
       { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
       mkTool("c1", "bash", 2),
@@ -2433,15 +2737,17 @@ describe("生命感（E3）", () => {
     ];
     const ctx = ctxWithState(rows, { busy: false });
     const { container } = render(<Conversation {...ctx} />);
-    expect(screen.getByText(`3 ${t("tools.groupSuffix")}`)).toBeDefined();
+    // 完成轮过程默认折叠：先展开「已工作」，再展开过程组
+    fireEvent.click(screen.getByRole("button", { name: /已处理|已工作/ }));
+    const groupLabel = `${t("tools.groupExplore")} 2 ${t("tools.unitItems")}，${t("tools.groupRun")} 1 ${t("tools.unitCommands")}`;
+    expect(screen.getByRole("button", { name: groupLabel })).toBeDefined();
     expect(screen.queryByText("bash body")).toBeNull(); // 折叠中子行不渲染
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("tools.groupSuffix")) }));
-    // 子行 = ToolRowView（DisclosureRow 默认收起）——组展开后再逐行点开（renderCard 同款先例）
-    for (const btn of [...container.querySelectorAll('button[aria-expanded="false"]')]) {
+    fireEvent.click(screen.getByRole("button", { name: groupLabel }));
+    // 子行 = 工具卡默认收起——组展开后再点开终端行
+    for (const btn of [...container.querySelectorAll('[role="button"][aria-expanded="false"]')]) {
       fireEvent.click(btn);
     }
     expect(screen.getByText("bash body")).toBeDefined();
-    expect(screen.getByText("glob body")).toBeDefined();
 
     cleanup();
     const twoRows: Row[] = [
@@ -2451,14 +2757,52 @@ describe("生命感（E3）", () => {
     ];
     const two = ctxWithState(twoRows, { busy: false });
     const { container: c3 } = render(<Conversation {...two} />);
-    expect(c3.textContent?.includes("个工具 · 最近")).toBe(false);
+    expect(c3.textContent).toContain(t("tools.groupExplore"));
+    expect(c3.textContent).toContain(t("tools.groupRun"));
   });
 
-  it("busy 计时行：busy 时思考行带点阵与秒数；空闲不渲染", () => {
+  it("修改组收起态显示文件名（R179）：多文件统计 + 文件名；展开回统计", () => {
+    const editRow = (callId: string, filePath: string, seq: number): Row => ({
+      kind: "tool",
+      rowId: `t:t-1:1:${callId}`,
+      rowSeq: seq,
+      turn: "t-1",
+      step: 1,
+      callId,
+      name: "edit",
+      status: "done",
+      input: JSON.stringify({ file_path: filePath, old_string: "a", new_string: "b" }),
+      output: { content: "", isError: false, durationMs: 1 },
+    });
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "改文件", source: "send" },
+      editRow("c1", "src/x.ts", 2),
+      editRow("c2", "src/y.ts", 3),
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 4,
+        turn: "t-1",
+        step: 1,
+        text: "改完",
+        streaming: false,
+      },
+    ];
+    const ctx = ctxWithState(rows, { busy: false });
+    render(<Conversation {...ctx} />);
+    fireEvent.click(screen.getByRole("button", { name: /已处理|已工作/ }));
+    const stats = `${t("tools.groupChange")} 2 ${t("tools.unitFiles")}`;
+    expect(screen.getByRole("button", { name: stats })).toBeDefined();
+    expect(screen.getByText("x.ts，y.ts")).toBeDefined(); // 收起态给文件名（basename）
+    fireEvent.click(screen.getByRole("button", { name: stats }));
+    expect(screen.queryByText("x.ts，y.ts")).toBeNull(); // 展开改显统计
+  });
+
+  it("busy 计时行：busy 时「工作中 + 时长」；空闲不渲染", () => {
     const ctx = ctxWithState([], { busy: true });
     const { container } = render(<Conversation {...ctx} />);
     expect(container.querySelector(".henira-loading-dots")).not.toBeNull();
-    expect(container.textContent).toContain("思考中");
+    expect(container.textContent).toContain(t("conversation.working"));
 
     cleanup();
     const idle = ctxWithState([], { busy: false });
@@ -2469,7 +2813,7 @@ describe("生命感（E3）", () => {
   it("busy 计时权威起点（R173）：state.busySince 在场时从服务端起点续算，刷新不归零", () => {
     const ctx = ctxWithState([], { busy: true, busySince: Date.now() - 30_000 });
     const { container } = render(<Conversation {...ctx} />);
-    const m = container.textContent?.match(/思考中… · (\d+)s/);
+    const m = container.textContent?.match(/工作中 (\d+) 秒/);
     expect(m).not.toBeNull();
     expect(Number(m?.[1])).toBeGreaterThanOrEqual(28); // 续表 ≥28s（tick 容差）——而非从 0 重数
   });
@@ -2494,7 +2838,7 @@ describe("生命感（E3）", () => {
       ...(interrupted === true ? { interrupted: true } : {}),
     }) as Row;
 
-  it("透明步级行：带 usage 的空文本步级行不拆组（仍折叠 3 个工具），展开后步级用量徽章按原序可见", () => {
+  it("空步级行不再携 usage 上屏：纯空行剔除，工具仍折叠成组", () => {
     const rows: Row[] = [
       { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
       mkStep(1, 2, { inputTokens: 10, outputTokens: 5 }),
@@ -2506,15 +2850,14 @@ describe("生命感（E3）", () => {
     ];
     const ctx = ctxWithState(rows, { busy: false });
     const { container } = render(<Conversation {...ctx} />);
-    expect(screen.getByText(`3 ${t("tools.groupSuffix")}`)).toBeDefined();
-    expect(screen.queryByText("10↑ 5↓")).toBeNull(); // 折叠中透明行一并收起
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("tools.groupSuffix")) }));
-    expect(screen.getByText("10↑ 5↓")).toBeDefined(); // 展开后步级用量可见（E5 UI 面不丢）
-    expect(screen.getByText("30↑ 7↓")).toBeDefined();
-    // 子行 = DisclosureRow 默认收起——组展开后再逐行点开（renderCard 同款先例）
-    for (const btn of [...container.querySelectorAll('button[aria-expanded="false"]')]) {
+    const groupLabel = `${t("tools.groupExplore")} 2 ${t("tools.unitItems")}，${t("tools.groupRun")} 1 ${t("tools.unitCommands")}`;
+    expect(screen.getByRole("button", { name: groupLabel })).toBeDefined();
+    expect(container.textContent).not.toContain("↑");
+    fireEvent.click(screen.getByRole("button", { name: groupLabel }));
+    for (const btn of [...container.querySelectorAll('[role="button"][aria-expanded="false"]')]) {
       fireEvent.click(btn);
     }
+    expect(container.textContent).not.toContain("↑");
     expect(screen.getByText("bash body")).toBeDefined();
   });
 
@@ -2530,23 +2873,140 @@ describe("生命感（E3）", () => {
     ];
     const ctx = ctxWithState(rows, { busy: false });
     const { container } = render(<Conversation {...ctx} />);
-    expect(screen.getByText(`3 ${t("tools.groupSuffix")}`)).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("tools.groupSuffix")) }));
-    // 子行 = DisclosureRow 默认收起——组展开后再逐行点开
-    for (const btn of [...container.querySelectorAll('button[aria-expanded="false"]')]) {
+    const groupLabel = `${t("tools.groupExplore")} 2 ${t("tools.unitItems")}，${t("tools.groupRun")} 1 ${t("tools.unitCommands")}`;
+    expect(screen.getByRole("button", { name: groupLabel })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: groupLabel }));
+    for (const btn of [...container.querySelectorAll('[role="button"][aria-expanded="false"]')]) {
       fireEvent.click(btn);
     }
-    expect(screen.getByText("glob body")).toBeDefined();
+    expect(screen.getByText("bash body")).toBeDefined();
   });
 
-  it("中断可见性：零文本中止行（推理期打断）不被空行折叠吞掉——interrupted 徽章在场", () => {
+  it("中断可见性：零文本中止行不被空行剔除——轮头「已停止」在场", () => {
     const rows: Row[] = [
       { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "写一段", source: "send" },
       mkStep(1, 2, undefined, true),
     ];
     const ctx = ctxWithState(rows, { busy: false });
     const { container } = render(<Conversation {...ctx} />);
-    expect(container.textContent).toContain(t("row.interrupted"));
+    expect(container.textContent).toContain(t("turn.stopped"));
+  });
+
+  // R177：完成轮历史折叠（ZCode 形态）——过程收进「已工作」，最终回答留在外面
+  it("完成轮折叠：默认只见最终回答 + 已工作；展开后过程与工具行可见", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkTool("c1", "bash", 2),
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 3,
+        turn: "t-1",
+        step: 1,
+        text: "最终回答",
+        streaming: false,
+      },
+    ];
+    const ctx = ctxWithState(rows, {
+      busy: false,
+      turnTimings: { "t-1": { durationMs: 4000, endedAt: 1_700_000_060_000, forkSeq: 3 } },
+    });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain("最终回答");
+    expect(container.textContent).toContain(t("turn.worked"));
+    expect(screen.queryByText("bash body")).toBeNull(); // 过程默认收起
+    fireEvent.click(screen.getByRole("button", { name: /已处理|已工作/ }));
+    for (const btn of [...container.querySelectorAll('[role="button"][aria-expanded="false"]')]) {
+      fireEvent.click(btn);
+    }
+    expect(screen.getByText("bash body")).toBeDefined();
+  });
+
+  it("最终回答自带的思考收进折叠体：折叠态不留思考行，展开后在场", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "想一想", source: "send" },
+      mkTool("c1", "bash", 2),
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 3,
+        turn: "t-1",
+        step: 1,
+        text: "最终回答",
+        reasoning: "先想一下再回答",
+        streaming: false,
+      },
+    ];
+    const ctx = ctxWithState(rows, {
+      busy: false,
+      turnTimings: { "t-1": { durationMs: 3000, endedAt: 1_700_000_060_000, forkSeq: 3 } },
+    });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain("最终回答");
+    expect(screen.queryByText(t("row.reasoning.done"))).toBeNull(); // 折叠态：思考收进「已工作」
+    fireEvent.click(screen.getByRole("button", { name: /已处理|已工作/ }));
+    expect(screen.getByText(t("row.reasoning.done"))).toBeDefined();
+  });
+
+  it("思考+回答（无工具）也折叠：头不显示「0 个工具」，展开后思考可见", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "想一想", source: "send" },
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 2,
+        turn: "t-1",
+        step: 1,
+        text: "回答",
+        reasoning: "想一想再答",
+        streaming: false,
+      },
+    ];
+    const ctx = ctxWithState(rows, {
+      busy: false,
+      turnTimings: { "t-1": { durationMs: 2000, endedAt: 1_700_000_060_000, forkSeq: 2 } },
+    });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain(t("turn.worked"));
+    expect(container.textContent?.includes(`0 ${t("turn.toolsSuffix")}`)).toBe(false);
+    expect(container.textContent?.includes("回答")).toBe(true);
+    expect(screen.queryByText(t("row.reasoning.done"))).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /已处理|已工作/ }));
+    expect(screen.getByText(t("row.reasoning.done"))).toBeDefined();
+  });
+
+  it("运行中轮：不显示轮级折叠头，过程直接展开，加载行「工作中」", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkTool("c1", "bash", 2, "running"),
+    ];
+    const ctx = ctxWithState(rows, { busy: true, lastTurnId: "t-1" });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.querySelector(".henira-turn-history-trigger")).toBeNull();
+    expect(container.textContent).toContain(t("tool.kind.running"));
+    expect(container.textContent).toContain(t("conversation.working"));
+  });
+
+  it("中断轮：过程强制展开，最终回答与已停止头同时可见", () => {
+    const rows: Row[] = [
+      { kind: "user", rowId: "u:1", rowSeq: 1, turn: "t-1", text: "跑工具", source: "send" },
+      mkTool("c1", "bash", 2),
+      {
+        kind: "assistant",
+        rowId: "a:1",
+        rowSeq: 3,
+        turn: "t-1",
+        step: 1,
+        text: "半截回答",
+        streaming: false,
+        interrupted: true,
+      },
+    ];
+    const ctx = ctxWithState(rows, { busy: false });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain("半截回答");
+    expect(container.textContent).toContain(t("turn.stopped"));
+    expect(container.textContent).toContain(t("tool.kind.ran")); // 折开态：工具行可见
   });
 });
 

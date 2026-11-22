@@ -10,8 +10,11 @@
 import type { Disposable } from "@henira/kernel";
 import { ApprovalCard } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
+import { approvalTakeover, ComposerDock } from "./parts/composer-dock.js";
 import { Conversation } from "./parts/conversation.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
+import { ModelSeat } from "./parts/model-seat.js";
+import { QueueDock } from "./parts/queue-dock.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import {
@@ -25,6 +28,7 @@ import {
 } from "./parts/tool-cards.js";
 import type {
   ApprovalCardView,
+  ChainEntry,
   SlotPart,
   ToolCallView,
   UiModuleContext,
@@ -32,13 +36,29 @@ import type {
   WebSlotName,
 } from "./types.js";
 
-/** 槽位 → 官方件映射（默认组合只是一种排列——D-043 第 8 条；区域级五名各有官方默认件） */
+/** 槽位 → 官方件映射（默认组合只是一种排列——D-043 第 8 条；区域级五名各有官方默认件）
+ * R182：composer 座位 = ComposerDock（chain 接管路由 + fallback composer.bar）。 */
 export const defaultParts: Record<WebSlotName, WebPart> = {
   layout: LayoutFrame,
   sidebar: SessionList,
   conversation: Conversation,
-  composer: Composer,
+  composer: ComposerDock,
   "sidebar.right": RightPanel,
+};
+
+/** 输入座位子槽（R182）：composer.bar = 常驻输入栏（chain fallback；接管时保持挂载） */
+export const defaultComposerBar: WebPart = Composer;
+
+/** 输入座位四席（R183）：model 单槽（官方模型+思考席）、dock 列表（官方排队面板）。
+ *  left/right 官方空——只给插件追加。 */
+export const defaultComposerSeats: Record<string, WebPart> = {
+  "composer.model": ModelSeat,
+  "composer.dock": QueueDock,
+};
+
+/** chain 槽官方条目（R182）：composer.takeover = 接管选举；审批是第一条，提问（R184）后到 */
+export const defaultChainEntries: Record<string, ChainEntry[]> = {
+  "composer.takeover": [approvalTakeover],
 };
 
 /** keyed 工具卡 → 官方默认件（E5，D-057 全语义闭环：官方自己消费自己开的缝）。
@@ -75,6 +95,17 @@ export function webUiModule(ctx: UiModuleContext): Disposable {
   }
   for (const [name, view] of Object.entries(defaultApprovalViews)) {
     disposables.push(ctx.registerSlot(name, view as SlotPart));
+  }
+  // R182：输入座位子槽 + 接管 chain 条目（官方同走公共注册路径；第三方顶替/卸载回落）
+  disposables.push(ctx.registerSlot("composer.bar", defaultComposerBar));
+  // R183：四席官方默认件（model 单槽认领、dock 列表；left/right 官方空）
+  for (const [name, part] of Object.entries(defaultComposerSeats)) {
+    disposables.push(ctx.registerSlot(name, part));
+  }
+  for (const [name, entries] of Object.entries(defaultChainEntries)) {
+    for (const entry of entries) {
+      disposables.push(ctx.registerChainSlot(name, entry));
+    }
   }
   return () => {
     for (const dispose of disposables) dispose();

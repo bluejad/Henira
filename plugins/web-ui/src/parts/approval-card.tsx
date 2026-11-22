@@ -77,6 +77,15 @@ export function ApprovalCardShell(props: {
     if (!pending) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.isComposing) return;
+      // 焦点在可编辑控件（输入框/文本域/富文本）时不抢键——否则用户打字的 Enter 会
+      // 直接放行审批（活体抓到的真 bug）；审批卡自身无输入控件，天然不命中。
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, [contenteditable='true']") !== null
+      ) {
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
         decide("allowed-once");
@@ -97,93 +106,70 @@ export function ApprovalCardShell(props: {
   });
 
   const allowSession = sessionAllowable(row.toolName);
+  // 选项行（参照：编号 + 主文案 + 说明；点击即决定——保留本仓一键应答语义）
+  const options: { label: string; description: string; decision: Decision; scope?: "session" }[] = [
+    {
+      label: ctx.t("approval.allow"),
+      description: ctx.t("approval.allowDesc"),
+      decision: "allowed-once",
+    },
+    ...(allowSession
+      ? [
+          {
+            label: ctx.t("approval.sessionAllow"),
+            description: ctx.t("approval.sessionAllowDesc"),
+            decision: "allowed-once" as const,
+            scope: "session" as const,
+          },
+        ]
+      : []),
+    {
+      label: ctx.t("approval.deny"),
+      description: ctx.t("approval.denyDesc"),
+      decision: "rejected",
+    },
+  ];
   return (
     <div
       role="dialog"
       aria-label={ctx.t("approval.title")}
-      style={{
-        border: "1px solid var(--henira-border-strong)",
-        borderLeft: "3px solid var(--henira-warn-text)",
-        borderRadius: "var(--henira-radius)",
-        background: "var(--henira-warn-bg)",
-        padding: "var(--henira-space-3)",
-        marginBottom: "var(--henira-space-2)",
-      }}
+      tabIndex={-1}
+      className="henira-approval"
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--henira-space-2)",
-          marginBottom:
-            row.reason !== undefined || row.args !== undefined || pending
-              ? "var(--henira-space-2)"
-              : undefined,
-        }}
-      >
-        <strong>{ctx.t("approval.title")}</strong>
+      <div className="henira-approval-head">
+        <span className="henira-approval-title">{ctx.t("approval.title")}</span>
         {pending && props.queueTotal !== undefined && props.queueTotal > 1 ? (
-          <span
-            style={{
-              fontSize: "var(--henira-fs-sm)",
-              borderRadius: "9999px",
-              padding: "1px 8px",
-              background: "var(--henira-warn-text)",
-              color: "var(--henira-warn-bg)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
+          <span className="henira-approval-queue">
             {`${ctx.t("approval.queueCount")} ${props.queueTotal}`}
           </span>
         ) : null}
-        <span
-          style={{
-            fontSize: "var(--henira-fs-sm)",
-            borderRadius: "9999px",
-            padding: "1px 8px",
-            background: pending ? "var(--henira-warn-text)" : "var(--henira-border)",
-            color: pending ? "var(--henira-warn-bg)" : "var(--henira-text-muted)",
-          }}
-        >
-          {pending ? ctx.t("approval.pending") : ctx.t("approval.settled")}
-        </span>
-        <span
-          className="henira-mono"
-          style={{ fontSize: "var(--henira-fs-sm)", color: "var(--henira-text-muted)" }}
-        >
-          {row.toolName}
-        </span>
+        {!pending ? (
+          <span className="henira-approval-queue">{ctx.t("approval.settled")}</span>
+        ) : null}
       </div>
-      {row.reason !== undefined ? (
-        <div
-          style={{
-            fontSize: "var(--henira-fs-sm)",
-            color: "var(--henira-text-muted)",
-            marginBottom: pending ? "var(--henira-space-2)" : 0,
-          }}
-        >
-          {row.reason}
-        </div>
-      ) : null}
+      {row.reason !== undefined ? <p className="henira-approval-reason">{row.reason}</p> : null}
       {props.children}
       {pending ? (
-        <div style={{ display: "flex", gap: "var(--henira-space-2)" }}>
-          <button type="button" className="henira-primary" onClick={() => decide("allowed-once")}>
-            {ctx.t("approval.allow")}
-          </button>
-          {allowSession ? (
-            <button
-              type="button"
-              onClick={() => decide("allowed-once", "session")}
-              title={ctx.t("approval.sessionAllowTip")}
-            >
-              {ctx.t("approval.sessionAllow")}
-            </button>
-          ) : null}
-          <button type="button" onClick={() => decide("rejected")}>
-            {ctx.t("approval.deny")}
-          </button>
-        </div>
+        <>
+          <div className="henira-approval-options">
+            {options.map((option, index) => (
+              <button
+                key={`${option.decision}:${option.scope ?? "once"}`}
+                type="button"
+                className={`henira-approval-option${index === 0 ? " is-default" : ""}`}
+                aria-label={option.label}
+                onClick={() => decide(option.decision, option.scope)}
+              >
+                <span className="henira-approval-index">{index + 1}.</span>
+                <span className="henira-approval-option-text">
+                  <span className="henira-approval-option-label">{option.label}</span>
+                  <span className="henira-approval-option-desc">{option.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="henira-approval-hint">{ctx.t("approval.keyboardHint")}</p>
+        </>
       ) : null}
     </div>
   );
@@ -207,28 +193,9 @@ export function ApprovalCard(props: {
       onDecideFailed={props.onDecideFailed}
     >
       {props.row.args !== undefined ? (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--henira-space-2)",
-            marginBottom: props.row.status === "pending" ? "var(--henira-space-2)" : 0,
-          }}
-        >
-          <ApprovalPreview row={props.row} ctx={props.ctx} />
-        </div>
+        <ApprovalPreview row={props.row} ctx={props.ctx} />
       ) : props.row.argsSummary !== undefined ? (
-        <div
-          className="henira-mono"
-          style={{
-            fontSize: "var(--henira-fs-sm)",
-            color: "var(--henira-text-muted)",
-            marginBottom: props.row.status === "pending" ? "var(--henira-space-2)" : 0,
-            wordBreak: "break-all",
-          }}
-        >
-          {props.row.argsSummary}
-        </div>
+        <div className="henira-approval-digest">{props.row.argsSummary}</div>
       ) : null}
     </ApprovalCardShell>
   );

@@ -11,6 +11,9 @@ import { createRoot, type Root } from "react-dom/client";
 
 import {
   defaultApprovalViews,
+  defaultChainEntries,
+  defaultComposerBar,
+  defaultComposerSeats,
   defaultParts,
   defaultToolViews,
   type LayoutOption,
@@ -157,11 +160,20 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     "sidebar",
     "conversation",
     "composer",
+    "composer.bar",
+    "composer.takeover",
+    "composer.model",
+    "composer.left",
+    "composer.right",
+    "composer.dock",
     "sidebar.right",
     "sidebar.right.tab",
     "turn.tail",
     "conversation.images",
   ]);
+  /** single 槽（R183，dsh SlotKind single）：同一时刻只一位占用者——composer.bar（常驻输入栏）
+   *  与 composer.model（模型 + 思考控制）；其余区域/追加位保持 list 语义。 */
+  const SINGLE_SLOTS = new Set(["composer.bar", "composer.model"]);
   const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview.", "approval.view."];
   const slotAccepted = (name: string): boolean =>
     REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
@@ -178,6 +190,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       uiWarnings.push(message);
     },
     officialId: "plugin-web-ui",
+    isSingleSlot: (name) => SINGLE_SLOTS.has(name),
   });
   const slots = registry.slots;
   let moduleCtx: UiModuleContext | undefined;
@@ -192,17 +205,28 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     registry.reset();
     disposeThirdPartyUi();
     if (safeMode) {
+      // 安全模式 = 同一零件库的直接组装：官方也走公共注册路径（含 R182 座位子槽与
+      // chain 条目）——观感/语义与插件通道一致，不额外开特权旁路。
+      const official = registry.apiFor("plugin-web-ui");
       for (const [name, part] of Object.entries(defaultParts) as [WebSlotName, WebPart][]) {
-        slots.set(name, [part]);
+        official.registerSlot(name, part);
       }
       // per-tool 官方卡同灌（E5）：安全模式也是「同一零件库的直接组装」——缺了它工具行
       // 全退化成通用卡，与插件通道观感不一致
       for (const [name, view] of Object.entries(defaultToolViews)) {
-        slots.set(name, [view as SlotPart]);
+        official.registerSlot(name, view as SlotPart);
       }
       // per-tool 官方审批卡同灌（E6）：同上——审批卡 keyed 缝同一语义
       for (const [name, view] of Object.entries(defaultApprovalViews)) {
-        slots.set(name, [view as SlotPart]);
+        official.registerSlot(name, view as SlotPart);
+      }
+      official.registerSlot("composer.bar", defaultComposerBar);
+      // R183 四席官方默认件（model 认领 single、dock 排队面板；left/right 官方空）
+      for (const [name, part] of Object.entries(defaultComposerSeats)) {
+        official.registerSlot(name, part);
+      }
+      for (const [name, entries] of Object.entries(defaultChainEntries)) {
+        for (const entry of entries) official.registerChainSlot(name, entry);
       }
     } else {
       moduleCtx = makeModuleContext("plugin-web-ui");
@@ -611,6 +635,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       store,
       host: hostFacade,
       slots,
+      chains: registry.chains,
       uiState,
       updateUiState,
       layout: opts.layout ?? "full",

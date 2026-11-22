@@ -63,7 +63,7 @@ async function startServer(
 }
 
 async function send(page: Page, text: string): Promise<void> {
-  const area = page.getByPlaceholder(zh["composer.placeholder"]);
+  const area = page.getByTestId("composer-input");
   await area.fill(text);
   await area.press("Enter");
 }
@@ -75,9 +75,9 @@ async function sessionIdOf(base: string): Promise<string> {
   return list[0].id;
 }
 
-// ── 推理块 + usage 徽章（reasoning 独立字段；step/end 用量投影）────────────
+// ── 推理块（reasoning 独立字段；usage 不再上屏）──────────────────────────
 
-test("推理块折叠 + usage 徽章", async ({ page }) => {
+test("推理块折叠 + usage 不上屏", async ({ page }) => {
   const { server, stop } = await startServer([
     [
       mockReasoning("step one, then step two."),
@@ -89,9 +89,14 @@ test("推理块折叠 + usage 徽章", async ({ page }) => {
   await page.goto(server.url);
   await send(page, "think then answer");
   await expect(page.getByText("Conclusion: take either half.")).toBeVisible();
-  await expect(page.getByText(zh["row.reasoning"])).toBeVisible(); // 推理折叠 summary
-  await expect(page.getByText("12↑ 4↓")).toBeVisible(); // usage 徽章（步级用量投影）
-  await shot(page, "10-reasoning-usage.png");
+  // 完成轮默认折叠——展开「已工作」后思考块触发行在场（默认收起）
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  await expect(page.getByText(new RegExp(`^${zh["row.reasoning.done"]}`))).toBeVisible();
+  await expect(page.getByText("12↑ 4↓")).toHaveCount(0); // token 数不进对话区
+  await shot(page, "10-reasoning.png");
   await stop();
 });
 
@@ -138,7 +143,7 @@ test("审批拒绝：deny → settled rejected → 回合继续", async ({ page 
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: zh["approval.deny"] }).click();
   await expect(page.getByText("Denied as requested.")).toBeVisible();
-  await expect(page.getByText(zh["approval.decision.rejected"], { exact: true })).toBeVisible(); // settled 痕迹行中文决策词（R171 词表化）
+  await expect(page.getByText(zh["approval.decision.rejected"], { exact: true })).toHaveCount(0); // 审批痕迹不进对话流
   await shot(page, "12-denied.png");
   await stop();
 });
@@ -165,7 +170,7 @@ test("中断：停止 → 部分文本定格 + 已中断徽章", async ({ page }
   await expect(stopButton).toBeVisible();
   await expect(page.getByText("half written...")).toBeVisible(); // 流式行在
   await stopButton.click();
-  await expect(page.getByText(zh["row.interrupted"])).toBeVisible(); // 冻结行标中断
+  await expect(page.getByText(zh["turn.stopped"])).toBeVisible(); // 轮头已停止
   await shot(page, "13-interrupted.png");
   await stop();
 });
@@ -202,8 +207,13 @@ test("多工具并行：两 call 各占一行", async ({ page }) => {
   await page.goto(server.url);
   await send(page, "run both tools");
   await expect(page.getByText("Both tools ran.")).toBeVisible();
-  await expect(page.getByText("echo-a")).toBeVisible();
-  await expect(page.getByText("echo-b")).toBeVisible();
+  // 完成轮折叠 → 展开「已工作」；未知工具是过程边界，各自成行（不聚合）
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  await expect(page.getByText("Echo A")).toBeVisible();
+  await expect(page.getByText("Echo B")).toBeVisible();
   await shot(page, "14-multi-tool.png");
   await stop();
 });
@@ -232,7 +242,7 @@ test("插话 steer：忙时投递升格 → step 边界进场带 steer 徽章", 
   );
   await page.goto(server.url);
   await send(page, "start working");
-  await expect(page.getByText("slow-probe")).toBeVisible(); // 工具执行窗内
+  await expect(page.getByText("Slow Probe")).toBeVisible(); // 工具执行窗内
   const id = await sessionIdOf(server.url);
   const queued = (await (
     await fetch(`${server.url}/api/sessions/${id}/prompt`, {
@@ -277,7 +287,7 @@ test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽�
   await page.goto(server.url);
   await send(page, "start working");
   await expect(page.getByText("half written...")).toBeVisible(); // 挂起回合流式行在场
-  const area = page.getByPlaceholder(zh["composer.placeholder"]);
+  const area = page.getByTestId("composer-input");
   // 忙时 Enter=排队 → 面板出现（标题 + 条目行；无插话徽章）
   await area.fill("first-queued-message");
   await area.press("Enter");
@@ -298,7 +308,7 @@ test("排队卡：忙时 Enter 入队 → 面板可见 → Ctrl+Enter 插话徽�
     .getByRole("button", { name: zh["composer.queue.sendNow"] })
     .click();
   // 被抢占回合的流式行标已中断；提升条目回复先落
-  await expect(page.getByText(zh["row.interrupted"])).toBeVisible();
+  await expect(page.getByText(zh["turn.stopped"])).toBeVisible();
   await expect(page.getByText("Promoted reply.")).toBeVisible();
   // steer 徽章条目按 D-045 插话语义在提升回合的 step 边界进场（带徽章落流），
   // 队列自此清空 → 面板退场；全程无暂停横幅（抢占不产生冻结态）
@@ -334,7 +344,7 @@ test("中断冻结：停止 → 队列留守 + 暂停横幅 → 继续发送 →
   await send(page, "start and then stop me");
   const stopButton = page.getByRole("button", { name: zh["composer.stop"], exact: true });
   await expect(stopButton).toBeVisible();
-  const area = page.getByPlaceholder(zh["composer.placeholder"]);
+  const area = page.getByTestId("composer-input");
   const panel = page.getByRole("list", { name: zh["composer.queue.title"] });
   // 忙时排两条
   await area.fill("frozen-entry-one");
@@ -379,7 +389,17 @@ test("输出截断：徽章 + 尾注 + spill 落盘会话 artifacts/", async ({ 
   await page.goto(server.url);
   await send(page, "read the big output");
   await expect(page.getByText("Output inspected.")).toBeVisible();
-  await expect(page.getByText(zh["row.truncated"])).toBeVisible(); // 截断徽章
+  // 完成轮过程折叠——展开「已工作」后展开工具行，结果区尾注截断
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  await page
+    .locator('[role="button"][aria-expanded="false"]')
+    .filter({ hasText: "Big Output" })
+    .first()
+    .click();
+  await expect(page.getByText(zh["row.truncated"])).toBeVisible(); // 截断注记（结果区）
   // spill 落盘会话 artifacts/（ToolContext.artifactsDir 接线的事实断言）
   const spillPath = await findFile(dataDir, "c1.txt");
   expect(spillPath).toBeDefined();

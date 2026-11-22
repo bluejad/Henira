@@ -1,0 +1,23 @@
+/* R177 拆分：原 tokens.css 第 91-112 行（顺序保持，级联零变化） */
+/* 滚动条基础（数值档行为参照 ZCode：细圆条/透明 track/thumb=派生档色；实现自家写法） */
+.henira-app * {
+  scrollbar-width: auto;
+  scrollbar-color: var(--henira-border-strong) transparent;
+}
+.henira-app *::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+.henira-app *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.henira-app *::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: var(--henira-border-strong);
+  background-clip: padding-box;
+}
+.henira-app *::-webkit-scrollbar-corner {
+  background: transparent;
+}

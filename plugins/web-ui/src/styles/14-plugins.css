@@ -1,0 +1,83 @@
+/* R177 拆分：原 tokens.css 第 1839-1920 行（顺序保持，级联零变化） */
+/* ── 插件页（批 C，plugins.md §6.4 管理面）：列表行 / 状态徽章 / 开关 ── */
+.henira-plugins-page {
+  display: flex;
+  flex-direction: column;
+}
+.henira-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-fs-sm);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--henira-border);
+}
+.henira-plugin-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-plugin-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.henira-plugin-badge {
+  font-size: var(--henira-fs-sm);
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--henira-border-strong);
+  white-space: nowrap; /* 徽章窄列不折行（「待确认」曾被挤成两行） */
+}
+.henira-plugin-badge[data-state="loaded"] {
+  color: var(--henira-ok-text);
+  background: var(--henira-ok-bg);
+  border-color: transparent;
+}
+.henira-plugin-badge[data-state="failed"] {
+  color: var(--henira-danger-text);
+  background: var(--henira-danger-bg);
+  border-color: transparent;
+}
+.henira-plugin-badge[data-state="confirm"] {
+  color: var(--henira-info-text);
+  background: var(--henira-info-bg);
+  border-color: transparent;
+}
+.henira-plugin-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--henira-border);
+  border-radius: 6px;
+}
+
+.henira-plugin-mcp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--henira-fs-sm);
+}
+
+.henira-plugin-mcp .henira-plugin-mcp-row code {
+  font-family: var(--henira-mono, monospace);
+  font-size: var(--henira-fs-sm);
+}
+
+.henira-plugin-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--henira-fs-sm);
+}
+.henira-queue-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

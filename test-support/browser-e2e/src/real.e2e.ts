@@ -10,7 +10,6 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { zh } from "@henira/plugin-web-ui";
 import { expect, test } from "@playwright/test";
 
 test.skip(process.env.HENIRA_REAL !== "1", "真 key 采样：HENIRA_REAL=1 本机运行（不进 CI）");
@@ -151,7 +150,7 @@ test("三家真 provider 经 serve 链路逐形态采样", async ({ page }) => {
     await page.waitForSelector(".henira-sessions li", { timeout: 30_000 });
     await page.waitForTimeout(500);
     for (const form of FORMS) {
-      const area = page.getByPlaceholder(zh["composer.placeholder"]);
+      const area = page.getByTestId("composer-input");
       await area.fill(form.prompt);
       await area.press("Enter");
       // 真发出门：submit 清草稿（同步）——选中未落定/空转时草稿保留，5 秒内必现真相

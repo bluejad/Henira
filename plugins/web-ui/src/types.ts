@@ -60,24 +60,7 @@ export interface HeniraClientLike {
     ui?: { theme?: string; locale?: string };
   }): Promise<{ version: 1 }>;
   /** 模型目录（可选——key+baseUrl 齐备的厂商才出现；条目带显示名/徽章位，模型目录收敛批） */
-  listModels?(): Promise<{
-    providers: Record<
-      string,
-      {
-        baseUrl?: string;
-        reasoning?: ReasoningCapability;
-        models?: Array<{
-          id: string;
-          name?: string;
-          contextWindow?: number;
-          vision?: boolean;
-          reasoning?: boolean;
-          /** 思考档位集合真源（models.dev reasoning_options：toggle/effort 值——2026-11-19 思考档批） */
-          reasoningOptions?: ReasoningOption[];
-        }>;
-      }
-    >;
-  }>;
+  listModels?(): Promise<{ providers: ModelCatalog }>;
   /** 服务商密钥写（可选——设置弹窗·模型管理页消费；D-030：只进 credentials.json，永不回读） */
   putCredential?(provider: string, key: string): Promise<void>;
   /** 模型管理分组（可选——连接态/显隐开关/上下文窗；宿主缺方法 = 管理分组不渲染，留默认模型页） */
@@ -187,6 +170,60 @@ export interface UiAssets {
   themes: UiAssetTheme[];
 }
 
+/** 模型目录快照（listModels 的 providers 面，types 与件共用命名；R183 从内联形状提出） */
+export type ModelCatalog = Record<
+  string,
+  {
+    name?: string;
+    baseUrl?: string;
+    reasoning?: ReasoningCapability;
+    models?: Array<{
+      id: string;
+      name?: string;
+      contextWindow?: number;
+      vision?: boolean;
+      reasoning?: boolean;
+      /** 思考档位集合真源（models.dev reasoning_options：toggle/effort 值——2026-11-19 思考档批） */
+      reasoningOptions?: ReasoningOption[];
+    }>;
+  }
+>;
+
+/** 输入座位 API（R183，dsh owner props 行为层）：ComposerDock 构造、注入 composer.* 子树。
+ *  草稿/焦点/按次模型绑定/审批回调的唯一真源——座位件（model/left/right/dock）不各自私存，
+ *  第三方件同一入口拿同一份语义。草稿持久化走 ctx.updateUiState（D-063 会话级）。 */
+export interface ComposerApi {
+  readonly sessionId: string | null;
+  readonly draft: string;
+  /** 写草稿：本地态 + 会话级 uiState 双写（宿主持有） */
+  setDraft(text: string): void;
+  /** 焦点回输入框（bar 已挂载时；接管/座位按钮用） */
+  focus(): void;
+  readonly busy: boolean;
+  /** 无历史（占位/空态判定；座位件可用） */
+  readonly isEmpty: boolean;
+  readonly sendFailed: boolean;
+  readonly model: string;
+  /** 按次模型绑定（会话级记忆；全局默认归设置弹窗·模型管理页） */
+  setModel(next: string): void;
+  readonly effort: ReasoningEffort | null;
+  setEffort(next: ReasoningEffort): void;
+  /** 目录快照（composer.model 席消费；设置内写操作广播后由运行时重拉） */
+  readonly catalog: ModelCatalog;
+  /** 宿主模型/设置方法齐备（缺 = 模型席不渲染控件） */
+  readonly settingsReady: boolean;
+  /** 发送：缺省用当前草稿；steer=true 忙时插话入队（E1）。失败回填草稿并置 sendFailed */
+  submit(text?: string, opts?: { steer?: boolean }): void;
+  stop(): void;
+  readonly pendingApproval: ApprovalRow | undefined;
+  readonly approvalQueueTotal: number;
+  /** 审批乐观回调（点击即退场 / settle 失败回滚；R171 行为层） */
+  onApprovalDecided(requestId: string): void;
+  onApprovalFailed(requestId: string): void;
+  /** 输入框挂载点登记（bar 调用；focus() 目标）——座位件不必直接调用 */
+  registerInput(el: HTMLTextAreaElement | null): void;
+}
+
 /** 官方件承重缝（interfaces.md web 段定稿）：件 + 会话上下文一起给 */
 export interface WebPartContext {
   client: HeniraClientLike;
@@ -202,6 +239,12 @@ export interface WebPartContext {
   host: PluginUiHost;
   /** 槽位只读视图（区域槽 + 行级 keyed 槽，D-057）：官方默认件不在表内——未被顶替时生效 */
   slots: ReadonlyMap<string, readonly SlotPart[]>;
+  /** chain 槽只读视图（R182，dsh SlotKind 行为层）：条目按 priority 升序，select 首个命中者当选；
+   * 消费侧用 electChain 选举，fallback 保持挂载（overlay 语义由消费件实现） */
+  chains: ReadonlyMap<string, readonly ChainEntry[]>;
+  /** 输入座位 API（R183）：仅 composer.* 子树由 ComposerDock 注入；其它槽位 undefined。
+   *  座位件（composer.model / left / right / dock）经此共享草稿/焦点/按次模型绑定/审批回调 */
+  composer?: ComposerApi;
   /** 每会话界面绑定态（D-063）：宿主加载好的当前会话文档；undefined = 未加载 / 宿主未实装 */
   uiState?: SessionUiState;
   /** 界面态写（D-063）：部件只交 patch，宿主顶层合并 + 统一防抖落盘（部件不自己 PUT）；
@@ -254,6 +297,19 @@ export type ApprovalCardView = (args: {
  * ApprovalCardView（消费侧按槽种收窄） */
 export type SlotPart = WebPart | ToolCallView | ApprovalCardView;
 
+/** chain 槽条目（R182，dsh SlotKind 行为层）：select 纯函数按 owner 判定是否当选
+ *（null = 让给下一条）；priority 升序、同值按注册顺序；Component 以组件方式渲染（hooks 合法）。
+ * 消费件负责 fallback 挂载与 overlay 隐藏——官方 composer.takeover 的第一个消费者是
+ * ComposerDock（审批/提问接管输入座位）。 */
+export interface ChainEntry<Owner = unknown, Matched = unknown> {
+  /** 条目 id（replaceChainSlot 顶替键；同槽同 id 第三方冲突 D-022 同款） */
+  id: string;
+  /** 选举优先级：升序、越小越先试；缺省 0 */
+  priority?: number;
+  select(owner: Owner): Matched | null;
+  Component: (props: { ctx: WebPartContext; matched: Matched; owner: Owner }) => ReactNode;
+}
+
 /** 宿主槽位词表·区域级（D-033 三名 + D-062 结构性两名：layout 整页框架槽 / sidebar.right 右栏；
  * 追加位与行级槽走开放 string 名，不在此联合里）；未装件的槽位收起 */
 export type WebSlotName = "layout" | "sidebar" | "conversation" | "composer" | "sidebar.right";
@@ -270,11 +326,23 @@ export type LayoutOption =
   | { parts: Partial<Record<WebSlotName, WebPart>> };
 
 export interface UiModuleContext {
-  /** 追挂（append）到该槽位；name 按宿主词表校验（D-033 区域词表 + D-057 keyed 前缀词表） */
+  /** 追挂（append）到该槽位；name 按宿主词表校验（D-033 区域词表 + D-057 keyed 前缀词表）。
+   *  **single 槽**（R183：`composer.bar` / `composer.model`）= 认领/顶替语义——同一时刻只
+   *  一位占用者，卸载回落前件；第二家第三方报冲突。list 槽保持追加（order 排序）。 */
   registerSlot(name: string, part: SlotPart, opts?: { order?: number }): Disposable;
   /** 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 已有**其他第三方件**才报错
    * 不装载 ＋ 告警（D-022 同款）——官方默认件可顶替、卸载按登记回落官方 */
   replaceSlot(name: string, part: SlotPart): Disposable;
+  /** 追挂 chain 槽条目（R182，dsh SlotKind 行为层）：同槽同 id 已有**其他第三方件**才报错；
+   * 官方条目可顶替、卸载按登记回落（replaceChainSlot） */
+  registerChainSlot(name: string, entry: ChainEntry, opts?: { priority?: number }): Disposable;
+  /** 顶替 chain 槽里指定 id 的条目（官方默认件或空位认领）；卸载按登记回落 */
+  replaceChainSlot(
+    name: string,
+    id: string,
+    entry: ChainEntry,
+    opts?: { priority?: number },
+  ): Disposable;
   host: PluginUiHost;
 }
 

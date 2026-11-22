@@ -13,9 +13,11 @@ import {
   DIFF_FALLBACK_MAX_LINES,
   DiffRowsView,
   DiffTotals,
+  formatToolName,
   str,
   tryFormatJson,
 } from "./tool-cards.js";
+import { toolGlyph } from "./tool-icons.js";
 
 export interface ApprovalPreviewProps {
   row: ApprovalRow;
@@ -88,8 +90,10 @@ function EditPreview({
   if (bool(args.replace_all) === true) notes.push(ctx.t("approval.replaceAllNote"));
   return (
     <>
-      <PathLine text={filePath} />
-      <DiffTotals added={diff.added} removed={diff.removed} />
+      <div className="henira-approval-file-row">
+        <PathLine text={filePath} />
+        <DiffTotals added={diff.added} removed={diff.removed} />
+      </div>
       <DiffRowsView
         rows={
           notes.length > 0 ? [...diff.rows, { kind: "note", text: notes.join(" · ") }] : diff.rows
@@ -113,7 +117,10 @@ function WritePreview({
   const lines = content.split("\n");
   return (
     <>
-      <PathLine text={filePath} />
+      <div className="henira-approval-file-row">
+        <PathLine text={filePath} />
+        <DiffTotals added={lines.length} removed={0} />
+      </div>
       <DiffRowsView
         rows={[
           ...lines
@@ -157,30 +164,56 @@ function SearchPreview({ args }: { args: Record<string, unknown> }): ReactNode |
   );
 }
 
+/** 工具身份词（审批块头：终端/读取/编辑/MCP…；未知 wire 名 Title Case）。 */
+function toolKindLabel(name: string, ctx: WebPartContext): string {
+  if (name === "bash" || name === "powershell") return ctx.t("tool.title.bash");
+  if (name === "read") return ctx.t("tool.title.read");
+  if (name === "write") return ctx.t("tool.title.write");
+  if (name === "edit") return ctx.t("tool.title.edit");
+  if (name === "glob") return ctx.t("tool.title.glob");
+  if (name === "grep") return ctx.t("tool.title.grep");
+  if (name === "mcp" || name.startsWith("mcp__")) return ctx.t("tool.kind.mcp");
+  return formatToolName(name);
+}
+
 /** per-tool 预览路由（审批卡内容区；E6）。工具族判定按 wire 名——校验不过一律回落通用
- * JSON 预览，绝不渲染坏预览。MCP 走 JSON 预览（args 全量摊开；wire 名在卡标题行可见）。 */
+ *  JSON 预览，绝不渲染坏预览。MCP 走 JSON 预览（args 全量摊开）。
+ *  外框 = 审批块（图标 + 等待审批 + 工具身份 + 内容卡）：与工具行同一套 chrome，
+ *  细节（diff/命令/JSON）收进内容卡里，不再裸排在卡面。 */
 export function ApprovalPreview({ row, ctx }: ApprovalPreviewProps): ReactNode {
   const args = argsObject(row);
-  if (args === null) return <JsonPreview args={row.args} />;
   let body: ReactNode | null = null;
-  switch (row.toolName) {
-    case "edit":
-      body = EditPreview({ args, ctx });
-      break;
-    case "write":
-      body = WritePreview({ args, ctx });
-      break;
-    case "bash":
-    case "powershell":
-      body = ShellPreview({ args });
-      break;
-    case "read":
-    case "glob":
-    case "grep":
-      body = SearchPreview({ args });
-      break;
-    default:
-      body = null; // 未知工具（含 mcp__*）→ 通用 JSON 预览
+  if (args !== null) {
+    switch (row.toolName) {
+      case "edit":
+        body = EditPreview({ args, ctx });
+        break;
+      case "write":
+        body = WritePreview({ args, ctx });
+        break;
+      case "bash":
+      case "powershell":
+        body = ShellPreview({ args });
+        break;
+      case "read":
+      case "glob":
+      case "grep":
+        body = SearchPreview({ args });
+        break;
+      default:
+        body = null; // 未知工具（含 mcp__*）→ 通用 JSON 预览
+    }
   }
-  return body ?? <JsonPreview args={args} />;
+  return (
+    <div className="henira-approval-block">
+      <div className="henira-approval-block-head">
+        <span className="henira-row-icon">{toolGlyph(row.toolName)}</span>
+        <span className="henira-approval-block-kind">{ctx.t("approval.previewKind")}</span>
+        <span className="henira-approval-block-tool">{toolKindLabel(row.toolName, ctx)}</span>
+      </div>
+      <div className="henira-approval-block-body">
+        {body ?? <JsonPreview args={args ?? row.args} />}
+      </div>
+    </div>
+  );
 }

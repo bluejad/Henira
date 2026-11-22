@@ -1,0 +1,13 @@
+/* R177 拆分：原 tokens.css 第 590-601 行（顺序保持，级联零变化） */
+/* ── 对话面板（结构样式集中处，组件零内联状态样式）────────────────── */
+/* 限宽保可读（三档随视口，见 --henira-column-max）+ 居中；行距给呼吸 */
+.henira-conversation {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--henira-column-max);
+  margin: 0 auto;
+  padding: var(--henira-space-5) var(--henira-space-5) var(--henira-space-6);
+}

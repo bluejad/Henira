@@ -1,0 +1,237 @@
+/* R177 拆分：原 tokens.css 第 1380-1616 行（顺序保持，级联零变化） */
+/* ── 三栏骨架（D-062 UI 侧子项）：中列 header / 右栏 tab 框架 / 设置弹窗左菜单 / 新会话行 ── */
+
+/* 中列 header：目录名 · 会话标题占位（ZCode WorkspaceHeader h-12 行为层）；box-sizing 进框——
+   48px 含底边线，与左品牌行/右 tab 条同一条线（用户反馈④，活体测量 48/49 不齐修） */
+.henira-header {
+  height: var(--henira-header-height);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--henira-space-4);
+  border-bottom: 1px solid var(--henira-border);
+  background: var(--henira-surface);
+  font-size: var(--henira-fs-base);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.henira-header-dir {
+  color: var(--henira-text-strong);
+  font-weight: 600;
+}
+.henira-header-sep {
+  color: var(--henira-text-muted);
+}
+.henira-header-title {
+  color: var(--henira-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右栏（官方默认件 RightPanel：⌄ + tabs + ＋ + ⤢；溢出横滚，tab 最小 60px） */
+.henira-right-col {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  border-left: 1px solid var(--henira-border);
+  background: var(--henira-surface);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.henira-right-panel--max {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--henira-bg);
+}
+/* 收起态窄轨（ZCode 边缘轨行为层）：只放 ＋——面板关着也要有入口（＋ 格顶格 48px 见
+   .henira-right-barbtn 之后的 rail 作用域规则——顶线收起态也不断，用户反馈④） */
+.henira-right-rail {
+  width: 36px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+.henira-right-tabs {
+  /* 三栏顶等高（用户反馈④，照 ZCode h-12=48px 一条线）：左品牌行/中 header/右 tab 条同 var；
+     box-sizing 进框——48px 含底边线 */
+  height: var(--henira-header-height);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--henira-space-2);
+  border-bottom: 1px solid var(--henira-border);
+  min-width: 0;
+}
+.henira-right-tablist-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.henira-right-tabmenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.henira-right-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  /* 隐藏滚动条但保留滚动（2026-11-20 用户裁定：粗滚动条压垮 48px header——
+     滚动经触控板横扫 / tabstrip 上滚轮转横滚 right-panel.tsx onWheel） */
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+.henira-right-tabstrip::-webkit-scrollbar {
+  display: none;
+}
+.henira-right-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 60px;
+  max-width: 180px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--henira-radius);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  flex-shrink: 0;
+  background: none;
+}
+/* 选中态 = 轻底 + 强文字（实灰块 16% 档是「胖灰胶囊」观感——hover 档 8% 与文字深浅
+   区分选中/悬停，2026-11-20 用户实拍裁定减淡） */
+.henira-right-tab[data-active="true"] {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-strong);
+}
+.henira-right-tab:hover:not([data-active="true"]) {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-app button.henira-right-tab-label {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* tab 关闭钮：tab hover / focus-within 浮现（10px × opacity .55 常驻 = 「小方块小点」
+   头号嫌疑——图标换 12px、平时隐藏，照 row-caret/hover-reveal 惯例 opacity-only） */
+.henira-app button.henira-right-tab-close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 2px;
+  display: inline-flex;
+  color: inherit;
+  cursor: pointer;
+  border-radius: calc(var(--henira-radius) - 2px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.henira-right-tab:hover .henira-right-tab-close,
+.henira-right-tab:focus-within .henira-right-tab-close {
+  opacity: 1;
+}
+.henira-app button.henira-right-tab-close:hover {
+  background: var(--henira-surface-hover);
+}
+/* 窄轨里的 ＋ 格顶格 48px（顶线收起态也不断——与三栏顶等高同批，用户反馈④；
+   钮本体 = henira-iconbtn 基类） */
+.henira-right-rail .henira-iconbtn {
+  height: var(--henira-header-height);
+  width: 100%;
+  border-bottom: 1px solid var(--henira-border);
+  border-radius: 0;
+}
+.henira-right-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.henira-right-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+
+/* 设置弹窗（左菜单右内容；大面板形态，鬼鬼祟祟小窗退场） */
+.henira-settings-dialog {
+  width: min(1060px, calc(100vw - 64px));
+  height: min(780px, calc(100vh - 72px));
+}
+.henira-settings-body {
+  display: flex;
+  gap: var(--henira-space-4);
+  flex: 1;
+  min-height: 0;
+}
+.henira-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  border-right: 1px solid var(--henira-border);
+  padding-right: var(--henira-space-2);
+}
+.henira-app .henira-settings-nav button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--henira-radius);
+  font: inherit;
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.henira-app .henira-settings-nav button:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-app .henira-settings-nav button[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+/* 「＋新会话」独立行（任务列表之上——用户裁定三栏骨架形状） */
+.henira-new-session {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--henira-space-3);
+  justify-content: flex-start;
+}

@@ -1,0 +1,177 @@
+/* R177 拆分：原 tokens.css 第 1049-1225 行（顺序保持，级联零变化） */
+/* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
+.henira-sessions li button {
+  background: transparent; /* 未选中透明（原内联 transparent 压死选中底色——真因已抓修） */
+  border: 1px solid transparent;
+  transition: background 0.12s ease;
+}
+.henira-sessions li button:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-sessions li button[data-active="true"] {
+  background: var(--henira-selected);
+}
+
+/* 侧栏拖宽把手（D-063）：贴侧栏右缘 5px 竖条（button 过 a11y 闸），hover/拖动中显线 */
+.henira-app button.henira-drag-handle {
+  width: 5px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  cursor: col-resize;
+  background: transparent;
+}
+.henira-app button.henira-drag-handle:hover,
+.henira-app button.henira-drag-handle:active {
+  background: var(--henira-border-strong);
+}
+.henira-app button.henira-drag-handle:focus-visible {
+  outline: none;
+}
+
+/* 目录分组头（ZCode projects view 行为层：chevron+名称+计数，安静可折叠） */
+.henira-app button.henira-session-group {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  min-height: 28px;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  padding: 4px 8px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-base);
+}
+.henira-app button.henira-session-group:hover {
+  border: none;
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-group-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--henira-text-muted);
+  transition: transform 0.12s ease;
+}
+.henira-session-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  text-align: center;
+  border: 1px solid var(--henira-border);
+  border-radius: 9999px;
+  padding: 0 5px;
+  font-size: var(--henira-fs-sm);
+  line-height: 16px;
+  color: var(--henira-text-muted);
+}
+
+/* 「目录」区标题行本体 = 折叠开关（用户反馈②：点标题收起/展开整个目录列表，纯本地不持久化） */
+.henira-app button.henira-dirs-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-1);
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  padding: 2px 4px;
+}
+.henira-app button.henira-dirs-toggle:hover {
+  border: none;
+  background: var(--henira-surface-hover);
+}
+
+/* 左下角设置按钮 = 通栏（用户反馈⑤：宽度等于左栏宽，齿轮住左；横向内边距按钮自带——
+   footer 不再顶它） */
+.henira-app button.henira-footer-settings {
+  width: 100%;
+  text-align: left;
+  padding: 6px var(--henira-space-4);
+}
+
+/* ── 侧栏目录区交互（R127）：hover 显隐 + 右键菜单 + 删除确认/新增目录弹窗 ── */
+/* hover 显隐（ZCode WorkspacePurposeSection / ProjectNodeContent 行为层：hover 才出现，
+   focus-within 键盘可达；data-open 常显出口留给菜单开着等状态） */
+.henira-hover-reveal {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.henira-sidebar-header:hover .henira-hover-reveal,
+.henira-sidebar-header:focus-within .henira-hover-reveal,
+.henira-group-row:hover .henira-hover-reveal,
+.henira-group-row:focus-within .henira-hover-reveal,
+.henira-hover-reveal[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.henira-sidebar-header button.henira-hover-reveal,
+.henira-group-row button.henira-hover-reveal {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  border-radius: var(--henira-radius);
+  padding: 2px 6px;
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-sidebar-header button.henira-hover-reveal:hover,
+.henira-group-row button.henira-hover-reveal:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-group-row {
+  display: flex;
+  align-items: center;
+}
+.henira-group-row > button.henira-session-group {
+  flex: 1;
+  min-width: 0;
+}
+.henira-group-add {
+  flex-shrink: 0;
+}
+
+/* 右键菜单（非模态浮层） */
+.henira-context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 148px;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-app button.henira-menu-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+}
+.henira-app button.henira-menu-item:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-menu-item:disabled {
+  color: var(--henira-text-muted);
+  cursor: not-allowed;
+}
+.henira-app button.henira-menu-item[data-danger="true"] {
+  color: var(--henira-danger-text);
+}
+.henira-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--henira-border);
+}

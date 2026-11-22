@@ -144,19 +144,19 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   await page.goto(server.url);
 
   // 静态页出货 + 自动选中预建会话 → 输入框可编辑
-  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  const textarea = page.getByTestId("composer-input");
   await expect(textarea).toBeVisible();
   await textarea.fill("run the probe tool please");
   await textarea.press("Enter");
 
-  // busy：发送钮换停止钮（D-045 单口 busy 形态）
-  await expect(page.getByRole("button", { name: zh["composer.stop"] })).toBeVisible();
-
-  // 审批卡真挂起（非只读工具）→ 截图 → 点「允许」收答（REST settle）
+  // R182：非只读工具 → 审批接管输入座位（composer.takeover chain）——输入栏隐藏但挂载
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
+  await expect(page.locator(".henira-composer-bar-slot")).toBeHidden();
   await shot(page, "01-approval-card.png");
   await card.getByRole("button", { name: zh["approval.allow"], exact: true }).click();
+  await expect(card).toBeHidden();
+  await expect(page.locator(".henira-composer-bar-slot")).toBeVisible();
 
   // 工具执行 → 第二次模型调用慢流 → 流式行透明度浮现窗口截图
   const streaming = page.locator(".henira-streaming");
@@ -212,7 +212,7 @@ test("turn tail actions: timestamp, copy, fork to child session", async ({ page 
   await forkBtn.click();
   // 子会话在册（列表 +1）且选中（输入框可编辑）
   await expect(page.locator(".henira-sessions li")).toHaveCount(before + 1);
-  await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeEnabled();
+  await expect(page.getByTestId("composer-input")).toBeEnabled();
   // 子会话行 = 前缀（probe 回合的最终回复在场）
   await expect(page.getByText(FINAL_TEXT)).toBeVisible();
   await shot(page, "09-e4-fork-child.png");
@@ -302,7 +302,7 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
   try {
     await server.registry.create({ cwd: longDir });
     await page.goto(server.url);
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     // 折叠组纯本地（用户裁决 2026-11-18）：非活跃组初值收起——先展开自己目录的组再切会话
@@ -313,7 +313,7 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
   }
 
   // 跑 32 个文本回合 → 64 行（> 尾窗 60；脚本按调用序消费 longTurnScript 段）
-  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  const textarea = page.getByTestId("composer-input");
   for (let i = 0; i < LONG_TURNS; i++) {
     await textarea.fill(`长会话问 ${i}`);
     await textarea.press("Enter");
@@ -324,7 +324,7 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
 
   // 重新连接：新连接快照走尾窗 60（64 行 > 60 → hasOlder true）——这是翻页数据的前置
   await page.reload();
-  await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("composer-input")).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(300); // 快照帧应用 + 首帧渲染
 
   // 虚拟化生效：挂载的轮块（[data-index]）远小于总轮数（32 轮——可视窗 + overscan 2）
@@ -378,7 +378,7 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
 
 test("fs tools: write approval card, allow, read line numbers", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  const textarea = page.getByTestId("composer-input");
   await expect(textarea).toBeVisible();
   await textarea.fill("write and read a demo file");
   await textarea.press("Enter");
@@ -391,12 +391,17 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
 
   // read（只读 → 默认放行层，无卡）→ 收尾文本
   await expect(page.getByText("fs flow complete")).toBeVisible({ timeout: 15_000 });
-  // read 工具行折叠体默认不挂 DOM（row-chrome 展开才渲染）→ 点开 read 行再断言内容。
-  // E5 读取卡把 `N\t` 格式拆成行号 gutter + 内容列（两个 span）——按内容文本断言
-  // R171 工具行标题中文化：锚词表标题（痕迹行 meta 是 wire 名不含中文——唯一命中工具行）
-  await page.locator("[aria-expanded]").filter({ hasText: zh["tool.title.read"] }).first().click();
+  // R177：完成轮过程默认折叠——展开「已工作」后 read 行在场；点文件 chip 开预览弹窗
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  const fsGroups = page.locator(".henira-work-group-head");
+  if (await fsGroups.count()) await fsGroups.last().click();
+  await page.locator(".henira-file-link").first().click();
   await expect(page.getByText("alpha")).toBeVisible();
   await expect(page.getByText("beta")).toBeVisible();
+  await page.keyboard.press("Escape");
   await shot(page, "fs-02-tool-rows.png");
 });
 
@@ -404,7 +409,7 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
 
 test("per-tool card: bash terminal card via keyed registration", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  const textarea = page.getByTestId("composer-input");
   await expect(textarea).toBeVisible();
   await textarea.fill("run a bash command");
   await textarea.press("Enter");
@@ -415,12 +420,18 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
   await card.getByRole("button", { name: zh["approval.allow"], exact: true }).click();
 
   await expect(page.getByText("shell flow complete")).toBeVisible({ timeout: 15_000 });
-  // TerminalCard（tool.call.view.bash 官方注册）：命令 prompt 行 + stdout（meta 分色通道）。
-  // stdout 是真 spawn 回执（"henira-e5-done\r\n"）——exact 断言只命中输出 pre，不误配命令行
-  // R171 同款：终端行锚中文标题
-  await page.locator("[aria-expanded]").filter({ hasText: zh["tool.title.bash"] }).first().click();
-  // R171 头行/痕迹行摘要让命令文本出现三处（摘要+展开体+痕迹行）——exact 锚展开体 $ 前缀行
-  await expect(page.getByText("$ echo henira-e5-done")).toBeVisible();
+  // R177：完成轮过程折叠——展开「已工作」后再点开 bash 工具行
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  // TerminalCard（tool.call.view.bash 官方注册）：命令 prompt 行 + stdout
+  await page
+    .locator('[role="button"][aria-expanded="false"]')
+    .filter({ hasText: zh["tool.kind.ran"] })
+    .first()
+    .click();
+  await expect(page.locator(".henira-command-body pre")).toHaveText("echo henira-e5-done");
   await expect(page.getByText("henira-e5-done", { exact: true })).toBeVisible();
   await shot(page, "e5-01-terminal-card.png");
 });
@@ -429,7 +440,7 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
 
 test("E6 approval card: diff preview, session allow, second call skip", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+  const textarea = page.getByTestId("composer-input");
   await expect(textarea).toBeVisible();
   await textarea.fill("edit two files please");
   await textarea.press("Enter");
@@ -446,8 +457,12 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
   await card.getByRole("button", { name: zh["approval.sessionAllow"] }).click();
   await expect(page.getByText("e6 approval flow complete")).toBeVisible({ timeout: 15_000 });
 
-  // settled 留痕：决策原文 + 「· 本会话」标记；折叠生效 = 无第二张审批卡
-  await expect(page.getByText(zh["approval.decision.session"])).toBeVisible(); // 痕迹行中文决策词（R171）
+  // 审批痕迹不进对话流；折叠生效 = 无第二张审批卡
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  await expect(page.getByText(zh["approval.decision.session"])).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toHaveCount(0);
   await shot(page, "e6-02-session-allowed.png");
 });
@@ -480,7 +495,7 @@ test("R176: zero list requests while streaming + cross-window push sync", async 
   let page2: Page | undefined;
   try {
     await page.goto(srv.url);
-    const textarea = page.getByPlaceholder(zh["composer.placeholder"]);
+    const textarea = page.getByTestId("composer-input");
     await expect(textarea).toBeVisible();
     // 首载请求落定（SSE 长连接使 networkidle 永不成立——短等后取基线）
     await page.waitForTimeout(700);
@@ -500,7 +515,7 @@ test("R176: zero list requests while streaming + cross-window push sync", async 
     // ② 双窗口：页 B 建会话 → 页 A 靠 sessions.changed 恰好重载一次
     page2 = await page.context().newPage();
     await page2.goto(srv.url);
-    await expect(page2.getByPlaceholder(zh["composer.placeholder"])).toBeVisible();
+    await expect(page2.getByTestId("composer-input")).toBeVisible();
     const before = await page.locator(".henira-sessions li").count();
     await page2.getByRole("button", { name: zh["sessions.new"] }).click();
     await expect(page.locator(".henira-sessions li")).toHaveCount(before + 1);
@@ -509,7 +524,7 @@ test("R176: zero list requests while streaming + cross-window push sync", async 
 
     // ③ 页 B 跑回合 → 页 A busy 点推送翻内存（零列表请求）
     const hitsBeforeStream = listHits.length;
-    const textarea2 = page2.getByPlaceholder(zh["composer.placeholder"]);
+    const textarea2 = page2.getByTestId("composer-input");
     await textarea2.fill("stream in window two");
     await textarea2.press("Enter");
     await expect(page.getByLabel(zh["sessions.busy"])).toBeVisible(); // 页 A 收到状态推送

@@ -1,0 +1,78 @@
+/* R177 拆分：原 tokens.css 第 512-588 行（顺序保持，级联零变化） */
+.henira-app button {
+  font: inherit;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-surface);
+  color: var(--henira-text);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.henira-app button:hover {
+  border-color: var(--henira-border-strong);
+}
+
+.henira-app button:focus-visible {
+  outline: 2px solid var(--henira-info-text);
+  outline-offset: 1px;
+}
+
+.henira-app button.henira-primary {
+  background: var(--henira-accent);
+  color: var(--henira-accent-text);
+  border-color: var(--henira-accent);
+}
+
+.henira-app button.henira-primary:hover {
+  background: var(--henira-accent-hover);
+}
+
+.henira-app button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 图标钮基类（基础件批 2026-11-20）：小图标操作钮统一形态——透明重置全局按钮基线的
+   边框/底色（基线 × 透明重置叠加 = 实拍截图「素框空方块」真凶），muted 常态、hover
+   升 strong + surface-hover。操作钮图标一律 bold + 14px（icons.tsx 规范） */
+.henira-app button.henira-iconbtn {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.henira-app button.henira-iconbtn:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-iconbtn:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+  outline-offset: 0;
+}
+.henira-app button.henira-iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 输入族焦点 = 边框变色（对话输入卡 focus-within 同语言）。外描环退场：
+   outline 方角外扩悬空于圆角框四角（2026-11-20 用户实拍裁定）。弹层搜索框
+   （henira-model-search）无边框且方角——单独保留外环，贴合不悬空 */
+.henira-app input:focus-visible,
+.henira-app textarea:focus-visible,
+.henira-app select:focus-visible {
+  outline: none;
+  border-color: var(--henira-info-text);
+}
+.henira-app input.henira-model-search:focus-visible {
+  outline: 2px solid var(--henira-info-text);
+  outline-offset: 1px;
+}

@@ -15,13 +15,17 @@ import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
 import { CircleNotchIcon } from "@phosphor-icons/react/dist/csr/CircleNotch";
 import { FileCodeIcon } from "@phosphor-icons/react/dist/csr/FileCode";
+import { FileTextIcon } from "@phosphor-icons/react/dist/csr/FileText";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { HorseIcon } from "@phosphor-icons/react/dist/csr/Horse";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
 import { PencilIcon } from "@phosphor-icons/react/dist/csr/Pencil";
+import { PlugIcon } from "@phosphor-icons/react/dist/csr/Plug";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
+import { TerminalIcon } from "@phosphor-icons/react/dist/csr/Terminal";
 import { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning";
+import { WrenchIcon } from "@phosphor-icons/react/dist/csr/Wrench";
 import { XIcon } from "@phosphor-icons/react/dist/csr/X";
 
 type Props = { size?: number; color?: string };
@@ -98,4 +102,24 @@ export function SendNowGlyph(props: Props) {
 
 export function PencilGlyph(props: Props) {
   return <PencilIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 终端工具行图标（bash/powershell） */
+export function TerminalGlyph(props: Props) {
+  return <TerminalIcon size={props.size ?? 16} color={props.color} weight="bold" />;
+}
+
+/** MCP 工具行图标 */
+export function PlugGlyph(props: Props) {
+  return <PlugIcon size={props.size ?? 16} color={props.color} weight="bold" />;
+}
+
+/** 兜底工具行图标（第三方/未知工具） */
+export function WrenchGlyph(props: Props) {
+  return <WrenchIcon size={props.size ?? 16} color={props.color} weight="bold" />;
+}
+
+/** 文件 chip 图标（读/编辑/写入的文件名前置） */
+export function FileGlyph(props: Props) {
+  return <FileTextIcon size={props.size ?? 16} color={props.color} weight="bold" />;
 }

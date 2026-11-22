@@ -1,0 +1,231 @@
+/* 正文 markdown（R178，对话区 · 排版层）：14px / 1.75 / 宽字距；
+   标题、列表、引用、行内 code 按同一套档位。raw HTML 不渲染；零 webfont。 */
+.henira-md {
+  overflow-wrap: break-word;
+  line-height: var(--henira-line-height);
+  letter-spacing: 0.025em;
+}
+.henira-md > :first-child {
+  margin-top: 0;
+}
+.henira-md > :last-child {
+  margin-bottom: 0;
+}
+.henira-md p {
+  margin: 0.75em 0;
+}
+.henira-md h1,
+.henira-md h2,
+.henira-md h3,
+.henira-md h4,
+.henira-md h5,
+.henira-md h6 {
+  margin: 24px 0 16px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--henira-text-strong);
+}
+.henira-md h1 {
+  font-size: 18px;
+}
+.henira-md h2 {
+  font-size: 16px;
+}
+.henira-md h3,
+.henira-md h4,
+.henira-md h5,
+.henira-md h6 {
+  font-size: 14px;
+}
+.henira-md ul {
+  margin: 12px 0;
+  padding-left: 20px;
+  list-style: disc outside;
+}
+.henira-md ol {
+  margin: 12px 0;
+  padding-left: 0;
+  list-style: decimal inside;
+}
+.henira-md ul ul,
+.henira-md ul ol,
+.henira-md ol ul,
+.henira-md ol ol {
+  margin: 6px 0;
+}
+.henira-md li {
+  margin: 0;
+  padding-left: 4px;
+}
+.henira-md li + li {
+  margin-top: 6px;
+}
+.henira-md li > p {
+  margin: 0;
+  display: inline;
+}
+.henira-md li::marker {
+  color: var(--henira-text-subtlest);
+}
+.henira-md blockquote {
+  margin: 16px 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--henira-border-strong);
+  color: var(--henira-text-subtle);
+}
+.henira-md blockquote p {
+  margin: 0;
+}
+.henira-md blockquote p + p {
+  margin-top: 8px;
+}
+.henira-md code {
+  font-family: var(--henira-mono);
+  font-size: 12px;
+  background: var(--henira-code-inline-bg);
+  border: none;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: 0 2px;
+}
+.henira-md a {
+  color: var(--henira-info-text);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--henira-info-text);
+}
+.henira-md a:hover {
+  text-decoration: underline;
+}
+.henira-md strong {
+  font-weight: 500;
+  color: inherit;
+}
+.henira-md hr {
+  border: none;
+  border-top: 1px solid var(--henira-border);
+  margin: 16px 0;
+}
+.henira-md li.task-list-item {
+  list-style: none;
+  margin-left: -1.2em;
+}
+.henira-task-checkbox {
+  margin: 0 6px 0 0;
+  vertical-align: middle;
+  accent-color: var(--henira-accent);
+}
+
+/* 围栏代码块（markdown.ts components 接管 pre——头部条 + 容器卡） */
+.henira-code {
+  margin: 16px 0;
+  border: 1px solid var(--henira-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--henira-code-bg);
+}
+.henira-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--henira-code-head-bg);
+  border-bottom: 1px solid var(--henira-border);
+}
+.henira-code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  text-transform: lowercase;
+}
+.henira-code-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 前缀压全局按钮基线（同 file-link 修法——代码块头只留安静文字钮） */
+.henira-app .henira-code-head button {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: var(--henira-text-muted);
+  flex: none;
+}
+.henira-app .henira-code-head button:hover {
+  border: none;
+  color: var(--henira-text);
+}
+.henira-app .henira-code-head button[aria-pressed="true"] {
+  color: var(--henira-text-strong);
+}
+.henira-code pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+.henira-code[data-code-wrap="true"] pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.henira-code pre code {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-md);
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.henira-code-line {
+  display: block;
+}
+.henira-md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+.henira-md th,
+.henira-md td {
+  border: 1px solid var(--henira-border);
+  padding: 4px 10px;
+  text-align: left;
+}
+.henira-md th {
+  background: var(--henira-bg);
+  color: var(--henira-text-strong);
+}
+.henira-md .henira-table-scroll {
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding-bottom: 12px;
+  border-radius: 4px;
+}
+.henira-md .henira-table-scroll:hover,
+.henira-md .henira-table-scroll:focus-visible {
+  overflow-x: auto;
+}
+.henira-md .henira-table-scroll table {
+  display: table;
+  width: max-content;
+  max-width: none;
+  overflow-x: visible;
+}
+.henira-md .henira-table-scroll th,
+.henira-md .henira-table-scroll td {
+  max-width: min(30vw, 320px);
+  min-width: 100px;
+  overflow-wrap: anywhere;
+}
+.henira-md .henira-table-fill {
+  width: 100%;
+}
+.henira-md img {
+  max-width: 100%;
+  border-radius: var(--henira-radius-card);
+}

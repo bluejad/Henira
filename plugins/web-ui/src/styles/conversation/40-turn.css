@@ -1,0 +1,119 @@
+/* 轮与对话容器（R178 对话区 · 布局层）：轮内主块 20px，过程项 4px，过程组内 8px。 */
+.henira-turn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.henira-process {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-1);
+  min-width: 0;
+}
+
+/* 用户行 */
+.henira-user-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.henira-user-source {
+  margin-bottom: var(--henira-space-1);
+}
+.henira-user-bubble {
+  max-width: min(85%, 576px);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-lg);
+  border-top-right-radius: 2px;
+  background: var(--henira-surface);
+  padding: var(--henira-space-3) var(--henira-space-4);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  line-height: var(--henira-line-height);
+}
+
+/* 助手行 / 错误行 */
+.henira-assistant {
+  min-width: 0;
+}
+.henira-error-row {
+  border-radius: var(--henira-radius);
+  background: var(--henira-danger-bg);
+  color: var(--henira-danger-text);
+  padding: var(--henira-space-2) var(--henira-space-3);
+  line-height: 1.6;
+}
+.henira-error-code,
+.henira-error-raw {
+  margin-left: var(--henira-space-2);
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-md);
+}
+.henira-error-hint {
+  margin-top: var(--henira-space-1);
+}
+.henira-error-details {
+  margin-top: var(--henira-space-1);
+}
+.henira-error-details summary {
+  cursor: pointer;
+  font-size: var(--henira-fs-sm);
+}
+
+/* 运行中加载行 */
+.henira-loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: var(--henira-space-3) 0;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+.henira-loading-duration {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--henira-text-subtle);
+}
+
+/* 对话容器 / 虚拟画布 / 浮层 */
+.henira-conversation-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.henira-loading-older {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: var(--henira-space-2) 0;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  text-align: center;
+  pointer-events: none;
+}
+.henira-app .henira-back-bottom {
+  position: absolute;
+  right: var(--henira-space-4);
+  bottom: var(--henira-space-4);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: 9999px;
+  background: var(--henira-panel);
+  color: var(--henira-text);
+  padding: 6px 12px;
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+.henira-virtual-canvas {
+  position: relative;
+}
+.henira-virtual-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}

@@ -4,8 +4,11 @@
 // 判据 = 在位件的所有权，不是「有没有默认件」。官方未占键时两种实现恰好同观感（顶替=
 // 认领空槽），E5 起官方注册 per-tool 卡后「占位即报错」会把第三方整个 UI 模块挡在装载
 // 门外——承诺的顶替路径从此不通。
+// single 槽（R183，dsh SlotKind single 行为层）：同一时刻只有一位占用者——registerSlot
+// 与 replaceSlot 同走「认领 + 卸载回落前件」语义，第二家第三方报冲突；list 槽保持追加。
+// 判据由宿主传入（isSingleSlot），登记簿不硬编码词表。
 
-import type { SlotPart } from "@henira/plugin-web-ui";
+import type { ChainEntry, SlotPart } from "@henira/plugin-web-ui";
 
 export interface SlotRegistryOptions {
   /** 词表闸（§7.2）：词表外槽名忽略，走告警出口 */
@@ -13,16 +16,28 @@ export interface SlotRegistryOptions {
   onUnknownSlot(name: string): void;
   /** 官方 UI 模块的插件 id（其注册的件 = 官方默认件，可被顶替；discovery 唯一，第三方不可能同名） */
   officialId: string;
+  /** single 槽判定（R183，dsh SlotKind single）：命中者 registerSlot 也走认领/回落语义；
+   *  缺省 = 全部 list 追加（旧语义，不改变既有宿主） */
+  isSingleSlot?(name: string): boolean;
 }
 
 export interface SlotRegistry {
   /** 槽位表（渲染消费面；ctx.slots 直透） */
   readonly slots: Map<string, SlotPart[]>;
+  /** chain 槽表（R182，dsh SlotKind 行为层；ctx.chains 直透）：条目按 priority 升序 */
+  readonly chains: Map<string, ChainEntry[]>;
   /** 按调用方身份出注册 API：官方模块 officialId / 第三方各自插件 id（所有权随件登记）。
    * 返回撤销器 = 裸函数签名（kernel Disposable 同形状，结构化赋值——web 不新增 kernel 依赖边） */
   apiFor(callerId: string): {
     registerSlot(name: string, part: SlotPart, opts?: { order?: number }): () => void;
     replaceSlot(name: string, part: SlotPart): () => void;
+    registerChainSlot(name: string, entry: ChainEntry, opts?: { priority?: number }): () => void;
+    replaceChainSlot(
+      name: string,
+      id: string,
+      entry: ChainEntry,
+      opts?: { priority?: number },
+    ): () => void;
   };
   /** 全量重建前清场（renderSlots）：必须在第三方 dispose 之前清登记簿——重建期卸载回落
    * 不得复活旧列表（dispose 闭包查不到登记 = no-op，清场后全量重装） */
@@ -38,8 +53,61 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
   /** replaceSlot 顶替登记：name → { owner, part, previous }——卸载按登记回落 */
   const claims = new Map<string, { owner: string; part: SlotPart; previous: SlotPart[] }>();
 
+  // ── chain 槽（R182）：条目按 priority 升序；同 id 顶替按条目粒度回落（不整槽快照，
+  //    免得顶替期间新挂的其它条目被卸载时一起冲掉） ──
+  const chains = new Map<string, ChainEntry[]>();
+  let chainOwners = new WeakMap<object, string>();
+  const chainClaims = new Map<
+    string,
+    { owner: string; entry: ChainEntry; previous: ChainEntry | undefined }
+  >();
+  const chainKey = (name: string, id: string): string => `${name}\u0000${id}`;
+  const priorityOf = (entry: ChainEntry): number => entry.priority ?? 0;
+  const insertChain = (list: ChainEntry[], entry: ChainEntry): void => {
+    const at = list.findIndex((item) => priorityOf(item) > priorityOf(entry));
+    if (at === -1) list.push(entry);
+    else list.splice(at, 0, entry);
+  };
+  const withPriority = (entry: ChainEntry, registerOpts?: { priority?: number }): ChainEntry => {
+    const priority = registerOpts?.priority;
+    if (priority === undefined || priorityOf(entry) === priority) return entry;
+    return { ...entry, priority };
+  };
+
+  /** 认领槽位（replaceSlot 与 single 槽 registerSlot 共用，R183）：同 key 有别人家第三方件
+   *  才报错（D-022）；官方默认件在位 = 合法。登记 previous，卸载按登记回落。 */
+  const claimSlot = (name: string, part: SlotPart, callerId: string): (() => void) => {
+    const current = slots.get(name) ?? [];
+    // 冲突判据（D-022）：在位件里有别人家的第三方件才报错；官方默认件在位 = 顶替合法
+    const foreign = current.some((p) => {
+      const owner = partOwners.get(p as unknown as object);
+      return owner !== undefined && owner !== callerId && owner !== opts.officialId;
+    });
+    if (foreign) {
+      throw new Error(`slot conflict: ${name} already claimed by another module (D-022)`);
+    }
+    partOwners.set(part as unknown as object, callerId); // 顶替件同样登记所有权（第二家冲突判据）
+    claims.set(name, { owner: callerId, part, previous: current });
+    slots.set(name, [part]);
+    return () => {
+      const claim = claims.get(name);
+      if (claim === undefined || claim.owner !== callerId || claim.part !== part) return;
+      claims.delete(name);
+      const now = slots.get(name);
+      if (now === undefined) return;
+      const index = now.indexOf(part);
+      if (index >= 0) now.splice(index, 1);
+      // 顶替件撤出后空槽 → 回落顶替前的在位件（通常 = 官方默认件）
+      if (now.length === 0) {
+        if (claim.previous.length > 0) slots.set(name, claim.previous);
+        else slots.delete(name);
+      }
+    };
+  };
+
   return {
     slots,
+    chains,
     apiFor(callerId) {
       return {
         registerSlot(name, part, registerOpts) {
@@ -47,6 +115,8 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
             opts.onUnknownSlot(name);
             return () => {};
           }
+          // single 槽（R183）：同一时刻只一位占用者——认领/回落语义，不追加
+          if (opts.isSingleSlot?.(name) === true) return claimSlot(name, part, callerId);
           const list = slots.get(name) ?? [];
           const order = registerOpts?.order ?? 0;
           partOrders.set(part as unknown as object, order);
@@ -67,31 +137,75 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
             opts.onUnknownSlot(name);
             return () => {};
           }
-          const current = slots.get(name) ?? [];
-          // 冲突判据（D-022）：在位件里有别人家的第三方件才报错；官方默认件在位 = 顶替合法
-          const foreign = current.some((p) => {
-            const owner = partOwners.get(p as unknown as object);
-            return owner !== undefined && owner !== callerId && owner !== opts.officialId;
-          });
-          if (foreign) {
-            throw new Error(`slot conflict: ${name} already claimed by another module (D-022)`);
+          return claimSlot(name, part, callerId);
+        },
+        registerChainSlot(name, entry, registerOpts) {
+          if (!opts.slotAccepted(name)) {
+            opts.onUnknownSlot(name);
+            return () => {};
           }
-          partOwners.set(part as unknown as object, callerId); // 顶替件同样登记所有权（第二家冲突判据）
-          claims.set(name, { owner: callerId, part, previous: current });
-          slots.set(name, [part]);
-          return () => {
-            const claim = claims.get(name);
-            if (claim === undefined || claim.owner !== callerId || claim.part !== part) return;
-            claims.delete(name);
-            const now = slots.get(name);
-            if (now === undefined) return;
-            const index = now.indexOf(part);
-            if (index >= 0) now.splice(index, 1);
-            // 顶替件撤出后空槽 → 回落顶替前的在位件（通常 = 官方默认件）
-            if (now.length === 0) {
-              if (claim.previous.length > 0) slots.set(name, claim.previous);
-              else slots.delete(name);
+          const stored = withPriority(entry, registerOpts);
+          const list = chains.get(name) ?? [];
+          const index = list.findIndex((item) => item.id === stored.id);
+          if (index >= 0) {
+            const owner = chainOwners.get(list[index] as unknown as object);
+            if (owner !== undefined && owner !== callerId && owner !== opts.officialId) {
+              throw new Error(
+                `chain conflict: ${name}#${stored.id} already claimed by another module (D-022)`,
+              );
             }
+            // 官方条目在位时第三方不能「追挂同 id」——顶替走 replaceChainSlot（语义显式）
+            if (owner === opts.officialId && callerId !== opts.officialId) {
+              throw new Error(
+                `chain conflict: ${name}#${stored.id} is official; use replaceChainSlot (D-022)`,
+              );
+            }
+            list.splice(index, 1); // 同插件重入 / 官方重注册：按新条目替换
+          }
+          chainOwners.set(stored as unknown as object, callerId);
+          insertChain(list, stored);
+          chains.set(name, list);
+          return () => {
+            const current = chains.get(name);
+            if (current === undefined) return;
+            const at = current.indexOf(stored);
+            if (at >= 0) current.splice(at, 1);
+            if (current.length === 0) chains.delete(name);
+          };
+        },
+        replaceChainSlot(name, id, entry, registerOpts) {
+          if (!opts.slotAccepted(name)) {
+            opts.onUnknownSlot(name);
+            return () => {};
+          }
+          const list = chains.get(name) ?? [];
+          const index = list.findIndex((item) => item.id === id);
+          const previous = index >= 0 ? list[index] : undefined;
+          if (previous !== undefined) {
+            const owner = chainOwners.get(previous as unknown as object);
+            if (owner !== undefined && owner !== callerId && owner !== opts.officialId) {
+              throw new Error(
+                `chain conflict: ${name}#${id} already claimed by another module (D-022)`,
+              );
+            }
+          }
+          const stored = withPriority(entry.id === id ? entry : { ...entry, id }, registerOpts);
+          chainOwners.set(stored as unknown as object, callerId);
+          const key = chainKey(name, id);
+          chainClaims.set(key, { owner: callerId, entry: stored, previous });
+          if (index >= 0) list.splice(index, 1);
+          insertChain(list, stored);
+          chains.set(name, list);
+          return () => {
+            const claim = chainClaims.get(key);
+            if (claim === undefined || claim.owner !== callerId || claim.entry !== stored) return;
+            chainClaims.delete(key);
+            const now = chains.get(name);
+            if (now === undefined) return;
+            const at = now.indexOf(stored);
+            if (at >= 0) now.splice(at, 1);
+            if (claim.previous !== undefined) insertChain(now, claim.previous);
+            if (now.length === 0) chains.delete(name);
           };
         },
       };
@@ -101,6 +215,9 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
       partOrders = new WeakMap();
       partOwners = new WeakMap();
       claims.clear();
+      chains.clear();
+      chainOwners = new WeakMap();
+      chainClaims.clear();
     },
   };
 }

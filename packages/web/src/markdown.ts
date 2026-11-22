@@ -443,6 +443,31 @@ export function markdownChildren(
       components: {
         pre: ({ children }) => createElement(CodeBlock, { children, opts }),
         table: ({ node, children }) => createElement(WideTable, { node, children }),
+        // 外链新标签打开；相对/锚点链接禁止把宿主应用导航走（R177：参照物无「点链接整页被顶掉」）
+        a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+          const target = href ?? "";
+          const external = /^(?:https?:|mailto:)/i.test(target);
+          const hash = target.startsWith("#");
+          return createElement(
+            "a",
+            {
+              href,
+              ...(external ? { target: "_blank", rel: "noreferrer noopener" } : {}),
+              onClick: (event: React.MouseEvent) => {
+                if (!external && !hash) event.preventDefault();
+              },
+            },
+            children,
+          );
+        },
+        // GFM 任务列表勾选框：统一主题化（只读展示，不接受交互）
+        input: ({ checked }: { checked?: boolean }) =>
+          createElement("input", {
+            type: "checkbox",
+            checked,
+            disabled: true,
+            className: "henira-task-checkbox",
+          }),
       },
     },
     text,

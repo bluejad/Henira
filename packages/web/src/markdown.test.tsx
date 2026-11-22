@@ -91,6 +91,32 @@ describe("markdownNode（host.renderMarkdown 实现体）", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toBe("x.png");
   });
 
+  it("外链新标签打开；相对链接不把宿主应用导航走（R177）", () => {
+    const { container } = render(
+      markdownNode("[外链](https://henira.dev) [相对](docs/a.md) [锚点](#top)"),
+    );
+    const links = [...container.querySelectorAll("a")];
+    expect(links[0]?.getAttribute("target")).toBe("_blank");
+    expect(links[0]?.getAttribute("rel")).toContain("noopener");
+    expect(links[1]?.getAttribute("target")).toBeNull();
+    const relative = new MouseEvent("click", { bubbles: true, cancelable: true });
+    links[1]?.dispatchEvent(relative);
+    expect(relative.defaultPrevented).toBe(true); // 相对链接禁止整页导航
+    const anchor = new MouseEvent("click", { bubbles: true, cancelable: true });
+    links[2]?.dispatchEvent(anchor);
+    expect(anchor.defaultPrevented).toBe(false); // 锚点保留（页内定位）
+  });
+
+  it("GFM 任务列表：勾选框只读且主题化（R177）", () => {
+    const { container } = render(markdownNode("- [x] 已完成\n- [ ] 待办"));
+    const boxes = [...container.querySelectorAll("input[type=checkbox]")];
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]?.hasAttribute("disabled")).toBe(true);
+    expect(boxes[0]?.className).toContain("henira-task-checkbox");
+    expect(boxes[0]?.hasAttribute("checked")).toBe(true);
+    expect(boxes[1]?.hasAttribute("checked")).toBe(false);
+  });
+
   it("raw HTML 不渲染（消毒默认）——img/script 标签不出现", () => {
     const { container } = render(
       markdownNode('<img src=x onerror="alert(1)">\n\n<script>1</script>'),

@@ -23,7 +23,7 @@
   },
   "overrides": [
     {
-      "includes": ["plugins/web-ui/src/tokens.css"],
+      "includes": ["plugins/web-ui/src/tokens.css", "plugins/web-ui/src/styles/**"],
       "linter": {
         "rules": {
           "complexity": {

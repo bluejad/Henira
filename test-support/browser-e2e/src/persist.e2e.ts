@@ -115,7 +115,7 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
   const ctx = await startPersistServer(HISTORY_SCRIPT);
   try {
     await page.goto(ctx.server.url);
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     // 初值组态 = 选中会话所在组展开、其余折叠（本地默认）；初始选中 = dirB 会话 → 先展开 A 组
@@ -127,7 +127,7 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
     // 先造正文一行（刷新后必须在场的回归锚——selftest8：boot 还原曾只摆选中不补拉快照）
-    const area = page.getByPlaceholder(zh["composer.placeholder"]);
+    const area = page.getByTestId("composer-input");
     await area.fill("persist seed");
     await area.press("Enter");
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
@@ -158,7 +158,7 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await expect(page.locator(".henira-sessions li")).toHaveCount(0);
     // ── 刷新：选中/草稿/宽度/正文还原 + 组态按活跃组重播 ──
     await page.reload();
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     await expect(activeRow(page)).toContainText("persist-a"); // 上次选中
@@ -172,9 +172,9 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await expect(page.locator(".henira-sessions li")).toHaveCount(2);
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
     await expect(activeRow(page)).toContainText("persist-b");
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue("");
+    await expect(page.getByTestId("composer-input")).toHaveValue("");
     await rowA.click();
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue(DRAFT);
+    await expect(page.getByTestId("composer-input")).toHaveValue(DRAFT);
     await shot(page, "17-persist-reload.png");
   } finally {
     await ctx.stop(true);
@@ -189,7 +189,7 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
   const ctx = await startPersistServer(HISTORY_SCRIPT);
   try {
     await page.goto(ctx.server.url);
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     // 初值组态 = 选中会话所在组展开、其余折叠 → 先展开 A 组再点 A
@@ -201,7 +201,7 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
     // 先造正文一行（重启后必须在场的回归锚）
-    const area = page.getByPlaceholder(zh["composer.placeholder"]);
+    const area = page.getByTestId("composer-input");
     await area.fill("persist seed");
     await area.press("Enter");
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
@@ -216,7 +216,7 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     // ── 重启：新实例同 dataDir（新端口）──
     const server2 = await ctx.restart([[mockText(RESTART_TEXT), mockFinish("stop")]]);
     await page.goto(server2.url);
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     await expect(activeRow(page)).toContainText("persist-a"); // 上次选中跨重启
@@ -224,11 +224,11 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 组态重播：A 展开、B 折叠
     await groupB.click(); // 展开 B → 切 B → 草稿随 B 文档为空
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue("");
+    await expect(page.getByTestId("composer-input")).toHaveValue("");
     await rowA.click();
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toHaveValue(DRAFT); // 草稿跨重启
+    await expect(page.getByTestId("composer-input")).toHaveValue(DRAFT); // 草稿跨重启
     // 重启续聊（懒挂载 attach）：历史会话发消息不再 404——回复行落定
-    const area2 = page.getByPlaceholder(zh["composer.placeholder"]);
+    const area2 = page.getByTestId("composer-input");
     await area2.fill("continue after restart");
     await area2.press("Enter");
     await expect(page.getByText(RESTART_TEXT)).toBeVisible({ timeout: 15_000 });
@@ -246,7 +246,7 @@ test("右栏 tab 框架持久化（骨架批）：＋开空白面板 → rightPa
   const ctx = await startPersistServer();
   try {
     await page.goto(ctx.server.url);
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     // 初态右栏收起 = 窄轨（只有 ＋——面板关着也要有入口）
@@ -264,7 +264,7 @@ test("右栏 tab 框架持久化（骨架批）：＋开空白面板 → rightPa
     await shot(page, "19-right-panel-blank.png");
     // ── 刷新：右栏开合与 tab 总账还原 ──
     await page.reload();
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.locator(".henira-right-tab")).toHaveCount(1);

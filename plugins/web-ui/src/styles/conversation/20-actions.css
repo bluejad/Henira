@@ -1,0 +1,51 @@
+/* 轮尾/用户行操作栏（R178 对话区 · 操作层）：hover 设备默认隐藏，最新落定轮常显；
+   按钮是安静文本钮（覆盖全局按钮基线）。 */
+.henira-turn-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  margin: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-user-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  margin-top: var(--henira-space-1);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-turn-time {
+  font-variant-numeric: tabular-nums;
+}
+.henira-app .henira-turn-actions button,
+.henira-app .henira-user-actions button {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-app .henira-turn-actions button:hover:not(:disabled),
+.henira-app .henira-user-actions button:hover {
+  color: var(--henira-text-subtle);
+}
+.henira-app .henira-turn-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+@media (hover: hover) {
+  .henira-turn-actions[data-actions-reveal="hover"],
+  .henira-user-actions[data-actions-reveal="hover"] {
+    opacity: 0;
+    transition: opacity 80ms ease;
+  }
+  .henira-turn-group:hover .henira-turn-actions[data-actions-reveal="hover"],
+  .henira-turn-group:focus-within .henira-turn-actions[data-actions-reveal="hover"],
+  .henira-user-group:hover .henira-user-actions[data-actions-reveal="hover"],
+  .henira-user-group:focus-within .henira-user-actions[data-actions-reveal="hover"] {
+    opacity: 1;
+  }
+}

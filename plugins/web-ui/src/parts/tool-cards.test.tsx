@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-// per-tool 官方卡单测（E5）：meta 窄化校验（不过 → 通用卡回落，dsh「宁缺毋滥」）、
-// 各卡渲染语义（终端分色/退出码徽章、diff ±N、read gutter+窗口注、grep 分组、MCP 拆名）。
-// DisclosureRow 默认收起——断言展开体文本前先点开行头（openText helper）。
+// per-tool 官方卡单测（R178）：行语义 = 类别词 + 主信息 + 失败状态词；read/search 静态行；
+// 结果卡参数键值化（扁平对象无花括号）、MCP 结果优先、终端命令/输出上限、diff 240 上限。
+// ToolRow 默认收起——断言展开体前先点角色按钮（openCards helper）。
 
 import type { ToolRow } from "@henira/protocol";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -17,6 +17,7 @@ import {
   McpCard,
   ReadCard,
   TerminalCard,
+  ToolView,
   WriteCard,
 } from "./tool-cards.js";
 
@@ -47,24 +48,32 @@ function toolRow(over: Partial<ToolRow>): ToolRow {
   };
 }
 
-/** 渲染并展开全部收起行，返回全文文本（展开体 children 断言用） */
+/** 渲染并展开全部可展开行，返回全文文本 */
 function renderCard(el: ReactNode): string {
   const view = render(el);
-  for (const btn of [...view.container.querySelectorAll('button[aria-expanded="false"]')]) {
+  for (const btn of [
+    ...view.container.querySelectorAll('[role="button"][aria-expanded="false"]'),
+  ]) {
     fireEvent.click(btn);
   }
   return view.container.textContent ?? "";
 }
 
-/** 渲染不展开，返回收起态头行全文（R171 头行摘要断言用） */
+/** 渲染不展开，返回收起态头行全文 */
 function renderHead(el: ReactNode): string {
   const view = render(el);
   return view.container.textContent ?? "";
 }
 
-describe("头行摘要与耗时（R171）", () => {
-  it("收起态即见命令摘要 + 中文标题；callId 不占版面、走 rowTitle 悬停", () => {
-    const head = renderHead(
+function clickFirstToggle(container: HTMLElement): void {
+  const trigger = container.querySelector('[role="button"]');
+  if (trigger === null) throw new Error("missing tool row toggle");
+  fireEvent.click(trigger);
+}
+
+describe("行语义（R178）", () => {
+  it("终端：类别词 + 命令；不显示单次耗时/退出码胶囊；callId 走 title", () => {
+    const view = render(
       <TerminalCard
         row={toolRow({
           input: JSON.stringify({ command: "pnpm vitest run --coverage" }),
@@ -73,40 +82,53 @@ describe("头行摘要与耗时（R171）", () => {
         ctx={ctx}
       />,
     );
-    expect(head).toContain("终端"); // 中文标题
-    expect(head).toContain("pnpm vitest run --coverage"); // 摘要收起态可见
-    expect(head).toContain("4.6 秒"); // 耗时中文格式
-    expect(head).not.toContain("#c"); // callId 不再渲染为可见文本
-    const { container } = render(
+    const head = view.container.textContent ?? "";
+    expect(head).toContain("已执行");
+    expect(head).toContain("pnpm vitest run --coverage");
+    expect(head).not.toContain("4.6 秒");
+    const trigger = view.container.querySelector(".henira-row-trigger");
+    expect(trigger?.getAttribute("title")).toContain("bash");
+    expect(trigger?.getAttribute("title")).toContain("c");
+  });
+
+  it("失败才有状态词；成功行不出现「执行失败」", () => {
+    const ok = renderHead(<TerminalCard row={toolRow({ input: '{"command":"pwd"}' })} ctx={ctx} />);
+    expect(ok).not.toContain("执行失败");
+    const bad = renderHead(
       <TerminalCard
         row={toolRow({
-          callId: "call_00_abc",
-          input: JSON.stringify({ command: "pwd" }),
+          input: '{"command":"false"}',
+          output: {
+            content: "boom",
+            isError: true,
+            durationMs: 1,
+            meta: { kind: "shell", exitCode: 2, stdout: "", stderr: "boom" },
+          },
         })}
         ctx={ctx}
       />,
     );
-    const btn = container.querySelector("button");
-    expect(btn?.getAttribute("title")).toContain("bash"); // wire 名保真
-    expect(btn?.getAttribute("title")).toContain("call_00_abc"); // callId 排障通道
+    expect(bad).toContain("执行失败");
   });
 
-  it("摘要 80 字符截断；未知工具取首个字符串值兜底；无 args → 无摘要", () => {
-    const long = "x".repeat(200);
-    const truncated = renderHead(
-      <TerminalCard row={toolRow({ input: JSON.stringify({ command: long }) })} ctx={ctx} />,
-    );
-    expect(truncated).toContain("…");
-    const fallback = renderHead(
-      <TerminalCard
-        row={toolRow({ name: "custom_tool", input: JSON.stringify({ target: "some-path" }) })}
-        ctx={ctx}
-      />,
-    );
-    expect(fallback).toContain("custom_tool"); // 未知工具标题回落 wire 名
-    expect(fallback).toContain("some-path");
-    const empty = renderHead(<TerminalCard row={toolRow({ input: "{}" })} ctx={ctx} />);
-    expect(empty).not.toContain("undefined");
+  it("错误不自动展开；展开状态按 callId 记忆（虚拟列表重挂不丢）", () => {
+    const row = toolRow({
+      callId: "remember",
+      input: '{"command":"echo"}',
+      output: {
+        content: "OUTPUT_TOKEN",
+        isError: false,
+        durationMs: 1,
+        meta: { kind: "shell", exitCode: 0, stdout: "OUTPUT_TOKEN", stderr: "" },
+      },
+    });
+    const first = render(<TerminalCard row={row} ctx={ctx} />);
+    expect(first.container.textContent).not.toContain("OUTPUT_TOKEN");
+    clickFirstToggle(first.container);
+    expect(first.container.textContent).toContain("OUTPUT_TOKEN");
+    first.unmount();
+    const second = render(<TerminalCard row={row} ctx={ctx} />);
+    expect(second.container.textContent).toContain("OUTPUT_TOKEN");
   });
 });
 
@@ -124,11 +146,10 @@ describe("buildDiffRows（jsdiff 包装）", () => {
   it("多 hunk：行号按各自 hunk.oldStart/newStart 重置（审查 F2 回归）", () => {
     const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`);
     const mod = [...lines];
-    mod[1] = "B2"; // 第 2 行改
-    mod[16] = "B17"; // 第 17 行改——与第 2 行相距足够远 → 多 hunk
+    mod[1] = "B2";
+    mod[16] = "B17";
     const r = buildDiffRows(lines.join("\n"), mod.join("\n"));
     expect(r).not.toBeNull();
-    // 不论 jsdiff 切几个 hunk，del 行号必须等于真实旧文件行号（拍平实现第二 hunk 会错）
     expect(r?.rows.filter((row) => row.kind === "del").map((d) => d.oldLine)).toEqual([2, 17]);
     expect(r?.rows.filter((row) => row.kind === "add").map((a) => a.newLine)).toEqual([2, 17]);
   });
@@ -139,51 +160,65 @@ describe("buildDiffRows（jsdiff 包装）", () => {
     expect(r).not.toBeNull();
     expect(r?.added).toBe(1);
     expect(r?.removed).toBe(1);
-    expect(r?.truncated).toBeUndefined(); // 两行，未触千行闸
+    expect(r?.truncated).toBeUndefined();
   });
 
   it("自构整体替换超千行 → 截断（±N 计数仍算全量，审查 F6）", () => {
-    // jsdiff 对字符串按行 token 跑 Myers：总编辑长度（删+增行数）2400 > maxEditLength
-    // 2000 → 返回 undefined → 自构整体替换 fallback（千行闸截断）
     const bigOld = Array.from({ length: 1200 }, () => "xxxxx").join("\n");
     const bigNew = Array.from({ length: 1200 }, () => "yyyyy").join("\n");
     const r = buildDiffRows(bigOld, bigNew);
     expect(r?.truncated).toBe(true);
-    expect(r?.rows.length).toBe(1000); // 500 del + 500 add
-    expect(r?.added).toBe(1200); // 计数不截断
+    expect(r?.rows.length).toBe(1000);
+    expect(r?.added).toBe(1200);
     expect(r?.removed).toBe(1200);
   });
 });
 
 describe("TerminalCard（终端卡）", () => {
-  it("stdout 渲染 + stderr 分色段 + 非零退出徽章", () => {
-    const text = renderCard(
-      createElement(TerminalCard, {
-        row: toolRow({
+  it("stdout/stderr 合并输出 + 命令区；失败状态带原因 title", () => {
+    const view = render(
+      <TerminalCard
+        row={toolRow({
           name: "bash",
           input: JSON.stringify({ command: "echo hi" }),
           output: {
-            content: "hi\n[stderr]\noops\n[exit code: 2]",
+            content: "hi\noops",
             isError: false,
             durationMs: 12,
             meta: { kind: "shell", exitCode: 2, stdout: "hi", stderr: "oops" },
           },
-        }),
-        ctx,
-      }),
+        })}
+        ctx={ctx}
+      />,
+    );
+    const text = renderCard(
+      <TerminalCard
+        row={toolRow({
+          name: "bash",
+          input: JSON.stringify({ command: "echo hi" }),
+          output: {
+            content: "hi\noops",
+            isError: false,
+            durationMs: 12,
+            meta: { kind: "shell", exitCode: 2, stdout: "hi", stderr: "oops" },
+          },
+        })}
+        ctx={ctx}
+      />,
     );
     expect(text).toContain("echo hi");
     expect(text).toContain("hi");
-    expect(text).toContain("stderr");
     expect(text).toContain("oops");
-    expect(text).toContain("exit 2");
+    expect(text).not.toContain("exit 2");
+    const status = view.container.querySelector(".henira-row-status");
+    expect(status?.textContent).toBe("执行失败");
+    expect(status?.getAttribute("title")).toBe("oops");
   });
 
-  it("exitCode 0 无退出徽章 + 空输出注记；timedOut 徽章", () => {
+  it("exitCode 0 无失败状态 + 空输出注记；timedOut 状态原因", () => {
     const ok = renderCard(
-      createElement(TerminalCard, {
-        row: toolRow({
-          name: "bash",
+      <TerminalCard
+        row={toolRow({
           input: JSON.stringify({ command: "true" }),
           output: {
             content: "(no output; exit code 0)",
@@ -191,17 +226,17 @@ describe("TerminalCard（终端卡）", () => {
             durationMs: 5,
             meta: { kind: "shell", exitCode: 0, stdout: "", stderr: "" },
           },
-        }),
-        ctx,
-      }),
+        })}
+        ctx={ctx}
+      />,
     );
+    expect(ok).not.toContain("执行失败");
     expect(ok).not.toContain("exit 0");
-    expect(ok).toContain("（无输出）");
+    expect(ok).toContain("没有输出。");
 
-    const timed = renderCard(
-      createElement(TerminalCard, {
-        row: toolRow({
-          name: "bash",
+    const timed = render(
+      <TerminalCard
+        row={toolRow({
           input: JSON.stringify({ command: "sleep" }),
           output: {
             content: "[timed out after 600ms]",
@@ -209,59 +244,31 @@ describe("TerminalCard（终端卡）", () => {
             durationMs: 600,
             meta: { kind: "shell", exitCode: null, stdout: "", stderr: "", timedOut: true },
           },
-        }),
-        ctx,
-      }),
+        })}
+        ctx={ctx}
+      />,
     );
-    expect(timed).toContain("已超时");
-  });
-
-  it("stdout/stderr 流截断 → 「输出已截断」徽章（审查 F4）", () => {
-    const text = renderCard(
-      createElement(TerminalCard, {
-        row: toolRow({
-          name: "bash",
-          input: JSON.stringify({ command: "big" }),
-          output: {
-            content: "...(truncated)",
-            isError: false,
-            durationMs: 1,
-            meta: {
-              kind: "shell",
-              exitCode: 0,
-              stdout: "tail only",
-              stderr: "",
-              stdoutTruncated: true,
-            },
-          },
-        }),
-        ctx,
-      }),
+    expect(timed.container.querySelector(".henira-row-status")?.getAttribute("title")).toBe(
+      "已超时",
     );
-    expect(text).toContain("输出已截断");
-    expect(text).toContain("tail only");
   });
 
   it("meta 缺（旧会话）→ content 原样；running 无 output → 通用卡回落", () => {
     const legacy = renderCard(
-      createElement(TerminalCard, {
-        row: toolRow({
-          name: "bash",
+      <TerminalCard
+        row={toolRow({
           input: JSON.stringify({ command: "echo hi" }),
           output: { content: "hi\n[exit code: 2]", isError: false, durationMs: 12 },
-        }),
-        ctx,
-      }),
+        })}
+        ctx={ctx}
+      />,
     );
     expect(legacy).toContain("[exit code: 2]");
 
     const running = renderCard(
-      createElement(TerminalCard, {
-        row: toolRow({ name: "bash", status: "running", input: "not-json" }),
-        ctx,
-      }),
+      <TerminalCard row={toolRow({ status: "running", input: "not-json" })} ctx={ctx} />,
     );
-    expect(running).toContain("终端"); // ToolView 兜底渲染中文标题
+    expect(running).toContain("Bash");
   });
 });
 
@@ -283,16 +290,18 @@ describe("EditCard（diff 卡）", () => {
       ...over,
     });
 
-  it("±N 计数 + 文件路径 + 行内容", () => {
+  it("±N 计数 + 文件名 + diff 行；不显示耗时/替换数徽章", () => {
     const text = renderCard(createElement(EditCard, { row: editRow(), ctx }));
+    expect(text).toContain("已编辑");
     expect(text).toContain("demo.txt");
     expect(text).toContain("+1");
     expect(text).toContain("-1");
     expect(text).toContain("beta");
     expect(text).toContain("BETA");
+    expect(text).not.toContain("0.0 秒");
   });
 
-  it("replacements > 1 → N 处替换徽章", () => {
+  it("replacements > 1 不再上摘要（差异由 diff 本身表达）", () => {
     render(
       createElement(EditCard, {
         row: editRow({
@@ -306,7 +315,7 @@ describe("EditCard（diff 卡）", () => {
         ctx,
       }),
     );
-    expect(screen.getByText("3 处替换")).toBeDefined();
+    expect(screen.queryByText("3 处替换")).toBeNull();
   });
 
   it("input 缺 old_string → 通用卡回落（宁缺毋滥）", () => {
@@ -316,12 +325,12 @@ describe("EditCard（diff 卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("编辑"); // ToolView 渲染中文标题
+    expect(text).toContain("Edit");
   });
 });
 
-describe("WriteCard（新建/覆盖卡）", () => {
-  it("created → 新建徽章 + 全文 add 行；覆盖 → 覆盖徽章 + 中性 pre", () => {
+describe("WriteCard（写入卡）", () => {
+  it("created → 已写入 + 全文 add 行；覆盖 → 已更新 + 中性 pre；无新建/覆盖徽章", () => {
     const created = renderCard(
       createElement(WriteCard, {
         row: toolRow({
@@ -337,9 +346,11 @@ describe("WriteCard（新建/覆盖卡）", () => {
         ctx,
       }),
     );
-    expect(created).toContain("新建文件");
+    expect(created).toContain("已写入");
+    expect(created).toContain("new.txt");
     expect(created).toContain("hello");
-    expect(created).toContain("+");
+    expect(created).toContain("+2");
+    expect(created).not.toContain("新建文件");
 
     const overwrote = renderCard(
       createElement(WriteCard, {
@@ -356,11 +367,12 @@ describe("WriteCard（新建/覆盖卡）", () => {
         ctx,
       }),
     );
-    expect(overwrote).toContain("覆盖文件");
+    expect(overwrote).toContain("已更新");
     expect(overwrote).toContain("hi");
+    expect(overwrote).not.toContain("覆盖文件");
   });
 
-  it("created 全文超千行 → 截断注记（审查 F6：行数闸防大文件挂满 DOM）", () => {
+  it("created 全文超千行 → 截断注记", () => {
     const content = Array.from({ length: 1200 }, (_, i) => `L${i}`).join("\n");
     const text = renderCard(
       createElement(WriteCard, {
@@ -382,14 +394,14 @@ describe("WriteCard（新建/覆盖卡）", () => {
 });
 
 describe("ReadCard（读取卡）", () => {
-  it("行号 gutter 拆分 + 窗口注 + 尾注分离", () => {
-    const text = renderCard(
+  it("静态一行：已读取 + 文件名；无范围/耗时；文件名点开弹窗看内容", () => {
+    const view = render(
       createElement(ReadCard, {
         row: toolRow({
           name: "read",
           input: JSON.stringify({ file_path: "demo.txt" }),
           output: {
-            content: "3\talpha\n4\tbeta\n(End of file — total 9 lines)",
+            content: "3\talpha\n4\tbeta",
             isError: false,
             durationMs: 2,
             meta: {
@@ -404,19 +416,29 @@ describe("ReadCard（读取卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("alpha");
-    expect(text).toContain("3–4 / 9 行");
-    expect(text).toContain("(End of file — total 9 lines)");
+    const head = view.container.textContent ?? "";
+    expect(head).toContain("已读取");
+    expect(head).toContain("demo.txt");
+    expect(head).not.toContain("3–4 / 9 行");
+    expect(head).not.toContain("秒");
+    expect(head).not.toContain("alpha");
+    // 行本身不可展开（不是 aria-expanded 按钮）
+    expect(view.container.querySelector("[aria-expanded]")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "demo.txt" }));
+    const dialog = document.body.textContent ?? "";
+    expect(dialog).toContain("alpha");
+    expect(dialog).toContain("beta");
+    expect(dialog).not.toContain("3–4 / 9 行");
   });
 
-  it("无 meta（旧会话）：`N\\t` 格式仍拆 gutter，尾注按「(」开头识别", () => {
-    const text = renderCard(
+  it("无 meta（旧会话）：文件名仍可开弹窗看原始内容", () => {
+    const view = render(
       createElement(ReadCard, {
         row: toolRow({
           name: "read",
           input: JSON.stringify({ file_path: "demo.txt" }),
           output: {
-            content: "1\thello\n2\tworld\n(Showing lines 1-2 of 2. Use offset=3 to continue.)",
+            content: "1\thello\n2\tworld",
             isError: false,
             durationMs: 2,
           },
@@ -424,14 +446,15 @@ describe("ReadCard（读取卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("hello");
-    expect(text).toContain("(Showing lines 1-2 of 2. Use offset=3 to continue.)");
-    expect(text).not.toContain("行"); // 无 meta 无窗口注
+    const head = view.container.textContent ?? "";
+    expect(head).not.toContain("秒");
+    fireEvent.click(view.getByRole("button", { name: "demo.txt" }));
+    expect(document.body.textContent).toContain("hello");
   });
 });
 
 describe("GlobCard / GrepCard（搜索卡）", () => {
-  it("glob：路径列表 + 截断计数 2/5", () => {
+  it("glob：一行「已搜索 查找 pattern」，不展开结果列表/计数", () => {
     const text = renderCard(
       createElement(GlobCard, {
         row: toolRow({
@@ -447,12 +470,14 @@ describe("GlobCard / GrepCard（搜索卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("a.txt");
-    expect(text).toContain("2/5");
+    expect(text).toContain("已搜索");
+    expect(text).toContain("查找 *.txt");
+    expect(text).not.toContain("a.txt");
+    expect(text).not.toContain("2/5");
   });
 
-  it("grep content 模式：按文件分组（组头计数 + 上下文行在场）", () => {
-    const text = renderCard(
+  it("grep：一行「已搜索 查找 query」；不展开命中/文件 chip", () => {
+    const view = render(
       createElement(GrepCard, {
         row: toolRow({
           name: "grep",
@@ -464,10 +489,7 @@ describe("GlobCard / GrepCard（搜索卡）", () => {
             meta: {
               kind: "grep",
               mode: "content",
-              matches: [
-                { file: "a.ts", line: 1, text: "before", match: false },
-                { file: "a.ts", line: 2, text: "hit", match: true },
-              ],
+              matches: [{ file: "a.ts", line: 2, text: "hit", match: true }],
               totalSeen: 2,
             },
           },
@@ -475,30 +497,15 @@ describe("GlobCard / GrepCard（搜索卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("a.ts");
-    expect(text).toContain("before");
-    expect(text).toContain("hit");
-    expect(text).toContain("2 处命中");
+    const head = view.container.textContent ?? "";
+    expect(head).toContain("已搜索");
+    expect(head).toContain("查找 hit");
+    expect(head).not.toContain("a.ts");
+    expect(head).not.toContain("处命中");
+    expect(view.container.querySelector("[aria-expanded]")).toBeNull();
   });
 
-  it("grep files 模式：文件列表；meta 缺 → 通用卡回落", () => {
-    const files = renderCard(
-      createElement(GrepCard, {
-        row: toolRow({
-          name: "grep",
-          input: JSON.stringify({ pattern: "x" }),
-          output: {
-            content: "Found 1 file\na.txt",
-            isError: false,
-            durationMs: 1,
-            meta: { kind: "grep", mode: "files_with_matches", files: ["a.txt"], totalSeen: 1 },
-          },
-        }),
-        ctx,
-      }),
-    );
-    expect(files).toContain("a.txt");
-
+  it("meta 缺（旧会话）→ 同一静态行，不回落通用卡", () => {
     const legacy = renderCard(
       createElement(GrepCard, {
         row: toolRow({
@@ -509,13 +516,15 @@ describe("GlobCard / GrepCard（搜索卡）", () => {
         ctx,
       }),
     );
-    expect(legacy).toContain("搜内容"); // ToolView 渲染中文标题
+    expect(legacy).toContain("已搜索");
+    expect(legacy).toContain("查找");
+    expect(legacy).not.toContain("搜内容");
   });
 });
 
 describe("McpCard（MCP 卡）", () => {
-  it("meta 拆名：title=tool、summary=server；wire 名保底可见", () => {
-    const text = renderCard(
+  it("MCP + server + 工具名；结果优先，参数收进「调用详情」", () => {
+    const view = render(
       createElement(McpCard, {
         row: toolRow({
           name: "mcp__office__read_doc",
@@ -530,10 +539,17 @@ describe("McpCard（MCP 卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("read_doc");
+    clickFirstToggle(view.container);
+    const text = view.container.textContent ?? "";
+    expect(text).toContain("MCP");
     expect(text).toContain("office");
-    expect(text).toContain("mcp__office__read_doc"); // wire 名保底可见
-    expect(text).toContain("x.docx"); // 输入参数段
+    expect(text).toContain("Read Doc");
+    expect(text).not.toContain("mcp__office__read_doc");
+    expect(text).toContain("ok");
+    const details = view.container.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details?.hasAttribute("open")).toBe(false);
+    expect(details?.textContent).toContain("x.docx");
   });
 
   it("meta 缺（旧会话）：从 wire 名机械反拆", () => {
@@ -547,8 +563,48 @@ describe("McpCard（MCP 卡）", () => {
         ctx,
       }),
     );
-    expect(text).toContain("read_file");
+    expect(text).toContain("MCP");
     expect(text).toContain("fs");
+    expect(text).toContain("Read File");
     expect(text).toContain("plain text");
+  });
+});
+
+describe("ToolView（通用卡）", () => {
+  it("扁平参数 = 键值表，不露花括号；结果文本直出", () => {
+    const text = renderCard(
+      createElement(ToolView, {
+        row: toolRow({
+          name: "custom_tool",
+          input: JSON.stringify({ target: "some-path", count: 2 }),
+          output: { content: "done", isError: false, durationMs: 1 },
+        }),
+        ctx,
+      }),
+    );
+    expect(text).toContain("Custom Tool");
+    expect(text).toContain("target");
+    expect(text).toContain("some-path");
+    expect(text).toContain("count");
+    expect(text).not.toContain("{");
+    expect(text).toContain("done");
+  });
+
+  it("嵌套参数才用 JSON 代码块；失败状态词在场", () => {
+    const view = render(
+      createElement(ToolView, {
+        row: toolRow({
+          name: "custom_tool",
+          input: JSON.stringify({ nested: { a: 1 } }),
+          status: "error",
+          output: { content: "bad", isError: true, durationMs: 1 },
+        }),
+        ctx,
+      }),
+    );
+    clickFirstToggle(view.container);
+    expect(view.container.textContent).toContain("nested");
+    expect(view.container.textContent).toContain("bad");
+    expect(view.container.textContent).toContain("执行失败");
   });
 });

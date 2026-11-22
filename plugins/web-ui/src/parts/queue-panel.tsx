@@ -51,10 +51,9 @@ export function QueuePanel({
 
   return (
     <div className="henira-queue">
-      <div className={paused ? "henira-queue-head henira-queue-paused" : "henira-queue-head"}>
-        {paused ? ctx.t("composer.queue.pausedTitle") : ctx.t("composer.queue.title")}
-        <span className="henira-queue-count">{queue.length}</span>
-        {paused ? (
+      {paused ? (
+        <div className="henira-queue-paused">
+          <span className="henira-queue-paused-text">{ctx.t("composer.queue.pausedTitle")}</span>
           <button
             type="button"
             className="henira-queue-resume"
@@ -67,8 +66,8 @@ export function QueuePanel({
           >
             {ctx.t("composer.queue.resume")}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <ul className="henira-queue-rows" aria-label={ctx.t("composer.queue.title")}>
         {queue.map((entry) => (
           <li className="henira-queue-row" key={entry.id}>

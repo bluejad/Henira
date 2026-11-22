@@ -1,0 +1,17 @@
+/* R177 拆分：原 tokens.css 第 155-170 行（顺序保持，级联零变化） */
+/* 基础排版（零 webfont：系统字体栈——离线工具的第一约束） */
+.henira-app {
+  font-family:
+    -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--henira-bg);
+  color: var(--henira-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.henira-app code,
+.henira-app pre,
+.henira-app .henira-mono {
+  font-family: var(--henira-mono);
+  font-size: 13px;
+}

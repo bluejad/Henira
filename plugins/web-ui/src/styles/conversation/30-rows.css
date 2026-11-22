@@ -1,0 +1,670 @@
+/* 对话区行与结果卡（R178 对话区 · 行层）：
+   行 = 图标 + 类别词 + 主信息 + 状态；静态行不是按钮；结果才用卡片。 */
+
+/* ── 轮级「已工作」折叠 ── */
+.henira-turn-history {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.henira-app .henira-turn-history-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  padding: 0 0 var(--henira-space-2);
+  border: none;
+  border-bottom: 1px solid var(--henira-border);
+  background: none;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  line-height: 24px;
+  cursor: pointer;
+  text-align: left;
+}
+.henira-app .henira-turn-history-trigger:hover {
+  color: var(--henira-text);
+}
+.henira-turn-history-trigger.is-static {
+  cursor: default;
+}
+.henira-turn-history-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-1);
+  min-width: 0;
+  margin-top: var(--henira-space-2);
+}
+
+/* ── 过程组 ── */
+.henira-work-group {
+  min-width: 0;
+}
+.henira-app .henira-work-group-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  line-height: 24px;
+  cursor: pointer;
+  text-align: left;
+}
+.henira-app .henira-work-group-head:hover {
+  color: var(--henira-text);
+}
+.henira-work-stats {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-work-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: none;
+}
+.henira-work-files {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text-subtlest);
+}
+.henira-work-active-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text-subtlest);
+}
+.henira-work-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  margin: var(--henira-space-1) 0 var(--henira-space-2) var(--henira-space-2);
+  border-left: 1px solid var(--henira-border);
+  padding-left: var(--henira-space-4);
+  max-height: calc(16lh + 120px);
+  overflow-y: auto;
+}
+
+/* ── 行 chrome ── */
+.henira-row {
+  min-width: 0;
+}
+.henira-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-app .henira-row-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  line-height: 24px;
+}
+.henira-row-trigger.is-static {
+  cursor: default;
+}
+.henira-work-preview .henira-row,
+.henira-work-preview .henira-row-head,
+.henira-work-preview .henira-row-trigger {
+  display: contents;
+}
+.henira-row-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--henira-text-subtle);
+  transition: color var(--henira-dur-fast) ease;
+}
+.henira-row-kind {
+  flex: none;
+  color: var(--henira-text-subtle);
+  white-space: nowrap;
+  transition: color var(--henira-dur-fast) ease;
+}
+.henira-row-kind-detail {
+  flex: none;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text-subtlest);
+}
+.henira-row-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text);
+}
+.henira-row-secondary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text-subtlest);
+}
+.henira-row-diff {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.henira-row-status {
+  flex: none;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  white-space: nowrap;
+}
+.henira-row-status.is-error {
+  color: var(--henira-danger-text);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+.henira-row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--henira-space-1);
+}
+.henira-app .henira-row-trigger:hover .henira-row-icon,
+.henira-app .henira-row-trigger:hover .henira-row-kind,
+.henira-app .henira-row-trigger:hover .henira-row-secondary {
+  color: var(--henira-text);
+}
+.henira-row-body {
+  padding: var(--henira-space-2) 0 0;
+}
+
+/* 旧 DisclosureRow 出口（插件兼容）：标题/摘要/耗时的既有类继续可用 */
+.henira-row-title {
+  flex: none;
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+  line-height: 1.5;
+}
+.henira-row-meta {
+  flex: none;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+}
+.henira-row-summary-wrap {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--henira-space-2);
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+.henira-row-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.henira-row-duration {
+  flex: none;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 文件链接（read/edit/write 主信息）── */
+/* 全局 button 基线（06-controls 后导入）会把文件链接画成带底带框的钮——前缀压回去 */
+.henira-app .henira-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.henira-app .henira-file-link:hover {
+  border-color: transparent;
+  text-decoration: underline;
+}
+.henira-app .henira-file-link.is-static {
+  cursor: default;
+}
+.henira-app .henira-file-link.is-static:hover {
+  text-decoration: none;
+}
+.henira-file-link-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 思考块 ── */
+.henira-reasoning {
+  min-width: 0;
+}
+.henira-app .henira-reasoning-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  line-height: 24px;
+}
+.henira-reasoning-trigger > svg {
+  flex: none;
+  color: var(--henira-text-subtle);
+  transition: color var(--henira-dur-fast) ease;
+}
+.henira-app .henira-reasoning-trigger:hover > svg {
+  color: var(--henira-text);
+}
+.henira-reasoning-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--henira-space-1);
+  flex: none;
+  white-space: nowrap;
+}
+.henira-reasoning-duration {
+  color: var(--henira-text-subtlest);
+}
+.henira-reasoning-summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-base);
+}
+.henira-reasoning-body {
+  margin: var(--henira-space-2) 0 0 var(--henira-space-2);
+  border-left: 1px solid var(--henira-border);
+  padding: var(--henira-space-3) 0 0 var(--henira-space-3);
+  max-height: 240px;
+  overflow-y: auto;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-base);
+  line-height: var(--henira-line-height);
+  white-space: pre-wrap;
+}
+
+/* ── 结果卡 ── */
+.henira-tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-card-bg);
+  padding: var(--henira-space-3) var(--henira-space-4);
+  margin-bottom: var(--henira-space-2);
+}
+.henira-tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+}
+.henira-tool-label {
+  margin: 0;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-sm);
+  font-weight: 500;
+}
+.henira-tool-pre {
+  margin: 0;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-base);
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--henira-text-subtle);
+}
+.henira-tool-pre.is-output {
+  max-height: 100px;
+  overflow-y: auto;
+}
+.henira-tool-pre.is-args {
+  max-height: 288px;
+  overflow-y: auto;
+  font-size: var(--henira-fs-md);
+}
+.henira-tool-pre.is-error {
+  color: var(--henira-danger-text);
+}
+.henira-tool-empty {
+  margin: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-base);
+}
+.henira-tool-note {
+  margin: 0;
+  color: var(--henira-warn-text);
+  font-size: var(--henira-fs-sm);
+}
+.henira-param-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+.henira-param-row {
+  display: contents;
+}
+.henira-param-list dt {
+  min-width: 0;
+  color: var(--henira-text-subtlest);
+  overflow-wrap: anywhere;
+}
+.henira-param-list dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--henira-text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ── 命令区（3lh，溢出可展开到 10lh） ── */
+.henira-command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-1);
+}
+.henira-command-body {
+  display: grid;
+  grid-template-columns: 1ch minmax(0, 1fr);
+  gap: 0 var(--henira-space-2);
+  max-height: 60px;
+  overflow: hidden;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-base);
+  line-height: 20px;
+}
+.henira-command-body.is-expanded {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.henira-command-prompt {
+  color: var(--henira-text-subtle);
+}
+.henira-command-body pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.henira-app .henira-command-toggle {
+  align-self: flex-start;
+  margin-left: calc(1ch + var(--henira-space-2));
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-app .henira-command-toggle:hover {
+  border-color: transparent;
+  color: var(--henira-text);
+}
+
+/* ── diff ── */
+.henira-diff-view {
+  max-height: 240px;
+  overflow-y: auto;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  line-height: 1.55;
+}
+.henira-diff-row {
+  display: flex;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.henira-diff-row.is-add {
+  background: var(--henira-ok-bg);
+}
+.henira-diff-row.is-del {
+  background: var(--henira-danger-bg);
+}
+.henira-diff-row.is-note {
+  color: var(--henira-text-muted);
+}
+.henira-diff-gutter {
+  width: 3ch;
+  flex: none;
+  padding-right: 6px;
+  text-align: right;
+  color: var(--henira-text-muted);
+  user-select: none;
+}
+.henira-diff-mark {
+  width: 1ch;
+  flex: none;
+}
+.henira-diff-text {
+  flex: 1;
+  min-width: 0;
+}
+.henira-diff-totals {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.henira-diff-totals .is-add {
+  color: var(--henira-ok-text);
+}
+.henira-diff-totals .is-del {
+  color: var(--henira-danger-text);
+}
+
+/* ── MCP 结果 ── */
+.henira-mcp-result.is-compact {
+  margin: 0;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-card-bg);
+  padding: var(--henira-space-2) var(--henira-space-3);
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+.henira-mcp-result.is-error {
+  margin: 0;
+  border-radius: var(--henira-radius);
+  background: var(--henira-danger-bg);
+  color: var(--henira-danger-text);
+  padding: var(--henira-space-2) var(--henira-space-3);
+  font-size: var(--henira-fs-base);
+  white-space: pre-wrap;
+}
+.henira-mcp-result.is-code {
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-card-bg);
+  overflow: hidden;
+}
+.henira-mcp-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  padding: var(--henira-space-2) var(--henira-space-3);
+  border-bottom: 1px solid var(--henira-border);
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-sm);
+}
+.henira-mcp-result.is-code .henira-tool-pre {
+  max-height: 288px;
+  overflow-y: auto;
+  padding: var(--henira-space-2) var(--henira-space-3);
+}
+.henira-app .henira-mcp-copy {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app .henira-mcp-copy:hover {
+  border-color: transparent;
+  color: var(--henira-text);
+}
+.henira-mcp-details {
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-md);
+}
+.henira-mcp-details summary {
+  cursor: pointer;
+  color: var(--henira-text-subtle);
+}
+.henira-mcp-details summary:hover {
+  color: var(--henira-text);
+}
+.henira-app .henira-mcp-details .henira-tool-pre {
+  margin-top: var(--henira-space-2);
+  max-height: 288px;
+  overflow-y: auto;
+  padding: var(--henira-space-2) var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-bg);
+}
+
+/* ── 兼容件：插件顶替卡可继续用 DetailPane/MonoBlock ── */
+.henira-detail-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-card-bg);
+  padding: 10px 12px;
+}
+.henira-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+}
+.henira-detail-sep {
+  border-top: 1px solid var(--henira-border);
+}
+.henira-detail-label {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  font-weight: 500;
+}
+.henira-detail-body {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.henira-mono-block {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-md);
+}
+
+/* ── 文件预览弹窗 ── */
+.henira-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 35%);
+  padding: var(--henira-space-5);
+}
+.henira-preview-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 92vw);
+  max-height: 82vh;
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-panel);
+  box-shadow: var(--henira-shadow-pop);
+  overflow: hidden;
+}
+.henira-preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  padding: var(--henira-space-2) var(--henira-space-3);
+  border-bottom: 1px solid var(--henira-border);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-preview-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text);
+  font-family: var(--henira-mono);
+}
+.henira-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--henira-space-3);
+}
+.henira-preview-body pre {
+  margin: 0;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-md);
+  line-height: 1.55;
+  color: var(--henira-text);
+  white-space: pre;
+}
+.henira-preview-head .henira-iconbtn {
+  margin-left: auto;
+}
+
+/* ── 组内收口（R179）：子行不再重复工具图标；思考块不再叠第二条导线（组导线唯一） ── */
+.henira-app .henira-work-group-body .henira-row-head .henira-row-icon {
+  display: none;
+}
+.henira-app .henira-work-group-body .henira-reasoning .henira-reasoning-body {
+  margin-left: 0;
+  border-left: none;
+  padding: 4px 0 0;
+}

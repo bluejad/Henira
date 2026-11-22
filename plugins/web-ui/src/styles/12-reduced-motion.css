@@ -1,0 +1,7 @@
+/* R177 拆分：原 tokens.css 第 1617-1622 行（顺序保持，级联零变化） */
+@media (prefers-reduced-motion: reduce) {
+  .henira-app * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

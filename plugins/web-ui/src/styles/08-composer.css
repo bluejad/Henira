@@ -1,0 +1,659 @@
+/* R177 拆分：原 tokens.css 第 603-1048 行（顺序保持，级联零变化） */
+/* ── 输入座位（R182）：dock 持列宽/轴/内衬；bar 与接管卡共享同一座位 ───────────────
+   composer = 座位（chain 接管路由，ComposerDock），composer.bar = 常驻输入栏（fallback）。
+   接管时 bar display:none 但保持挂载（草稿/DOM 态不丢——dsh overlay 语义）。 */
+.henira-composer-dock {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--henira-column-max);
+  margin: 0 auto;
+  padding: 0 var(--henira-space-5) var(--henira-space-4);
+}
+.henira-composer {
+  display: flex;
+  flex-direction: column;
+}
+.henira-composer-bar-slot {
+  min-width: 0;
+}
+.henira-composer-takeover {
+  position: relative;
+  z-index: 1; /* 接管卡同样压住 dock 排队卡的负底边距（R183：排队卡改在 bar 外渲染） */
+  min-width: 0;
+  outline: none; /* 容器只作焦点落点；可见焦点由卡内选项承担 */
+}
+/* 卡：白底 + 10% 细边 + 两层轻影（ZCode 行为层）；hover/focus 只把边框加深到 16%，
+   不再用黑边聚焦——层级靠底色/描边/影，不靠重对比。 */
+.henira-composer-card {
+  position: relative;
+  z-index: 1; /* 排队卡负底边距塞到卡后（R182） */
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-xl);
+  background: var(--henira-card-bg);
+  padding: var(--henira-space-3);
+  box-shadow: var(--henira-shadow-composer);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.henira-composer-card:hover {
+  border-color: var(--henira-border-strong);
+}
+.henira-composer-card:focus-within {
+  border-color: var(--henira-border-strong);
+  background: var(--henira-card-bg);
+}
+.henira-composer-card textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  line-height: 20px; /* ZCode leading-5：与 mention/工具排基线一致 */
+  padding: 0;
+  min-height: 40px; /* 空态两行呼吸（ZCode min-h-10） */
+  max-height: 160px; /* ZCode max-h-40 */
+  overflow-y: auto;
+}
+.henira-composer-card textarea::placeholder {
+  color: var(--henira-text-subtlest); /* 占位最弱档（ZCode foreground-subtlest） */
+}
+/* 焦点指示只留卡边框一处（ZCode 行为层）——全局 textarea 焦点环在卡内排除（R125 蓝框双重指示） */
+.henira-composer-card textarea:focus-visible {
+  outline: none;
+}
+.henira-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  min-height: 28px;
+}
+/* 座位容器（R183）：模型席 / 左追加位 / 右追加位——同排内联组，空席不渲染不占位 */
+.henira-composer-seat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-composer-spacer {
+  flex: 1 1 auto;
+}
+.henira-app button.henira-icon-round {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+/* 停止态圆钮（danger 实色；发送=henira-primary 圆钮照旧） */
+.henira-app button.henira-icon-round.henira-stop {
+  background: var(--henira-danger-bg);
+  border-color: var(--henira-danger-text);
+  color: var(--henira-danger-text);
+}
+.henira-app button.henira-icon-round.henira-stop:hover {
+  background: var(--henira-danger-text);
+  color: var(--henira-panel);
+}
+/* 工具排：模型选择弹层（触发钮 + 搜索 + 厂商分组 + 管理模型入口） */
+.henira-model-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+}
+.henira-app button.henira-model-trigger {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 3px 8px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  min-width: 0;
+}
+.henira-app button.henira-model-trigger:hover {
+  color: var(--henira-text);
+  border-color: var(--henira-border);
+}
+.henira-app button.henira-model-trigger:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+}
+.henira-model-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-model-popover {
+  position: absolute;
+  z-index: 65;
+  min-width: 240px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-model-popover[data-direction="up"] {
+  bottom: calc(100% + 4px);
+}
+.henira-model-popover[data-direction="down"] {
+  top: calc(100% + 4px);
+}
+.henira-model-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 6px;
+  border-bottom: 1px solid var(--henira-border);
+  margin-bottom: 4px;
+  color: var(--henira-text-muted);
+}
+.henira-model-search {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  outline: none;
+}
+.henira-model-list {
+  display: block;
+  overflow-y: auto;
+  max-height: 220px;
+}
+.henira-model-group {
+  display: block;
+}
+.henira-model-group-label {
+  display: block;
+  padding: 4px 8px 2px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app button.henira-model-item {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.henira-model-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 行尾徽章排（上下文窗 + 视觉 + 思考图标） */
+.henira-model-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app button.henira-model-item:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-model-item[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+/* 键盘活动项（↑↓/Home/End 移动，aria-activedescendant——hover 同款弱底） */
+.henira-app button.henira-model-item[data-kbd="true"] {
+  background: var(--henira-surface-hover);
+}
+.henira-model-empty {
+  display: block;
+  padding: 8px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app button.henira-model-manage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--henira-border);
+  background: none;
+  text-align: left;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 0 0 calc(var(--henira-radius) - 2px) calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-app button.henira-model-manage:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+/* 思考档（Brain 图标 + 档位 ghost 触发钮 + 自制弹层——原生 select 系统菜单退场；
+   none=置灰「—」） */
+.henira-thinking-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-thinking-select[data-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── 统一下拉弹层（HeniraSelect 基础件，基础件批 2026-11-20）：触发钮 ghost 形态同
+   model-trigger 语言；--input 形态配表单字段（henira-input 同款）；弹层 = .henira-pop
+   通用面板（panel 实底 + border-strong + shadow-pop，z-65 与模型弹层同档）── */
+.henira-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.henira-app button.henira-select-trigger {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 3px 8px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.henira-app button.henira-select-trigger:hover:not(:disabled) {
+  color: var(--henira-text);
+  border-color: var(--henira-border);
+}
+/* 工具排控件 28px / 14px 字（ZCode h-7 + text-ui-base）；hover 浅底不描边。
+   前缀 .henira-app .henira-composer-bar 压过全局按钮基线（0,4,1 对 0,3,1）。
+   位置在基础触发钮规则之后——同级元素按特异度升序排，避免降序告警。 */
+.henira-app .henira-composer-bar button.henira-model-trigger,
+.henira-app .henira-composer-bar button.henira-select-trigger {
+  height: 28px;
+  padding: 3px 8px;
+  font-size: var(--henira-fs-base);
+  box-sizing: border-box;
+}
+.henira-app .henira-composer-bar button.henira-model-trigger:hover,
+.henira-app .henira-composer-bar button.henira-select-trigger:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+  border-color: transparent;
+  color: var(--henira-text);
+}
+.henira-composer-bar .henira-thinking-select {
+  font-size: var(--henira-fs-base);
+}
+.henira-app button.henira-select-trigger:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+}
+.henira-select-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-select--input {
+  width: 100%;
+  max-width: 280px; /* 全宽字段 = 两字横贯 900px 的荒诞比例（用户实拍裁定收口） */
+}
+.henira-app .henira-select--input button.henira-select-trigger {
+  border: 1px solid var(--henira-border);
+  background: var(--henira-bg);
+  color: var(--henira-text);
+  font: inherit;
+  padding: 6px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.henira-select--input .henira-select-trigger-label {
+  flex: 1;
+}
+.henira-pop {
+  box-sizing: border-box;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-select-pop {
+  position: absolute;
+  z-index: 65;
+  min-width: 140px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.henira-select--input .henira-select-pop {
+  min-width: 100%;
+}
+.henira-select-pop[data-direction="up"] {
+  bottom: calc(100% + 4px);
+}
+.henira-select-pop[data-direction="down"] {
+  top: calc(100% + 4px);
+}
+.henira-app button.henira-pop-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.henira-app button.henira-pop-item:hover:not(:disabled):not([data-active="true"]) {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-pop-item[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-pop-item[data-kbd="true"] {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-pop-item:disabled {
+  color: var(--henira-text-muted);
+  cursor: not-allowed;
+}
+/* 发送失败行内提示（prompt 失败不静默，R125） */
+.henira-send-error {
+  margin: 0 0 var(--henira-space-2);
+  color: var(--henira-danger-text);
+  background: var(--henira-danger-bg);
+  border-radius: var(--henira-radius);
+  padding: var(--henira-space-1) var(--henira-space-3);
+  font-size: var(--henira-fs-sm);
+}
+
+/* ── 排队卡（E1：忙时投递可见化——dsh QueueDock/ZCode ConversationQueuePanel 行为层同位）── */
+/* 面板位于审批卡之下、输入卡之上，同宽同轴；空队列不渲染（组件侧 null）。
+   R180：去标题/计数头，收成贴在输入卡上沿的静音列表（正文 14px 主文字，动作 hover 浮现）。 */
+/* 排队卡贴输入卡上沿（R182，ZCode 行为层）：只有上圆角、负底边距 + 同额底 padding
+   塞到不透明输入卡后面；半透明底 + 毛玻璃让列表像从卡后面长出来，不是第二张卡。 */
+.henira-queue {
+  position: relative;
+  z-index: 0;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-xl) var(--henira-radius-xl) 0 0;
+  background: color-mix(in srgb, var(--henira-card-bg) 78%, transparent);
+  backdrop-filter: blur(10px);
+  padding: var(--henira-space-1) var(--henira-space-1) var(--henira-space-4);
+  margin: 0 0 calc(-1 * var(--henira-space-3));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* 中断冻结态：整条安静提示（中性底，不刷黄） */
+.henira-queue-paused {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-surface);
+  padding: var(--henira-space-2) var(--henira-space-3);
+}
+.henira-queue-paused-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+}
+.henira-app .henira-queue-resume {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  color: var(--henira-text-subtle);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.henira-app .henira-queue-resume:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-app .henira-queue-resume:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.henira-queue-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-queue-row {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  border-radius: var(--henira-radius);
+  padding: 5px var(--henira-space-2);
+  min-width: 0;
+  transition: background-color 0.12s ease;
+}
+.henira-queue-row:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-queue-badge {
+  flex-shrink: 0;
+  background: var(--henira-info-bg);
+  color: var(--henira-info-text);
+  border-radius: 9999px;
+  padding: 0 8px;
+  font-size: var(--henira-fs-sm);
+}
+.henira-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text);
+}
+/* 行操作钮：hover / focus-within 浮现（常驻三钮连成「小方块网格」= 用户实拍最丑点；
+   opacity-only 不动 pointer-events——Playwright 直点可达，键盘 focus-within 同样显形） */
+.henira-queue-actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.henira-queue-row:hover .henira-queue-actions,
+.henira-queue-row:focus-within .henira-queue-actions {
+  opacity: 1;
+}
+
+/* ── 审批卡（E6；R180 按参照重排：中性弹层卡 + 编号选项行，去掉黄底/徽章/mono 工具名）── */
+.henira-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-xl);
+  background: var(--henira-panel);
+  padding: var(--henira-space-3);
+  margin-bottom: var(--henira-space-2);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+}
+.henira-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+}
+.henira-approval-title {
+  font-size: var(--henira-fs-base);
+  font-weight: 500;
+  color: var(--henira-text-subtle);
+}
+.henira-approval-queue {
+  margin-left: auto;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.henira-approval-reason {
+  margin: 0;
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+  line-height: 1.5;
+}
+/* 预览块：工具行 chrome（图标 + 等待审批 + 工具身份）+ 内容卡 */
+.henira-approval-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-approval-block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  line-height: 24px;
+}
+.henira-approval-block-kind {
+  flex: none;
+  color: var(--henira-text-subtle);
+}
+.henira-approval-block-tool {
+  flex: none;
+  color: var(--henira-text-subtlest);
+}
+.henira-approval-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  min-width: 0;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-surface);
+  padding: 10px 12px;
+}
+.henira-approval-block-body .henira-diff-view {
+  max-height: 240px;
+}
+.henira-approval-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-approval-digest {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  word-break: break-all;
+}
+/* 选项行：编号 + 主文案 + 说明；点击即决定（Enter=允许一次、Esc=拒绝） */
+.henira-approval-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-app .henira-approval-option {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-3);
+  width: 100%;
+  border: none;
+  border-radius: var(--henira-radius-lg);
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  text-align: left;
+  padding: var(--henira-space-2) var(--henira-space-3);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.henira-app .henira-approval-option:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-approval-option.is-default {
+  background: var(--henira-surface-hover);
+}
+.henira-approval-index {
+  flex: none;
+  width: 20px;
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+}
+.henira-approval-option.is-default .henira-approval-index {
+  color: var(--henira-text-subtle);
+}
+.henira-approval-option-text {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px var(--henira-space-3);
+  min-width: 0;
+}
+.henira-approval-option-label {
+  font-weight: 500;
+  color: var(--henira-text);
+}
+.henira-approval-option-desc {
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+.henira-approval-hint {
+  margin: 0;
+  padding: 0 var(--henira-space-1);
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+}

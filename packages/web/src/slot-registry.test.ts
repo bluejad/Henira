@@ -4,6 +4,11 @@
 import { describe, expect, it } from "vitest";
 import { createSlotRegistry } from "./slot-registry.js";
 
+/** 测试用空 chain 组件（模块级：避免 lint noComponentHookFactories 把内联箭头当组件工厂） */
+function NullComponent() {
+  return null;
+}
+
 function make() {
   const unknown: string[] = [];
   const registry = createSlotRegistry({
@@ -87,5 +92,112 @@ describe("slot registry（顶替语义，审查 F3）", () => {
     official.registerSlot("layout", () => "frame");
     registry.apiFor("ui-a").replaceSlot("layout", () => "replaced2");
     expect(registry.slots.get("layout")?.[0]?.("x" as never)).toBe("replaced2");
+  });
+});
+
+describe("chain 槽（R182，dsh SlotKind 行为层）", () => {
+  const entry = (id: string, priority = 0) => ({
+    id,
+    priority,
+    select: () => null,
+    Component: NullComponent,
+  });
+
+  it("priority 升序插入（同值保注册序）——消费侧 first non-null wins", () => {
+    const { registry } = make();
+    const official = registry.apiFor("plugin-web-ui");
+    official.registerChainSlot("composer.takeover", entry("late", 20));
+    official.registerChainSlot("composer.takeover", entry("mid", 10));
+    official.registerChainSlot("composer.takeover", entry("mid-2", 10));
+    official.registerChainSlot("composer.takeover", entry("first", -5));
+    expect(registry.chains.get("composer.takeover")?.map((e) => e.id)).toEqual([
+      "first",
+      "mid",
+      "mid-2",
+      "late",
+    ]);
+  });
+
+  it("第三方 replaceChainSlot 顶替官方条目；卸载按登记回落官方", () => {
+    const { registry } = make();
+    const official = registry.apiFor("plugin-web-ui");
+    const plugin = registry.apiFor("my-ui");
+    const officialEntry = entry("approval", 10);
+    official.registerChainSlot("composer.takeover", officialEntry);
+    const replacedEntry = entry("approval", 10);
+    const dispose = plugin.replaceChainSlot("composer.takeover", "approval", replacedEntry);
+    expect(registry.chains.get("composer.takeover")?.[0]).toBe(replacedEntry);
+    dispose();
+    expect(registry.chains.get("composer.takeover")?.[0]).toBe(officialEntry); // 回落官方
+  });
+
+  it("官方条目在位时第三方 registerChainSlot 同 id = 冲突（要走 replaceChainSlot）", () => {
+    const { registry } = make();
+    registry.apiFor("plugin-web-ui").registerChainSlot("composer.takeover", entry("approval", 10));
+    expect(() =>
+      registry.apiFor("ui-a").registerChainSlot("composer.takeover", entry("approval", 10)),
+    ).toThrow(/is official; use replaceChainSlot/);
+  });
+
+  it("第三方 A 的条目在位 → 第三方 B replaceChainSlot 同 id 报错（D-022）", () => {
+    const { registry } = make();
+    registry.apiFor("ui-a").registerChainSlot("composer.takeover", entry("x", 0));
+    expect(() =>
+      registry.apiFor("ui-b").replaceChainSlot("composer.takeover", "x", entry("x", 0)),
+    ).toThrow(/chain conflict/);
+  });
+
+  it("reset 清空 chain 登记（重建后官方重注册不被旧条目挡住）", () => {
+    const { registry } = make();
+    registry.apiFor("plugin-web-ui").registerChainSlot("composer.takeover", entry("approval", 10));
+    registry.reset();
+    expect(registry.chains.size).toBe(0);
+    registry.apiFor("plugin-web-ui").registerChainSlot("composer.takeover", entry("approval", 10));
+    expect(registry.chains.get("composer.takeover")?.length).toBe(1);
+  });
+});
+
+describe("single 槽（R183，dsh SlotKind single 行为层）", () => {
+  const makeSingle = () => {
+    const registry = createSlotRegistry({
+      slotAccepted: () => true,
+      onUnknownSlot: () => {},
+      officialId: "plugin-web-ui",
+      isSingleSlot: (name) => name === "composer.model",
+    });
+    return registry;
+  };
+
+  it("官方 registerSlot 认领；第三方 registerSlot 顶替；卸载回落官方（不追加）", () => {
+    const registry = makeSingle();
+    const official = registry.apiFor("plugin-web-ui");
+    const plugin = registry.apiFor("my-ui");
+    const officialPart = () => "official";
+    const pluginPart = () => "plugin";
+    official.registerSlot("composer.model", officialPart);
+    expect(registry.slots.get("composer.model")).toEqual([officialPart]); // 单件
+
+    const dispose = plugin.registerSlot("composer.model", pluginPart);
+    expect(registry.slots.get("composer.model")).toEqual([pluginPart]); // 顶替而非 [official, plugin]
+
+    dispose();
+    expect(registry.slots.get("composer.model")).toEqual([officialPart]); // 回落
+  });
+
+  it("第三方 A 在位 → 第三方 B registerSlot 报冲突（D-022 同款）", () => {
+    const registry = makeSingle();
+    registry.apiFor("ui-a").registerSlot("composer.model", () => "a");
+    expect(() => registry.apiFor("ui-b").registerSlot("composer.model", () => "b")).toThrow(
+      /slot conflict/,
+    );
+  });
+
+  it("同 caller 重入 = 单件替换（不叠两个模型控件）", () => {
+    const registry = makeSingle();
+    const a = registry.apiFor("ui-a");
+    a.registerSlot("composer.model", () => "a1");
+    a.registerSlot("composer.model", () => "a2");
+    expect(registry.slots.get("composer.model")?.length).toBe(1);
+    expect(registry.slots.get("composer.model")?.[0]?.("x" as never)).toBe("a2");
   });
 });

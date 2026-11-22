@@ -61,7 +61,7 @@ test("模型管理（四视图）：自定义厂商连接 → 分组/开关 → 
   const ctx = await startServer();
   try {
     await page.goto(ctx.server.url);
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     // 开设置 → 模型管理页（无全局默认模型入口——用户裁定 2026-11-19；空态提示在场）
@@ -164,7 +164,7 @@ test("模型管理（四视图）：自定义厂商连接 → 分组/开关 → 
 
     // 刷新：分组持久化（models.json 磁盘兜底）
     await page.reload();
-    await expect(page.getByPlaceholder(zh["composer.placeholder"])).toBeVisible({
+    await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
     await page.getByRole("button", { name: zh["settings.open"] }).click();

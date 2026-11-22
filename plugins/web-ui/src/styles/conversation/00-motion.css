@@ -1,0 +1,109 @@
+/* 动效与状态流光（R178 对话区 · 运动层） */
+.henira-streaming {
+  opacity: 1;
+  transition: opacity 0.18s ease-out;
+}
+
+/* 逐词淡入：只动 opacity——首帧占满最终位置、测高稳定 */
+.henira-md span[data-henira-reveal] {
+  opacity: 1;
+  transition: opacity 300ms ease-out;
+  transition-delay: var(--henira-reveal-delay, 0ms);
+}
+@starting-style {
+  .henira-md span[data-henira-reveal="new"] {
+    opacity: 0;
+  }
+}
+
+/* 轮级 loading 点阵 */
+.henira-loading-dots span {
+  animation: henira-loading-dot 1.4s ease-in-out infinite;
+  opacity: 0.2;
+}
+.henira-loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.henira-loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes henira-loading-dot {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* stalled（响应停滞：3s 无活动渐红） */
+.henira-stalled {
+  color: var(--henira-danger-text);
+  transition: color 2s ease-in;
+}
+
+/* 运行态扫光：只用在「正在发生」的词上 */
+.henira-sweep {
+  background: linear-gradient(
+    100deg,
+    var(--henira-text-muted) 42%,
+    var(--henira-text-strong) 50%,
+    var(--henira-text-muted) 58%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: henira-sweep 2.4s linear infinite;
+}
+@keyframes henira-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* 单行摘要右端渐隐 */
+.henira-fade-right {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+}
+
+/* 工具行箭头：静态安静、悬停发声；展开态旋转（显隐仍归 hover/focus——参照同款） */
+.henira-row-caret {
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    transform 0.15s ease;
+}
+button:hover > .henira-row-caret,
+button:focus-visible > .henira-row-caret {
+  opacity: 1;
+}
+[role="button"]:hover > .henira-row-caret,
+[role="button"]:focus-visible > .henira-row-caret {
+  opacity: 1;
+}
+.henira-row-caret.is-open {
+  transform: rotate(90deg);
+}
+
+/* 轮历史折叠箭头：常显弱色（可折叠就有入口） */
+.henira-turn-history-caret {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.7;
+  transition:
+    opacity 0.12s ease,
+    transform 0.15s ease;
+}
+.henira-turn-history-caret.is-open {
+  transform: rotate(90deg);
+  opacity: 1;
+}

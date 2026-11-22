@@ -1,0 +1,104 @@
+/* R177 拆分：原 tokens.css 第 1-89 行（顺序保持，级联零变化） */
+/* 视觉 token（interfaces.md web 段视觉语言节定稿）：CSS 变量组，theme 切换 = 换变量组；
+   嵌入方零样式依赖（token 随组件注入）。暖单色基底 + 语义粉彩点缀；明暗双主题。
+   变量组挂在 .henira-app（宿主自己的容器，host.ts 以 data-theme 切换）——不动嵌入方
+   的 :root（浏览器 e2e 抓出 :root 版暗色永不生效：属性在容器、选择器在根，两处对不上）。 */
+
+.henira-app,
+.henira-app[data-theme="light"] {
+  /* 层次 = 前景色派生透明度档（3/5/8/10/15%——ZCode 行为层参照 2026-11-17：面不靠描边
+     阴影靠细微透明度差；color-mix 派生自 --henira-text，明暗组各写一份保两主题对比成立） */
+  --henira-bg: #f7f6f3;
+  --henira-surface: color-mix(in srgb, #2f3437 5%, transparent);
+  --henira-surface-hover: color-mix(in srgb, #2f3437 8%, transparent);
+  /* 选中档须明显强于 hover（原 10% 与 hover 8% 几乎不可分辨——「点了不出选中状态」真因，
+     界面持久化批 2026-11-18 提档；ZCode 选中行同为实感填充） */
+  --henira-selected: color-mix(in srgb, #2f3437 16%, transparent);
+  --henira-border: color-mix(in srgb, #2f3437 10%, transparent);
+  --henira-border-strong: color-mix(in srgb, #2f3437 16%, transparent);
+  --henira-text: #2f3437;
+  --henira-text-strong: #111111;
+  --henira-text-muted: #787774;
+  /* R177 中间对话区三级前景（ZCode 行为层参照）：正文 / 次要摘要 / 状态时间 */
+  --henira-text-subtle: #5f5e5a;
+  --henira-text-subtlest: #9a978f;
+  --henira-card-bg: #ffffff;
+  --henira-accent: #111111;
+  --henira-accent-hover: #333333;
+  --henira-accent-text: #ffffff;
+  --henira-danger-bg: #fdebec;
+  --henira-danger-text: #9f2f2d;
+  --henira-info-bg: #e1f3fe;
+  --henira-info-text: #1f6c9f;
+  --henira-ok-bg: #edf3ec;
+  --henira-ok-text: #346538;
+  --henira-warn-bg: #fbf3db;
+  --henira-warn-text: #956400;
+  --henira-panel: #ffffff;
+  --henira-code-bg: #f2f1ed;
+  --henira-code-head-bg: #ebe9e4;
+  --henira-code-inline-bg: #f0efeb;
+
+  /* 语法高亮（shiki v4 CSS 变量主题，markdown.ts 消费；变量名 = createCssVariablesTheme
+     的 settings 全集：foreground/background + token-*；低饱和暖调，dark 同距反相） */
+  --henira-shiki-foreground: #2f3437;
+  --henira-shiki-background: #f2f1ed;
+  --henira-shiki-token-comment: #89867f;
+  --henira-shiki-token-string: #4e7d46;
+  --henira-shiki-token-string-expression: #4e7d46;
+  --henira-shiki-token-keyword: #a34a7d;
+  --henira-shiki-token-constant: #2f6fa3;
+  --henira-shiki-token-function: #6b5aa3;
+  --henira-shiki-token-parameter: #9a5330;
+  --henira-shiki-token-punctuation: #6e6c67;
+  --henira-shiki-token-link: #3c6d9c;
+  --henira-shiki-token-changed: #2f6fa3;
+  --henira-shiki-token-inserted: #4e7d46;
+  --henira-shiki-token-deleted: #9f2f2d;
+  --henira-mono: ui-monospace, "JetBrains Mono", "SF Mono", Consolas, monospace;
+  /* 浮层阴影（基础件批 2026-11-20：model-popover / context-menu 两处硬编码同值沉淀成 token） */
+  --henira-shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.18);
+  /* 输入卡柔和阴影（R182，ZCode composer 行为层：两层极轻影，不靠重边框） */
+  --henira-shadow-composer: 0 1px 3px rgb(0 0 0 / 4%), 0 6px 18px rgb(0 0 0 / 4%);
+  --henira-radius: 6px;
+  --henira-radius-lg: 12px;
+  --henira-radius-xl: 16px;
+  /* R177 输出序列视觉档（ZCode 行为层参照）：正文行高/字距、结果卡圆角、动效时长 */
+  --henira-line-height: 1.75;
+  --henira-tracking: 0.025em;
+  --henira-radius-card: 12px;
+  --henira-dur-fast: 150ms;
+  --henira-dur-collapse: 300ms;
+  --henira-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --henira-sidebar-width: 260px;
+  /* 三栏骨架（D-062 UI 侧子项）：中列 header 高（ZCode WorkspaceHeader h-12 行为层）与右栏默认宽 */
+  --henira-header-height: 48px;
+  --henira-right-width: 380px;
+
+  /* 刻度（M4 批 A 视觉打磨）：4px 基距间距 / 四档字号 / 对话列限宽（<80ch 可读性） */
+  --henira-space-1: 4px;
+  --henira-space-2: 8px;
+  --henira-space-3: 12px;
+  --henira-space-4: 16px;
+  --henira-space-5: 24px;
+  --henira-space-6: 32px;
+  --henira-fs-sm: 12px;
+  --henira-fs-md: 13px;
+  --henira-fs-base: 14px;
+  --henira-fs-lg: 16px;
+  --henira-content-width: 760px;
+  /* 对话列宽档（ZCode conversationLayout 三档行为层：672/896/1152→我们的列含内衬 808 起） */
+  --henira-column-max: 808px;
+}
+@media (min-width: 1124px) {
+  /* 选择器必须 ≥ 基础块的 .henira-app[data-theme=...] 特异性 (0,2,0)——写 .henira-app (0,1,0)
+     会被基础块第二选择器钉死（2026-11-17 活体自审：列宽档在真元素上不生效的根因） */
+  .henira-app[data-theme] {
+    --henira-column-max: 896px;
+  }
+}
+@media (min-width: 1540px) {
+  .henira-app[data-theme] {
+    --henira-column-max: 1152px;
+  }
+}

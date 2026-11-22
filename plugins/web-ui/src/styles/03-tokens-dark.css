@@ -1,0 +1,48 @@
+/* R177 拆分：原 tokens.css 第 114-153 行（顺序保持，级联零变化） */
+.henira-app[data-theme="dark"] {
+  --henira-bg: #191919;
+  --henira-surface: color-mix(in srgb, #e8e6e3 6%, transparent);
+  --henira-surface-hover: color-mix(in srgb, #e8e6e3 9%, transparent);
+  --henira-selected: color-mix(in srgb, #e8e6e3 18%, transparent);
+  --henira-border: color-mix(in srgb, #e8e6e3 12%, transparent);
+  --henira-border-strong: color-mix(in srgb, #e8e6e3 20%, transparent);
+  --henira-text: #e8e6e3;
+  --henira-text-strong: #f7f6f3;
+  --henira-text-muted: #9b9a97;
+  /* R177 三级前景（暗色反向档） */
+  --henira-text-subtle: #b4b1ac;
+  --henira-text-subtlest: #7e7d79;
+  --henira-card-bg: #212121;
+  --henira-accent: #e8e6e3;
+  --henira-accent-hover: #d0cfcc;
+  --henira-accent-text: #111111;
+  --henira-danger-bg: #3d2426;
+  --henira-danger-text: #e8a5a3;
+  --henira-info-bg: #1d3340;
+  --henira-info-text: #9ecfe8;
+  --henira-ok-bg: #243425;
+  --henira-ok-text: #a3c8a4;
+  --henira-warn-bg: #3a3222;
+  --henira-warn-text: #d9bc7a;
+  --henira-panel: #212121;
+  --henira-code-bg: #141414;
+  --henira-code-head-bg: #1d1d1d;
+  --henira-code-inline-bg: #242423;
+  /* 输入卡柔和阴影（R182，暗色档：只留近距离接触影，避免大范围发灰） */
+  --henira-shadow-composer: 0 1px 2px rgb(0 0 0 / 35%);
+
+  --henira-shiki-foreground: #e8e6e3;
+  --henira-shiki-background: #141414;
+  --henira-shiki-token-comment: #7e7d79;
+  --henira-shiki-token-string: #94c98a;
+  --henira-shiki-token-string-expression: #94c98a;
+  --henira-shiki-token-keyword: #e39cc4;
+  --henira-shiki-token-constant: #7ab3e0;
+  --henira-shiki-token-function: #b3a6e8;
+  --henira-shiki-token-parameter: #e0a479;
+  --henira-shiki-token-punctuation: #a3a19c;
+  --henira-shiki-token-link: #85b8e8;
+  --henira-shiki-token-changed: #7ab3e0;
+  --henira-shiki-token-inserted: #94c98a;
+  --henira-shiki-token-deleted: #e8a5a3;
+}
