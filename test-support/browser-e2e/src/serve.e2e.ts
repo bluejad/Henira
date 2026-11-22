@@ -345,7 +345,11 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
     });
     // 折叠组纯本地（用户裁决 2026-11-18）：非活跃组初值收起——先展开自己目录的组再切会话
     await page.locator("button.henira-session-group", { hasText: "henira-e2e-long" }).click();
-    await page.locator(".henira-sessions li button", { hasText: "henira-e2e-long" }).click();
+    const longItem = page.locator(".henira-sessions li button", { hasText: "henira-e2e-long" });
+    await longItem.click();
+    // 选中态落定才发第一枪（R184 CI 实锤：点击后立刻 fill 会赶在宿主 sessionId 提交前
+    // 把消息发进旧会话——text 永远不来，后续剧本全部错位；data-active 是宿主选中态事实）
+    await expect(longItem).toHaveAttribute("data-active", "true", { timeout: 15_000 });
   } finally {
     await fs.rm(longDir, { recursive: true, force: true }).catch(() => {});
   }
