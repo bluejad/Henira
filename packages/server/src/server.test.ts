@@ -407,6 +407,170 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
     }
   });
 
+  it("提问全链（R184）：挂起行重放 → REST 答题 → 工具结果带 meta；取消 → 错误结果；400/404 分型", async () => {
+    const first = JSON.stringify({
+      questions: [
+        {
+          id: "q1",
+          question: "选哪个？",
+          header: "选择",
+          options: [{ label: "甲", description: "快" }, { label: "乙" }],
+        },
+      ],
+    });
+    const second = JSON.stringify({
+      questions: [{ id: "q2", question: "继续吗？", options: [{ label: "是" }, { label: "否" }] }],
+    });
+    const { base, cleanup } = await makeServer([
+      [mockToolCall("q1", "ask_user", first), mockFinish("tool-calls")],
+      [mockText("收到甲"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+      [mockToolCall("q2", "ask_user", second), mockFinish("tool-calls")],
+      [mockText("已取消"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    try {
+      const id = await createSession(base);
+      subscribe(base, sink);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "问我问题" }),
+      });
+      const pending = await waitFor(() => {
+        for (const f of framesFor(sink, id)) {
+          if (
+            f.kind === "delta" &&
+            f.delta.op === "row.appended" &&
+            f.delta.row.kind === "question"
+          ) {
+            return f.delta.row;
+          }
+        }
+        return undefined;
+      });
+      expect(pending).toMatchObject({ status: "pending" });
+      expect(pending.questions[0]).toMatchObject({ id: "q1", header: "选择" });
+
+      // 断线重连快照即携带挂起提问行（自足可渲染）
+      const snap1 = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: { kind: string; status?: string }[];
+      };
+      expect(snap1.rows.some((r) => r.kind === "question" && r.status === "pending")).toBe(true);
+
+      // body 形状不合规 → 400
+      expect(
+        (
+          await fetch(`${base}/api/sessions/${id}/questions/${pending.requestId}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({}),
+          })
+        ).status,
+      ).toBe(400);
+
+      // 答题 → 回合继续
+      const answered = await fetch(`${base}/api/sessions/${id}/questions/${pending.requestId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ answers: [{ id: "q1", selected: ["甲"] }] }),
+      });
+      expect(((await answered.json()) as { applied: boolean }).applied).toBe(true);
+      // 幂等：第二次答案不炸（applied=false）
+      const again = await fetch(`${base}/api/sessions/${id}/questions/${pending.requestId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cancelled: true }),
+      });
+      expect(again.status).toBe(200);
+      expect(((await again.json()) as { applied: boolean }).applied).toBe(false);
+
+      // 第一回合收尾（下一 script 段归第二次 prompt）
+      await waitFor(() =>
+        framesFor(sink, id).some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+        )
+          ? true
+          : undefined,
+      );
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "再问一次" }),
+      });
+
+      // 第二次提问 → 取消收口
+      const pending2 = await waitFor(() => {
+        for (const f of framesFor(sink, id)) {
+          if (
+            f.kind === "delta" &&
+            f.delta.op === "row.appended" &&
+            f.delta.row.kind === "question" &&
+            f.delta.row.requestId !== pending.requestId
+          ) {
+            return f.delta.row;
+          }
+        }
+        return undefined;
+      });
+      const cancelled = await fetch(`${base}/api/sessions/${id}/questions/${pending2.requestId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cancelled: true }),
+      });
+      expect(((await cancelled.json()) as { applied: boolean }).applied).toBe(true);
+
+      // 未知 requestId → 404（不假成功）
+      expect(
+        (
+          await fetch(`${base}/api/sessions/${id}/questions/not-exist`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ cancelled: true }),
+          })
+        ).status,
+      ).toBe(404);
+
+      await waitFor(() => {
+        const frames = framesFor(sink, id);
+        const settled = frames.filter(
+          (f) =>
+            f.kind === "delta" &&
+            f.delta.op === "row.upserted" &&
+            f.delta.row.kind === "question" &&
+            f.delta.row.status === "settled",
+        );
+        return settled.length === 2 ? true : undefined;
+      });
+
+      const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: {
+          kind: string;
+          status?: string;
+          outcome?: string;
+          answers?: unknown;
+          name?: string;
+          output?: { isError: boolean; meta?: Record<string, unknown> };
+        }[];
+      };
+      const questions = snap.rows.filter((r) => r.kind === "question");
+      expect(questions).toHaveLength(2);
+      expect(questions[0]).toMatchObject({
+        status: "settled",
+        outcome: "answered",
+        answers: [{ id: "q1", selected: ["甲"] }],
+      });
+      expect(questions[1]).toMatchObject({ status: "settled", outcome: "cancelled" });
+      const toolRows = snap.rows.filter((r) => r.kind === "tool" && r.name === "ask_user");
+      expect(toolRows).toHaveLength(2);
+      expect(toolRows[0]?.output?.isError).toBe(false);
+      expect(toolRows[0]?.output?.meta).toMatchObject({ kind: "ask_user" });
+      expect(toolRows[1]?.output?.isError).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("判据②续（E6）：pending 行带 args 全文；settle scope:'session' → 同工具第二次免审批", async () => {
     const { server, base, cleanup } = await makeServer([
       [
@@ -2602,7 +2766,7 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
     };
   }
 
-  it("默认装配：fs / shell 槽在场 + 七工具注册 + breaker 无名件 + /api/plugins 官方 12 条", async () => {
+  it("默认装配：fs / shell 槽在场 + 八工具注册（含 ask_user）+ breaker 无名件 + /api/plugins 官方 13 条", async () => {
     const { server, dataDir, base, cleanup } = await makeServer([]);
     try {
       const entry = await server.registry.create({ cwd: dataDir });
@@ -2613,14 +2777,23 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
         .project()
         .map((t) => t.name)
         .sort();
-      for (const expected of ["bash", "edit", "glob", "grep", "powershell", "read", "write"]) {
+      for (const expected of [
+        "ask_user",
+        "bash",
+        "edit",
+        "glob",
+        "grep",
+        "powershell",
+        "read",
+        "write",
+      ]) {
         expect(names).toContain(expected);
       }
 
       const list = (await (await fetch(`${base}/api/plugins`)).json()) as {
         plugins: { id: string; enabled: boolean; state: string }[];
       };
-      expect(list.plugins).toHaveLength(12); // defaultPreset：引擎 5 + fs 族 3 + shell 族 2 + breaker + mcp
+      expect(list.plugins).toHaveLength(13); // defaultPreset：引擎 5 + fs 族 3 + shell 族 2 + breaker + ask-user + mcp
       const ids = list.plugins.map((p) => p.id);
       for (const id of [
         "plugin-fs",
@@ -2629,6 +2802,7 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
         "plugin-shell",
         "plugin-shell-tools",
         "plugin-breaker",
+        "plugin-ask-user",
       ]) {
         expect(ids).toContain(id);
       }

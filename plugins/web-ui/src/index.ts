@@ -27,6 +27,7 @@ export {
   ComposerDock,
   type ComposerTakeoverMatched,
   type ComposerTakeoverOwner,
+  questionTakeover,
 } from "./parts/composer-dock.js";
 export { type ComposerRuntime, useComposerRuntime } from "./parts/composer-state.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
@@ -34,6 +35,7 @@ export { CodeGlyph } from "./parts/icons.js";
 export { LayoutFrame } from "./parts/layout-frame.js";
 export { ModelSeat } from "./parts/model-seat.js";
 export { ModelSelect } from "./parts/model-select.js";
+export { QuestionAnswers, QuestionCard } from "./parts/question-card.js";
 export { QueueDock } from "./parts/queue-dock.js";
 export { RightPanel } from "./parts/right-panel.js";
 export { DetailPane, DisclosureRow, type DisclosureRowProps, Pill } from "./parts/row-chrome.js";
@@ -41,6 +43,7 @@ export { SessionList } from "./parts/session-list.js";
 export { SettingsModal } from "./parts/settings-modal.js";
 export { SlotBoundary } from "./parts/slot-boundary.js";
 export {
+  AskUserCard,
   buildDiffRows,
   DIFF_FALLBACK_MAX_LINES,
   DiffRowsView,

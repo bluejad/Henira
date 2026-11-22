@@ -3,7 +3,7 @@ import { SNAPSHOT } from "./dictionary.js";
 import { bundledSkillDirs, defaultPreset } from "./preset.js";
 
 describe("官方默认预设（D-016 / D-041）", () => {
-  it("出厂清单 = 引擎 5 + fs 族 3 + shell 族 2 + breaker（D-065 批 B）+ mcp 读者（D-064）id-only（definition 由宿主装配注入）", () => {
+  it("出厂清单 = 引擎 5 + fs 族 3 + shell 族 2 + breaker（D-065 批 B）+ ask-user（R184）+ mcp 读者（D-064）id-only（definition 由宿主装配注入）", () => {
     expect(defaultPreset.map((e) => e.id)).toEqual([
       "plugin-session",
       "plugin-llm",
@@ -16,6 +16,7 @@ describe("官方默认预设（D-016 / D-041）", () => {
       "plugin-shell",
       "plugin-shell-tools",
       "plugin-breaker",
+      "plugin-ask-user",
       "plugin-mcp",
     ]);
     expect(defaultPreset.every((e) => !("definition" in e))).toBe(true);

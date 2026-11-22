@@ -13,6 +13,13 @@ interface Pending {
   onAbort?: () => void;
 }
 
+/** 取消收口按请求种类给答案（abort / 会话销毁共用；question 的取消是独立变体） */
+function cancelledAnswer(request: InteractionRequest): InteractionAnswer {
+  return request.kind === "approval"
+    ? { kind: "approval", requestId: request.requestId, decision: "cancelled" }
+    : { kind: "question", requestId: request.requestId, cancelled: true };
+}
+
 export class ServerInteraction implements InteractionService {
   readonly #pending = new Map<string, Pending>();
   /** 已答过的 requestId（R175：settle false 后区分「已答过」与「从不存在」——REST 对后者 404） */
@@ -25,13 +32,13 @@ export class ServerInteraction implements InteractionService {
       if (signal !== undefined) {
         if (signal.aborted) {
           this.#pending.delete(req.requestId);
-          resolve({ kind: "approval", requestId: req.requestId, decision: "cancelled" });
+          resolve(cancelledAnswer(req));
           return;
         }
         pending.onAbort = (): void => {
           if (this.#pending.get(req.requestId) === pending) {
             this.#pending.delete(req.requestId);
-            resolve({ kind: "approval", requestId: req.requestId, decision: "cancelled" });
+            resolve(cancelledAnswer(req));
           }
         };
         signal.addEventListener("abort", pending.onAbort, { once: true });
@@ -46,6 +53,8 @@ export class ServerInteraction implements InteractionService {
   settle(requestId: string, answer: InteractionAnswer): boolean {
     const pending = this.#pending.get(requestId);
     if (pending === undefined) return false; // 未知 / 已答（幂等，先答者赢）
+    // 种类必须匹配：审批端点不能替提问作答（反之亦然）——防跨通道误收
+    if (pending.request.kind !== answer.kind) return false;
     this.#pending.delete(requestId);
     this.#answered.add(requestId);
     if (pending.onAbort !== undefined && pending.signal !== undefined) {
@@ -65,11 +74,7 @@ export class ServerInteraction implements InteractionService {
       if (pending.onAbort !== undefined && pending.signal !== undefined) {
         pending.signal.removeEventListener("abort", pending.onAbort);
       }
-      pending.resolve({
-        kind: "approval",
-        requestId: pending.request.requestId,
-        decision: "cancelled",
-      });
+      pending.resolve(cancelledAnswer(pending.request));
       this.#answered.add(pending.request.requestId);
     }
     this.#pending.clear();

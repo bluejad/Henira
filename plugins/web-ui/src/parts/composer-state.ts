@@ -12,16 +12,26 @@ import type { ComposerApi, ModelCatalog, SettingsSection, WebPartContext } from 
 const EMPTY_ROWS: readonly Row[] = [];
 const EMPTY_CATALOG: ModelCatalog = {};
 
-/** 运行时 = ComposerApi 去掉审批面（审批面由 ComposerDock 的乐观集合与 chain owner 提供） */
+/** 运行时 = ComposerApi 去掉交互面（审批/提问由 ComposerDock 的乐观集合与 chain owner 提供） */
 export type ComposerRuntime = Omit<
   ComposerApi,
-  "pendingApproval" | "approvalQueueTotal" | "onApprovalDecided" | "onApprovalFailed"
+  | "pendingApproval"
+  | "approvalQueueTotal"
+  | "onApprovalDecided"
+  | "onApprovalFailed"
+  | "pendingQuestion"
+  | "questionQueueTotal"
+  | "onQuestionDecided"
+  | "onQuestionFailed"
 >;
 
-/** @param approvalPending 未答审批在位（ComposerDock 的 answered 过滤后判据）——提交让位。
- *  已点击决定、settle 尚未回传的审批不算（卡已离场、输入栏已回来，提交不该被静默吞——
- *  审查 P2 修复；旧实现同样只看未答 pending）。 */
-export function useComposerRuntime(ctx: WebPartContext, approvalPending: boolean): ComposerRuntime {
+/** @param interactionPending 未答交互在位（审批或提问；ComposerDock 的 answered 过滤后判据）
+ *  ——提交让位。已点击决定、settle 尚未回传的交互不算（卡已离场、输入栏已回来，提交不该被
+ *  静默吞——审查 P2 修复；R184 提问并入同一判据）。 */
+export function useComposerRuntime(
+  ctx: WebPartContext,
+  interactionPending: boolean,
+): ComposerRuntime {
   const [draft, setDraftState] = useState("");
   const [sendFailed, setSendFailed] = useState(false);
   const [model, setModelState] = useState("");
@@ -137,10 +147,10 @@ export function useComposerRuntime(ctx: WebPartContext, approvalPending: boolean
     (text?: string, opts?: { steer?: boolean }): void => {
       const submitted = (text ?? draft).trim();
       if (submitted === "" || ctx.sessionId === null) return;
-      // 接管兜底：未答审批在位时输入栏虽隐藏，键盘/程序化触发也不得越过审批（可见态由
-      // ComposerDock 管）。判据来自 ComposerDock 的 answered 过滤结果——乐观已答不再拦
+      // 接管兜底：未答交互（审批/提问）在位时输入栏虽隐藏，键盘/程序化触发也不得越过
+      //（可见态由 ComposerDock 管）。判据来自 answered 过滤结果——乐观已答不再拦
       //（卡已离场、输入栏已回来，拦 = 发送被静默吞掉，审查 P2）
-      if (approvalPending) return;
+      if (interactionPending) return;
       setDraftState("");
       ctx.updateUiState?.({ draft: "" }); // 持久层同步清空（否则重启还原出旧草稿）
       setSendFailed(false);
@@ -157,7 +167,7 @@ export function useComposerRuntime(ctx: WebPartContext, approvalPending: boolean
           setSendFailed(true);
         });
     },
-    [ctx, draft, model, effort, approvalPending],
+    [ctx, draft, model, effort, interactionPending],
   );
 
   const stop = useCallback((): void => {

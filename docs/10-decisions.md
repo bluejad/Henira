@@ -466,7 +466,7 @@
 - **理由**：外圈添加是纯加法（新增插件包 + 官方预设一行 `.use()`，packages.md 插件两圈）；M4 剪到 7 个插件后首发压力减半；黑窗口聊天发布后、网页界面边界 M4 前置两条（D-018 第 2、3 条）不变。
 - **修订**：D-018 第 1 条被本条取代；roadmap M4 拆为 M4–M6；50-open 🟡 三条设计文档排期 M4→M5，"命令进输入框"挪 M6 前置。
 - **备注**：40-roadmap.md M4 / M5 / M6；principles.md P8 不动；packages.md 无排期标注、不动。
-- **后续修订**：**D-043** 增官方第 16 个插件 `plugin-web-ui`（界面 1，M3 随 web 诞生，不占三批名额）；本条三批名单与时点不变。**D-049** 能力服务化按族拆包——计数 16→21：首发批 7→10（引擎 5＋fs 族 3＋shell 族 2）、二批 4→6（＋任务族 3、－原 tasks 1），名单与时点仍不变。**D-058** 熔断插件进首发批（2026-11-17）——计数 21→22、首发批 10→11（＋熔断 1），二批三批名单与时点仍不变。
+- **后续修订**：**D-043** 增官方第 16 个插件 `plugin-web-ui`（界面 1，M3 随 web 诞生，不占三批名额）；本条三批名单与时点不变。**D-049** 能力服务化按族拆包——计数 16→21：首发批 7→10（引擎 5＋fs 族 3＋shell 族 2）、二批 4→6（＋任务族 3、－原 tasks 1），名单与时点仍不变。**D-058** 熔断插件进首发批（2026-11-17）——计数 21→22、首发批 10→11（＋熔断 1），二批三批名单与时点仍不变。**D-074** 提问件 `plugin-ask-user` 落码（2026-11-23，R184）——计数 22→23、首发批 11→12（＋提问 1），二批三批名单与时点仍不变。
 
 ## D-042 插件界面开放双向事件流（修订 D-028 单向阀）
 
@@ -925,3 +925,18 @@
 - **理由**：座位是「一切皆插件」在输入区的最后一段硬编码；模型席按 dsh single 语义落码后，第三方顶替是显式路径（`replaceSlot`）而非追加出两个控件。API 上移是因为 dock 与座位件必须共享草稿/焦点/绑定——状态若继续住在 bar，`composer.dock` 只能靠私有桥接，等于留下第二个真源。
 - **非目标（挂账）**：attachments / permission / plan / activity / overlay 座位（功能落地时再加）；`ask_user` 与第二条 chain entry 归 R184；Esc=停止单独拍；审批卡宽度（仍 = 输入座位全宽）。
 - **备注**：落点 = plugins.md §4/§7.2 + interfaces.md 槽词表/ComposerApi；测试 = 登记簿 single 3 例 + 四席/API 3 例 + 既有 Composer 测试整座迁移；e2e 定位器不变（`data-testid="composer-input"`）。
+
+## D-074 ask_user：执行中向用户提问（专用工具 + 提问交互种类）
+
+- **状态**：已定 · 2026-11-23 · R184 落码批；修订 D-041 批次表（官方件 22→23、首发批 11→12，二批三批名单与时点不变）
+- **背景**：交互族只有「执行前审批」与「发送前排队」，模型执行中无法向用户要信息——只能猜或中断回合。协议早已留位（interaction 槽注释「question 类随首个消费者扩展」）、chain 槽给提问预留 priority 0–9。取证两路（2026-11-23）：dsh 有专用工具 `ask_user_question` + 独立 `UserQuestionService`，**明确不与审批合并**（notes：复用权限通道会把两种产品概念压扁），答复即工具结果、阻塞等待无超时、重启不重问；ZCode 则把提问做成审批通道的 `requiresUserInteraction` + modify 折回，但卡片语义成熟（无预选 / 自动自定义项 / 逐题分页 / Esc 回退取消 / IME 守卫 / 痕迹行留问答对、不伪造 user 消息）。
+- **决定**：
+  1. **机制照 dsh**：新增官方引擎插件 `plugin-ask-user`（`ask_user` 工具），普通工具调用 await 答复，**答复即工具结果**；不借用审批通道、不折回 modifiedInput。工具 `isConcurrencySafe: true`（无副作用，且必须绕过审批默认链——否则提问前先弹审批）。
+  2. **交互种类扩协议**：`InteractionRequest` / `InteractionAnswer` 判别联合扩 `kind:"question"`（答案数组 + `cancelled:true` 两变体）；一个服务承载两类，settle 种类必须匹配（防跨通道误收）。
+  3. **审计对 + 行投影**：`question/asked` + `question/settled{outcome: answered|cancelled|invalidated, answers?}`；`QuestionRow`（rowId `q:<requestId>`，题面自足）进 Row 词表；收口 REST `POST /api/sessions/:id/questions/:requestId`（answers 或 cancelled；400/404/幂等语义同审批）；SDK `settleQuestion` 双形态。
+  4. **UI 照 ZCode**：`composer.takeover` 第二条官方条目 `question`（**priority 5 压过审批 10**——dsh 客户端 precedence 1>0 行为层；两条都挂起时先显示提问）；提问卡无预选、选项按钮 + ARIA、自定义输入恒在末位（模型不得自带 Other）、逐题分页、Space 多选、Enter 推进 / 末题提交、Ctrl/Cmd+Enter 随时提交、Esc 首题取消整个请求 / 后题回退、IME 组合不提交、空选 = 跳过；乐观摘卡 / 失败回滚 / 404 视为已解决（同审批）。痕迹行 = `tool.call.view.ask_user` 官方卡（挂起「提问中」/完成逐题问答/取消「已取消」），question 行不进正文流（同 approval）。
+  5. **取消与重启**：用户取消 / 回合 abort / 交互服务缺席 → 工具 Error 结果、**回合继续**（模型自行判断或重问）；**不做墙钟自动收口**（dsh 阻塞模式没有；此前口头提过的 5 分钟自动收口是 ZCode 专属，不采用）；重启 = 既有 repair 补 `question/settled{invalidated}` + `turn/end{interrupted}`，不重问、不自动答。
+  6. **编排落点**：`plugin-ask-user` 进 defaultPreset（可停用、不可卸载）；ComposerApi 扩 `pendingQuestion/questionQueueTotal/onQuestionDecided/onQuestionFailed`；submit 让位判据 = 未答审批 **或** 未答提问（answered 过滤后；乐观已答不拦）。
+- **理由**：提问是澄清表单、审批是闭合裁决——合并会让「提问」变成「先审批再提问」，且答案形状被迫压进 Decision 词表；dsh 的不合并是结构上更干净的一条。UI 取 ZCode 是因为它的卡片交互语义已被真实用户使用打磨（预选歧义、IME 误提交、Esc 误取消都是踩过的坑）。提问卡第三方可整只换（chain 条目 `replaceChainSlot("composer.takeover")` 同 id；痕迹卡走 keyed 缝），「一切皆插件」不破。
+- **非目标**：MCP elicitation / prompts（50-open 仍挂）；plan-review 式提问；超时自动收口；伪造 user 消息；Esc=停止混合语义（单独拍）。
+- **备注**：落点 = protocol interaction/server-events/projection + plugins/session validators/store repair + plugins/ask-user + server interaction-service/app + sdk facade/client/runtime + plugins/web-ui（composer-dock/question-card/tool-cards/locale/css/module）+ 文档五处；测试 = 协议联合/投影/修复、工具三路取消、server REST 全链、SDK 双形态、web-ui 7 例、e2e 答题+取消、真 key 活体双主题。

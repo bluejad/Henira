@@ -6,10 +6,12 @@
 // 纯 DTO：运行时零依赖（packages.md 规则 1）；Decision 复用 approval 词表。
 
 import type { Decision } from "./approval.js";
+import type { QuestionAnswer, QuestionSpec } from "./interaction.js";
 import type { ReasoningEffort, TokenUsage } from "./llm.js";
 import type { QueuedPrompt } from "./loop.js";
 
-/** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `e:{seq}` */
+/** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` /
+ *  `q:{requestId}` / `e:{seq}` */
 export type RowId = string;
 
 export interface UserRow {
@@ -101,6 +103,23 @@ export interface ApprovalRow {
   scope?: "session";
 }
 
+export interface QuestionRow {
+  kind: "question";
+  rowId: RowId;
+  rowSeq: number;
+  turn: string;
+  step: number;
+  requestId: string;
+  /** 题目全文（question/asked 投影——挂起卡自足可渲染：断线重连 / 多窗口重放同一张卡；
+   *  客户端零额外拉取）。答案不回写此处，收口走 answers/outcome。 */
+  questions: QuestionSpec[];
+  status: "pending" | "settled";
+  /** 已答逐题答案（outcome = answered 时在场；cancelled/invalidated 不带） */
+  answers?: QuestionAnswer[];
+  /** "invalidated" 仅由修理事件 question/settled 投影（重启收口）——客户端不可提交 */
+  outcome?: "answered" | "cancelled" | "invalidated";
+}
+
 export interface ErrorRow {
   kind: "error";
   rowId: RowId;
@@ -110,8 +129,7 @@ export interface ErrorRow {
   message: string;
 }
 
-export type Row = UserRow | AssistantRow | ToolRow | ApprovalRow | ErrorRow;
-
+export type Row = UserRow | AssistantRow | ToolRow | ApprovalRow | QuestionRow | ErrorRow;
 /** 会话级状态（键级整体替换，键内绝不深合并——封闭增量语法的 state.updated 载荷） */
 export interface SessionState {
   /** turn/start … turn/end 之间 */

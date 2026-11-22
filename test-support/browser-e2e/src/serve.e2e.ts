@@ -88,6 +88,44 @@ const mock = mockLlm([
     mockFinish("tool-calls"),
   ],
   [mockText("e6 approval flow complete"), mockUsage(USAGE), mockFinish("stop")],
+  // R184：ask_user 专用工具——提问卡全链（答题 + 取消）
+  [
+    mockToolCall(
+      "q1",
+      "ask_user",
+      JSON.stringify({
+        questions: [
+          {
+            id: "pick",
+            question: "Pick one option?",
+            header: "Pick",
+            options: [{ label: "Alpha", description: "first" }, { label: "Beta" }],
+          },
+        ],
+      }),
+    ),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [mockText("question flow complete"), mockUsage(USAGE), mockFinish("stop")],
+  [
+    mockToolCall(
+      "q2",
+      "ask_user",
+      JSON.stringify({
+        questions: [
+          {
+            id: "again",
+            question: "Ask again?",
+            options: [{ label: "Yes" }, { label: "No" }],
+          },
+        ],
+      }),
+    ),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [mockText("question canceled"), mockUsage(USAGE), mockFinish("stop")],
 ]);
 
 /** llm 槽位包装（examples/mock 同款）：mockLlm 给的是 LlmService，槽位要 ServiceDefinition */
@@ -465,6 +503,49 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
   await expect(page.getByText(zh["approval.decision.session"])).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toHaveCount(0);
   await shot(page, "e6-02-session-allowed.png");
+});
+
+// ── 用例 ⑦（R184）：ask_user 提问卡——答题收答 + 痕迹行 + 取消路径 ──────
+
+test("R184 ask_user: question card answer and cancel", async ({ page }) => {
+  await page.goto(server.url);
+  const textarea = page.getByTestId("composer-input");
+  await expect(textarea).toBeVisible();
+  await textarea.fill("ask me a question");
+  await textarea.press("Enter");
+
+  // 提问接管输入座位（chain priority 5）：bar 隐藏但挂载
+  const card = page.getByRole("dialog", { name: zh["question.title"] });
+  await expect(card).toBeVisible();
+  await expect(page.locator(".henira-composer-bar-slot")).toBeHidden();
+  await expect(card.getByText("Pick one option?")).toBeVisible();
+  await shot(page, "r184-01-question-card.png");
+
+  // 单选：点选高亮 + 提交 → 卡离场、回合继续
+  await card.getByRole("option", { name: /Alpha/ }).click();
+  await card.getByRole("button", { name: zh["question.submit"] }).click();
+  await expect(card).toBeHidden();
+  await expect(page.getByText("question flow complete")).toBeVisible({ timeout: 15_000 });
+
+  // 痕迹行：完成轮展开后问答对在场（question + Alpha 同卡）
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  const groups = page.locator(".henira-work-group-head");
+  if ((await groups.count()) > 0) await groups.last().click();
+  await expect(page.locator(".henira-question-answers")).toContainText("Pick one option?");
+  await expect(page.locator(".henira-question-answers")).toContainText("Alpha");
+  await shot(page, "r184-02-question-trace.png");
+
+  // 第二次提问 → 取消整个请求（工具收 Error、回合继续）
+  await textarea.fill("ask me again");
+  await textarea.press("Enter");
+  const card2 = page.getByRole("dialog", { name: zh["question.title"] });
+  await expect(card2).toBeVisible();
+  await card2.getByRole("button", { name: zh["question.cancel"] }).click();
+  await expect(card2).toBeHidden();
+  await expect(page.getByText("question canceled")).toBeVisible({ timeout: 15_000 });
 });
 
 // ── 用例 ⑦（R176）：流式期间列表零请求 + 双窗口列表/busy 推送同步 ──────

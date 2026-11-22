@@ -26,6 +26,7 @@ import {
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
+import { askUserPlugin } from "@henira/plugin-ask-user";
 import { breakerPlugin } from "@henira/plugin-breaker";
 import { fsPlugin } from "@henira/plugin-fs";
 import { fsSearchPlugin } from "@henira/plugin-fs-search";
@@ -168,6 +169,8 @@ function builtinDefinition(
       return entry.definition ?? shellToolsPlugin();
     case "plugin-breaker":
       return entry.definition ?? breakerPlugin();
+    case "plugin-ask-user":
+      return entry.definition ?? askUserPlugin();
     case "plugin-mcp":
       // 外圈读者（D-064）：与 server 同构——servers 空也装配（McpService 恒在场）
       return (
@@ -295,11 +298,15 @@ export function autoRejectInteraction(): ServiceDefinition<InteractionService> {
     start(): InteractionService {
       return {
         ask: (req: InteractionRequest) =>
-          Promise.resolve({
-            kind: "approval",
-            requestId: req.requestId,
-            decision: "rejected",
-          } satisfies InteractionAnswer),
+          Promise.resolve(
+            (req.kind === "approval"
+              ? { kind: "approval", requestId: req.requestId, decision: "rejected" }
+              : {
+                  kind: "question",
+                  requestId: req.requestId,
+                  cancelled: true,
+                }) satisfies InteractionAnswer,
+          ),
         settle: () => false,
         listPending: (): readonly InteractionRequest[] => [],
       };
@@ -603,6 +610,18 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         decision,
         ...(scope !== undefined ? { scope } : {}),
       });
+    },
+
+    async settleQuestion(sessionId, requestId, answer) {
+      const session = requireSession(sessions, sessionId);
+      return session.ctx
+        .get("interaction")
+        .settle(
+          requestId,
+          Array.isArray(answer)
+            ? { kind: "question", requestId, answers: answer }
+            : { kind: "question", requestId, cancelled: true },
+        );
     },
 
     async getSettings() {

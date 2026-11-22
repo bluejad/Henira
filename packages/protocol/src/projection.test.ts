@@ -277,6 +277,89 @@ describe("账本回放 → 快照", () => {
     expect("args" in (q.rows[0] as object)).toBe(false);
   });
 
+  it("提问对（R184）：asked → pending 行（题面自足）；settled answered/cancelled 原位 upsert；孤儿抑制", () => {
+    const questions = [
+      {
+        id: "q1",
+        question: "选哪个？",
+        header: "选择",
+        options: [{ label: "甲" }, { label: "乙", description: "慢但稳" }],
+        multiSelect: true,
+      },
+    ];
+    const p = new Projection();
+    const d1 = p.ingest(
+      ev(1, "question/asked", {
+        turn: "t-1",
+        step: 1,
+        requestId: "r-q1",
+        callId: "r-q1",
+        questions,
+      }),
+    );
+    expect(d1[0]?.op).toBe("row.appended");
+    expect(p.rows[0]).toMatchObject({
+      kind: "question",
+      rowId: "q:r-q1",
+      requestId: "r-q1",
+      status: "pending",
+      questions,
+    });
+    const d2 = p.ingest(
+      ev(2, "question/settled", {
+        turn: "t-1",
+        step: 1,
+        requestId: "r-q1",
+        outcome: "answered",
+        answers: [{ id: "q1", selected: ["甲"] }],
+      }),
+    );
+    expect(d2[0]?.op).toBe("row.upserted");
+    expect(p.rows).toHaveLength(1);
+    expect(p.rows[0]).toMatchObject({
+      status: "settled",
+      outcome: "answered",
+      answers: [{ id: "q1", selected: ["甲"] }],
+      questions, // 题面沿用 asked（settled 不重写）
+    });
+
+    // 取消：无 answers 键
+    const q = new Projection();
+    q.ingest(
+      ev(1, "question/asked", {
+        turn: "t",
+        step: 1,
+        requestId: "r-q2",
+        callId: "r-q2",
+        questions: [{ id: "a", question: "继续？" }],
+      }),
+    );
+    q.ingest(
+      ev(2, "question/settled", {
+        turn: "t",
+        step: 1,
+        requestId: "r-q2",
+        outcome: "cancelled",
+      }),
+    );
+    expect(q.rows[0]).toMatchObject({ status: "settled", outcome: "cancelled" });
+    expect("answers" in (q.rows[0] as object)).toBe(false);
+
+    // 孤儿 settled（无 asked 配对）不上 UI
+    const o = new Projection();
+    expect(
+      o.ingest(
+        ev(1, "question/settled", {
+          turn: "t",
+          step: 1,
+          requestId: "r-ghost",
+          outcome: "invalidated",
+        }),
+      ),
+    ).toEqual([]);
+    expect(o.rows).toHaveLength(0);
+  });
+
   it("回合耗时（E3）：turn/end 结算事件 time 差入 state.turnTimings，delta 帧携带；cap 50 轮", () => {
     const p = new Projection();
     const mk = (

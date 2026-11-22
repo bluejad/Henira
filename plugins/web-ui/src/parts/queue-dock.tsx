@@ -17,8 +17,8 @@ export const QueueDock: WebPart = (ctx) => {
     },
     [api],
   );
-  // 审批接管期间 bar 隐藏：编辑会把条目删掉、文本塞进看不见的草稿——禁用编辑钮
-  //（审查 P3；接管结束 api.pendingApproval 归 undefined，编辑恢复）
-  const takeoverActive = api?.pendingApproval !== undefined;
+  // 接管（审批或提问）期间 bar 隐藏：编辑会把条目删掉、文本塞进看不见的草稿——禁用编辑钮
+  const takeoverActive =
+    api !== undefined && (api.pendingApproval !== undefined || api.pendingQuestion !== undefined);
   return <QueuePanel ctx={ctx} onEdit={takeoverActive ? undefined : editQueued} />;
 };

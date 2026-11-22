@@ -112,5 +112,32 @@ describe("protocol 契约", () => {
     };
     expect(svc.settle("r2", scoped)).toBe(true);
     await expect(asking2).resolves.toEqual(scoped);
+
+    // 提问（R184）：同一服务承载 question kind——答案逐题、取消是独立变体
+    const qreq: InteractionRequest = {
+      kind: "question",
+      requestId: "q1",
+      toolName: "ask_user",
+      questions: [{ id: "a", question: "选哪个？", options: [{ label: "甲" }, { label: "乙" }] }],
+    };
+    const askingQ = svc.ask(qreq);
+    const qans: InteractionAnswer = {
+      kind: "question",
+      requestId: "q1",
+      answers: [{ id: "a", selected: ["甲"] }],
+    };
+    expect(svc.settle("q1", qans)).toBe(true);
+    await expect(askingQ).resolves.toEqual(qans);
+
+    const qreq2: InteractionRequest = {
+      kind: "question",
+      requestId: "q2",
+      toolName: "ask_user",
+      questions: [{ id: "a", question: "继续？" }],
+    };
+    const askingQ2 = svc.ask(qreq2);
+    const qcancel: InteractionAnswer = { kind: "question", requestId: "q2", cancelled: true };
+    expect(svc.settle("q2", qcancel)).toBe(true);
+    await expect(askingQ2).resolves.toEqual(qcancel);
   });
 });

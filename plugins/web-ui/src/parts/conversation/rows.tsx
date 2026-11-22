@@ -31,6 +31,9 @@ const RowView = memo(
         // 官方对话流不渲染审批痕迹（参照实现的行模型无 approval 行；pending 在输入区 dock，
         // settled 后数据仍留在 store，自定义 conversation 区域可自行消费）。
         return null;
+      case "question":
+        // 提问行同理不进正文流：挂起卡在输入区 dock，痕迹由 ask_user 工具卡承载（R184）
+        return null;
       case "error":
         return <ErrorView row={row} ctx={ctx} />;
     }

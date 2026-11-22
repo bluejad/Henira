@@ -17,6 +17,8 @@ export interface LedgerRepairResult {
   synthesizedInterrupted: boolean;
   /** 开档补写了 approval/invalidated 的孤儿审批数 */
   invalidatedApprovals: number;
+  /** 开档补写了 question/settled{invalidated} 的孤儿提问数 */
+  invalidatedQuestions: number;
 }
 
 /** 启动扫描薄封装：开档（内含 seq 重排 + 孤儿收口）后立即关档。头缺失/损坏抛错（调用方逐目录容错）。 */
@@ -34,12 +36,12 @@ export async function repairSessionLedger(sessionDir: string): Promise<LedgerRep
   if (header.id === undefined || header.cwd === undefined) {
     throw new Error(`ledger header incomplete: ${sessionDir}`);
   }
-  const { store, synthesizedInterrupted, resequenced, invalidatedApprovals } =
+  const { store, synthesizedInterrupted, resequenced, invalidatedApprovals, invalidatedQuestions } =
     await SessionStore.create({
       dir: sessionDir,
       id: header.id,
       cwd: header.cwd,
     });
   await store.close();
-  return { resequenced, synthesizedInterrupted, invalidatedApprovals };
+  return { resequenced, synthesizedInterrupted, invalidatedApprovals, invalidatedQuestions };
 }

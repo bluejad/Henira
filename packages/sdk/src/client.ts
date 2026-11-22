@@ -150,6 +150,21 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       return res.applied;
     },
 
+    async settleQuestion(sessionId, requestId, answer) {
+      const res = await requestJson<{ applied: boolean }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(requestId)}`,
+        {
+          method: "POST",
+          body: JSON.stringify(
+            Array.isArray(answer)
+              ? { answers: answer }
+              : { cancelled: (answer as { cancelled: true }).cancelled },
+          ),
+        },
+      );
+      return res.applied;
+    },
+
     async getSettings() {
       return requestJson("/api/settings");
     },

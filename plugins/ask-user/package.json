@@ -1,0 +1,24 @@
+{
+  "name": "@henira/plugin-ask-user",
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@henira/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@henira/kernel": "workspace:*",
+    "@types/node": "^24.0.0"
+  }
+}

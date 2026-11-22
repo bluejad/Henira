@@ -10,6 +10,7 @@
     "@henira/config-loader": "workspace:*",
     "@henira/llm-mock": "workspace:*",
     "@henira/plugin-approval": "workspace:*",
+    "@henira/plugin-ask-user": "workspace:*",
     "@henira/plugin-breaker": "workspace:*",
     "@henira/plugin-fs": "workspace:*",
     "@henira/plugin-fs-search": "workspace:*",

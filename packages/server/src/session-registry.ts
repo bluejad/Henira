@@ -25,6 +25,7 @@ import {
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
+import { askUserPlugin } from "@henira/plugin-ask-user";
 import { breakerPlugin } from "@henira/plugin-breaker";
 import { fsPlugin } from "@henira/plugin-fs";
 import { fsSearchPlugin } from "@henira/plugin-fs-search";
@@ -364,6 +365,8 @@ export class SessionRegistry {
         return entry.definition ?? shellToolsPlugin();
       case "plugin-breaker":
         return entry.definition ?? breakerPlugin();
+      case "plugin-ask-user":
+        return entry.definition ?? askUserPlugin();
       case "plugin-mcp":
         // 外圈读者（D-064）：servers 空时也装配（McpService 恒在场，useResource 报"未声明"
         // 而非"服务缺失"）；opts.plugins 显式替换 = 听它的
@@ -792,12 +795,14 @@ export class SessionRegistry {
           if (
             result.resequenced ||
             result.invalidatedApprovals > 0 ||
+            result.invalidatedQuestions > 0 ||
             result.synthesizedInterrupted
           ) {
             repaired += 1;
             console.log(
               `[server] ledger repaired: ${id} (resequenced=${result.resequenced}, ` +
                 `invalidatedApprovals=${result.invalidatedApprovals}, ` +
+                `invalidatedQuestions=${result.invalidatedQuestions}, ` +
                 `synthesizedInterrupted=${result.synthesizedInterrupted})`,
             );
           }

@@ -13,7 +13,7 @@
 // R183：草稿/模型/发送状态在 useComposerRuntime（唯一真源），本件把运行时合成 ComposerApi，
 // 以 `{...ctx, composer}` 注入全部 composer.* 件（bar / 四席 / 接管条目）——座位件不私存状态。
 
-import type { ApprovalRow, Row } from "@henira/protocol";
+import type { ApprovalRow, QuestionRow, Row } from "@henira/protocol";
 import {
   type ReactNode,
   useCallback,
@@ -27,6 +27,7 @@ import { defineChainEntry, electChain } from "../chain.js";
 import type { ComposerApi, WebPart, WebPartContext } from "../types.js";
 import { ApprovalQueueCard } from "./approval-card.js";
 import { useComposerRuntime } from "./composer-state.js";
+import { QuestionCard } from "./question-card.js";
 import { SlotBoundary } from "./slot-boundary.js";
 
 const EMPTY_ROWS: readonly Row[] = [];
@@ -37,17 +38,22 @@ export interface ComposerTakeoverOwner {
   approvalQueueTotal: number;
   onDecided(requestId: string): void;
   onDecideFailed(requestId: string): void;
+  /** 提问面（R184）：未答提问队首 + 计数（questionTakeover 消费） */
+  pendingQuestion: QuestionRow | undefined;
+  questionQueueTotal: number;
+  onQuestionDecided(requestId: string): void;
+  onQuestionFailed(requestId: string): void;
 }
 
-/** 审批条目当选后交给 Component 的数据（key = 挂载身份：换卡重挂复位崩溃态） */
+/** 接管卡当选后交给 Component 的数据（key = 挂载身份：换卡重挂复位崩溃态） */
 export interface ComposerTakeoverMatched {
   key: string;
-  row: ApprovalRow;
+  row: ApprovalRow | QuestionRow;
   queueTotal: number;
 }
 
 /** 审批接管（官方默认条目）：pending 队首 = 当选；无 pending = 让位给下一条/fallback。
- * priority 10 给将来提问条目留 0–9（R184 定序时再拍）。 */
+ * priority 10；提问条目 priority 5（先显示——dsh 客户端优先级：提问压过审批）。 */
 export const approvalTakeover = defineChainEntry<ComposerTakeoverOwner, ComposerTakeoverMatched>({
   id: "approval",
   priority: 10,
@@ -59,15 +65,47 @@ export const approvalTakeover = defineChainEntry<ComposerTakeoverOwner, Composer
           row: owner.pendingApproval,
           queueTotal: owner.approvalQueueTotal,
         },
-  Component: ({ ctx, matched, owner }) => (
-    <ApprovalQueueCard
-      row={matched.row}
-      ctx={ctx}
-      queueTotal={matched.queueTotal}
-      onDecided={owner.onDecided}
-      onDecideFailed={owner.onDecideFailed}
-    />
-  ),
+  Component: ({ ctx, matched, owner }) => {
+    const row = matched.row;
+    if (row.kind !== "approval") return null;
+    return (
+      <ApprovalQueueCard
+        row={row}
+        ctx={ctx}
+        queueTotal={matched.queueTotal}
+        onDecided={owner.onDecided}
+        onDecideFailed={owner.onDecideFailed}
+      />
+    );
+  },
+});
+
+/** 提问接管（官方默认条目，R184）：priority 5 压过审批（到达序相同也先显示提问；
+ * dsh 客户端 precedence 1 > 0 行为层）。问答应答走 client.settleQuestion。 */
+export const questionTakeover = defineChainEntry<ComposerTakeoverOwner, ComposerTakeoverMatched>({
+  id: "question",
+  priority: 5,
+  select: (owner) =>
+    owner.pendingQuestion === undefined
+      ? null
+      : {
+          key: owner.pendingQuestion.requestId,
+          row: owner.pendingQuestion,
+          queueTotal: owner.questionQueueTotal,
+        },
+  Component: ({ ctx, matched, owner }) => {
+    const row = matched.row;
+    if (row.kind !== "question") return null;
+    return (
+      <QuestionCard
+        row={row}
+        ctx={ctx}
+        queueTotal={matched.queueTotal}
+        onAnswered={owner.onQuestionDecided}
+        onAnswerFailed={owner.onQuestionFailed}
+      />
+    );
+  },
 });
 
 export const ComposerDock: WebPart = (ctx: WebPartContext) => {
@@ -100,10 +138,22 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
       ),
     [rows, answered],
   );
+  // 未答提问（R184）：与审批共用 answered 乐观集合（requestId 全局唯一）
+  const pendingQuestions = useMemo(
+    () =>
+      rows.filter(
+        (row): row is QuestionRow =>
+          row.kind === "question" && row.status === "pending" && !answered.has(row.requestId),
+      ),
+    [rows, answered],
+  );
 
   // 运行时（草稿/模型/发送/目录）——座位共享状态的唯一真源。提交让位判据 = answered
-  // 过滤后的未答审批（乐观已答不拦——审查 P2）
-  const runtime = useComposerRuntime(ctx, pendingApprovals.length > 0);
+  // 过滤后的未答交互（审批或提问；乐观已答不拦——审查 P2）
+  const runtime = useComposerRuntime(
+    ctx,
+    pendingApprovals.length > 0 || pendingQuestions.length > 0,
+  );
   const api = useMemo<ComposerApi>(
     () => ({
       ...runtime,
@@ -111,8 +161,12 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
       approvalQueueTotal: pendingApprovals.length,
       onApprovalDecided: onDecided,
       onApprovalFailed: onDecideFailed,
+      pendingQuestion: pendingQuestions[0],
+      questionQueueTotal: pendingQuestions.length,
+      onQuestionDecided: onDecided,
+      onQuestionFailed: onDecideFailed,
     }),
-    [runtime, pendingApprovals, onDecided, onDecideFailed],
+    [runtime, pendingApprovals, pendingQuestions, onDecided, onDecideFailed],
   );
   // 全部 composer.* 件共用同一 ctx + API（第三方座位件同入口）
   const partCtx = useMemo<WebPartContext>(() => ({ ...ctx, composer: api }), [ctx, api]);
@@ -123,8 +177,12 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
       approvalQueueTotal: pendingApprovals.length,
       onDecided,
       onDecideFailed,
+      pendingQuestion: pendingQuestions[0],
+      questionQueueTotal: pendingQuestions.length,
+      onQuestionDecided: onDecided,
+      onQuestionFailed: onDecideFailed,
     }),
-    [pendingApprovals, onDecided, onDecideFailed],
+    [pendingApprovals, pendingQuestions, onDecided, onDecideFailed],
   );
   const elected = useMemo(
     () => electChain<ComposerTakeoverMatched>(ctx.chains.get("composer.takeover"), owner),
@@ -177,11 +235,22 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
           <SlotBoundary
             key={takeoverKey}
             label={`composer.takeover.${elected.entry.id}`}
-            // 审批是唯一应答通道：顶替/官方条目崩溃都必须回落一张可答卡（E6 审查 F1 同款）。
-            // 非审批接管件崩溃没有通用回落语义——渲染 null（由条目自己的边界负责）。
+            // 接管是唯一应答通道：顶替/官方条目崩溃都必须回落一张可答卡（E6 审查 F1 同款）。
+            // 按行种类分派（审批卡 / 提问卡）；未知形状渲染 null（由条目自己的边界负责）。
             fallback={() => {
               const matched = elected.matched as Partial<ComposerTakeoverMatched>;
               if (matched.row === undefined) return null;
+              if (matched.row.kind === "question") {
+                return (
+                  <QuestionCard
+                    row={matched.row}
+                    ctx={partCtx}
+                    queueTotal={matched.queueTotal ?? 1}
+                    onAnswered={owner.onQuestionDecided}
+                    onAnswerFailed={owner.onQuestionFailed}
+                  />
+                );
+              }
               return (
                 <ApprovalQueueCard
                   row={matched.row}

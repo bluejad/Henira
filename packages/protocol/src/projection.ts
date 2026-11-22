@@ -6,11 +6,13 @@
 // 步边界自愈：assistant/message / tool/result / approval/decided 落账即整行替换，冲掉流式漂移。
 
 import type { SessionEvent } from "./envelope.js";
+import type { QuestionSpec } from "./interaction.js";
 import type { ReasoningEffort, TokenUsage } from "./llm.js";
 import type {
   ApprovalRow,
   AssistantRow,
   Delta,
+  QuestionRow,
   Row,
   RowId,
   SessionState,
@@ -25,6 +27,7 @@ const rowId = {
   assistant: (turn: string, step: number): RowId => `a:${turn}:${step}`,
   tool: (turn: string, step: number, callId: string): RowId => `t:${turn}:${step}:${callId}`,
   approval: (requestId: string): RowId => `p:${requestId}`,
+  question: (requestId: string): RowId => `q:${requestId}`,
   error: (seq: number): RowId => `e:${seq}`,
 };
 
@@ -330,6 +333,38 @@ export class Projection {
         row.argsSummary = existing.argsSummary;
         if (existing.args !== undefined) row.args = existing.args;
         if (existing.reason !== undefined) row.reason = existing.reason;
+        return [this.upsert(row)];
+      }
+      case "question/asked": {
+        // R184：提问挂起行（题面自足——卡与痕迹行共用；答案不回写，收口走 settled）
+        const row: QuestionRow = {
+          kind: "question",
+          rowId: rowId.question(data.requestId as string),
+          rowSeq: event.seq,
+          turn: data.turn as string,
+          step: data.step as number,
+          requestId: data.requestId as string,
+          questions: data.questions as QuestionSpec[],
+          status: "pending",
+        };
+        this.push(row);
+        return [{ op: "row.appended", row }];
+      }
+      case "question/settled": {
+        const requestId = data.requestId as string;
+        const outcome = data.outcome as QuestionRow["outcome"];
+        const existing = this.byId.get(rowId.question(requestId));
+        // 孤儿 settled（无 asked 配对）不上 UI——同 approval/decided 分支（审计住账本）
+        if (existing?.kind !== "question") return [];
+        const row: QuestionRow = {
+          ...existing,
+          rowSeq: event.seq,
+          status: "settled",
+          ...(outcome !== undefined ? { outcome } : {}),
+          ...(Array.isArray(data.answers)
+            ? { answers: data.answers as QuestionRow["answers"] }
+            : {}),
+        };
         return [this.upsert(row)];
       }
       case "error": {

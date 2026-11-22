@@ -147,6 +147,50 @@ const schemas: Record<string, z.ZodType> = {
     step: z.number().int().nonnegative(),
     requestId: z.string().min(1),
   }),
+  // 提问（R184）：请求与收口配对。callId 记 requestId 关联（同一约定）；settled 三态：
+  // answered（answers 在场）/ cancelled / invalidated（修理专用）。
+  "question/asked": z.object({
+    turn: z.string().min(1),
+    step: z.number().int().nonnegative(),
+    requestId: z.string().min(1),
+    callId: z.string().min(1),
+    questions: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          question: z.string().min(1),
+          header: z.string().min(1).max(12).optional(),
+          options: z
+            .array(
+              z.object({
+                label: z.string().min(1),
+                description: z.string().optional(),
+              }),
+            )
+            .min(2)
+            .max(4)
+            .optional(),
+          multiSelect: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(4),
+  }),
+  "question/settled": z.object({
+    turn: z.string().min(1),
+    step: z.number().int().nonnegative(),
+    requestId: z.string().min(1),
+    outcome: z.enum(["answered", "cancelled", "invalidated"]),
+    answers: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          selected: z.array(z.string()),
+          custom: z.string().optional(),
+        }),
+      )
+      .optional(),
+  }),
   error: z.looseObject({
     turn: z.string().min(1).optional(),
     step: z.number().int().nonnegative().optional(),

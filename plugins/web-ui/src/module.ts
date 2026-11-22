@@ -10,7 +10,7 @@
 import type { Disposable } from "@henira/kernel";
 import { ApprovalCard } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
-import { approvalTakeover, ComposerDock } from "./parts/composer-dock.js";
+import { approvalTakeover, ComposerDock, questionTakeover } from "./parts/composer-dock.js";
 import { Conversation } from "./parts/conversation.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSeat } from "./parts/model-seat.js";
@@ -18,6 +18,7 @@ import { QueueDock } from "./parts/queue-dock.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import {
+  AskUserCard,
   EditCard,
   GlobCard,
   GrepCard,
@@ -56,9 +57,9 @@ export const defaultComposerSeats: Record<string, WebPart> = {
   "composer.dock": QueueDock,
 };
 
-/** chain 槽官方条目（R182）：composer.takeover = 接管选举；审批是第一条，提问（R184）后到 */
+/** chain 槽官方条目（R182）：composer.takeover = 接管选举；审批与提问（R184）两个官方条目 */
 export const defaultChainEntries: Record<string, ChainEntry[]> = {
-  "composer.takeover": [approvalTakeover],
+  "composer.takeover": [questionTakeover, approvalTakeover],
 };
 
 /** keyed 工具卡 → 官方默认件（E5，D-057 全语义闭环：官方自己消费自己开的缝）。
@@ -71,6 +72,7 @@ export const defaultToolViews: Record<string, ToolCallView> = {
   "tool.call.view.read": ReadCard,
   "tool.call.view.glob": GlobCard,
   "tool.call.view.grep": GrepCard,
+  "tool.call.view.ask_user": AskUserCard,
   "tool.call.view.mcp": McpCard,
 };
 

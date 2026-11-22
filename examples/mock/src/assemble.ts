@@ -9,6 +9,7 @@ import { createConfigService } from "@henira/config-loader";
 import { createHarness } from "@henira/kernel";
 import { type MockEntry, mockLlm } from "@henira/llm-mock";
 import { approvalPlugin } from "@henira/plugin-approval";
+import { askUserPlugin } from "@henira/plugin-ask-user";
 import { breakerPlugin } from "@henira/plugin-breaker";
 import { fsPlugin } from "@henira/plugin-fs";
 import { fsSearchPlugin } from "@henira/plugin-fs-search";
@@ -53,6 +54,18 @@ export function autoAnswerInteraction(
       return {
         ask(req: InteractionRequest): Promise<InteractionAnswer> {
           requests.push(req);
+          // 提问（R184）：headless 自动答首选项（无选项 = 纯文本题，跳过）——语义与审批的
+          // 自动应答队列无关，保证 examples/离线测试不会卡死在提问上
+          if (req.kind === "question") {
+            return Promise.resolve({
+              kind: "question",
+              requestId: req.requestId,
+              answers: req.questions.map((q) => ({
+                id: q.id,
+                selected: q.options?.[0] !== undefined ? [q.options[0].label] : [],
+              })),
+            });
+          }
           const decision = queue.shift() ?? "allowed-once";
           return Promise.resolve({ kind: "approval", requestId: req.requestId, decision });
         },
@@ -126,6 +139,8 @@ export async function assembleMock(options: MockAssemblyOptions): Promise<{
     .use(shellPlugin())
     .use(shellToolsPlugin())
     .use(breakerPlugin())
+    // 提问件（R184）：ask_user 工具 + question/* 审计对
+    .use(askUserPlugin())
     .use({
       name: "config",
       start: () => createConfigService({ cwd: sessionDir, globalDir }),

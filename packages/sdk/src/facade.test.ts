@@ -300,6 +300,79 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     });
   });
 
+  it("settleQuestion（R184 双形态）：未知 id 分型；挂起提问 → 逐题答案收回、settled 行落地", async () => {
+    const { facade } = await form.make([
+      [
+        mockToolCall(
+          "q1",
+          "ask_user",
+          JSON.stringify({
+            questions: [
+              {
+                id: "a",
+                question: "选哪个？",
+                options: [{ label: "甲" }, { label: "乙" }],
+              },
+            ],
+          }),
+        ),
+        mockFinish("tool-calls"),
+      ],
+      [mockText("完成"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    const session = await facade.createSession();
+    void (async () => {
+      try {
+        for await (const frame of facade.events()) sink.push(frame);
+      } catch {
+        // stop
+      }
+    })();
+    if (form.usesHttp) {
+      const err = await facade
+        .settleQuestion(session.id, "no-such-question", { cancelled: true })
+        .then(() => undefined)
+        .catch((e: unknown) => e);
+      expect((err as Error & { status?: number })?.status).toBe(404);
+    } else {
+      expect(await facade.settleQuestion(session.id, "no-such-question", { cancelled: true })).toBe(
+        false,
+      );
+    }
+
+    await facade.prompt(session.id, "问我一个问题");
+    const row = await waitFor(() => {
+      for (const f of framesOf(sink, session.id)) {
+        if (
+          f.kind === "delta" &&
+          f.delta.op === "row.appended" &&
+          f.delta.row.kind === "question"
+        ) {
+          return f.delta.row;
+        }
+      }
+      return undefined;
+    });
+    expect(row.status).toBe("pending");
+    expect(
+      await facade.settleQuestion(session.id, row.requestId, [{ id: "a", selected: ["乙"] }]),
+    ).toBe(true);
+    await waitFor(() => {
+      const settled = framesOf(sink, session.id).some(
+        (f) =>
+          f.kind === "delta" &&
+          f.delta.op === "row.upserted" &&
+          f.delta.row.kind === "question" &&
+          f.delta.row.status === "settled",
+      );
+      const ended = framesOf(sink, session.id).some(
+        (f) => f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+      );
+      return settled && ended ? true : undefined;
+    });
+  });
+
   it("目录登记：建会话带 cwd 自动登记 + addDir 校验拒绝 + browseDirs 一层 + deleteDir 收树", async () => {
     const { facade } = await form.make([]);
     const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-sdk-dir-"));
@@ -614,6 +687,63 @@ describe("runtime 独有：缺省 fail-closed", () => {
     const snapshot = await facade.snapshot(session.id);
     // 审批被自动拒：无挂起审批行（hard-reject 在链外、无审计）；回合照常收尾
     expect(snapshot.rows.some((r) => r.kind === "approval" && r.status === "pending")).toBe(false);
+    expect(snapshot.state.busy).toBe(false);
+  });
+
+  it("autoRejectInteraction 对提问返回 cancelled：工具收 Error、回合照常收尾（R184）", async () => {
+    const { mockLlm } = await import("@henira/llm-mock");
+    const { dataDir, globalDir } = await tempDirs();
+    const mock = mockLlm([
+      [
+        mockToolCall(
+          "q1",
+          "ask_user",
+          JSON.stringify({
+            questions: [
+              { id: "a", question: "继续？", options: [{ label: "是" }, { label: "否" }] },
+            ],
+          }),
+        ),
+        mockFinish("tool-calls"),
+      ],
+      [
+        mockText("取消后的回应"),
+        mockUsage({ inputTokens: 1, outputTokens: 1 }),
+        mockFinish("stop"),
+      ],
+    ]);
+    const facade = await createRuntime({
+      dataDir,
+      globalDir,
+      llm: llmStub(mock.service),
+      interaction: autoRejectInteraction(),
+    });
+    cleanups.push(async () => {
+      await facade.stop();
+      await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    });
+    const sink: ServerFrame[] = [];
+    const session = await facade.createSession();
+    void (async () => {
+      try {
+        for await (const frame of facade.events()) sink.push(frame);
+      } catch {
+        // stop
+      }
+    })();
+    await facade.prompt(session.id, "问我");
+    await waitFor(() => {
+      const ended = framesOf(sink, session.id).some(
+        (f) => f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+      );
+      return ended ? true : undefined;
+    });
+    const snapshot = await facade.snapshot(session.id);
+    expect(snapshot.rows.some((r) => r.kind === "question" && r.status === "pending")).toBe(false);
+    const questionRow = snapshot.rows.find((r) => r.kind === "question");
+    expect(questionRow).toMatchObject({ status: "settled", outcome: "cancelled" });
+    const toolRow = snapshot.rows.find((r) => r.kind === "tool" && r.name === "ask_user");
+    expect(toolRow).toMatchObject({ status: "error" });
     expect(snapshot.state.busy).toBe(false);
   });
 });

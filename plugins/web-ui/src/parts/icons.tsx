@@ -22,6 +22,7 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGl
 import { PencilIcon } from "@phosphor-icons/react/dist/csr/Pencil";
 import { PlugIcon } from "@phosphor-icons/react/dist/csr/Plug";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
+import { QuestionIcon } from "@phosphor-icons/react/dist/csr/Question";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 import { TerminalIcon } from "@phosphor-icons/react/dist/csr/Terminal";
 import { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning";
@@ -61,6 +62,11 @@ export function PlusGlyph(props: Props) {
 
 export function BrainGlyph(props: Props) {
   return <BrainIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 提问工具行图标（R184：ask_user 身份——与状态语义无关） */
+export function QuestionGlyph(props: Props) {
+  return <QuestionIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function CaretGlyph(props: Props) {

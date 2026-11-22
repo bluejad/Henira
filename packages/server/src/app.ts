@@ -316,6 +316,38 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ applied });
   });
 
+  // ── 提问收答（R184；与审批同款幂等先答者赢语义）。body = {answers:[{id,selected[],custom?}]}
+  // 或 {cancelled:true}——取消给工具 Error 结果、回合继续（dsh ASK_CANCELLED 行为层）──
+  app.post("/api/sessions/:id/questions/:requestId", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const answerSchema = z.object({
+      id: z.string().min(1),
+      selected: z.array(z.string()),
+      custom: z.string().optional(),
+    });
+    const parsed = z
+      .union([
+        z.object({ answers: z.array(answerSchema).min(1).max(4) }),
+        z.object({ cancelled: z.literal(true) }),
+      ])
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "body must be {answers:[...]} or {cancelled:true}" }, 400);
+    }
+    const requestId = c.req.param("requestId");
+    const answer =
+      "cancelled" in parsed.data
+        ? ({ kind: "question", requestId, cancelled: true } as const)
+        : ({ kind: "question", requestId, answers: parsed.data.answers } as const);
+    const applied = entry.interaction.settle(requestId, answer);
+    if (!applied && entry.interaction.knows?.(requestId) !== true) {
+      // 从不存在（重启收口/已失效）：404 让前端判别「当已解决」，不假成功（R175 同款）
+      return c.json({ error: "question not found" }, 404);
+    }
+    return c.json({ applied });
+  });
+
   // ── 会话工作区文件（UI 门面 listDir；只限会话工作区，隐藏项不返）──
   app.get("/api/sessions/:id/files", async (c) => {
     const entry = await requireEntry(c, deps);

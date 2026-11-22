@@ -9,6 +9,7 @@ import type {
   GlobalUiState,
   PromptOptions,
   PromptReceipt,
+  QuestionAnswer,
   ReasoningCapability,
   ReasoningOption,
   RegisteredDir,
@@ -118,6 +119,13 @@ export interface HeniraFacade {
     requestId: string,
     decision: Decision,
     scope?: "session",
+  ): Promise<boolean>;
+  /** 提问收答（R184）：answers 逐题（空选择 = 跳过）或 {cancelled:true}（工具收 Error 结果、
+   *  回合继续）。幂等先答者赢；未知 requestId 返回 false */
+  settleQuestion(
+    sessionId: string,
+    requestId: string,
+    answer: readonly QuestionAnswer[] | { cancelled: true },
   ): Promise<boolean>;
   /** 初始渲染 + 断档重拉共用出口（快照永远从账本重建；长会话 = 尾部窗口，历史经 sessionRows 翻页） */
   snapshot(sessionId: string): Promise<SessionSnapshot>;

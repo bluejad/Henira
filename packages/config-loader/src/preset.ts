@@ -28,6 +28,9 @@ export const defaultPreset: PluginEntry[] = [
   { id: "plugin-shell-tools" },
   // 熔断件（D-058 / D-065）：无名行为件——死循环兜底，v0.1.0 默认装配
   { id: "plugin-breaker" },
+  // 提问件（R184）：ask_user 工具——模型执行中向用户要信息；可停用（settings.plugins），
+  // 官方 npm 包无盘上目录不可卸载
+  { id: "plugin-ask-user" },
   // MCP 读者（D-064，C5）：外圈官方件——可停用（settings.plugins["plugin-mcp"].enabled:false），
   // 不可卸载（官方 npm 包无盘上目录，卸载端点天然 404）；无 mcp 槽位时零开销
   { id: "plugin-mcp" },

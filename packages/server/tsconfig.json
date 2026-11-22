@@ -28,7 +28,8 @@
     { "path": "../../plugins/fs-search" },
     { "path": "../../plugins/shell" },
     { "path": "../../plugins/shell-tools" },
-    { "path": "../../plugins/breaker" }
+    { "path": "../../plugins/breaker" },
+    { "path": "../../plugins/ask-user" }
   ],
   "include": ["src"]
 }

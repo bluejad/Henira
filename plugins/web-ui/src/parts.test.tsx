@@ -4,30 +4,32 @@
 import type {
   ApprovalRow,
   AssistantRow,
+  QuestionRow,
   Row,
   ServerFrame,
   SessionSummary,
   ToolRow,
 } from "@henira/protocol";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineChainEntry } from "./chain.js";
 import { zh } from "./locales/zh.js";
 import { defaultToolViews, webUiModule } from "./module.js";
 import { ApprovalCard, ApprovalQueueCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
-import { approvalTakeover, ComposerDock } from "./parts/composer-dock.js";
+import { approvalTakeover, ComposerDock, questionTakeover } from "./parts/composer-dock.js";
 import { Conversation } from "./parts/conversation.js";
 import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSeat } from "./parts/model-seat.js";
 import { ModelSelect } from "./parts/model-select.js";
+import { QuestionCard } from "./parts/question-card.js";
 import { QueueDock } from "./parts/queue-dock.js";
 import { QueuePanel } from "./parts/queue-panel.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
 import { SettingsModal } from "./parts/settings-modal.js";
-import { McpCard, ReadCard } from "./parts/tool-cards.js";
+import { AskUserCard, McpCard, ReadCard } from "./parts/tool-cards.js";
 import type {
   HeniraClientLike,
   RowStoreLike,
@@ -128,6 +130,7 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     resumeQueue: async () => true,
     interrupt: async () => {},
     settleApproval: async () => true,
+    settleQuestion: async () => true,
     events: async function* () {
       yield {} as ServerFrame;
     },
@@ -180,7 +183,7 @@ function dockCtx(overrides?: Partial<WebPartContext>): WebPartContext {
       ["composer.model", [ModelSeat]],
       ["composer.dock", [QueueDock]],
     ]),
-    chains: new Map([["composer.takeover", [approvalTakeover]]]),
+    chains: new Map([["composer.takeover", [questionTakeover, approvalTakeover]]]),
   };
 }
 
@@ -1104,6 +1107,244 @@ describe("输入座位四席 + Composer API（R183）", () => {
   });
 });
 
+describe("提问卡（R184）", () => {
+  const questionRow = {
+    kind: "question",
+    rowId: "q:r-q",
+    rowSeq: 1,
+    turn: "t-1",
+    step: 1,
+    requestId: "r-q",
+    questions: [
+      {
+        id: "q1",
+        question: "选哪个方案？",
+        header: "方案",
+        options: [{ label: "甲" }, { label: "乙", description: "慢但稳" }],
+      },
+    ],
+    status: "pending",
+  } as QuestionRow;
+
+  function questionCtx(
+    rows: Row[],
+    state: { busy: boolean; queue?: { id: string; text: string; steer: boolean }[] } = {
+      busy: true,
+    },
+  ) {
+    return dockCtx({
+      store: {
+        getSession: () => ({ rows, state }),
+        subscribe: () => () => {},
+      },
+    });
+  }
+
+  it("单选 + 提交：settleQuestion 收逐题答案；乐观摘卡后 bar 回来", async () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    const { container } = render(<ComposerDock {...ctx} />);
+    const barSlot = container.querySelector(".henira-composer-bar-slot") as HTMLElement;
+    expect(barSlot.style.display).toBe("none"); // 提问接管
+
+    fireEvent.click(screen.getByRole("option", { name: /甲/ }));
+    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-q", [{ id: "q1", selected: ["甲"] }]);
+    await waitFor(() => expect(barSlot.style.display).toBe(""));
+  });
+
+  it("多选 + 分页 + 自定义输入：下一页 Enter 提交，答案按题对齐", async () => {
+    const multi = {
+      ...questionRow,
+      requestId: "r-m",
+      rowId: "q:r-m",
+      questions: [
+        {
+          id: "a",
+          question: "要哪些能力？",
+          multiSelect: true,
+          options: [{ label: "搜索" }, { label: "写作" }],
+        },
+        { id: "b", question: "补充说明？" },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [multi];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    render(<ComposerDock {...ctx} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /搜索/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /写作/ }));
+    fireEvent.click(screen.getByRole("button", { name: t("question.next") }));
+    // 第二题：纯文本题（自定义输入直接成答案）
+    const custom = screen.getByPlaceholderText(
+      t("question.customPlaceholder"),
+    ) as HTMLTextAreaElement;
+    fireEvent.change(custom, { target: { value: "都要" } });
+    fireEvent.keyDown(custom, { key: "Enter" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-m", [
+      { id: "a", selected: ["搜索", "写作"] },
+      { id: "b", selected: [], custom: "都要" },
+    ]);
+  });
+
+  it("多选连点两下（同一批事件）不互相覆盖——函数式更新（活体实锤）", () => {
+    const multi = {
+      ...questionRow,
+      requestId: "r-batch",
+      rowId: "q:r-batch",
+      questions: [
+        {
+          id: "a",
+          question: "要哪些能力？",
+          multiSelect: true,
+          options: [{ label: "搜索" }, { label: "写作" }],
+        },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [multi];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    render(<ComposerDock {...ctx} />);
+    const boxes = screen.getAllByRole("checkbox") as HTMLButtonElement[];
+    // 同一批里连点两下：闭包里的 drafts 都是旧值，必须函数式合并
+    act(() => {
+      boxes[0]?.click();
+      boxes[1]?.click();
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-batch", [
+      { id: "a", selected: ["搜索", "写作"] },
+    ]);
+  });
+
+  it("Esc：后续题回上一题、首题取消整个请求；IME 组合中 Enter 不推进", () => {
+    const two = {
+      ...questionRow,
+      questions: [
+        { id: "a", question: "第一题？", options: [{ label: "是" }, { label: "否" }] },
+        { id: "b", question: "第二题？" },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [two];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+    // 翻到第二题
+    fireEvent.click(screen.getByRole("button", { name: t("question.next") }));
+    expect(screen.getByText("第二题？")).toBeDefined();
+    // Esc → 回上一题（不是取消）
+    fireEvent.keyDown(card, { key: "Escape" });
+    expect(screen.getByText("第一题？")).toBeDefined();
+    expect(settle).not.toHaveBeenCalled();
+    // IME 组合中的 Enter 不推进
+    fireEvent.keyDown(card, { key: "Enter", isComposing: true });
+    expect(screen.getByText("第一题？")).toBeDefined();
+    // 首题 Esc → 取消整个请求
+    fireEvent.keyDown(card, { key: "Escape" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-q", { cancelled: true });
+  });
+
+  it("提问压过审批（dsh precedence）：答完提问后审批卡才浮出", async () => {
+    const approvalRow = {
+      kind: "approval",
+      rowId: "p:r-a",
+      turn: "t-1",
+      step: 1,
+      requestId: "r-a",
+      toolName: "demo-write",
+      status: "pending",
+    } as ApprovalRow;
+    const rows: Row[] = [approvalRow, questionRow];
+    const ctx = questionCtx(rows);
+    ctx.client.settleQuestion = vi.fn((): Promise<boolean> => new Promise(() => {}));
+    render(<ComposerDock {...ctx} />);
+    expect(screen.getByRole("dialog", { name: t("question.title") })).toBeDefined();
+    expect(screen.queryByText(t("approval.title"))).toBeNull();
+    // 提交（空选 = 跳过）→ 乐观摘卡；settle 不回、行仍 pending——提示卡已离场即让位
+    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
+    await waitFor(() => expect(screen.getByText(t("approval.title"))).toBeDefined());
+  });
+
+  it("接管期间排队编辑禁用（提问与审批同一判据）", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows, {
+      busy: true,
+      queue: [{ id: "q-1", text: "排队的话", steer: false }],
+    });
+    render(<ComposerDock {...ctx} />);
+    expect(
+      (screen.getByRole("button", { name: t("composer.queue.edit") }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("痕迹卡：运行中「提问中」；完成逐题问答；取消「已取消」", () => {
+    const ctx = fixtureCtx();
+    const base: ToolRow = {
+      kind: "tool",
+      rowId: "t:t-1:1:c1",
+      rowSeq: 1,
+      turn: "t-1",
+      step: 1,
+      callId: "c1",
+      name: "ask_user",
+      status: "running",
+      input: JSON.stringify({ questions: questionRow.questions }),
+    };
+    const running = render(<AskUserCard ctx={ctx} row={base} />);
+    expect(screen.getByText(t("question.asking"))).toBeDefined();
+    running.unmount();
+
+    const done: ToolRow = {
+      ...base,
+      status: "done",
+      output: {
+        content: "The user answered your questions",
+        isError: false,
+        durationMs: 1,
+        meta: {
+          kind: "ask_user",
+          questions: questionRow.questions,
+          answers: [{ id: "q1", selected: ["乙"] }],
+        },
+      },
+    };
+    const answered = render(<AskUserCard ctx={ctx} row={done} />);
+    expect(screen.getAllByText("选哪个方案？").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("乙").length).toBeGreaterThan(0);
+    answered.unmount();
+
+    const cancelled: ToolRow = {
+      ...base,
+      status: "error",
+      output: {
+        content: "cancelled",
+        isError: true,
+        durationMs: 1,
+        meta: { kind: "ask_user", questions: questionRow.questions, cancelled: true },
+      },
+    };
+    render(<AskUserCard ctx={ctx} row={cancelled} />);
+    expect(screen.getByText(t("question.cancelled"))).toBeDefined();
+  });
+
+  it("QuestionCard 直接渲染：无写入通道（旧宿主）时提交禁用", () => {
+    const ctx = fixtureCtx({ client: { ...fixtureCtx().client, settleQuestion: undefined } });
+    render(<QuestionCard row={questionRow} ctx={ctx} />);
+    expect(
+      (screen.getByRole("button", { name: t("question.submit") }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(t("question.unsupported"))).toBeDefined();
+  });
+});
+
 describe("ApprovalCard", () => {
   const pendingRow = {
     kind: "approval",
@@ -1560,6 +1801,7 @@ describe("行级挂载点（D-057）", () => {
     // R182：composer 座位拆出 composer.bar（fallback）+ composer.takeover chain（审批条目）
     // R183：四席官方默认件 = composer.model（单槽模型席）+ composer.dock（排队面板）；
     //       composer.left/right 官方空不注册
+    // R184：ask_user 痕迹卡入 keyed 缝；提问接管条目入 chain（priority 5 压过审批）
     expect([...registered].sort()).toEqual([
       "approval.view.bash",
       "approval.view.edit",
@@ -1577,6 +1819,7 @@ describe("行级挂载点（D-057）", () => {
       "layout",
       "sidebar",
       "sidebar.right",
+      "tool.call.view.ask_user",
       "tool.call.view.bash",
       "tool.call.view.edit",
       "tool.call.view.glob",
@@ -1586,7 +1829,7 @@ describe("行级挂载点（D-057）", () => {
       "tool.call.view.read",
       "tool.call.view.write",
     ]);
-    expect(chainRegistered).toEqual(["composer.takeover#approval"]);
+    expect(chainRegistered).toEqual(["composer.takeover#question", "composer.takeover#approval"]);
     expect(
       registered.every(
         (n) =>

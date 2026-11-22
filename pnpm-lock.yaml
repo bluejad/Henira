@@ -38,6 +38,9 @@ importers:
       '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
+      '@henira/plugin-ask-user':
+        specifier: workspace:*
+        version: link:../../plugins/ask-user
       '@henira/plugin-breaker':
         specifier: workspace:*
         version: link:../../plugins/breaker
@@ -177,6 +180,9 @@ importers:
       '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
+      '@henira/plugin-ask-user':
+        specifier: workspace:*
+        version: link:../../plugins/ask-user
       '@henira/plugin-breaker':
         specifier: workspace:*
         version: link:../../plugins/breaker
@@ -235,6 +241,9 @@ importers:
       '@henira/plugin-approval':
         specifier: workspace:*
         version: link:../../plugins/approval
+      '@henira/plugin-ask-user':
+        specifier: workspace:*
+        version: link:../../plugins/ask-user
       '@henira/plugin-breaker':
         specifier: workspace:*
         version: link:../../plugins/breaker
@@ -350,6 +359,19 @@ importers:
         version: 6.4.6(@types/node@24.19.2)(jiti@2.7.0)
 
   plugins/approval:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/ask-user:
     dependencies:
       '@henira/protocol':
         specifier: workspace:*

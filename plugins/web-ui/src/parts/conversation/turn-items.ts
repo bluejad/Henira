@@ -139,9 +139,9 @@ function findFinalIndex(rows: readonly Row[]): number {
 }
 
 /** 轮布局：完成轮把「最终回答之前的过程」折出；运行中/无最终回答不折。
- *  审批行不进官方对话流（参照实现的行模型无 approval 行；data 仍留在 store）。 */
+ *  审批/提问行不进官方对话流（参照实现的行模型无这两种交互行；data 仍留在 store）。 */
 export function buildTurnLayout(rawRows: readonly Row[]): TurnLayout {
-  const rows = rawRows.filter((row) => row.kind !== "approval");
+  const rows = rawRows.filter((row) => row.kind !== "approval" && row.kind !== "question");
   // 前置用户行（可有多条 steer）不进过程容器
   let leadEnd = 0;
   while (leadEnd < rows.length && rows[leadEnd]?.kind === "user") leadEnd += 1;

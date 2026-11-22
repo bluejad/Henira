@@ -6,6 +6,7 @@ import {
   MagnifierGlyph,
   PencilGlyph,
   PlugGlyph,
+  QuestionGlyph,
   TerminalGlyph,
   WrenchGlyph,
 } from "./icons.js";
@@ -17,6 +18,7 @@ function toolGlyph(name: string, size = 16): React.ReactNode {
   }
   if (name === "edit" || name === "write") return <PencilGlyph size={size} />;
   if (name.startsWith("mcp__") || name === "mcp") return <PlugGlyph size={size} />;
+  if (name === "ask_user") return <QuestionGlyph size={size} />;
   return <WrenchGlyph size={size} />;
 }
 

@@ -305,6 +305,59 @@ describe("重启收口（R175）：seq 外科重排 + 孤儿挂起补写", () =>
     await again.store.close();
   });
 
+  it("孤儿提问（R184）：开档补 question/settled{invalidated} 再 interrupted；已答不补", async () => {
+    const dir = path.join(root, "orphan-question");
+    {
+      const s = await createSession({ dir, cwd: root, id: "s-orphan-q" });
+      await s.append(user("t1", "hi"));
+      await s.append(turnStart("t1"));
+      await s.append({
+        type: "question/asked",
+        data: {
+          turn: "t1",
+          step: 1,
+          requestId: "q1",
+          callId: "q1",
+          questions: [
+            { id: "a", question: "继续吗？", options: [{ label: "是" }, { label: "否" }] },
+          ],
+        },
+      });
+      await s.close();
+      open.pop();
+    }
+    const { store, invalidatedQuestions } = await SessionStoreOpenForTest(dir, root, "s-orphan-q");
+    expect(invalidatedQuestions).toBe(1);
+    expect(
+      store
+        .events()
+        .slice(-2)
+        .map((e) => e.type),
+    ).toEqual(["question/settled", "turn/end"]);
+    expect(store.events().at(-2)).toMatchObject({
+      data: { requestId: "q1", outcome: "invalidated" },
+      ignorable: true,
+    });
+    await store.close();
+    // 幂等：再开档零补写
+    const again = await SessionStoreOpenForTest(dir, root, "s-orphan-q");
+    expect(again.invalidatedQuestions).toBe(0);
+    await again.store.close();
+  });
+
+  it("question/* 同样受开回合闸约束（无 open turn 拒绝）", async () => {
+    const dir = path.join(root, "question-gate");
+    const s = await createSession({ dir, cwd: root, id: "s-q-gate" });
+    await expect(
+      s.append({
+        type: "question/settled",
+        data: { turn: "t1", step: 1, requestId: "x", outcome: "cancelled" },
+      }),
+    ).rejects.toThrow(/requires an open turn/);
+    await s.close();
+    open.pop();
+  });
+
   it("老账本形态（回合已被旧代码收口、审批仍挂）：repair 通道绕回合包裹闸补 invalidated", async () => {
     const dir = path.join(root, "stale-orphan");
     {

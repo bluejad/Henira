@@ -1,5 +1,6 @@
 // R177 拆分：tool-cards 出口（按卡分文件；旧路径 export * 保持既有出口形状）。
 
+export { AskUserCard } from "./ask-user.js";
 export {
   buildDiffRows,
   DIFF_FALLBACK_MAX_LINES,

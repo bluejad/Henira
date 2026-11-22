@@ -55,7 +55,8 @@ export interface AppendOptions {
   /** 修理通道专用：覆盖默认 Date.now()——补写定格账本最后真实事件时间（不发明死亡→重启的
    * 空洞时长，dsh repair「never invents a future time」同思想） */
   time?: number;
-  /** 修理通道专用：跳过 approval/* 回合包裹闸（老账本回合已被旧代码收口而审批仍挂） */
+  /** 修理通道专用：跳过 approval/* 与 question/* 的回合包裹闸（老账本回合已被旧代码收口而
+   * 交互仍挂） */
   repair?: boolean;
 }
 
@@ -67,6 +68,8 @@ export interface CreateSessionResult {
   resequenced: boolean;
   /** 本开档补写了 approval/invalidated 的孤儿审批数（R175 重启收口） */
   invalidatedApprovals: number;
+  /** 本开档补写了 question/settled{invalidated} 的孤儿提问数（R184 重启收口） */
+  invalidatedQuestions: number;
 }
 
 export class SessionStore {
@@ -82,6 +85,8 @@ export class SessionStore {
   private closed = false;
   /** 未决审批表（装载/追加时跟踪；开档收口用）——requestId → asked 上下文 */
   private readonly pendingApprovals = new Map<string, { turn: string; step: number }>();
+  /** 未决提问表（R184 同款语义；开档收口用） */
+  private readonly pendingQuestions = new Map<string, { turn: string; step: number }>();
   /** append 串行化链：seq 分配与落盘必须原子（历史伤教训——并发连发各自算 lastSeq+1，
    * 多事件共享同一 seq，严格读闸判整份账本死刑；普查实锤 13 份账本全是 decided 连发抢 seq） */
   #tail: Promise<unknown> = Promise.resolve();
@@ -158,6 +163,7 @@ export class SessionStore {
       synthesizedInterrupted: false,
       resequenced: false,
       invalidatedApprovals: 0,
+      invalidatedQuestions: 0,
     };
   }
 
@@ -187,6 +193,19 @@ export class SessionStore {
       );
       invalidatedApprovals += 1;
     }
+    // R184：孤儿提问同款收口（先交互后回合，账本叙事单调）
+    let invalidatedQuestions = 0;
+    for (const [requestId, asked] of store.pendingQuestions) {
+      await store.append(
+        {
+          type: "question/settled",
+          data: { turn: asked.turn, step: asked.step, requestId, outcome: "invalidated" },
+          ignorable: true,
+        },
+        { repair: true, time: repairTime },
+      );
+      invalidatedQuestions += 1;
+    }
     const hadOpenTurn = store.openTurn !== null;
     if (hadOpenTurn) {
       // 崩溃也要有收尾：补写 interrupted（session.md §5）
@@ -198,7 +217,13 @@ export class SessionStore {
         { time: repairTime },
       );
     }
-    return { store, synthesizedInterrupted: hadOpenTurn, resequenced, invalidatedApprovals };
+    return {
+      store,
+      synthesizedInterrupted: hadOpenTurn,
+      resequenced,
+      invalidatedApprovals,
+      invalidatedQuestions,
+    };
   }
 
   /** 追加：校验 → 分配 seq → 写行 → fsync → 内存入账。调用间串行（#tail 链）——seq 分配
@@ -220,7 +245,11 @@ export class SessionStore {
     if (!parsed.success) {
       throw new EventDataInvalidError(input.type, summarize(parsed.error));
     }
-    if (input.type.startsWith("approval/") && this.openTurn === null && opts?.repair !== true) {
+    if (
+      (input.type.startsWith("approval/") || input.type.startsWith("question/")) &&
+      this.openTurn === null &&
+      opts?.repair !== true
+    ) {
       throw new NoOpenTurnError(input.type);
     }
     const finalInput = this.arbitrateSurfaceOp(input);
@@ -299,6 +328,19 @@ export class SessionStore {
     if (event.type === "approval/decided" || event.type === "approval/invalidated") {
       const data = event.data as { requestId?: string };
       if (data.requestId !== undefined) this.pendingApprovals.delete(data.requestId);
+    }
+    if (event.type === "question/asked") {
+      const data = event.data as { requestId?: string; turn?: string; step?: number };
+      if (data.requestId !== undefined) {
+        this.pendingQuestions.set(data.requestId, {
+          turn: data.turn ?? "",
+          step: data.step ?? 0,
+        });
+      }
+    }
+    if (event.type === "question/settled") {
+      const data = event.data as { requestId?: string };
+      if (data.requestId !== undefined) this.pendingQuestions.delete(data.requestId);
     }
     const surfaceOp = readSurfaceOp(event.data);
     if (surfaceOp?.op === "replace" && !overlaps(this.intervals, surfaceOp)) {

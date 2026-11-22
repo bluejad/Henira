@@ -8,6 +8,8 @@ import type {
   Decision,
   DirBrowse,
   PromptReceipt,
+  QuestionAnswer,
+  QuestionRow,
   ReasoningCapability,
   ReasoningEffort,
   ReasoningOption,
@@ -48,6 +50,13 @@ export interface HeniraClientLike {
     requestId: string,
     decision: Decision,
     scope?: "session",
+  ): Promise<boolean>;
+  /** 提问收答（可选，R184）：answers 逐题或 {cancelled:true}；宿主缺方法 = 提问卡提交禁用
+   *  （旧嵌入方） */
+  settleQuestion?(
+    sessionId: string,
+    requestId: string,
+    answer: readonly QuestionAnswer[] | { cancelled: true },
   ): Promise<boolean>;
   events(): AsyncIterable<ServerFrame>;
   /** 界面资产清单（D-059：已装语言包/主题包） */
@@ -217,9 +226,15 @@ export interface ComposerApi {
   stop(): void;
   readonly pendingApproval: ApprovalRow | undefined;
   readonly approvalQueueTotal: number;
+  /** 提问面（R184）：未答提问队首 + 队列计数（chain owner 同源；提问压过审批显示） */
+  readonly pendingQuestion: QuestionRow | undefined;
+  readonly questionQueueTotal: number;
   /** 审批乐观回调（点击即退场 / settle 失败回滚；R171 行为层） */
   onApprovalDecided(requestId: string): void;
   onApprovalFailed(requestId: string): void;
+  /** 提问乐观回调（提交/取消即摘卡；settle 失败回滚） */
+  onQuestionDecided(requestId: string): void;
+  onQuestionFailed(requestId: string): void;
   /** 输入框挂载点登记（bar 调用；focus() 目标）——座位件不必直接调用 */
   registerInput(el: HTMLTextAreaElement | null): void;
 }

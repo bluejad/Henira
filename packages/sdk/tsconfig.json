@@ -58,6 +58,9 @@
     },
     {
       "path": "../../plugins/breaker"
+    },
+    {
+      "path": "../../plugins/ask-user"
     }
   ],
   "include": ["src"]
