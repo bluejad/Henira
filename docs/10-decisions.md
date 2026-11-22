@@ -833,3 +833,95 @@
 - **理由**：结构取 dsh（列表一次装载 + 生命周期推送，token 增量走独立管道）；去抖 / 单飞 / 失败不重试参数取 opencode / ZCode 行为层；busy 翻内存取 dsh 与闭源产品的 status 事件语义。全局信号是自主发明（五家分别用 upsert / removed / status / invalidate——无同形）：不推列表本体，保持 REST 列表为唯一真相源，信号频率极低且天然幂等。
 - **非目标（挂账）**：`/api/sessions`、`/api/dirs` 的全量扫盘 / 整文件读优化；服务端 batcher 多事件合并；客户端全局并发队列（opencode 4 槽先例）。根因消除后列表调用归零级，以上仅未来加固。
 - **备注**：落点 = interfaces.md（ServerFrame / SSE 传输形状 / sdk events / web 侧栏刷新契约 / PluginUiHost.subscribe 过滤语义）；测试 = web-ui 6 例 + server SSE 1 例 + facade 双形态 1 例 + e2e 网络计数/双页 1 例。
+
+## D-068 中间对话区输出组织与视觉重做 + 结构拆分（R177）
+
+- **状态**：已定 · 2026-11-22 · 用户实拍反馈批（样式与输出序列）；✓ 同日落码；**输出组织细节已被 D-069 修正（R178）**
+- **背景**：用户连续指出三件事：①一次提问后的输出链（思考 → 工具调用 → 工具结果 → 最终回答）的组织和长相都不对，工具调用与结果尤其丑；②部分样式「AI 味」重，没法接受；③全部 CSS 挤在一个 1920 行文件里，组件该拆没拆。拍板：视觉风格与中间区结构以 **ZCode 为主参考**（用户偏好其排版密度），dsh / opencode / CC 只补行为盲区；只可看不可抄（D-004 / D-047）；顺序 = 先纯拆分零变化，再重做；范围 = 只中间对话区（其它区域只拆文件不动外观）；完成轮过程折叠；读文件 / 搜索 = 摘要 + 文件 chip 弹窗（右栏预览留后期）。
+- **决定**：
+  1. **完成轮历史折叠**：过程行（思考 / 工具 / 中间文本 / 审批痕迹）收进「已工作 · 用时 Xs · N 个工具」折叠体，最终回答留在外面；运行中 / 失败 / 中断强制展开，用户手动开合优先；最终回答行自带的 reasoning 在折叠时移入折叠体（回答保持干净）；仅「思考 + 回答」无工具的轮次同样折叠（折叠头不显示 0 个工具）。异常终态 = error 行 / assistant interrupted / 审批非允许决策。
+  2. **思考块默认收起**（流式与完成一致；ZCode 取证）：触发行 = 脑图标 + 「正在思考」/「思考 Ns」扫光 + 流式收起态最后一行摘要；展开 = 左导线纯文本 max-h 240（协议无 reasoning 时间戳，时长客户端起表，历史行无起点则只显示「思考」）。
+  3. **工具行**：图标 + 中文名 + 参数摘要 + diff 计数 / 截断 / 耗时 / 状态词；14px、无边框无底色、hover 提亮 + 箭头浮现；running 扫光、error 摘要与状态红。**工具结果**：统一卡片语言（border + 12px 圆角 + card 底）；终端命令 + 输出上限、diff 行号着色、MCP 参数/结果分区、fallback IN/OUT 两段。**读文件 / grep content 收起态只给摘要与文件 chip**，点击弹窗看账本已捕获内容（不新增后端接口）；glob / count 保留小型展开列表。
+  4. **轮内过程分组**：连续工具 + 透明步级行 ≥2 聚合；组头按 explore / run / change / session 统计「已查阅 N 项 · 已执行 N 条命令 · 已修改 N 个文件」；组内左导线、高度上限、默认收起；running 组头显示当前活动 + 扫光。纯空步级行剔除，中断行断开组。
+  5. **正文 markdown**：14px / 行高 1.75 / 字距 0.01em；标题 / 列表 / 引用 / 行内代码按 ZCode 档位；外链新标签打开、相对链接 `preventDefault` 不导航；GFM 任务列表只读主题化。
+  6. **结构拆分**：CSS 拆 14 个分区文件（顺序 = 原单文件顺序，入口 `tokens.css` 只做 `@import`，包出口与宿主 import 不变；copy 脚本复制 styles/）；组件拆 `parts/conversation/` / `parts/tool-cards/` / `parts/settings/` / `parts/session-list/`，旧路径 re-export 薄壳；中间区布局样式出组件、走 CSS 类。
+  7. **不碰**：协议 / 行投影 / 存储 / 槽位语义；`tool.call.view.*` / `approval.view.*` 顶替与卸载回落不变（ToolRow 形状不变）；不引入 Tailwind；不抄参考代码。
+- **理由**：折叠解决「每轮回放满屏过程」的组织问题（ZCode 同形）；思考默认收起避免流式思考挤压工具与正文；工具行去底色、结果才用卡片，是把「AI 味」的堆装饰压回层级系统；读 / 搜结果默认不进对话流、按需弹窗，保持长会话干净；结构拆分先零变化再改视觉，出问题能分清是搬家还是改样式。
+- **非目标（挂账）**：右栏文件预览（需新增文件读取端点与安全工作区边界；本轮弹窗用已捕获 tool output）；侧栏 / 输入区 / 设置页视觉重做（只拆文件）；工具级 stopped / denied 协议字段（只做渲染层映射）；Tailwind 迁移。
+- **备注**：落点 = interfaces.md web 段（输出组织契约 / CSS 与组件组织 / renderMarkdown 注释）；测试 = web-ui 112 例 + web 66 例（含链接 / 任务列表新例）+ e2e 27 例；真 key 活体 = Agnes 3.0 Flash 完整链（思考 → bash → 审批 → read → 最终回答 → 文件弹窗），明暗双主题截图存 `artifacts/r177/`。
+
+## D-069 中间对话区按参照实现修正（R178）
+
+- **状态**：已定 · 2026-11-22 · 用户实拍复核批（「不是照抄吧」「AI 回复这里没破坏吧」两问后开工）；✓ 同日落码
+- **背景**：用户指出 R177 仍不对：①usage / 思考档徽章（「最高 36000↑ 6917↓」）不该上对话区；②工具调用 / 工具输出直接露对象花括号；③read 行还要点击展开才见文件名、文件名不是主信息位；并明确「不仅仅是这些问题」。逐行对照参照实现后确认偏差是整条链：过程分组阈值（参照按「思考 + 工具」项数、我们只按工具数）、未知工具 / MCP 的分组边界、审批 settled 痕迹行、轮头形状与时长格式、工具行图标 / 类别词 / 主次信息 / 成功状态词 / 单次耗时、read/search 静态语义、MCP 与兜底参数形状、正文排版档位、运行中轮头与加载行。根因：按自己的计划与记忆落码，并把自造形状写进单测 / e2e 锁死（「全绿」只证明自洽）。
+- **决定**：
+  1. **工具行**：工具身份图标（read/search 放大镜、bash/powershell 终端、edit/write 铅笔、MCP 插头、兜底扳手，16px 弱色）+ 类别词（正在读取 / 已读取、正在搜索 / 已搜索、正在执行 / 已执行、正在编辑 / 已编辑、正在写入 / 已更新、MCP）+ 主信息 + diff 计数 + **仅失败时**的状态词（虚线下划线 + 原因 title）。成功行不显示状态词 / 单次耗时；错误不自动展开；展开状态按 `sessionId:callId` 记忆。
+  2. **read / search / glob 是静态行**：`canToggle=false`，不渲染按钮语义 / 箭头；read 主信息 = 文件图标 + 文件名（点击弹窗看账本已捕获内容），不显示行号范围 / 耗时；search / glob 只有一句「查找 <query>」（或「列出 <path>」），不展开结果列表 / 文件 chip。
+  3. **参数与结果**：兜底卡扁平参数 = 两列键值表（不露花括号），嵌套对象才用 JSON 代码块；MCP 结果优先（短结果小卡 / 长结果代码块 288px），参数收进二级「调用详情」；execute 命令 3lh 可展开到 10lh、输出 5lh；diff 上限 240px。
+  4. **过程分组**：连续「思考 + 有类别的工具」**项数 ≥2** 折叠（思考也算一项）；未知工具 / MCP 是边界不分组；组头统计「已查阅 N 项，已执行 N 命令，已修改 N 文件」（运行中未完成措辞；中文逗号；change 按去重文件数，路径未知单列）；运行中组头显示当前活动项摘要；组内左导线 + 16lh 上限。
+  5. **轮级**：完成轮过程收进「已工作 3 分 44 秒」（无「用时」、无工具计数；底边细分隔线；箭头常显）；运行中不显示轮级折叠头（过程直接展开，末尾「工作中 + 时长」加载行）；中断显示「已停止」；无时长用「已处理」；异常轮默认展开；最终回答自带 reasoning 收进折叠体。
+  6. **不上屏**：usage / 思考档行徽章、assistant 下「已中断」胶囊、settled 审批痕迹行。pending 审批仍在输入区 dock；settled 数据仍留在 store（自定义 conversation 区域可消费）。
+  7. **正文排版**：14px / 1.75 / 0.025em；strong 500；ul 各级 disc、ol inside、li 内 p margin 0；行内 code 12px 无边框；标题 mt 24 / mb 16；引用 pl 12；链接蓝色点线；外链新标签、相对链接不导航。
+  8. **结构**：`styles/conversation/` 下按功能拆 motion / markdown / actions / rows / turn 五个文件（入口 `tokens.css` @import；copy 脚本递归复制）；工具卡内部不再全量内联样式。
+  9. **插件缝不破坏**：`conversation` 区域槽、`tool.call.view.<工具名>` / `tool.call.view.mcp`、`approval.view.<工具名>`、`ToolCallView` / `ApprovalCardView` props、公共出口、替换优先级与卸载回落全部不变；行模型 / 协议 / 存储不动。
+- **理由**：参照实现的可观察行为是唯一验收标尺；R177 的偏差来自「计划写对、落码走样、测试锁错」，不是审美分歧。审批痕迹与 usage 徽章是自造信息，用户读不懂也不需要；read/search 静态行和过程项计数是组织问题的根。
+- **非目标（挂账）**：右栏文件预览；侧栏 / 输入区 / 设置页视觉重做；工具级 stopped / denied 协议字段；diff 语法高亮（本轮只对齐高度 / 行号 / 卡片语言）；逐条动画时长（300ms 收起动画暂挂）。
+- **备注**：落点 = interfaces.md web 段输出组织契约（R178）+ CSS 组织；测试 = web-ui 116 例（含 conversation 区域槽顶替）+ e2e 27 过 / 1 skip（usage 不上屏 / read 文件链接 / 审批无痕迹 / 未知工具不分组 / 截断注记进结果区 / 四缝顶替断言保留）；真 key 活体 = Agnes 3.0 Flash（思考 → bash → 审批 → read → 最终回答），明暗双主题 + 运行中截图存 `artifacts/r178/`；`artifacts/r178/` 不入库。
+
+## D-070 R178 审查修正（R179）
+
+- **状态**：已定 · 2026-11-22 · R178 落码后的只读审查批（用户问「需要进行审查吗？」→ 拍板「好」；修哪些由我定 → 拍板「好」）；✓ 同日落码
+- **背景**：R178 自测全绿后做独立审查（插件缝 / 文档对码 / 行为边界 / 交互 / 样式漏网 / 死代码 / 测试质量 / 真用户路径八面）。**无 P1**：四缝、公共出口、协议与 R178 契约主体均完好。P2 五项：①展开组的子行仍带工具图标、思考块自带导线与组导线叠成双层；②组头展开后仍显示活动项预览（参照展开显示统计）；③修改组收起态丢了文件名这层信息；④代码块头「换行/复制」仍吃全局按钮基线（与上批 file-link 同类）；⑤「思考也算一项」的核心规则没有单测锁住（上轮假绿的根）。
+- **决定**：
+  1. **组内收口**：组体隐藏子行前置工具图标；思考块在组内剥掉自身左导线/缩进——组导线唯一（参照组体同法）。
+  2. **组头**：展开态显示统计（`open || 无活动项 ? 统计 : 预览`）；`aria-label` 恒为统计串。
+  3. **修改组收起态文件名**：`WorkStats.files` 带去重路径（首现序）；收起时单文件显「已修改 + 文件名」、多文件显统计 + 文件名，展开回统计；本轮不可点（查看器沿 D-069 挂账）。
+  4. **代码块头按钮**：常态/hover/aria-pressed 加 `.henira-app` 前缀，压过 06-controls 的全局按钮基线。
+  5. **测试**：新增 `buildProcessItems` / `buildTurnLayout` 单测 7 例（思考+单工具折组、交错同组、未知/MCP 断组、修改去重与路径未知、空步剔除与中断断组、完成轮折叠、运行中不折）；组件补修改组文件名 1 例。
+  6. **箭头**：行/组/思考箭头 12→16px；展开态只旋转，显隐仍归 hover/focus（对齐参照；常显提示退场）。
+  7. **文案与 API**：调用参数 / 查看调用详情 / 暂无结果 / 等待结果 / 无参数（对齐参照词表）；`ToolRow.secondary` 的 title 只对字符串生成；删未用的 `useId` 与死词条 `turn.durationPrefix`。
+  8. **卫生**：4 条 CSS 降序警告清零；copy 脚本先清 `dist/styles`；`.henira-file-link` 两段声明合一。
+- **理由**：审查抓到的都是「自测覆盖不到的形状层偏差」；尤其组体图标/导线与组头文案会直接决定展开后的观感，而核心分组规则无单测意味着下一次改动仍可能悄悄回退。
+- **非目标（挂账）**：edit 的 old==new 回落通用卡（无变化时该显示什么待拍板）；折叠/组开合态跨虚拟窗口持久（参照实现同为本地 state）；右栏文件预览与修改组文件名可点（沿 D-069 挂账）。
+- **备注**：测试 = web-ui 124 例（+8：分组纯函数 7 + 修改组文件名 1；全仓 621 过 / 1 skip，e2e 27 过 / 1 skip）；七门禁 + build + bundle 全绿；真 key 活体 = Agnes 3.0 Flash（思考 → write a/b → edit a → 最终回答含 ts 代码块），浏览器实测：组体图标 `display:none`、思考体 border/margin/padding 归零、组头收起「已修改 2 文件 a.txt，b.txt」/展开回统计、代码块头按钮 border 0 + 透明底；明暗双主题截图存 `artifacts/r179/`（不入库）。
+
+## D-071 审批卡与排队卡按参照重排（R180）
+
+- **状态**：已定 · 2026-11-22 · 用户实拍点名「审批卡的卡片太丑 / 排队卡也看下参照」；✓ 同日落码
+- **背景**：两张卡都把「信息卡」做成了「警报块」。审批卡 = 黄底 + 左警示边 + 状态/工具名徽章 + 三枚胶囊按钮 + 裸排 diff；参照实现 = 中性弹层卡（border + radius-2xl + popover 底）、「权限请求」标题、工具块预览、**编号选项行（主文案 + 说明）**、底部键盘提示。排队卡 = 标题行「排队消息 + 计数」+ 12px 弱文字行 + 三枚方块图标；参照实现 = 贴在输入卡上沿的静音列表（无标题/计数头）、14px 主文字、行内动作、暂停提示条。
+- **决定**：
+  1. **审批卡 chrome**：中性弹层卡（`--henira-panel` + border + radius-xl + 轻阴影），去黄底/左警示边/状态徽章/mono 工具名；标题「权限请求」弱色；队列数 >1 时弱色尾注；`role=dialog` 与 `ApprovalCardShell` 出口不变。
+  2. **预览块**：工具行 chrome（图标 + 「等待审批」+ 工具身份）+ 内容卡（edit/write = 文件行 + ±N + diff；bash = `$ 命令`；read/glob/grep = 路径；兜底 = JSON），不再裸排。
+  3. **选项行**：编号 + 主文案 + 说明三段（允许/仅这一次、本会话允许/本会话内不再询问、拒绝/这次先拒绝），首行默认底、hover 提亮；**点击即决定保留**；Enter=允许一次 / Esc=拒绝保留；底部弱色键盘提示。**修活体抓到的真 bug：window 键监听加可编辑控件守卫**——焦点在输入框时打字 Enter 不再误放行审批。
+  4. **排队卡**：去标题/计数头（`ul` 的 aria-label 保留给读屏与测试），14px 主文字行、`--henira-card-bg` 底 + radius-xl、steer 徽章、行动作 hover/focus 浮现（沿用 R171 裁定，不做常驻方块阵）；暂停态 = 中性提示条 + 继续发送（前缀压全局按钮基线）。
+  5. **不动**：`approval.view.<工具名>` / `composer.queue.*` 词表、审批乐观摘卡/回滚、Enter/Esc 语义、队列 promote/remove/resume 端点与 UI 数据源。
+- **理由**：审批与排队是输入区的延伸，不是系统警报；层级应靠字重与留白，而不是底色与徽章。参照的可观察结构（中性卡 + 编号选项 + 静音列表）直接解决「丑」的根因，同时保留本仓一键应答与动作浮现两个既有裁定。
+- **非目标（挂账）**：审批卡底部独立「确认」按钮（参照模型 = 选中 + 确认；本仓保留点击即决定，避免多一步）；排队行拖拽排序 / 编辑冻结锁（既有挂账）；审批选项的前缀规则 scope 展示（bash 前缀级规则挂账）。
+- **备注**：落点 = interfaces.md web 段（审批/排队卡条）；测试 = web-ui 125 例（+1 键盘守卫；全仓 622 过 / 1 skip，e2e 27 过 / 1 skip）；七门禁 + build + bundle 全绿；活体 = Agnes 3.0 Flash（bash sleep 审批 → 允许 → 忙时入队），明暗双主题截图存 `artifacts/r180/`（不入库）；活体顺带抓修：审批卡 window 键监听会在输入框打字时误放行（已加可编辑控件守卫）。
+
+## D-072 输入座位与 chain 槽（R182）
+
+- **状态**：已定 · 2026-11-22 · 用户拍板「样式看 ZCode，机制看 dsh」；✓ 同日落码
+- **背景**：输入框视觉与拆件两件事一起暴露。视觉上我们的卡是灰底 + 16% 重边 + 无影、编辑区 30px、工具排 12px 小字、占位塞键盘教学；参照实现的输入卡是白底 + 10% 细边 + 两层轻影、编辑区最小 40px / 最大 160px、工具排 28px / 14px、占位随状态变。机制上用户追问「模型选择、思考等级、上下文、加号菜单、权限、输入框自身是不是每一个都是插件」——取证结论：dsh 不是「每个零件都是插件」，是**骨架 + 座位**：编辑器 / 加号钮 / 发送停止 / 上下文表留在骨架；模型（含思考档同包）、权限、计划、附件、命令浮层、队列条目各占座位；`conversation.composer` 是 chain 槽，审批/提问/只读子会话按 select 整块替换输入栏（fallback 保持挂载、display:none）。ZCode 没有 chain，只有「隐藏 composer + 交互弹层」的条件分支；它只提供可观测行为与视觉，不提供机制。
+- **决定**：
+  1. **chain 作为槽库一等 kind**（dsh `SlotKind` 行为层）：条目 = `id + priority + select(owner) + Component`；`priority` 升序、first non-null wins；消费件负责 `fallback` 挂载与 `overlay`（当选时 fallback `display:none` 但保持挂载，草稿/DOM 态不丢）。宿主 API 增加 `registerChainSlot(name, entry, { priority? })` / `replaceChainSlot(name, id, entry)`；官方条目同走公共注册路径，第三方可顶替、卸载按登记回落（D-022 同款冲突判据）。**不搞 composer 私有版、不留「以后再提升」**。
+  2. **输入座位拆分**：`composer` = 输入座位（官方件 ComposerDock，chain 接管路由）；新增 `composer.bar` = 常驻输入栏（single，chain fallback，官方默认件 Composer）；新增 `composer.takeover` = 接管 chain（官方默认条目 = 审批）。待审批时输入栏隐藏但挂载，审批卡占同一座位；焦点移入接管容器，决定后回输入栏（用户没把焦点移走时才回焦）。词表 11 → 13。
+  3. **视觉（ZCode 行为层）**：输入卡 = `--henira-card-bg` 白底 + `--henira-border`(10%) 细边 + `--henira-radius-xl` + 两层轻影（`--henira-shadow-composer`）；hover / focus-within 只把边框加深到 `--henira-border-strong`(16%)，不再黑边聚焦。编辑区 = 最小 40px / 最大 160px / 行高 20px / 占位 `--henira-text-subtlest`。工具排 = 28px 高、14px 字、hover 浅底不描边；发送/停止 = 28px 圆钮。占位三态：空会话「向 Henira 提问」/ 有历史「提出后续修改要求」/ 忙「继续输入以排队后续修改」；键盘教学与忙态常驻提示退场（发送钮 tooltip 承担修饰键提示）。排队卡 = 上圆角 + 负底边距 + 半透明底 + 毛玻璃，塞到不透明输入卡后面。
+  4. **不动**：协议 / 行投影 / 存储 / `approval.view.*` / `composer.queue.*` / 发送停止语义 / 乐观摘卡与回滚 / Enter=允许、Esc=拒绝。
+- **理由**：dsh 用一个消费者也把 chain 做成通用机制；我们已有审批这个真实消费者，先把机制做对，提问（R184）到来时只加一条 entry，宿主不用再动。视觉照 ZCode 是因为它是用户点名的观感基准；机制照 dsh 是因为「一切皆插件」的装配基准。两件事同批做，避免同一 dock 被改两遍。
+- **非目标（后续批）**：`composer.dock` / `composer.model` / `composer.left` / `composer.right` 四个座位与 composer API 归 R183；向用户提问（第二条 chain entry）归 R184；Esc=停止单独拍；上下文 / 加号 / 发送不做座位（骨架，dsh 同款）。排队面板仍在输入栏内，待审批时随输入栏一起隐藏——R183 `composer.dock` 时移出。
+- **备注**：落点 = plugins.md §4/§7.2 + interfaces.md 槽词表/视觉基线；测试 = chain 登记簿 5 例 + ComposerDock 接管/隐藏/焦点 + 占位三态 + 通用 chain 件；e2e 定位器从占位文案改 `data-testid="composer-input"`（占位变三态后文案不再稳定）。
+
+## D-073 输入座位四席与 Composer API（R183）
+
+- **状态**：已定 · 2026-11-22 · 用户拍板批 R183（「加 composer.dock / composer.model / composer.left / composer.right 四个座位 + composer API，配自己的测试矩阵」）；✓ 同日落码
+- **背景**：R182 只拆出 `composer` / `composer.bar` / `composer.takeover`，模型与思考、排队、工具排左右仍长在 Composer 私有 state：第三方无法在工具排加按钮、无法替换模型控件、`composer.dock` 不存在；排队面板住在 bar 内，审批接管时随 bar 一起 `display:none`（用户点名的遗留）。dsh 的座位取证：`input.left` / `input.right` 是官方空的 list（工具排左、发送钮前），`input.model` 是 single（模型 + 思考同一包），dock 条目在卡外、chain 之外；`composer.bar` 也是 single。
+- **决定**：
+  1. **四席入词表**（13 → 17）：`composer.model`（single，官方默认件 ModelSeat = 模型选择器 + 思考档）· `composer.left`（list，工具排左追加位，官方空）· `composer.right`（list，工具排右追加位，官方空）· `composer.dock`（list，输入卡外通栏条目，官方默认件 QueueDock = 排队面板）。dsh 的 `input.dock`（卡上）/`composer.dock`（卡下）两缝在本轮合并为一个 `composer.dock`（卡上，装第一个真实消费者排队面板）；卡下缝等第二个消费者再拆。
+  2. **single 槽语义落码**（dsh `SlotKind.single` 行为层）：登记簿增 `isSingleSlot` 判定；命中槽的 `registerSlot` 与 `replaceSlot` 同走认领/回落（同一时刻一位占用、卸载回落前件、第二家第三方报冲突）。当前 single 集 = `composer.bar` / `composer.model`；其余 list 追加不变。
+  3. **Composer API**：`WebPartContext.composer`（`ComposerApi`），ComposerDock 以 `{...ctx, composer}` 注入全部 `composer.*` 件。面 = 草稿（`draft/setDraft`，会话级 uiState 双写）· 焦点（`focus/registerInput`，bar 登记 textarea）· 按次模型绑定（`model/setModel/effort/setEffort/catalog/settingsReady`）· 发送（`submit/stop`）· 审批面（`pendingApproval/approvalQueueTotal/onApprovalDecided/onApprovalFailed`）。状态唯一真源上移为 `useComposerRuntime`（ComposerDock 内），`Composer` 退成纯 bar 视图（单独渲染 fail-loud）；`ModelSeat` 承接档位派生与切模型 clamp。
+  4. **排队面板移出 bar**：官方 QueueDock 注册进 `composer.dock`，由 ComposerDock 在 bar 外渲染；接管时 bar 隐藏而 dock 仍可见。接管容器补 `position:relative/z-index:1`，排队卡继续从卡后沿长出。
+  5. **不动**：协议 / 行投影 / 存储 / `approval.view.*` / `composer.queue.*` / 发送停止语义 / 审批乐观摘卡与回滚 / 视觉基线（只新增座位容器与层叠）。
+- **理由**：座位是「一切皆插件」在输入区的最后一段硬编码；模型席按 dsh single 语义落码后，第三方顶替是显式路径（`replaceSlot`）而非追加出两个控件。API 上移是因为 dock 与座位件必须共享草稿/焦点/绑定——状态若继续住在 bar，`composer.dock` 只能靠私有桥接，等于留下第二个真源。
+- **非目标（挂账）**：attachments / permission / plan / activity / overlay 座位（功能落地时再加）；`ask_user` 与第二条 chain entry 归 R184；Esc=停止单独拍；审批卡宽度（仍 = 输入座位全宽）。
+- **备注**：落点 = plugins.md §4/§7.2 + interfaces.md 槽词表/ComposerApi；测试 = 登记簿 single 3 例 + 四席/API 3 例 + 既有 Composer 测试整座迁移；e2e 定位器不变（`data-testid="composer-input"`）。
