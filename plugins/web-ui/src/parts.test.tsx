@@ -109,6 +109,11 @@ function DockProbe(props: WebPartContext) {
   );
 }
 
+/** 审查 P3-2 探针：dock 里的 textarea 不得抢走接管结束后的回焦 */
+function DockAreaProbe() {
+  return <textarea aria-label="dock-area" />;
+}
+
 function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
   const client: HeniraClientLike = {
     createSession: async () => ({ id: "s-1", cwd: "C:\\demo", updatedAt: 0, busy: false }),
@@ -1039,6 +1044,63 @@ describe("输入座位四席 + Composer API（R183）", () => {
     fireEvent.click(screen.getByRole("button", { name: "dock决定" }));
     expect(screen.getByTestId("dock-probe-state").textContent).toBe("none");
     expect(barSlot.style.display).toBe("");
+  });
+
+  it("审查修复：乐观已答不再吞发送；接管时排队编辑禁用；回焦不被 dock textarea 抢走", async () => {
+    const approvalRow = {
+      kind: "approval",
+      rowId: "p:r-1",
+      turn: "t-1",
+      step: 1,
+      requestId: "r-1",
+      toolName: "demo-write",
+      status: "pending",
+    } as ApprovalRow;
+    const approvalRows: Row[] = [approvalRow];
+    const sessionState = { busy: true, queue: [{ id: "q1", text: "排队的话", steer: false }] };
+    const ctx = dockCtx({
+      store: {
+        getSession: () => ({ rows: approvalRows, state: sessionState }),
+        subscribe: () => () => {},
+      },
+    });
+    const prompt = vi.spyOn(ctx.client, "prompt");
+    // settle 挂起 = 乐观窗口：answered 已置、行仍 pending（卡已离场、bar 已回来）
+    vi.spyOn(ctx.client, "settleApproval").mockImplementation(() => new Promise(() => {}));
+    const slots = new Map(ctx.slots);
+    slots.set("composer.dock", [QueueDock, DockAreaProbe]);
+    const { container } = render(<ComposerDock {...ctx} slots={slots} />);
+
+    // 接管中：排队编辑钮禁用（bar 隐藏，编辑会写进看不见的草稿）
+    expect(
+      (screen.getByRole("button", { name: t("composer.queue.edit") }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByText(t("approval.allow"))); // 乐观摘卡，settle 不回
+    const barSlot = container.querySelector(".henira-composer-bar-slot") as HTMLElement;
+    await waitFor(() => expect(barSlot.style.display).toBe(""));
+    // bar 回来 → 编辑恢复
+    expect(
+      (screen.getByRole("button", { name: t("composer.queue.edit") }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    // 回焦到登记输入框，不是 composer.dock 里的 textarea
+    const area = container.querySelector(
+      ".henira-composer-bar-slot textarea",
+    ) as HTMLTextAreaElement;
+    await waitFor(() => expect(document.activeElement).toBe(area));
+
+    // 乐观已答后发送不再被兜底吞掉（审查 P2）
+    fireEvent.change(area, { target: { value: "接着说" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith("s-1", "接着说", {
+        steer: undefined,
+        modelId: undefined,
+        reasoningEffort: undefined,
+      }),
+    );
   });
 });
 

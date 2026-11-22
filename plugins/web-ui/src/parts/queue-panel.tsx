@@ -97,9 +97,12 @@ export function QueuePanel({
                 className="henira-iconbtn"
                 aria-label={ctx.t("composer.queue.edit")}
                 title={ctx.t("composer.queue.edit")}
+                // 无回填目标（审批接管中 bar 隐藏）时禁用——否则条目被删、文本进看不见的草稿
+                disabled={onEdit === undefined}
                 onClick={() => {
+                  if (onEdit === undefined) return;
                   remove(entry.id);
-                  onEdit?.(entry.text);
+                  onEdit(entry.text);
                 }}
               >
                 <PencilGlyph size={14} />

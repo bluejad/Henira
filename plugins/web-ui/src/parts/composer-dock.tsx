@@ -101,8 +101,9 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
     [rows, answered],
   );
 
-  // 运行时（草稿/模型/发送/目录）——座位共享状态的唯一真源
-  const runtime = useComposerRuntime(ctx);
+  // 运行时（草稿/模型/发送/目录）——座位共享状态的唯一真源。提交让位判据 = answered
+  // 过滤后的未答审批（乐观已答不拦——审查 P2）
+  const runtime = useComposerRuntime(ctx, pendingApprovals.length > 0);
   const api = useMemo<ComposerApi>(
     () => ({
       ...runtime,
@@ -135,6 +136,9 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
   // 只在焦点仍在座位内/body（用户没去点设置等别处）时才回焦，不抢用户焦点。
   const dockRef = useRef<HTMLDivElement>(null);
   const wasTakeover = useRef(false);
+  // 回焦走登记输入框（runtime.focus）而不是 querySelector("textarea")：composer.dock 也是
+  // dockRef 子树，插件条目里的 textarea 会抢走回焦（审查 P3——R183 把 dock 挪进这里后放大）
+  const focusInput = runtime.focus;
   useEffect(() => {
     if (takeoverKey !== null) {
       wasTakeover.current = true;
@@ -145,9 +149,9 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
     wasTakeover.current = false;
     const active = document.activeElement;
     if (active === null || active === document.body || dockRef.current?.contains(active) === true) {
-      dockRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+      focusInput();
     }
-  }, [takeoverKey]);
+  }, [takeoverKey, focusInput]);
 
   const dock = (ctx.slots.get("composer.dock") ?? []) as WebPart[];
   const bar = (ctx.slots.get("composer.bar") ?? []) as WebPart[];

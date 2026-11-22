@@ -18,7 +18,10 @@ export type ComposerRuntime = Omit<
   "pendingApproval" | "approvalQueueTotal" | "onApprovalDecided" | "onApprovalFailed"
 >;
 
-export function useComposerRuntime(ctx: WebPartContext): ComposerRuntime {
+/** @param approvalPending 未答审批在位（ComposerDock 的 answered 过滤后判据）——提交让位。
+ *  已点击决定、settle 尚未回传的审批不算（卡已离场、输入栏已回来，提交不该被静默吞——
+ *  审查 P2 修复；旧实现同样只看未答 pending）。 */
+export function useComposerRuntime(ctx: WebPartContext, approvalPending: boolean): ComposerRuntime {
   const [draft, setDraftState] = useState("");
   const [sendFailed, setSendFailed] = useState(false);
   const [model, setModelState] = useState("");
@@ -134,8 +137,10 @@ export function useComposerRuntime(ctx: WebPartContext): ComposerRuntime {
     (text?: string, opts?: { steer?: boolean }): void => {
       const submitted = (text ?? draft).trim();
       if (submitted === "" || ctx.sessionId === null) return;
-      // 接管兜底：待审批时输入栏虽隐藏，键盘/程序化触发也不得越过审批（可见态由 ComposerDock 管）
-      if (rows.some((row) => row.kind === "approval" && row.status === "pending")) return;
+      // 接管兜底：未答审批在位时输入栏虽隐藏，键盘/程序化触发也不得越过审批（可见态由
+      // ComposerDock 管）。判据来自 ComposerDock 的 answered 过滤结果——乐观已答不再拦
+      //（卡已离场、输入栏已回来，拦 = 发送被静默吞掉，审查 P2）
+      if (approvalPending) return;
       setDraftState("");
       ctx.updateUiState?.({ draft: "" }); // 持久层同步清空（否则重启还原出旧草稿）
       setSendFailed(false);
@@ -152,7 +157,7 @@ export function useComposerRuntime(ctx: WebPartContext): ComposerRuntime {
           setSendFailed(true);
         });
     },
-    [ctx, draft, model, effort, rows],
+    [ctx, draft, model, effort, approvalPending],
   );
 
   const stop = useCallback((): void => {
