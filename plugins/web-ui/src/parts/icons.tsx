@@ -11,6 +11,7 @@ import { ArrowsOutIcon } from "@phosphor-icons/react/dist/csr/ArrowsOut";
 import { ArrowUpIcon } from "@phosphor-icons/react/dist/csr/ArrowUp";
 import { BrainIcon } from "@phosphor-icons/react/dist/csr/Brain";
 import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
+import { CaretLeftIcon } from "@phosphor-icons/react/dist/csr/CaretLeft";
 import { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
 import { CircleNotchIcon } from "@phosphor-icons/react/dist/csr/CircleNotch";
@@ -73,6 +74,11 @@ export function QuestionGlyph(props: Props) {
 
 export function CaretGlyph(props: Props) {
   return <CaretRightIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 左向箭头（多题提问卡「上一题」——右向 CaretGlyph 不得复用） */
+export function CaretLeftGlyph(props: Props) {
+  return <CaretLeftIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function CheckGlyph(props: Props) {

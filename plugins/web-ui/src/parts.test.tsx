@@ -1452,7 +1452,7 @@ describe("提问卡（R184）", () => {
     expect(document.activeElement).toBe(first);
   });
 
-  it("单选 + 提交：settleQuestion 收逐题答案；乐观摘卡后 bar 回来", async () => {
+  it("单选点选 = 选中并提交（单题）：只带一个答案来源；乐观摘卡后 bar 回来", async () => {
     const rows: Row[] = [questionRow];
     const ctx = questionCtx(rows);
     const settle = vi.fn(async () => true);
@@ -1461,10 +1461,192 @@ describe("提问卡（R184）", () => {
     const barSlot = container.querySelector(".henira-composer-bar-slot") as HTMLElement;
     expect(barSlot.style.display).toBe("none"); // 提问接管
 
+    // R192：单选点选与键盘 Enter 同路径（选中即推进；单题 = 提交）
     fireEvent.click(screen.getByRole("option", { name: /甲/ }));
-    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
     expect(settle).toHaveBeenCalledWith("s-1", "r-q", [{ id: "q1", selected: ["甲"] }]);
     await waitFor(() => expect(barSlot.style.display).toBe(""));
+  });
+
+  it("单选：先填自定义再点选项——自定义被清空，载荷只有选项", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    render(<ComposerDock {...ctx} />);
+
+    const custom = screen.getByPlaceholderText(t("question.customPlaceholder"));
+    fireEvent.change(custom, { target: { value: "丙" } });
+    fireEvent.click(screen.getByRole("option", { name: /甲/ }));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-q", [{ id: "q1", selected: ["甲"] }]);
+  });
+
+  it("单选互斥：输入自定义清空已选项（提交只有一个答案来源）", () => {
+    const two = {
+      ...questionRow,
+      requestId: "r-exclusive",
+      rowId: "q:r-exclusive",
+      questions: [
+        { id: "a", question: "第一题？", options: [{ label: "甲" }, { label: "乙" }] },
+        { id: "b", question: "第二题？" },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [two];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+
+    // 点选项甲 = 选中并推进到第二题；Esc 回第一题后甲仍选中
+    fireEvent.click(screen.getByRole("option", { name: /甲/ }));
+    expect(screen.getByText("第二题？")).toBeDefined();
+    fireEvent.keyDown(card, { key: "Escape" });
+    expect(screen.getByRole("option", { name: /甲/ }).getAttribute("aria-selected")).toBe("true");
+
+    // 输入自定义 → 选项被清空；自定义行显示「已选」态
+    const custom = screen.getByPlaceholderText(t("question.customPlaceholder"));
+    fireEvent.change(custom, { target: { value: "丙" } });
+    expect(screen.getByRole("option", { name: /甲/ }).getAttribute("aria-selected")).toBe("false");
+    expect(container.querySelector(".henira-question-custom.is-selected")).not.toBeNull();
+
+    fireEvent.keyDown(custom, { key: "Enter", ctrlKey: true });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-exclusive", [
+      { id: "a", selected: [], custom: "丙" },
+      { id: "b", selected: [] },
+    ]);
+  });
+
+  it("多选：选项与自定义可并存（互斥只作用于单选）", () => {
+    const multi = {
+      ...questionRow,
+      requestId: "r-coexist",
+      rowId: "q:r-coexist",
+      questions: [
+        {
+          id: "a",
+          question: "要哪些能力？",
+          multiSelect: true,
+          options: [{ label: "搜索" }, { label: "写作" }],
+        },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [multi];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    render(<ComposerDock {...ctx} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /搜索/ }));
+    const custom = screen.getByPlaceholderText(t("question.customPlaceholder"));
+    fireEvent.change(custom, { target: { value: "还要总结" } });
+    // 多选：自定义行 = 勾选框（有内容即勾选），与上面的选项行同形
+    expect(
+      document.querySelector(".henira-question-custom.is-selected .henira-question-check.is-on"),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-coexist", [
+      { id: "a", selected: ["搜索"], custom: "还要总结" },
+    ]);
+  });
+
+  it("多题导航常驻页头（← 页码 →）：首题上一题禁用、footer 不随翻页长按钮", () => {
+    const two = {
+      ...questionRow,
+      requestId: "r-nav",
+      rowId: "q:r-nav",
+      questions: [
+        { id: "a", question: "第一题？", options: [{ label: "甲" }, { label: "乙" }] },
+        { id: "b", question: "第二题？" },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [two];
+    const ctx = questionCtx(rows);
+    ctx.client.settleQuestion = vi.fn(async () => true);
+    const { container } = render(<ComposerDock {...ctx} />);
+    const head = container.querySelector(".henira-question-head") as HTMLElement;
+    const foot = container.querySelector(".henira-question-foot") as HTMLElement;
+    expect(head.querySelector(".henira-question-nav")).not.toBeNull();
+    expect(foot.querySelector(".henira-question-nav")).toBeNull();
+    expect(foot.querySelectorAll("button").length).toBe(2); // 取消 + 继续（不因翻页增删）
+    const prev = head.querySelector(
+      `[aria-label="${t("question.previous")}"]`,
+    ) as HTMLButtonElement;
+    const next = head.querySelector(`[aria-label="${t("question.next")}"]`) as HTMLButtonElement;
+    expect(prev.disabled).toBe(true);
+    expect(head.textContent).toContain("1 / 2");
+    expect(foot.textContent).toContain(t("question.continue"));
+
+    fireEvent.click(next);
+    expect(head.textContent).toContain("2 / 2");
+    expect(prev.disabled).toBe(false);
+    expect(next.disabled).toBe(true);
+    expect(foot.querySelectorAll("button").length).toBe(2);
+  });
+
+  it("单选聚焦项未选时按提交：自动补选聚焦项（焦点即意图）", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+
+    fireEvent.keyDown(card, { key: "ArrowDown" }); // 焦点落到甲，但未选中
+    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-q", [{ id: "q1", selected: ["甲"] }]);
+  });
+
+  it("单选聚焦项按继续：补选写回草稿（回退上一题仍选中）", () => {
+    const two = {
+      ...questionRow,
+      requestId: "r-auto-persist",
+      rowId: "q:r-auto-persist",
+      questions: [
+        { id: "a", question: "第一题？", options: [{ label: "甲" }, { label: "乙" }] },
+        { id: "b", question: "第二题？" },
+      ],
+    } as QuestionRow;
+    const rows: Row[] = [two];
+    const ctx = questionCtx(rows);
+    ctx.client.settleQuestion = vi.fn(async () => true);
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+
+    fireEvent.keyDown(card, { key: "ArrowDown" }); // 焦点落到甲
+    fireEvent.click(screen.getByRole("button", { name: t("question.continue") }));
+    expect(screen.getByText("第二题？")).toBeDefined();
+    fireEvent.keyDown(card, { key: "Escape" });
+    expect(screen.getByRole("option", { name: /甲/ }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("焦点回到卡本体：不再按旧聚焦项补选（空选 = 跳过）", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    const settle = vi.fn(async () => true);
+    ctx.client.settleQuestion = settle;
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+
+    fireEvent.keyDown(card, { key: "ArrowDown" }); // 聚焦甲
+    fireEvent.focus(card); // 焦点回卡本体（点空白区/换题同形）
+    fireEvent.click(screen.getByRole("button", { name: t("question.submit") }));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-q", [{ id: "q1", selected: [] }]);
+  });
+
+  it("自定义输入 ↑↓ 可离开输入框回到选项", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    ctx.client.settleQuestion = vi.fn(async () => true);
+    render(<ComposerDock {...ctx} />);
+    const custom = screen.getByPlaceholderText(
+      t("question.customPlaceholder"),
+    ) as HTMLTextAreaElement;
+    const options = screen.getAllByRole("option") as HTMLButtonElement[];
+    custom.focus();
+    fireEvent.keyDown(custom, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(options[1]); // 自定义是末位 → 向上 = 最后一个选项
+    fireEvent.keyDown(options[1] as HTMLButtonElement, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(custom);
   });
 
   it("多选 + 分页 + 自定义输入：下一页 Enter 提交，答案按题对齐", async () => {
@@ -1490,7 +1672,7 @@ describe("提问卡（R184）", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: /搜索/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /写作/ }));
-    fireEvent.click(screen.getByRole("button", { name: t("question.next") }));
+    fireEvent.click(screen.getByRole("button", { name: t("question.continue") }));
     // 第二题：纯文本题（自定义输入直接成答案）
     const custom = screen.getByPlaceholderText(
       t("question.customPlaceholder"),
@@ -1550,7 +1732,7 @@ describe("提问卡（R184）", () => {
     const { container } = render(<ComposerDock {...ctx} />);
     const card = container.querySelector(".henira-question") as HTMLElement;
     // 翻到第二题
-    fireEvent.click(screen.getByRole("button", { name: t("question.next") }));
+    fireEvent.click(screen.getByRole("button", { name: t("question.continue") }));
     expect(screen.getByText("第二题？")).toBeDefined();
     // Esc → 回上一题（不是取消）
     fireEvent.keyDown(card, { key: "Escape" });

@@ -126,6 +126,27 @@ const mock = mockLlm([
     mockFinish("tool-calls"),
   ],
   [mockText("question canceled"), mockUsage(USAGE), mockFinish("stop")],
+  // R192：多题提问——页头常驻导航 + 单选互斥（选项 ↔ 自定义）
+  [
+    mockToolCall(
+      "q3",
+      "ask_user",
+      JSON.stringify({
+        questions: [
+          {
+            id: "first",
+            question: "First question?",
+            header: "First",
+            options: [{ label: "One" }, { label: "Two" }],
+          },
+          { id: "second", question: "Second question?", header: "Second" },
+        ],
+      }),
+    ),
+    mockUsage(USAGE),
+    mockFinish("tool-calls"),
+  ],
+  [mockText("two question flow complete"), mockUsage(USAGE), mockFinish("stop")],
 ]);
 
 /** llm 槽位包装（examples/mock 同款）：mockLlm 给的是 LlmService，槽位要 ServiceDefinition */
@@ -533,12 +554,11 @@ test("R184 ask_user: question card answer and cancel", async ({ page }) => {
   await expect(card.getByText("Pick one option?")).toBeVisible();
   await shot(page, "r184-01-question-card.png");
 
-  // 单选：键盘链到卡即通（R185——焦点在卡内，↑↓/Space/Enter 不靠鼠标）：
-  // ↓ 落到第一个选项 → Space 选中 → Enter 末题提交 → 卡离场、回合继续
+  // 单选：键盘链到卡即通（R185/R192——焦点在卡内，↑↓/Space 不靠鼠标）：
+  // ↓ 落到第一个选项 → 空格选中并推进（单题 = 提交）→ 卡离场、回合继续
   await expect.poll(() => card.evaluate((el) => el.contains(document.activeElement))).toBe(true);
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Space");
-  await page.keyboard.press("Enter");
   await expect(card).toBeHidden();
   await expect(page.getByText("question flow complete")).toBeVisible({ timeout: 15_000 });
 
@@ -561,6 +581,84 @@ test("R184 ask_user: question card answer and cancel", async ({ page }) => {
   await card2.getByRole("button", { name: zh["question.cancel"] }).click();
   await expect(card2).toBeHidden();
   await expect(page.getByText("question canceled")).toBeVisible({ timeout: 15_000 });
+});
+
+// ── 用例 ⑨（R192）：多题导航常驻页头 + 单选互斥（选项 ↔ 自定义）────────
+
+test("R192 question card: header pager stays put; single-select custom is exclusive", async ({
+  page,
+}) => {
+  await page.goto(server.url);
+  const textarea = page.getByTestId("composer-input");
+  await expect(textarea).toBeVisible();
+  await textarea.fill("ask me two questions");
+  await textarea.press("Enter");
+
+  const card = page.getByRole("dialog", { name: zh["question.title"] });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("First question?")).toBeVisible();
+
+  // 导航常驻页头：footer 只有取消 + 主按钮（不随翻页出现/消失），首题上一题禁用
+  const nav = card.locator(".henira-question-head .henira-question-nav");
+  await expect(nav).toBeVisible();
+  const prev = nav.getByRole("button", { name: zh["question.previous"] });
+  const next = nav.getByRole("button", { name: zh["question.next"] });
+  await expect(prev).toBeDisabled();
+  await expect(next).toBeEnabled();
+  await expect(nav).toContainText("1 / 2");
+  await expect(card.locator(".henira-question-foot .henira-question-nav")).toHaveCount(0);
+  await expect(card.locator(".henira-question-foot button")).toHaveCount(2);
+  await shot(page, "r192-01-multi-question.png");
+
+  // 下一题 → 页码/禁用态切换；上一题回退
+  await next.click();
+  await expect(card.getByText("Second question?")).toBeVisible();
+  await expect(nav).toContainText("2 / 2");
+  await expect(prev).toBeEnabled();
+  await expect(next).toBeDisabled();
+  await prev.click();
+  await expect(card.getByText("First question?")).toBeVisible();
+
+  // 单选互斥：输入自定义 → 无选项处于选中态，自定义行显示已选态
+  const custom = card.getByPlaceholder(zh["question.customPlaceholder"]);
+  await custom.fill("Other answer");
+  await expect(card.locator(".henira-question-option.is-selected")).toHaveCount(0);
+  await expect(card.locator(".henira-question-custom.is-selected")).toHaveCount(1);
+
+  // 清空自定义、点选项 → 选中即推进到第二题；回退后选项仍选中且自定义为空
+  await custom.fill("");
+  await card.getByRole("option", { name: /One/ }).click();
+  await expect(card.getByText("Second question?")).toBeVisible();
+  await prev.click();
+  await expect(card.getByText("First question?")).toBeVisible();
+  await expect(card.locator(".henira-question-option.is-selected")).toHaveCount(1);
+  await expect(card.locator(".henira-question-custom.is-selected")).toHaveCount(0);
+  await expect(custom).toHaveValue("");
+
+  // 再输入自定义 → 选项取消选中（互斥；提交只会带自定义）
+  await custom.fill("Other answer");
+  await expect(card.locator(".henira-question-option.is-selected")).toHaveCount(0);
+  await expect(card.locator(".henira-question-custom.is-selected")).toHaveCount(1);
+  await shot(page, "r192-02-exclusive.png");
+
+  // 继续到第二题（纯文本题，空选 = 跳过）并提交
+  await card.getByRole("button", { name: zh["question.continue"] }).click();
+  await expect(card.getByText("Second question?")).toBeVisible();
+  await card.getByRole("button", { name: zh["question.submit"] }).click();
+  await expect(card).toBeHidden();
+  await expect(page.getByText("two question flow complete")).toBeVisible({ timeout: 15_000 });
+
+  // 全链载荷：痕迹行只带自定义答案（单选互斥），第二题跳过
+  await page
+    .getByRole("button", { name: /已处理|已工作/ })
+    .last()
+    .click();
+  const groups = page.locator(".henira-work-group-head");
+  if ((await groups.count()) > 0) await groups.last().click();
+  const answers = page.locator(".henira-question-answers").last();
+  await expect(answers).toContainText("Other answer");
+  await expect(answers).not.toContainText("One");
+  await expect(answers).toContainText(zh["question.skipped"]);
 });
 
 // ── 用例 ⑦（R176）：流式期间列表零请求 + 双窗口列表/busy 推送同步 ──────

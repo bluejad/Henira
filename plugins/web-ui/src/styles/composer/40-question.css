@@ -41,10 +41,39 @@
   font-variant-numeric: tabular-nums;
 }
 .henira-question-pager {
-  margin-left: auto;
+  min-width: 40px;
+  text-align: center;
   color: var(--henira-text-subtlest);
   font-size: var(--henira-fs-sm);
   font-variant-numeric: tabular-nums;
+}
+/* 多题导航：常驻页头右端（← 页码 →）——按钮不随翻页出现/消失，主按钮位置不横跳 */
+.henira-question-nav {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.henira-app .henira-question-navbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--henira-radius);
+  background: none;
+  color: var(--henira-text-subtle);
+  cursor: pointer;
+}
+.henira-app .henira-question-navbtn:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-question-navbtn:disabled {
+  cursor: default;
+  opacity: 0.4;
+  background: none;
 }
 .henira-question-spacer {
   flex: 1;
@@ -66,6 +95,13 @@
   flex-direction: column;
   gap: 2px;
 }
+.henira-question-mark {
+  flex: none;
+  width: 20px;
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
 .henira-app .henira-question-option {
   display: flex;
   align-items: flex-start;
@@ -85,18 +121,14 @@
   background: var(--henira-surface-hover);
 }
 .henira-app .henira-question-option.is-selected {
-  background: var(--henira-surface-hover);
+  background: var(--henira-selected);
+}
+.henira-app .henira-question-option.is-selected .henira-question-mark {
+  color: var(--henira-text);
 }
 .henira-app .henira-question-option:disabled {
   cursor: default;
   opacity: 0.6;
-}
-.henira-question-mark {
-  flex: none;
-  width: 20px;
-  color: var(--henira-text-subtlest);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.5;
 }
 .henira-question-check {
   display: inline-flex;
@@ -107,10 +139,11 @@
   margin-top: 3px;
   border: 1px solid var(--henira-border);
   border-radius: 4px;
-  color: var(--henira-accent, var(--henira-text));
+  color: var(--henira-accent-text, #fff);
 }
 .henira-question-check.is-on {
   border-color: var(--henira-accent, var(--henira-text));
+  background: var(--henira-accent, var(--henira-text));
 }
 .henira-question-option-text {
   display: flex;
@@ -137,6 +170,12 @@
 }
 .henira-question-custom:hover {
   background: var(--henira-surface-hover);
+}
+.henira-question-custom.is-selected {
+  background: var(--henira-selected);
+}
+.henira-app .henira-question-custom.is-selected .henira-question-mark {
+  color: var(--henira-text);
 }
 .henira-app .henira-question-input {
   flex: 1;
@@ -170,7 +209,6 @@
   margin-right: auto;
 }
 .henira-app .henira-question-cancel,
-.henira-app .henira-question-nav,
 .henira-app .henira-question-submit {
   display: inline-flex;
   align-items: center;
@@ -178,12 +216,10 @@
   font-size: var(--henira-fs-base);
   padding: 4px 12px;
 }
-.henira-app .henira-question-cancel:hover,
-.henira-app .henira-question-nav:hover {
+.henira-app .henira-question-cancel:hover {
   background: var(--henira-surface-hover);
 }
 .henira-app .henira-question-cancel:disabled,
-.henira-app .henira-question-nav:disabled,
 .henira-app .henira-question-submit:disabled {
   cursor: default;
   opacity: 0.5;

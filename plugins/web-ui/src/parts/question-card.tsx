@@ -5,6 +5,8 @@
 // Ctrl/Cmd+Enter 随时提交、Esc 首题取消整个请求 / 后续题回上一题、IME 组合期间 Enter 不提交、
 // 空选提交 = 明确跳过。答案经 ctx.client.settleQuestion 收回（幂等先答者赢）；乐观摘卡与
 // 审批同款：提交/取消即 onAnswered，settle 失败回滚（404 = 已解决，不回滚）。
+// R192 交互修正：单选 = 唯一答案（选选项清空自定义、输入自定义清空选项、点选即推进，
+// 与 Enter 同路径）；多选允许选项 + 自定义并存。多题导航常驻页头右端（← 页码 →，到端禁用）。
 
 import {
   QUESTION_CUSTOM_MAX,
@@ -14,7 +16,7 @@ import {
 } from "@henira/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WebPartContext } from "../types.js";
-import { CaretGlyph, CheckGlyph } from "./icons.js";
+import { CaretGlyph, CaretLeftGlyph, CheckGlyph } from "./icons.js";
 
 interface Draft {
   selected: string[];
@@ -33,11 +35,11 @@ function draftOf(drafts: Record<string, Draft>, id: string): Draft {
   return drafts[id] ?? EMPTY_DRAFT;
 }
 
-/** 选项切换的纯计算（单选=替换；多选=勾选/取消）；状态更新与「末题提交覆盖草稿」共用 */
+/** 选项切换的纯计算（单选=替换并清空自定义；多选=勾选/取消）；状态更新与「末题提交覆盖草稿」共用 */
 function toggleSelection(question: QuestionSpec, base: Draft, label: string): Draft {
   if (question.multiSelect !== true) {
-    // 单选：点击已选项 = 保持选中（不因重复点击取消，避免误触清空）
-    return { ...base, selected: [label] };
+    // 单选 = 唯一答案：选中选项即清空自定义输入（互斥）；点击已选项保持选中
+    return { selected: [label], custom: "" };
   }
   const selected = base.selected.includes(label)
     ? base.selected.filter((l) => l !== label)
@@ -76,6 +78,9 @@ export function QuestionCard(props: {
   const [page, setPage] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [settling, setSettling] = useState(false);
+  /** 键盘聚焦的选项下标（=选项数时表示自定义输入；-1 = 卡片容器）。
+   *  与 DOM 焦点分开记：点「继续」时按钮会夺焦，仍要知道用户聚焦过哪一项。 */
+  const [activeIndex, setActiveIndex] = useState(-1);
   const pending = row.status === "pending" && !settling;
   const settleQuestion = ctx.client.settleQuestion;
   const total = questions.length;
@@ -85,14 +90,40 @@ export function QuestionCard(props: {
   const customRef = useRef<HTMLTextAreaElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // 挂载/换题时容器自聚焦（无预选——焦点只表示键盘位置，不表示已选中）
+  // 挂载/换题时容器自聚焦并清掉上一题的键盘焦点下标（无预选——焦点只表示键盘位置，不表示已选中）
   // biome-ignore lint/correctness/useExhaustiveDependencies: 换题/换请求要回焦卡片；依赖是触发信号，体内只读 ref
   useEffect(() => {
+    setActiveIndex(-1);
     cardRef.current?.focus();
   }, [row.requestId, page]);
 
-  const updateDraft = useCallback((id: string, next: Draft): void => {
-    setDrafts((prev) => ({ ...prev, [id]: next }));
+  /** 自定义输入：单选下与选项互斥（写自定义即清空已选），多选下与选项并存 */
+  const updateCustom = useCallback((question: QuestionSpec, value: string): void => {
+    setDrafts((prev) => {
+      const base = draftOf(prev, question.id);
+      return {
+        ...prev,
+        [question.id]:
+          question.multiSelect === true
+            ? { ...base, custom: value }
+            : { selected: [], custom: value },
+      };
+    });
+  }, []);
+
+  /** 选项/自定义输入之间的键盘焦点移动（卡片容器 ↑↓ 与自定义输入框 ↑↓ 共用） */
+  const moveOptionFocus = useCallback((step: 1 | -1): void => {
+    const focusables: HTMLElement[] = optionRefs.current.filter(
+      (el): el is HTMLButtonElement => el !== null,
+    );
+    if (customRef.current !== null) focusables.push(customRef.current);
+    if (focusables.length === 0) return;
+    const idx = focusables.indexOf(document.activeElement as HTMLElement);
+    const next =
+      idx < 0
+        ? focusables[step > 0 ? 0 : focusables.length - 1]
+        : focusables[(idx + step + focusables.length) % focusables.length];
+    next?.focus();
   }, []);
 
   const toggleOption = useCallback(
@@ -135,13 +166,29 @@ export function QuestionCard(props: {
     });
   }, [ctx.sessionId, pending, props, row.requestId, settleQuestion]);
 
-  /** Enter 推进语义：非末题 → 下一页；末题 → 提交（空选 = 跳过） */
+  /** 单选「聚焦但未选」时按继续：自动补选当前聚焦项（参照行为——焦点移动即意图，不是跳过） */
+  const withAutoSelectedOption = useCallback((): Record<string, Draft> => {
+    const question = current;
+    if (question === undefined || question.multiSelect === true) return drafts;
+    const draft = draftOf(drafts, question.id);
+    if (draft.selected.length > 0 || draft.custom.trim() !== "") return drafts;
+    const options = question.options ?? [];
+    if (activeIndex < 0 || activeIndex >= options.length) return drafts;
+    const option = options[activeIndex];
+    if (option === undefined) return drafts;
+    return { ...drafts, [question.id]: toggleSelection(question, draft, option.label) };
+  }, [activeIndex, current, drafts]);
+
+  /** Enter 推进语义：非末题 → 下一页；末题 → 提交（空选 = 跳过）。
+   *  单选聚焦项未选时先补选并把补选写回草稿（回退上一题仍可见）；显式草稿（选项 Enter）优先。 */
   const advanceOrSubmit = useCallback(
     (effective?: Record<string, Draft>): void => {
+      const source = effective ?? withAutoSelectedOption();
+      if (source !== drafts) setDrafts(source);
       if (page + 1 < total) setPage(page + 1);
-      else submit(effective);
+      else submit(source);
     },
-    [page, submit, total],
+    [drafts, page, submit, total, withAutoSelectedOption],
   );
 
   const goBack = useCallback((): void => {
@@ -168,18 +215,10 @@ export function QuestionCard(props: {
       return;
     }
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      // 选项间移动（容器/选项上）；自定义输入框自己处理
+      // 选项间移动（容器/选项上）；自定义输入框自己处理（onCustomKeyDown）
       if (e.target instanceof HTMLTextAreaElement) return;
       e.preventDefault();
-      const focusables: HTMLElement[] = optionRefs.current.filter(
-        (el): el is HTMLButtonElement => el !== null,
-      );
-      if (customRef.current !== null) focusables.push(customRef.current);
-      if (focusables.length === 0) return;
-      const idx = focusables.indexOf(document.activeElement as HTMLElement);
-      const step = e.key === "ArrowDown" ? 1 : -1;
-      const next = focusables[(idx + step + focusables.length) % focusables.length];
-      next?.focus();
+      moveOptionFocus(e.key === "ArrowDown" ? 1 : -1);
     }
   };
 
@@ -207,6 +246,13 @@ export function QuestionCard(props: {
 
   const onCustomKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (!pending || isImeComposing(e)) return;
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // 输入框也是「末位选项」：↑↓ 离开输入框回到选项（参照行为；Tab 兜底仍可用）
+      e.preventDefault();
+      e.stopPropagation();
+      moveOptionFocus(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -229,6 +275,7 @@ export function QuestionCard(props: {
 
   if (current === undefined) return null;
   const draft = draftOf(drafts, current.id);
+  const customFilled = draft.custom.trim() !== "";
   const header = current.header;
   const multiple = total > 1;
 
@@ -239,6 +286,10 @@ export function QuestionCard(props: {
       tabIndex={-1}
       role="dialog"
       aria-label={ctx.t("question.title")}
+      onFocus={(event) => {
+        // 焦点回到卡本体（点击空白区/换题回焦）= 不再有「聚焦过的选项」——防止旧 activeIndex 被补选
+        if (event.target === event.currentTarget) setActiveIndex(-1);
+      }}
       onKeyDown={onCardKeyDown}
     >
       <div className="henira-question-head">
@@ -249,12 +300,37 @@ export function QuestionCard(props: {
             {ctx.t("question.queueCount")} {(props.queueTotal ?? 1) - 1}
           </span>
         ) : null}
+        <span className="henira-question-spacer" />
         {multiple ? (
-          <span className="henira-question-pager">
-            {page + 1} / {total}
+          <span className="henira-question-nav">
+            <button
+              type="button"
+              className="henira-question-navbtn"
+              aria-label={ctx.t("question.previous")}
+              disabled={!pending || page === 0}
+              onClick={() => {
+                setPage((currentPage) => Math.max(0, currentPage - 1));
+              }}
+            >
+              <CaretLeftGlyph size={14} />
+            </button>
+            <span className="henira-question-pager">
+              {page + 1} / {total}
+            </span>
+            <button
+              type="button"
+              className="henira-question-navbtn"
+              aria-label={ctx.t("question.next")}
+              disabled={!pending || page + 1 >= total}
+              onClick={() => {
+                // 页头下一页与「继续」同语义（单选聚焦项自动补选并写回）；末题禁用，不会误提交
+                advanceOrSubmit();
+              }}
+            >
+              <CaretGlyph size={14} />
+            </button>
           </span>
         ) : null}
-        <span className="henira-question-spacer" />
         {row.status === "settled" ? (
           <span className="henira-question-status">
             {row.outcome === "cancelled"
@@ -287,10 +363,17 @@ export function QuestionCard(props: {
               aria-checked={current.multiSelect === true ? selected : undefined}
               aria-selected={current.multiSelect === true ? undefined : selected}
               disabled={!pending}
+              onFocus={() => {
+                setActiveIndex(index);
+              }}
               onClick={() => {
                 // 不把焦点收回卡片：按钮保留焦点，Space 连选 / ↓ 逐项才走得通（R185 审查——
                 // 收回后 ArrowDown 对容器 indexOf 得 -1，永远跳回第一项）
-                toggleOption(current, option.label);
+                const next = toggleOption(current, option.label);
+                // 单选点选 = 选中并推进（与键盘 Enter 同路径）；多选只切换勾选、留在本题
+                if (current.multiSelect !== true) {
+                  advanceOrSubmit({ ...drafts, [current.id]: next });
+                }
               }}
               onKeyDown={(e) => {
                 onOptionKeyDown(e, option.label);
@@ -315,10 +398,17 @@ export function QuestionCard(props: {
           );
         })}
         {/* 自定义输入恒在末位（相当于第 N+1 项；无标签，与参照物一致）——label 包裹 =
-            点整行聚焦输入框（原生关联，不挂 click 处理器） */}
-        <label className="henira-question-custom">
+            点整行聚焦输入框（原生关联，不挂 click 处理器）。单选=数字序号；多选=勾选框
+            （有内容即勾选，与上面的选项行同形）。 */}
+        <label className={`henira-question-custom${customFilled ? " is-selected" : ""}`}>
           <span className="henira-question-mark" aria-hidden="true">
-            {(current.options?.length ?? 0) + 1}.
+            {current.multiSelect === true ? (
+              <span className={`henira-question-check${customFilled ? " is-on" : ""}`}>
+                {customFilled ? <CheckGlyph size={12} /> : null}
+              </span>
+            ) : (
+              `${(current.options?.length ?? 0) + 1}.`
+            )}
           </span>
           <textarea
             ref={customRef}
@@ -328,8 +418,11 @@ export function QuestionCard(props: {
             placeholder={ctx.t("question.customPlaceholder")}
             value={draft.custom}
             disabled={!pending}
+            onFocus={() => {
+              setActiveIndex(current.options?.length ?? 0);
+            }}
             onChange={(e) => {
-              updateDraft(current.id, { ...draft, custom: e.target.value });
+              updateCustom(current, e.target.value);
             }}
             onKeyDown={onCustomKeyDown}
           />
@@ -345,27 +438,15 @@ export function QuestionCard(props: {
         >
           {ctx.t("question.cancel")}
         </button>
-        {page > 0 ? (
-          <button
-            type="button"
-            className="henira-question-nav"
-            disabled={!pending}
-            onClick={() => {
-              setPage(page - 1);
-            }}
-            aria-label={ctx.t("question.previous")}
-          >
-            <CaretGlyph size={14} />
-          </button>
-        ) : null}
         <button
           type="button"
           className="henira-question-submit henira-primary"
           disabled={!pending || settleQuestion === undefined}
-          onClick={page + 1 < total ? () => setPage(page + 1) : () => submit()}
+          onClick={() => {
+            advanceOrSubmit();
+          }}
         >
-          {page + 1 < total ? ctx.t("question.next") : ctx.t("question.submit")}
-          {page + 1 < total ? <CaretGlyph size={14} /> : null}
+          {page + 1 < total ? ctx.t("question.continue") : ctx.t("question.submit")}
         </button>
       </div>
       {settleQuestion === undefined ? (
