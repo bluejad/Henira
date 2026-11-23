@@ -2403,7 +2403,7 @@ describe("Conversation 长会话渲染（批 A'——虚拟化降级路径 / bot
     expect(renderMarkdown.mock.calls.length).toBe(afterFirst);
   });
 
-  it("回底按钮：上滚手势（wheel deltaY<0）出现、点击回底消失", () => {
+  it("回底按钮：上滚手势（wheel deltaY<0）出现、点击回底消失；图标钮无可见文字", () => {
     const view = {
       rows: [userRow, assistantRow],
       state: { busy: false },
@@ -2417,9 +2417,51 @@ describe("Conversation 长会话渲染（批 A'——虚拟化降级路径 / bot
     const conv = document.querySelector(".henira-conversation");
     if (conv === null) throw new Error("conversation container missing");
     fireEvent.wheel(conv, { deltaY: -100 }); // 用户上滚 → 解除跟随
-    expect(screen.getByRole("button", { name: back })).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: back }));
+    const button = screen.getByRole("button", { name: back });
+    expect(button).toBeDefined();
+    expect(button.textContent).toBe(""); // R195：圆图标钮——文案只做 aria-label/title
+    expect(button.querySelector("svg")).not.toBeNull();
+    fireEvent.click(button);
     expect(screen.queryByRole("button", { name: back })).toBeNull(); // 回底恢复
+  });
+
+  it("内容高度变化：跟随中经 ResizeObserver 重贴底；用户上滚后不抢视口", () => {
+    const view = {
+      rows: [userRow, assistantRow],
+      state: { busy: false },
+      hasOlder: false,
+      totalRows: 2,
+    };
+    const ctx = ctxWithView(view);
+    const callbacks: ResizeObserverCallback[] = [];
+    class FakeResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        callbacks.push(cb);
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    try {
+      render(<Conversation {...ctx} />);
+      const conv = document.querySelector(".henira-conversation");
+      if (conv === null) throw new Error("conversation container missing");
+      Object.defineProperty(conv, "scrollHeight", { value: 1000, configurable: true });
+      Object.defineProperty(conv, "clientHeight", { value: 400, configurable: true });
+      Object.defineProperty(conv, "scrollTop", { value: 0, writable: true, configurable: true });
+      expect(callbacks.length).toBeGreaterThan(0); // 内容层已挂观察
+      for (const cb of callbacks) cb([], {} as ResizeObserver);
+      expect(conv.scrollTop).toBe(1000); // 跟随中行内长高 → 重贴底
+      fireEvent.wheel(conv, { deltaY: -100 }); // 用户上滚解除跟随
+      conv.scrollTop = 300;
+      for (const cb of callbacks) cb([], {} as ResizeObserver);
+      expect(conv.scrollTop).toBe(300); // 已离底 → 不再写视口
+      fireEvent.click(screen.getByRole("button", { name: t("conversation.backToBottom") }));
+      expect(conv.scrollTop).toBe(1000); // 点回底 → 立即到底
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("滚顶翻页：hasOlder 且滚到顶 → sessionRows 拉页 → mergeOlderRows 前插（宿主缺方法不触发）", async () => {

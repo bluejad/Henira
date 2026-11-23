@@ -439,6 +439,19 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
   // 回底按钮：离底即出现（滚轮上滚已解除跟随）→ 点击回底 → 按钮消失
   const back = page.getByRole("button", { name: zh["conversation.backToBottom"] });
   await expect(back).toBeVisible();
+  // R195：圆图标钮——无可见文字、32×32、中心与输入卡同轴、悬浮在输入卡上方
+  const backBox = await back.boundingBox();
+  const inputBox = await page.getByTestId("composer-input").boundingBox();
+  expect(backBox).not.toBeNull();
+  expect(inputBox).not.toBeNull();
+  if (backBox === null || inputBox === null) throw new Error("box missing");
+  expect(await back.textContent()).toBe("");
+  expect(Math.round(backBox.width)).toBe(32);
+  expect(Math.round(backBox.height)).toBe(32);
+  expect(
+    Math.abs(backBox.x + backBox.width / 2 - (inputBox.x + inputBox.width / 2)),
+  ).toBeLessThanOrEqual(3);
+  expect(backBox.y + backBox.height).toBeLessThan(inputBox.y);
   await page.screenshot({ path: `${ARTIFACTS}/11-back-to-bottom-visible.png` });
   await back.click();
   await expect(back).toBeHidden();
@@ -451,6 +464,24 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
   );
   expect(atBottom).toBe(true);
   await page.screenshot({ path: `${ARTIFACTS}/12-back-at-bottom.png` });
+
+  // R195：跟随中内容几何变化（缩窄窗口 → 正文重排变高）仍贴底——不依赖行数据变化
+  await page.setViewportSize({ width: 1000, height: 720 });
+  await expect
+    .poll(
+      async () =>
+        await conv.evaluate(
+          (el) =>
+            (el as HTMLElement).scrollHeight -
+              (el as HTMLElement).scrollTop -
+              (el as HTMLElement).clientHeight <
+            64,
+        ),
+      { timeout: 5_000 },
+    )
+    .toBe(true);
+  await page.screenshot({ path: `${ARTIFACTS}/13-back-to-bottom-resize-follow.png` });
+  await page.setViewportSize({ width: 1280, height: 720 });
 });
 
 // ── 用例 ⑤：官方 fs 工具经真 UI 全链（D-065 批 B）——write 审批卡收答 → read 行号 → 收尾 ──

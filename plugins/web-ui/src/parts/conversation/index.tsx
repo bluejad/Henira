@@ -1,6 +1,7 @@
 // 对话面板主件（R177 拆分）：store 订阅 + 滚动裁决/翻页 + 时间线挂载。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { WebPart, WebPartContext } from "../../types.js";
+import { ArrowDownGlyph } from "../icons.js";
 import { SlotBoundary } from "../slot-boundary.js";
 import { BOTTOM_EPSILON_PX, LOAD_OLDER_TRIGGER_PX, PAGE_SIZE } from "./constants.js";
 import { ConversationEmpty } from "./empty-state.js";
@@ -17,6 +18,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   );
   const units = useMemo(() => buildTurnUnits(snapshot.rows), [snapshot.rows]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null); // 内容层：高度变化（行内展开/回流）也贴底
   const wrapRef = useRef<HTMLDivElement | null>(null); // 手势/滚动监听挂这里——回底按钮是容器的兄弟，
   // 按钮位置的滚轮事件不进容器 capture（活体自测 selftest6 抓到：按钮在场时滚轮失效）
   const followingRef = useRef(true);
@@ -66,12 +68,17 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     setFollowing(on);
   };
 
-  // 流式贴底：跟随中内容变高 → 写 scrollTop（内容未变高时 no-op；初始挂载定位最新）
-  // biome-ignore lint/correctness/useExhaustiveDependencies: followingRef 是意图裁决引用（有意不进 deps——进则每帧重挂监听）；snapshot.rows 即渲染变化信号
-  useEffect(() => {
+  // 贴底唯一实现（R195）：跟随中把视口写到底——行数据变化与内容高度变化两条路共用
+  const pinToBottom = (): void => {
     const el = scrollRef.current;
     if (el === null || !followingRef.current) return;
     el.scrollTop = el.scrollHeight;
+  };
+
+  // 流式贴底：跟随中内容变高 → 写 scrollTop（内容未变高时 no-op；初始挂载定位最新）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: followingRef 是意图裁决引用（有意不进 deps——进则每帧重挂监听）；snapshot.rows 即渲染变化信号
+  useEffect(() => {
+    pinToBottom();
   }, [snapshot.rows]);
 
   // 用户意图先行（capture 阶段，先于 scroll）：明确上滚手势解除跟随；程序化写入永不误解除
@@ -165,10 +172,23 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   const loaded =
     ctx.sessionId !== null && (ctx.store.has?.(ctx.sessionId) ?? snapshot.rows.length > 0);
   const empty = loaded && snapshot.rows.length === 0 && !busy;
+  // 内容高度变化（行内展开/图片加载/代码高亮/窗口缩放）也贴底：rows 依赖只覆盖「行数据变了」，
+  // 行内几何增长不改 rows——由内容层 ResizeObserver 补齐（用户已上滚则不抢视口）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 挂载期装一次（empty 翻转时重装——内容层随空态增删）；跟随裁决走 ref
+  useEffect(() => {
+    const content = contentRef.current;
+    if (content === null || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      pinToBottom();
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+    };
+  }, [empty]);
   const backToBottom = (): void => {
     commitFollowing(true);
-    const el = scrollRef.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
+    pinToBottom();
   };
 
   const tailNodes = tailParts.map((part, i) => {
@@ -196,29 +216,32 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
         </>
       ) : (
         <div className="henira-conversation" ref={scrollRef}>
-          {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
-          <ConversationTimeline
-            key={ctx.sessionId ?? "none"}
-            units={units}
-            ctx={ctx}
-            scrollRef={scrollRef}
-            turnTimings={snapshot.state.turnTimings}
-            runningTurn={busy ? snapshot.state.lastTurnId : undefined}
-          />
-          {busy ? (
-            <p className="henira-loading-dots">
-              <span>·</span>
-              <span>·</span>
-              <span>·</span>{" "}
-              <span className={waitingLong ? "henira-waiting" : "henira-sweep"}>
-                {ctx.t(waitingLong ? "conversation.waitingModel" : "conversation.working")}
-              </span>{" "}
-              <span className="henira-loading-duration">
-                {formatWorkDuration(busySeconds * 1000, ctx.t)}
-              </span>
-            </p>
-          ) : null}
-          {tailNodes}
+          {/* 内容层（R195）：只做高度观察锚点，无样式；行内几何变化经 ResizeObserver 触发贴底 */}
+          <div className="henira-conversation-content" ref={contentRef}>
+            {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
+            <ConversationTimeline
+              key={ctx.sessionId ?? "none"}
+              units={units}
+              ctx={ctx}
+              scrollRef={scrollRef}
+              turnTimings={snapshot.state.turnTimings}
+              runningTurn={busy ? snapshot.state.lastTurnId : undefined}
+            />
+            {busy ? (
+              <p className="henira-loading-dots">
+                <span>·</span>
+                <span>·</span>
+                <span>·</span>{" "}
+                <span className={waitingLong ? "henira-waiting" : "henira-sweep"}>
+                  {ctx.t(waitingLong ? "conversation.waitingModel" : "conversation.working")}
+                </span>{" "}
+                <span className="henira-loading-duration">
+                  {formatWorkDuration(busySeconds * 1000, ctx.t)}
+                </span>
+              </p>
+            ) : null}
+            {tailNodes}
+          </div>
         </div>
       )}
       {loadingOlder ? (
@@ -232,7 +255,7 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
           title={ctx.t("conversation.backToBottom")}
           onClick={backToBottom}
         >
-          ↓ {ctx.t("conversation.backToBottom")}
+          <ArrowDownGlyph size={16} />
         </button>
       ) : null}
     </div>

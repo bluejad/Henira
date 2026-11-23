@@ -111,16 +111,21 @@
   pointer-events: none;
   box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
 }
+/* R195 回底钮：32px 圆形图标钮，水平居中悬浮于输入框正上方（与正文列同中轴） */
 .henira-app .henira-back-bottom {
   position: absolute;
-  right: var(--henira-space-4);
+  left: 50%;
   bottom: var(--henira-space-4);
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 1px solid var(--henira-border-strong);
   border-radius: 9999px;
   background: var(--henira-panel);
   color: var(--henira-text);
-  padding: 6px 12px;
-  font-size: var(--henira-fs-sm);
   cursor: pointer;
   box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
 }

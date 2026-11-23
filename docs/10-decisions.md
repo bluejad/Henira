@@ -995,3 +995,15 @@
 - **理由**：思考块的问题是「展开后看哪」的阅读权问题，不是高度问题（240 内滚两家同档）；设置空白是固定列 + 滚动容器铺满的布局错位，统一铺满比居中更贴近参照页的有效列宽（915 ≈ 896）；左栏 footer 没有身份数据时，展示本地服务/链路状态是唯一不撒谎的「身份」；右栏窄轨是旧入口设计的残留在新收起钮到位后失去意义——收起就该真的让出空间。
 - **非目标**：左栏收起持久化（本地态；若以后要跨刷新，再进 ui-state）；账号/头像/会员行；右栏收起/展开动画；设置弹窗改全页；思考内滚的边缘渐隐（本批不做）。
 - **备注**：左栏收起形态取参照两家的共同做法——**列宽/网格列收 0、组件保持挂载**（不是 `display:none`，更不是卸载）；右栏明确关闭时仍不渲染（预览体可从数据重建；若以后要保浏览器/插件实例状态再改常驻）。落点 = `plugins/web-ui/src/parts/conversation/reasoning.tsx`（body ref + 贴底/让权）、`parts/layout-frame.tsx`（左右栏开关 + footer 状态行 + 右栏整列条件渲染）、`parts/right-panel.tsx`（去窄轨 + 收起钮 + 空面板占位）、`parts/icons.tsx`（SidebarGlyph）、`styles/settings/50-page.css` / `40-forms.css`、`styles/sidebar/20-dirs.css`（footer 状态）、`styles/layout/10-right-panel.css`（删窄轨）、`locales/zh.ts`（收起/展开/打开/本地服务/已连接/重连中）；测试 = parts.test 思考跟底三例 + 右栏开合 + 左栏开合 + header 重开带总账、persist e2e 右栏流程重写、serve e2e 设置铺满宽度断言。参照行为只读、不抄代码（行为级重写）。
+
+## D-079 回到底部收口：圆钮居中 + 内容高度变化重贴底（R195）
+
+- **状态**：已定 · 2026-11-23 · 用户「回到底部没改」追问后对照参照源码取证，拍「都做」（外观 + 行为）；✓ 同日落码
+- **背景**：R194 只落了思考跟底 / 设置铺满 / 左右栏开合，回底钮挂账未动。现状两处缺陷：①「↓ 回到底部」文字胶囊锚在 `.henira-conversation-wrap` 右下角——该容器是全宽，而阅读列 `max-width: 808/896/1152` 居中，宽屏时按钮离正文很远；②贴底只认行数据变化（`snapshot.rows`），行内几何增长（展开工具卡 / 图片加载 / 代码高亮 / 窗口缩放）不改 rows → 跟随中视口漂移，且按钮因 `following=true` 不出现。
+- **决定**：
+  1. **形状与位置**：32px 圆形图标钮，仅下箭头（16px bold）；可见文字退场，文案只留 `aria-label`/`title`。定位改水平居中（`left:50% + translateX(-50%)`），仍悬浮于 wrap 底部 16px——该容器底边即输入卡上沿（composer 是布局的下一兄弟），composer 同样居中限宽，因此视觉上与正文同中轴；无输入区形态退化为面板底部居中，不需要分支。
+  2. **内容高度变化重贴底**：滚动容器内加无样式内容层（`.henira-conversation-content`）作观察锚点；`ResizeObserver` 报告高度变化且 following 为真 → `scrollTop = scrollHeight`。用户已上滚（following=false）不抢视口。rows 变化贴底保留，两条路共用同一 `pinToBottom()`。
+  3. **不做每会话滚动记忆**：切走再回来恢复阅读位置会改「打开会话 = 看最新」的既有语义，单独一批拍。
+- **理由**：参照实现的回底钮就是圆形图标钮、水平居中悬浮于输入卡上方（无输入 dock 才落面板底部），可见性判据与我们一致（`!following && rowCount>0`），差的只是形状/位置与「漂移不可见」；「跟随中但几何漂移」是意图状态与几何事实脱节——几何变化必须作为贴底信号之一，只看行数据在虚拟化 + 行内展开的组合下必然漏。
+- **非目标**：FOLLOWING/DETACHED 状态机重构；滚动位置按会话记忆与点击后同步保存；smooth 滚动（瞬时写 scrollTop 是既有语义）。
+- **备注**：落点 = `parts/icons.tsx`（ArrowDownGlyph）、`parts/conversation/index.tsx`（`pinToBottom` + 内容层 + ResizeObserver + 按钮 JSX）、`styles/conversation/40-turn.css`（圆钮定位/尺寸）；测试 = parts.test（图标钮无可见文字 / RO 重贴底 / 上滚不抢 / 点击回底）。参照行为只读、不抄代码。

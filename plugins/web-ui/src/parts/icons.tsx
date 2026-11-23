@@ -5,6 +5,7 @@
 // 操作钮尺寸下糊成「小点/空方块」（用户实拍根因）；品牌 Horse 用 fill、发送/停止等强调钮
 // 沿用 bold/fill、Spinner 保持 regular（运动可读性优先于笔画力度）。
 
+import { ArrowDownIcon } from "@phosphor-icons/react/dist/csr/ArrowDown";
 import { ArrowLineUpIcon } from "@phosphor-icons/react/dist/csr/ArrowLineUp";
 import { ArrowsInIcon } from "@phosphor-icons/react/dist/csr/ArrowsIn";
 import { ArrowsOutIcon } from "@phosphor-icons/react/dist/csr/ArrowsOut";
@@ -41,6 +42,11 @@ export function ArrowsInGlyph(props: Props) {
 
 export function ArrowsOutGlyph(props: Props) {
   return <ArrowsOutIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 回底钮（R195）：输入框上方居中悬浮的圆图标钮，无可见文字 */
+export function ArrowDownGlyph(props: Props) {
+  return <ArrowDownIcon size={props.size ?? 16} color={props.color} weight="bold" />;
 }
 
 /** 侧栏开合（R194）：左/右各用一份，右侧镜像同一图标 */
