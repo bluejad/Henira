@@ -3,6 +3,7 @@
 // D-059 主题包下拉（<link> 注入与安全模式回落）。
 
 import { zh } from "@henira/plugin-web-ui";
+import type { ServerFrame } from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -654,6 +655,121 @@ describe("createWebApp", () => {
         }
         return true;
       });
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
+  it("R193 帧消费监督：events() 首次抛错 → 半秒后重建循环，第二循环帧照常落地", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {}); // 重启路径有意的诊断日志
+    let calls = 0;
+    const client = fakeClient({
+      listSessions: async () => [{ id: "s-1", cwd: "C:/demo", updatedAt: 1, busy: false }],
+      snapshot: async () => ({
+        sessionId: "s-1",
+        seq: 0,
+        rows: [],
+        state: { busy: false },
+        hasOlder: false,
+        totalRows: 0,
+      }),
+      events: async function* () {
+        calls += 1;
+        if (calls === 1) throw new Error("boom"); // 模拟消费方异常把循环打死
+        yield {
+          kind: "snapshot",
+          sessionId: "s-1",
+          snapshot: {
+            sessionId: "s-1",
+            seq: 1,
+            rows: [
+              {
+                kind: "user",
+                rowId: "u:1",
+                rowSeq: 1,
+                turn: "t-1",
+                text: "第二循环到达",
+                source: "send",
+              },
+            ],
+            state: { busy: false },
+          },
+        } as Extract<ServerFrame, { kind: "snapshot" }>;
+      },
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (!el.textContent?.includes("第二循环到达")) throw new Error("consumer not restarted");
+        },
+        { timeout: 4000 },
+      );
+      expect(calls).toBeGreaterThanOrEqual(2);
+    } finally {
+      await app.dispose();
+      el.remove();
+      errSpy.mockRestore();
+    }
+  });
+
+  it("R193 重连补拉：reconnecting → connected 时补拉当前会话（服务重启后 busy 不再卡死）", async () => {
+    let listener: ((state: "connected" | "reconnecting") => void) | undefined;
+    let snapshotCalls = 0;
+    const client = fakeClient({
+      listSessions: async () => [{ id: "s-1", cwd: "C:/demo", updatedAt: 1, busy: false }],
+      snapshot: async (id) => {
+        snapshotCalls += 1;
+        return {
+          sessionId: id,
+          seq: snapshotCalls,
+          rows: [
+            {
+              kind: "user",
+              rowId: `u:${snapshotCalls}`,
+              rowSeq: snapshotCalls,
+              turn: "t-1",
+              text: snapshotCalls === 1 ? "初始快照行" : "重连补拉行",
+              source: "send",
+            },
+          ],
+          state: { busy: false },
+          hasOlder: false,
+          totalRows: 1,
+        } as Awaited<ReturnType<HeniraFacade["snapshot"]>>;
+      },
+      events: async function* () {}, // 无帧：本用例只验证链路状态驱动的补拉
+      onLinkState(cb) {
+        listener = cb;
+        return () => {};
+      },
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (!el.textContent?.includes("初始快照行")) throw new Error("initial snapshot missing");
+        },
+        { timeout: 4000 },
+      );
+      const before = snapshotCalls;
+      listener?.("reconnecting");
+      listener?.("connected");
+      await vi.waitFor(
+        () => {
+          if (!el.textContent?.includes("重连补拉行"))
+            throw new Error("reconnect snapshot missing");
+        },
+        { timeout: 4000 },
+      );
+      expect(snapshotCalls).toBe(before + 1);
     } finally {
       await app.dispose();
       el.remove();

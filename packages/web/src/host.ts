@@ -161,6 +161,9 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   const frameListeners = new Set<(frame: ServerFrame) => void>();
   let lastBusy = false;
   let frameAbort: AbortController | undefined;
+  /** 链路状态（R193）：client 供给（runtime 缺 onLinkState = 恒 connected）；驱动重连横幅 */
+  let linkState: "connected" | "reconnecting" = "connected";
+  let linkUnsubscribe: (() => void) | undefined;
   let moduleDispose: (() => void) | undefined;
   let keyListener: ((e: KeyboardEvent) => void) | undefined;
   let pageHideListener: (() => void) | undefined;
@@ -549,10 +552,9 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     });
   });
 
-  async function consumeFrames(): Promise<void> {
-    frameAbort = new AbortController();
+  async function consumeFrames(signal: AbortSignal): Promise<void> {
     for await (const frame of opts.client.events()) {
-      if (frameAbort?.signal.aborted) break;
+      if (signal.aborted) break;
       if (frame.kind === "snapshot") store.applySnapshot(frame);
       else if (frame.kind === "delta") {
         store.applyFrame(frame);
@@ -566,6 +568,24 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       }
       for (const listener of frameListeners) listener(frame);
     }
+  }
+
+  /** 帧流消费监督（R193）：单次异常不再静默吞掉——记日志、半秒后重建事件循环。
+   *  客户端 events() 自己管重连；这里兜的是「消费方自己抛错把循环打死」这一类。 */
+  function startFrameConsumption(): void {
+    frameAbort = new AbortController();
+    const signal = frameAbort.signal;
+    void (async (): Promise<void> => {
+      while (!signal.aborted) {
+        try {
+          await consumeFrames(signal);
+          return; // events() 自然结束（stop/dispose）——不重启
+        } catch (err) {
+          console.error("[henira] frame consumer crashed; restarting", err);
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    })().catch(() => {});
   }
 
   /** 主题落地：容器 data-theme + 第三方主题包 <link> 注入（官方 light/dark 无 link，D-059） */
@@ -727,6 +747,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       layout: opts.layout ?? "full",
       safeMode,
       sessionCwd,
+      linkState,
       onTheme: (next, cssUrl) => {
         appearanceTouched = true; // 显式选择——boot 还原不再覆盖（审查 P3-a）
         theme = next;
@@ -776,7 +797,27 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       renderSlots();
       root = createRoot(el);
       render();
-      void consumeFrames().catch(() => {});
+      startFrameConsumption();
+      linkUnsubscribe = opts.client.onLinkState?.((state) => {
+        if (state === linkState) return;
+        const reconnected = linkState === "reconnecting" && state === "connected";
+        linkState = state;
+        render();
+        // 重连补拉当前会话（R193 活体抓的缺口）：服务端重连只推「在册会话」的快照帧；
+        // 重启后当前会话可能不在册——不补拉会永久停在上次状态（busy 卡住/走秒不停）。
+        // 与激活路径同一语义：GET snapshot → applySnapshot（服务端 repair 已收口开档回合）。
+        const id = sessionId;
+        if (reconnected && id !== null) {
+          void opts.client
+            .snapshot(id)
+            .then((snapshot) => {
+              if (sessionId !== id) return; // 期间又切走——丢弃过期快照
+              store.applySnapshot({ kind: "snapshot", sessionId: id, snapshot });
+              render();
+            })
+            .catch(() => {});
+        }
+      });
       // 初始选择（D-063 还原语义）：全局"上次选中"在列表则选它；否则最新更新（列表首）/建新。
       // 旧服务器无 getUiState 端点 → 回落原行为，不阻塞启动
       void (async () => {
@@ -825,6 +866,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     },
     async dispose() {
       frameAbort?.abort();
+      linkUnsubscribe?.();
+      linkUnsubscribe = undefined;
       if (keyListener !== undefined) window.removeEventListener("keydown", keyListener);
       if (pageHideListener !== undefined) window.removeEventListener("pagehide", pageHideListener);
       disposeThirdPartyUi();

@@ -659,6 +659,46 @@ describe("client 独有：断档不猜", () => {
   });
 });
 
+describe("client 独有：链路字节看门狗（R193）", () => {
+  it("有字节后静默（半开连接）→ 强制断开重连；链路状态 connected → reconnecting", async () => {
+    let calls = 0;
+    const states: string[] = [];
+    const enc = new TextEncoder();
+    const fakeFetch = (async (input: string | URL) => {
+      const url = String(input);
+      if (!url.includes("/api/events")) return new Response("{}", { status: 200 });
+      calls += 1;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(enc.encode(": heartbeat\n\n")); // 一个心跳后彻底静默
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as unknown as typeof fetch;
+
+    const facade = createClient({
+      baseUrl: "http://127.0.0.1:0",
+      fetch: fakeFetch,
+      linkIdleTimeoutMs: 30, // 测试压缩：30ms 无字节即判半开
+      maxBackoffMs: 10,
+    });
+    const off = facade.onLinkState?.((state) => states.push(state));
+    const iterator = facade.events()[Symbol.asyncIterator]();
+    void iterator.next(); // 启动事件泵（本用例只看连接层行为，帧永不到达）
+    try {
+      await waitFor(() => (calls >= 2 ? true : undefined), 2_000);
+      expect(states).toContain("connected");
+      expect(states).toContain("reconnecting"); // 看门狗掐连接后进入退避重连
+    } finally {
+      off?.();
+      await facade.stop(); // stop = 事件泵收口（挂起中的 next() 随之 done）
+    }
+  });
+});
+
 describe("runtime 独有：缺省 fail-closed", () => {
   it("autoRejectInteraction：ask 即拒——工具被拒、回合照常收尾（fail-closed 语义）", async () => {
     const { mockLlm } = await import("@henira/llm-mock");

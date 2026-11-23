@@ -342,6 +342,9 @@ export interface WebPartContext {
   safeMode?: boolean;
   /** 当前会话工作目录（中列 header 目录名；null/缺席 = 只显标题占位） */
   sessionCwd?: string | null;
+  /** 传输层链路状态（R193；宿主从 client.onLinkState 转接）：reconnecting 持续超过阈值
+   *  才显示横幅——模型慢是引擎层另一件事，不在这里表达。缺席 = 宿主未实装（不渲染） */
+  linkState?: "connected" | "reconnecting";
   /** 主题切换（设置弹窗主题页；第三方主题包带 cssUrl 由宿主注入 <link>，D-059） */
   onTheme?(next: string, cssUrl?: string): void;
   /** 语言包切换（设置弹窗语言页；undefined 字典 = 回官方 zh） */

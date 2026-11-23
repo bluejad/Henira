@@ -55,6 +55,7 @@ export const zh = {
   "empty.hint": "描述你想做的事，Henira 会按需读取文件、执行命令。",
   "conversation.thinking": "思考中…",
   "conversation.working": "工作中",
+  "conversation.waitingModel": "仍在等待模型响应",
   "turn.worked": "已工作",
   "turn.working": "工作中",
   "turn.processed": "已处理",
@@ -86,7 +87,7 @@ export const zh = {
   "row.status.running": "执行中",
   "row.status.error": "执行失败",
   "filePreview.close": "关闭",
-  "response.stalled": "响应停滞",
+  "connection.reconnecting": "连接中断，重连中…",
   "conversation.loadingOlder": "加载更早的历史…",
   "conversation.backToBottom": "回到底部",
   "row.reasoning": "推理过程",
@@ -213,6 +214,8 @@ export const zh = {
   "error.noCredentialHint": "该厂商还没有配置密钥——请在 设置 → 模型管理 里连接后再试。",
   "error.noBaseUrlHint":
     "该模型缺少服务地址——请在 设置 → 模型管理 里重新连接一次（连接会自动补上地址）。",
+  "error.idleTimeoutHint":
+    "模型长时间没有输出，本回合已自动停止。可以直接重试；若反复出现，试试换模型或检查网络代理。",
   "error.rawDetail": "原始错误信息",
   "settings.title": "设置",
   "settings.model": "默认模型",

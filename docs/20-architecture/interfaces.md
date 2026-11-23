@@ -200,6 +200,12 @@ interface WireToolSchema { // tools.project() 的产物 = 模型可见清单形�
 interface LlmService {
   stream(req: LlmRequest, signal: AbortSignal): AsyncIterable<StreamEvent>;
 }
+// R193 空闲看门狗（官方 plugin-llm 实现）：每一次「等下一个 part」有上限，默认
+// DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS = 180_000（settings.plugins."plugin-llm".options
+// .streamIdleTimeoutMs 覆盖）。超时先通过 fused AbortController 掐底层请求，再抛
+// LlmError("LLM_STREAM_IDLE_TIMEOUT")——loop 只透传 name=LlmError 的 code 进 ErrorRow.code，
+// web-ui 据此本地化提示（英文原文折叠保留）。语义边界：只要还在吐 part（文本 / 推理 /
+// 工具调用）就不触发——慢不猜；模型活性归引擎层，链路活性归传输层（见 SSE 传输形状）。
 // prepareCall 从 M2 契约移除（无消费者；M1 纪律：只有定稿契约进 protocol）——
 // contextWindow 经 ModelConfig 解析（P3），压缩预算接口随 M5 压缩设计文档回归。
 
@@ -956,6 +962,14 @@ type ServerFrame =
 - 单端点 `GET /api/events`；首帧 `connected`，随后**逐会话快照帧**，之后增量帧按会话混排；
 - **列表信号帧**（R176）：`sessions.changed` 是全局帧（无 sessionId / 无 seq），只在列表事实变化时发（建 / 删 / fork / 懒挂载 / 目录增删）——**流式增量绝不发**；消费者（侧栏列表）按「装载一次 + 信号驱动重载」消费，服务端不推送列表内容本体；
 - 心跳：15s 注释帧（传输层）；每订阅者有界队列，溢出断开（客户端重连 = 重拉快照）；
+- **客户端字节看门狗（R193）**：心跳注释也算字节；`createClient` 默认 30s（2×心跳）无任何字节 →
+  判定半开连接，abort 本次连接并退避重连（`linkIdleTimeoutMs` 可调）——刷新不再是唯一恢复手段；
+  重连语义不变（volatile + 全量快照）。`onLinkState` 只在状态变化时通知 connected/reconnecting，
+  宿主据此渲染"连接中断，重连中…"横幅（5s 抗闪），与"模型慢"严格分开；
+- **重连补拉当前会话（R193）**：快照帧只覆盖「在册会话」——服务重启后当前会话可能已不在册；
+  宿主在 `reconnecting → connected` 边沿补一次 `GET /api/sessions/:id/snapshot` 并应用
+  （服务端开档 repair 已写 `turn/end{interrupted}`），busy 不会永久卡在最后状态。侧栏列表
+  仍按「装载一次 + `sessions.changed`」消费，不在重连时整表重拉；
 - **volatile 显式声明**（无 Last-Event-ID）：断线期间的帧不补发，重连 = connected + 全量快照——判据②的审批卡重放由快照携带挂起审批行天然达成。
 
 ### 回环三件套（D-035，判据⑤）
@@ -981,8 +995,12 @@ interface RowsPage {
   hasOlder: boolean;
 } // GET /rows 与 facade.sessionRows 共同载荷（hasOlder=false = 已到顶）
 
+type LinkState = "connected" | "reconnecting"; // R193：只表达传输层事实（模型静默 = 引擎另一件事）
+
 interface HeniraFacade {
-  stop(): Promise<void>; // 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接
+  stop(): Promise<void>; // 收尾：runtime 释放会话锁与句柄；client 收口全部事件泵（SSE 断连）
+  onLinkState?(listener: (state: LinkState) => void): () => void;
+  // 链路状态订阅（仅远端 client 实现；runtime 缺省 undefined）；只在变化时通知，返回退订函数
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
   prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（每次提问绑定，骨架批）
@@ -1043,6 +1061,8 @@ function createClient(opts: {
   baseUrl: string;
   token?: string;
   fetch?: typeof fetch;
+  maxBackoffMs?: number; // 重连退避上限（默认 5s；起始 500ms 指数）
+  linkIdleTimeoutMs?: number; // R193 字节看门狗：默认 30s（2×心跳）无字节 = 半开连接 → 重连
 }): HeniraFacade;
 ```
 

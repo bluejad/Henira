@@ -56,6 +56,15 @@ export class LlmError extends Error {
   }
 }
 
+/** provider 静默超时错误码（R193）：适配器空闲看门狗抛出 → loop 原样进 ErrorRow.code；
+ *  web-ui 据此把英文原文翻成可行动中文（慢不猜、死有超时——模型活性归引擎层判） */
+export const LLM_STREAM_IDLE_TIMEOUT_CODE = "LLM_STREAM_IDLE_TIMEOUT";
+
+/** 流空闲默认上限（毫秒）：任何一次 provider part 等待超过此值即判死。
+ *  覆盖口 = settings.json plugins."plugin-llm".options.streamIdleTimeoutMs；
+ *  180s 是「慢思考不误杀（Agnes 实测单段思考 83s）／真死能收口」的折中（ZCode 600s、dsh 300s） */
+export const DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS = 180_000;
+
 // StreamEvent：封闭判别联合（不变量见 P3，测试锁定）：
 // ① tool_call 的 argsText 恒为模型原始 JSON 文本；② usage 先于 finish；③ tool_call 流末集中发。
 export type StreamEvent =

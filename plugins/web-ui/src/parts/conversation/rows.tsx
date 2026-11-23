@@ -1,6 +1,12 @@
 // 行级视图（R177 重做）：RowView 分发 + user/assistant/error 行；样式走 CSS 类
 //（中间区零内联布局样式——参照实现 层级：正文裸排、用户右气泡、错误语义底）。
-import type { AssistantRow, ErrorRow, Row, UserRow } from "@henira/protocol";
+import {
+  type AssistantRow,
+  type ErrorRow,
+  LLM_STREAM_IDLE_TIMEOUT_CODE,
+  type Row,
+  type UserRow,
+} from "@henira/protocol";
 import { memo } from "react";
 import type { WebPart, WebPartContext } from "../../types.js";
 import { CopyButton } from "../copy-button.js";
@@ -106,11 +112,14 @@ function AssistantView({
 function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
   // 已知配置类错误翻成可行动中文（模型目录收敛批：闸门后用户本不该走到这——兜底），
   // 原文折叠保留（排障仍要英文原文）；其余错误照旧直出
-  const hint = row.message.includes("no credential for provider")
-    ? ctx.t("error.noCredentialHint")
-    : row.message.includes("has no baseUrl")
-      ? ctx.t("error.noBaseUrlHint")
-      : undefined;
+  const hint =
+    row.code === LLM_STREAM_IDLE_TIMEOUT_CODE
+      ? ctx.t("error.idleTimeoutHint") // R193：provider 静默超时——可行动中文，英文原文仍可展开
+      : row.message.includes("no credential for provider")
+        ? ctx.t("error.noCredentialHint")
+        : row.message.includes("has no baseUrl")
+          ? ctx.t("error.noBaseUrlHint")
+          : undefined;
   return (
     <div role="alert" className="henira-error-row">
       <strong>{ctx.t("error.title")}</strong>

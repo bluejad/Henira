@@ -91,9 +91,16 @@ export interface CustomProviderInput {
   models: Array<{ model: string; label?: string }>;
 }
 
+/** 链路状态（R193）：connected = 事件流连接活着；reconnecting = 已断/正在退避重连。
+ *  只表达「传输层」事实——模型静默是引擎层另一件事（llm 空闲看门狗），两者不混 */
+export type LinkState = "connected" | "reconnecting";
+
 export interface HeniraFacade {
   /** 收尾：runtime 释放会话锁与句柄；client 断开 SSE 连接 */
   stop(): Promise<void>;
+  /** 链路状态订阅（仅远端 client 实现；进程内 runtime 无链路，缺省 undefined）。
+   *  返回退订函数；状态只在变化时通知（首连也发 connected） */
+  onLinkState?(listener: (state: LinkState) => void): () => void;
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
   /** D-045 单口：闲直跑 / 忙入队（id = 排队条目）；opts = 模型/思考按次覆盖 +

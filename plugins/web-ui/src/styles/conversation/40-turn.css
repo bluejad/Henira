@@ -95,6 +95,22 @@
   text-align: center;
   pointer-events: none;
 }
+/* 断链横幅（R193）：reconnecting 持续 5s 才露头——浮在对话区顶部，不挤布局 */
+.henira-link-banner {
+  position: absolute;
+  top: var(--henira-space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 4px 12px;
+  border: 1px solid var(--henira-border-strong);
+  border-radius: 9999px;
+  background: var(--henira-panel);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
 .henira-app .henira-back-bottom {
   position: absolute;
   right: var(--henira-space-4);

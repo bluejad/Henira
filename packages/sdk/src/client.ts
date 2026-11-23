@@ -17,6 +17,7 @@ import type {
 import {
   frameQueue,
   type HeniraFacade,
+  type LinkState,
   type ModelPresets,
   type ProviderCatalogEntry,
 } from "./facade.js";
@@ -29,6 +30,9 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   /** 重连退避上限（默认 5s；起始 500ms 指数） */
   maxBackoffMs?: number;
+  /** 链路字节空闲上限（默认 30s = 2×服务端 15s 心跳）：心跳也算字节——
+   *  超过此值没有任何字节 = 半开连接，强制断开重连（R193；刷新不再是唯一手段） */
+  linkIdleTimeoutMs?: number;
 }
 
 /** 非 2xx 响应错误：message 形状照旧（`POST path → 404 detail`），status 结构化暴露——
@@ -48,6 +52,22 @@ export function createClient(opts: ClientOptions): HeniraFacade {
   const base = opts.baseUrl.replace(/\/$/, "");
   const authHeaders = (): Record<string, string> =>
     opts.token === undefined ? {} : { authorization: `Bearer ${opts.token}` };
+  // 链路状态（R193）：只在变化时通知；初始 undefined（首次连上即发 connected）
+  const linkListeners = new Set<(state: LinkState) => void>();
+  let linkState: LinkState | undefined;
+  /** 活跃事件泵（stop 时统一收口——SSE 常驻连接不跨 stop 泄漏） */
+  const eventControllers = new Set<AbortController>();
+  const emitLink = (next: LinkState): void => {
+    if (linkState === next) return;
+    linkState = next;
+    for (const listener of [...linkListeners]) {
+      try {
+        listener(next);
+      } catch {
+        // 订阅者自身的渲染错误不得反噬事件泵
+      }
+    }
+  };
   const url = (path: string, query?: Record<string, string>): string => {
     const search = query === undefined ? "" : `?${new URLSearchParams(query).toString()}`;
     return `${base}${path}${search}`;
@@ -74,6 +94,14 @@ export function createClient(opts: ClientOptions): HeniraFacade {
   }
 
   const facade: HeniraFacade = {
+    onLinkState(listener) {
+      linkListeners.add(listener);
+      if (linkState !== undefined) listener(linkState); // 晚订阅者立刻拿到当前态
+      return () => {
+        linkListeners.delete(listener);
+      };
+    },
+
     async createSession(sessionOpts) {
       return requestJson("/api/sessions", {
         method: "POST",
@@ -351,18 +379,27 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       const lastSeq = new Map<string, number>();
       const queue = frameQueue();
       const controller = new AbortController();
+      const linkIdleTimeoutMs = opts.linkIdleTimeoutMs ?? 30_000;
+      eventControllers.add(controller);
       const pump = (async (): Promise<void> => {
         let backoff = 500;
         const maxBackoff = opts.maxBackoffMs ?? 5000;
         while (!controller.signal.aborted) {
+          // 每连接一个 controller：外层 stop 转发进来；字节看门狗只掐这条连接（不杀整个泵）
+          const connection = new AbortController();
+          const forwardAbort = (): void => connection.abort();
+          controller.signal.addEventListener("abort", forwardAbort, { once: true });
           try {
             const res = await doFetch(url("/api/events"), {
               headers: { accept: "text/event-stream", ...authHeaders() },
-              signal: controller.signal,
+              signal: connection.signal,
             });
             if (!res.ok || res.body === null) throw new Error(`events → ${res.status}`);
             backoff = 500; // 连上即重置
-            for await (const frame of sseFrames(res.body as ReadableStream<Uint8Array>)) {
+            emitLink("connected");
+            for await (const frame of sseFrames(res.body as ReadableStream<Uint8Array>, {
+              idleTimeoutMs: linkIdleTimeoutMs,
+            })) {
               if (frame.kind === "snapshot") {
                 lastSeq.set(frame.sessionId, frame.snapshot.seq);
                 queue.push(frame);
@@ -384,36 +421,70 @@ export function createClient(opts: ClientOptions): HeniraFacade {
               }
             }
           } catch {
-            // 断线（volatile 契约）：退避后重连，server 重发全量快照
+            // 断线 / 半开（字节看门狗超时）/ 流自然结束（volatile 契约）：退避后重连，
+            // server 重发全量快照——刷新不再是唯一恢复手段
+          } finally {
+            controller.signal.removeEventListener("abort", forwardAbort);
           }
           if (controller.signal.aborted) break;
+          emitLink("reconnecting");
           await new Promise((r) => setTimeout(r, backoff));
           backoff = Math.min(backoff * 2, maxBackoff);
         }
       })();
       void pump.catch(() => {});
+      // 拉帧与 abort 竞速：yield* 直取时若队列无帧，生成器的 return 会悬在队列等待上
+      // （stop/dispose 关不掉连接）；race 一帧 abort 即可让生成器收尾
+      const frames = queue.stream()[Symbol.asyncIterator]();
+      const aborted = new Promise<"abort">((resolve) => {
+        if (controller.signal.aborted) resolve("abort");
+        else controller.signal.addEventListener("abort", () => resolve("abort"), { once: true });
+      });
       try {
-        yield* queue.stream();
+        for (;;) {
+          const result = await Promise.race([frames.next(), aborted]);
+          if (result === "abort") return;
+          if (result.done === true) return;
+          yield result.value;
+        }
       } finally {
         controller.abort();
+        eventControllers.delete(controller);
+        // 释放队列等待者（可能悬在无界等待上——不 await，失败也不许反噬收尾）
+        const closing = frames.return?.(undefined);
+        if (closing !== undefined) void closing.catch(() => {});
       }
     },
 
     async stop() {
-      // SSE 连接随 events() 生成器结束而断（finally abort）；REST 无常驻连接
+      // SSE 常驻连接：stop = 全部事件泵收口（REST 无长连接）
+      for (const controller of [...eventControllers]) controller.abort();
+      eventControllers.clear();
     },
   };
   return facade;
 }
 
-/** SSE 文本流 → ServerFrame（data: 行 JSON；注释心跳行忽略） */
-async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<ServerFrame> {
+interface SseFrameOptions {
+  /** 单次字节等待上限（心跳注释也算字节——注释与 data 行一视同仁）；
+   *  超时 = 半开连接，抛错交给上游退避重连 */
+  idleTimeoutMs?: number;
+}
+
+/** SSE 文本流 → ServerFrame（data: 行 JSON；注释心跳行忽略但计入字节活性） */
+async function* sseFrames(
+  body: ReadableStream<Uint8Array>,
+  options: SseFrameOptions = {},
+): AsyncGenerator<ServerFrame> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } =
+        options.idleTimeoutMs === undefined
+          ? await reader.read()
+          : await readWithIdle(reader, options.idleTimeoutMs);
       if (done) return;
       buffer += decoder.decode(value, { stream: true });
       let index = buffer.indexOf("\n\n");
@@ -429,6 +500,30 @@ async function* sseFrames(body: ReadableStream<Uint8Array>): AsyncGenerator<Serv
       }
     }
   } finally {
-    reader.releaseLock();
+    // 结束 / 超时 / 消费方提前退出都要关底层连接（半开连接不 cancel 会吊着）。
+    // cancel 不 await：个别实现会把它挂住——重连不能被收尾拖死
+    try {
+      void reader.cancel().catch(() => {});
+    } catch {
+      // 流已关闭
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      // 仍有挂起 read（abort 竞态）——锁随流收尾释放
+    }
+  }
+}
+
+/** 单次 read 的空闲上限：每次收到字节（含心跳注释）后重新计时 */
+async function readWithIdle<R>(reader: { read(): Promise<R> }, idleMs: number): Promise<R> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const idle = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`sse idle timeout after ${idleMs}ms`)), idleMs);
+  });
+  try {
+    return await Promise.race([reader.read(), idle]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }

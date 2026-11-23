@@ -37,10 +37,9 @@
   }
 }
 
-/* stalled（响应停滞：3s 无活动渐红） */
-.henira-stalled {
-  color: var(--henira-danger-text);
-  transition: color 2s ease-in;
+/* 长等待（R193）：60s 后改中性措辞——秒数照走、不变红；慢不是异常，死交给引擎超时 */
+.henira-waiting {
+  color: var(--henira-text-muted);
 }
 
 /* 运行态扫光：只用在「正在发生」的词上 */

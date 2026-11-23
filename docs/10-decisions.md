@@ -969,3 +969,16 @@
 - **理由**：dsh 的地址即权限模型让预览不依赖行窗口；行锚定会把图片/附件/非工具行文件永远挡在通道外，且行翻页后无法重读。路径围栏与既有 `listDir` 同一信任级（回环 + token + cwd 围栏 + realpath），不引入新面。通配显式占用让官方新类型（PDF/docx）与第三方替换同一条注册路径，消灭 R188 的两条车道。
 - **非目标**：分页读/文件版本号（dsh 有；v1 整文件 + 1 MiB 上限）；多候选「打开方式」选择器（v1 单占用）；`actions`/`unpreviewable` 子槽；PDF/docx/xlsx 官方件（PDF 留下一内容批）；工作区外文件读盘（仍走行快照）。
 - **备注**：落点 = protocol workspace-file + plugin-session reader/header + server sessionCwd/file 端点 + sdk facade/client/runtime + web-ui types/preview-slot/preview/module/locale/css + web slot-vocabulary/host 安全模式 + e2e 插件接管→停用回落 + 文档六处；测试 = 协议嗅探、server 文本/二进制/截断/围栏/realpath/历史会话、sdk 双形态、web-ui 解析器/缝件/回落/崩溃、e2e 真浏览器。**R191 自审补正**：超限只读前缀（二进制嗅探后拒/文本 1 MiB 前缀）+ UTF-8 截断不切码点 + 预览键注册口归一 + 官方兜底件崩溃不自兜 + 读盘失败文案独立 + header.cwd 形状校验 + win32 围栏大小写不敏感 + host 接线/registry 归一/server 边界测试。
+
+## D-077 卡死治理：慢不猜、死有超时、断有看门狗（R193）
+
+- **状态**：已定 · 2026-11-23 · 用户拍「好」（先取证 ZCode / dsh 再定：两家都不做「慢」判据，只做 provider 空闲超时 + 链路活性）；✓ 同日落码
+- **背景**：Agnes 2.5 Flash 实测两症状——①「响应停滞」出现一两秒又继续（块间空档被 3s 判据误报）；②一直卡住、刷新页面才恢复。现实现把三件事混在一个 3s 前端判据里：模型慢（正常）、provider 死（服务端无限等待，无超时）、链路死（客户端无字节看门狗、心跳被丢弃、消费循环异常被吞掉）。参照取证：ZCode = provider per-read 空闲 600s（+30s/重试）→ abort + 重试（可见输出前最多 11 次；有输出后丢弃半截换新 assistant，10 次/回合），UI 忙碌行只走秒、停滞事件显式不上 UI；dsh = per-`next()` 空闲 300s（SSE 注释也算活性）→ TIMEOUT → 重试 5 次 + 可见重试行；WS Ping 2s ×2 判死但客户端看不到、无「没帧」看门狗。两家都有「刷新才好」的终态路径——共同缺口正是本批要补的。
+- **决定**：
+  1. **慢不猜**：删除客户端 3s「响应停滞」判据、红色徽章与词条。忙碌行恒走秒；≥60s 改中性措辞「仍在等待模型响应」，秒数照走、不变红。红色只留给事实性错误（错误行 / 中断）。
+  2. **模型活性 = 引擎事实**：官方 `plugin-llm` 对 `fullStream` 的**每一次 part 等待**设空闲上限，默认 `DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS = 180_000`（`settings.json` `plugins."plugin-llm".options.streamIdleTimeoutMs` 覆盖；0/非数值回落默认，不表示关闭）。超时经 fused `AbortController` 掐底层请求并抛 `LlmError(LLM_STREAM_IDLE_TIMEOUT)`；loop 只透传 `name=LlmError` 的 `code` 进 `ErrorRow.code`（不混入 fs/系统 errno），web-ui 按 code 给可行动中文、英文原文折叠保留。**本批不做自动重试**——超时即收尾、可重发；重试策略（重试事件 / 重试行 / 半截丢弃重跑）另批。
+  3. **链路活性 = 传输事实**：`createClient` 以「收到任意字节」为活性（心跳注释也算），默认 30s（2×服务端 15s 心跳）无字节即判半开 → abort 本次连接 + 既有退避重连（`linkIdleTimeoutMs` 可调）；重连仍按 volatile 语义重拉全量快照。新增 `onLinkState(listener)`（仅 client 实现，变化才通知 `connected`/`reconnecting`）；宿主经 `ctx.linkState` 驱动「连接中断，重连中…」横幅（reconnecting 持续 5s 才露头，抗退避闪烁）。`stop()` 收口全部事件泵（修 `yield*` 在无帧时悬停、连接关不掉的缺口）。**重连补拉当前会话**（活体抓的缺口）：服务端重连只推「在册会话」快照帧，服务重启后当前会话可能不在册——宿主在 `reconnecting → connected` 边沿补一次 `GET snapshot` 并应用（服务端 repair 已收口开档回合），否则界面永久停在上次状态（busy 走秒不停）。
+  4. **消费循环监督**：`consumeFrames` 异常不再静默吞掉——记录日志、500ms 后重建事件循环（只兜消费方自身抛错；事件流重连归 client）。
+- **理由**：ZCode/dsh 都刻意不做「慢」的 UI 判据——慢不是异常；真正该有界的是 provider 静默与链路静默。3s 阈值是对远端模型的误判（Agnes 单段思考实测 83s）；把「慢/死/断」拆到三层后，每个现象只有一种解释、一个出口：慢 → 走秒；provider 死 → 180s 后错误行可重发；链路死 → 30s 内自动重连。心跳算字节使「半开连接」可检测（浏览器看不到 WS Ping，但 SSE 心跳是真实字节）。
+- **非目标**：自动重试与重试行、半截回答丢弃重跑（ZCode stream recovery）、总回合时限、provider 故障转移、连接失败的长期状态面板（横幅只覆盖重连中）。停止按钮仍是人工出口。
+- **备注**：落点 = protocol（错误码 + 默认值）、plugin-llm（idle-stream 看门狗 + service fused abort）、loop（错误码透传）、sdk facade/client（LinkState / onLinkState / linkIdleTimeoutMs / stop 收口 / 字节看门狗）、web host（消费监督 + ctx.linkState）、plugin-web-ui（删 stalled、60s 中性等待、断链横幅、超时错误提示与词条）、e2e（静默 provider + settings 压到 1.5s → 错误行 + busy 归 false）。测试 = llm 看门狗假时钟、sdk 半开重连与链路状态、host 消费循环重启、web-ui 三态与横幅抗闪、e2e 真浏览器。活体验收 = Agnes 长思考不误杀 + 回合中杀 serve 自动重连（无需刷新）。

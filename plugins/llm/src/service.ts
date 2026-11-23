@@ -15,6 +15,7 @@ import {
   type StreamEvent,
 } from "@henira/protocol";
 import { jsonSchema, streamText } from "ai";
+import { resolveIdleTimeoutMs, withIdleTimeout } from "./idle-stream.js";
 import { toAiInstructions, toAiMessages } from "./messages.js";
 import { resolveLanguageModel } from "./provider.js";
 import { StreamEventMapper } from "./stream-parts.js";
@@ -31,6 +32,14 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
           const apiKey = await config.credential(req.model.provider);
           const model = resolveLanguageModel(req.model, { apiKey });
           const mapper = new StreamEventMapper();
+          // 空闲看门狗（R193）：provider 静默上限（settings 可配，默认 180s）。
+          // 掐流走 fused controller——用户中断（signal）与超时（看门狗）都汇到同一 abort 源
+          const idleOptions = await config.get<{ streamIdleTimeoutMs?: number }>("plugin-llm");
+          const idleTimeoutMs = resolveIdleTimeoutMs(idleOptions?.streamIdleTimeoutMs);
+          const controller = new AbortController();
+          const forwardAbort = (): void => controller.abort();
+          if (signal.aborted) controller.abort();
+          else signal.addEventListener("abort", forwardAbort, { once: true });
           const instructions = toAiInstructions(req.messages);
           // 思考档 → OpenAI 兼容请求体附加参数（能力表按厂商映射，合同层同源；
           // none 厂商 = undefined 不透传——deepseek 原生思考不可控等）。AI SDK
@@ -58,7 +67,7 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
               ]),
             ),
             toolChoice: req.tools.length > 0 ? "auto" : "none",
-            abortSignal: signal,
+            abortSignal: controller.signal,
             maxOutputTokens: req.maxTokens,
             temperature: req.temperature,
             ...(extraBody !== undefined
@@ -71,10 +80,18 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
             maxRetries: 0, // 重试政策机归引擎侧（M2 = 错误落盘收尾，M2 计划边界）
             stopWhen: () => true, // 单步：一次请求周期，不进 SDK 侧循环
           });
-          for await (const part of result.fullStream) {
-            for (const event of mapper.map(part)) yield event;
+          try {
+            for await (const part of withIdleTimeout(result.fullStream, {
+              idleTimeoutMs,
+              abort: () => controller.abort(),
+            })) {
+              for (const event of mapper.map(part)) yield event;
+            }
+          } finally {
+            signal.removeEventListener("abort", forwardAbort);
           }
-          // 流自然结束（finish part 已映射）；SDK 中途失败 = fullStream 抛错 → 迭代抛出（rejection 通道）
+          // 流自然结束（finish part 已映射）；SDK 中途失败 = fullStream 抛错 → 迭代抛出（rejection 通道）；
+          // provider 静默超限 = withIdleTimeout 抛 LlmError(LLM_STREAM_IDLE_TIMEOUT_CODE)（R193）
         },
       };
       return service;

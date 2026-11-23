@@ -95,9 +95,16 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     }
   } catch (err) {
     if (signal.aborted) return { outcome: "aborted", usage }; // 纪律 1：掐流不是 retryable 错误
-    // 纪律 5：错误落盘为事件（报错的回合也要有收尾）
+    // 纪律 5：错误落盘为事件（报错的回合也要有收尾）。类型化 code 原样进 ErrorRow
+    // （R193：LlmError 的 LLM_STREAM_IDLE_TIMEOUT 是 provider 静默超时——UI 据此本地化）
     const message = err instanceof Error ? err.message : String(err);
-    await session.append({ type: "error", data: { turn, step, code: "LLM_STREAM", message } });
+    // 仅收 llm 自己的类型化错误（name 判别跨包恒等；不把 fs/系统 errno 的 code 混进模型错误）
+    const typedCode =
+      err instanceof Error && err.name === "LlmError"
+        ? (err as { code?: unknown }).code
+        : undefined;
+    const code = typeof typedCode === "string" ? typedCode : "LLM_STREAM";
+    await session.append({ type: "error", data: { turn, step, code, message } });
     batcher.pushStructural({ type: "error", message });
     return { outcome: "error", usage };
   }

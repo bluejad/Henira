@@ -25,18 +25,10 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   const sessionRows = ctx.client.sessionRows; // feature-detect：宿主缺方法 = 不翻页
   const tailParts = ctx.slots.get("turn.tail") ?? [];
 
-  // ── 轮级 loading 计时 + stalled（E3 生命感；CC 行为层：3s 无活动渐红提示）──
+  // ── 轮级 loading 计时（E3 生命感；R193 起只走秒，不再猜「停滞」——慢不是异常）──
   const busy = snapshot.state.busy;
   const [busySince, setBusySince] = useState<number | undefined>(undefined);
   const [, setTick] = useState(0);
-  const lastActivityRef = useRef(Date.now());
-  // 快照即活动信号本体：渲染期同步判定（effect 后置会让快照恰落 3~4s 死区时「响应停滞」
-  // 误亮至下一秒 tick——审查批 F2）。守卫 = 快照引用比对，幂等（StrictMode 双渲安全）
-  const lastSnapshotRef = useRef(snapshot);
-  if (lastSnapshotRef.current !== snapshot) {
-    lastSnapshotRef.current = snapshot;
-    lastActivityRef.current = Date.now(); // 任何快照变化（行/增量落地）= 有活动
-  }
   // biome-ignore lint/correctness/useExhaustiveDependencies: ctx.sessionId 刻意触发信号——切会话重置兜底表
   useEffect(() => {
     if (busy) {
@@ -50,15 +42,24 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
     setBusySince(undefined);
     return undefined;
   }, [busy, ctx.sessionId]);
-  const hasActiveTools = useMemo(
-    () => snapshot.rows.some((r) => r.kind === "tool" && r.status === "running"),
-    [snapshot.rows],
-  );
-  const stalled = busy && !hasActiveTools && Date.now() - lastActivityRef.current > 3000;
   // 计时起点：服务端 busySince 权威（R173——turn/start 事件 time，快照重建自愈），
   // 刷新/重连/换窗口续同一块表；无字段（老快照）才兜底本地起表
   const since = busy ? (snapshot.state.busySince ?? busySince) : undefined;
   const busySeconds = since !== undefined ? Math.floor((Date.now() - since) / 1000) : 0;
+  // 60s 后改中性措辞（「仍在等待模型响应」）——秒数照走、不变红；真正的死由引擎空闲超时收口
+  const waitingLong = busy && busySeconds >= 60;
+  // 断链横幅（R193）：reconnecting 持续 5s 才露头——退避重连通常几百毫秒自愈，不闪
+  const [linkLost, setLinkLost] = useState(false);
+  useEffect(() => {
+    if (ctx.linkState !== "reconnecting") {
+      setLinkLost(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setLinkLost(true), 5000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [ctx.linkState]);
 
   const commitFollowing = (on: boolean): void => {
     followingRef.current = on;
@@ -183,6 +184,11 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
 
   return (
     <div ref={wrapRef} className="henira-conversation-wrap">
+      {linkLost ? (
+        <div className="henira-link-banner" role="status">
+          {ctx.t("connection.reconnecting")}
+        </div>
+      ) : null}
       {empty ? (
         <>
           <ConversationEmpty ctx={ctx} />
@@ -200,20 +206,16 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
             runningTurn={busy ? snapshot.state.lastTurnId : undefined}
           />
           {busy ? (
-            <p className={`henira-loading-dots${stalled ? " henira-stalled" : ""}`}>
+            <p className="henira-loading-dots">
               <span>·</span>
               <span>·</span>
               <span>·</span>{" "}
-              {stalled ? (
-                ctx.t("response.stalled")
-              ) : (
-                <>
-                  <span className="henira-sweep">{ctx.t("conversation.working")}</span>{" "}
-                  <span className="henira-loading-duration">
-                    {formatWorkDuration(busySeconds * 1000, ctx.t)}
-                  </span>
-                </>
-              )}
+              <span className={waitingLong ? "henira-waiting" : "henira-sweep"}>
+                {ctx.t(waitingLong ? "conversation.waitingModel" : "conversation.working")}
+              </span>{" "}
+              <span className="henira-loading-duration">
+                {formatWorkDuration(busySeconds * 1000, ctx.t)}
+              </span>
             </p>
           ) : null}
           {tailNodes}

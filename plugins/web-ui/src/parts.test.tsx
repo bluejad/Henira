@@ -3697,7 +3697,11 @@ describe("生命感（E3）", () => {
           : { content: `${name} body`, isError: false, durationMs: 3 },
     }) as Row;
 
-  function ctxWithState(rows: Row[], state: Record<string, unknown>): WebPartContext {
+  function ctxWithState(
+    rows: Row[],
+    state: Record<string, unknown>,
+    extra?: Partial<WebPartContext>,
+  ): WebPartContext {
     const snapshot = { rows, state }; // 引用稳定——useSyncExternalStore 语义（每调用新对象=无限重渲）
     // 生产里官方 per-tool 卡经 webUiModule 注册进 keyed 槽；测试同形注入，
     // 让对话组织的断言跑在真实卡上而不是通用兜底卡。
@@ -3710,6 +3714,7 @@ describe("生命感（E3）", () => {
         subscribe: () => () => {},
       },
       slots,
+      ...extra,
     } as unknown as Partial<WebPartContext>);
   }
 
@@ -3840,6 +3845,57 @@ describe("生命感（E3）", () => {
     const m = container.textContent?.match(/工作中 (\d+) 秒/);
     expect(m).not.toBeNull();
     expect(Number(m?.[1])).toBeGreaterThanOrEqual(28); // 续表 ≥28s（tick 容差）——而非从 0 重数
+  });
+
+  it("R193：60s 后改中性措辞「仍在等待模型响应」，秒数照走、不再有 stalled 红字", () => {
+    const ctx = ctxWithState([], { busy: true, busySince: Date.now() - 61_000 });
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain(t("conversation.waitingModel"));
+    // 秒数照走（61s 会格式化成「1 分 1 秒」——只断言计时元素在场且非空）
+    expect(container.querySelector(".henira-loading-duration")?.textContent).toBeTruthy();
+    expect(container.querySelector(".henira-stalled")).toBeNull();
+  });
+
+  it("R193：断链横幅 5s 才出现；connected 永不出现", () => {
+    vi.useFakeTimers();
+    try {
+      const down = ctxWithState([], { busy: false }, { linkState: "reconnecting" });
+      const { container } = render(<Conversation {...down} />);
+      expect(container.querySelector(".henira-link-banner")).toBeNull(); // 退避重连不闪
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(container.querySelector(".henira-link-banner")?.textContent).toContain(
+        t("connection.reconnecting"),
+      );
+      cleanup();
+      const up = ctxWithState([], { busy: false }, { linkState: "connected" });
+      const { container: c2 } = render(<Conversation {...up} />);
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(c2.querySelector(".henira-link-banner")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("R193：provider 静默超时错误行 → 可行动中文提示 + 原始信息折叠", () => {
+    const ctx = ctxWithState(
+      [
+        {
+          kind: "error",
+          rowId: "e:1",
+          rowSeq: 1,
+          code: "LLM_STREAM_IDLE_TIMEOUT",
+          message: "llm stream idle timeout: no output for 180000ms",
+        },
+      ],
+      { busy: false },
+    );
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain(t("error.idleTimeoutHint"));
+    expect(container.querySelector(".henira-error-details")).not.toBeNull();
   });
 
   // 审查批（2026-11-21）：空文本步级行分两档——纯空行剔除；带可视内容（步级 usage/
