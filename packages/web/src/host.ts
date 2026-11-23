@@ -3,13 +3,14 @@ import { createElement } from "react";
 import * as ReactJsxRuntime from "react/jsx-runtime";
 import * as ReactDOMClient from "react-dom/client";
 import { createRoot, type Root } from "react-dom/client";
-// 职责：帧流消费（喂 store）/ PluginUiHost 门面实现（13 方法 M3 子集）/ UI 模块激活
+// 职责：帧流消费（喂 store）/ PluginUiHost 门面实现（14 方法）/ UI 模块激活
 // （公共注册路径）或安全模式（编译期出口默认组合）/ 主题接线 / 双击 Alt 切安全模式 /
 // 第三方 UI 件装载与免刷新重装（批 C）。
 // 渲染 = 只挂 layout 槽的官方框架件（D-062 整页框架槽）——宿主零界面 JSX，一切可见物
 // 都在 plugin-web-ui 件（框架件同一注册声明子槽，声明=独占渲染权，dsh AppFrame 行为层）。
 
 import {
+  canonicalPreviewSlotName,
   defaultApprovalViews,
   defaultChainEntries,
   defaultComposerBar,
@@ -240,6 +241,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     },
     officialId: "plugin-web-ui",
     isSingleSlot: (name) => isSingleSlot(name),
+    // R191 自审：预览键注册口归一（大小写/前导点/空后缀变体落同一规范键，冲突当场报错）
+    canonicalSlotName: (name) => canonicalPreviewSlotName(name),
   });
   const slots = registry.slots;
   let moduleCtx: UiModuleContext | undefined;

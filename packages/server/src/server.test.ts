@@ -1142,8 +1142,10 @@ describe("REST 面与设置", () => {
     await fs.writeFile(path.join(cwd, "note.txt"), note, "utf8");
     await fs.writeFile(path.join(cwd, "blob.bin"), Buffer.from([0, 1, 2, 3]));
     await fs.writeFile(path.join(cwd, "big.txt"), "a".repeat(WORKSPACE_FILE_MAX_BYTES + 16));
+    await fs.writeFile(path.join(cwd, "exact.txt"), "b".repeat(WORKSPACE_FILE_MAX_BYTES));
     await fs.writeFile(path.join(cwd, "big.bin"), Buffer.alloc(WORKSPACE_FILE_MAX_BYTES + 1));
     await fs.mkdir(path.join(cwd, "sub"));
+    await fs.writeFile(path.join(cwd, "sub", "deep.txt"), "deep body", "utf8");
     const { base, cleanup } = await makeServer([]);
     try {
       const id = await createSession(base, cwd);
@@ -1165,11 +1167,22 @@ describe("REST 面与设置", () => {
       const bin = (await (await read("blob.bin")).json()) as WorkspaceFileContent;
       expect(bin.encoding).toBe("base64");
       expect([...Buffer.from(bin.content, "base64")]).toEqual([0, 1, 2, 3]);
-      // 文本超限：截断 + 总大小如实
+      // 文本超限：只读前缀（R191）+ 截断 + 总大小如实
       const big = (await (await read("big.txt")).json()) as WorkspaceFileContent;
       expect(big.truncated).toBe(true);
       expect(big.content.length).toBe(WORKSPACE_FILE_MAX_BYTES);
       expect(big.size).toBe(WORKSPACE_FILE_MAX_BYTES + 16);
+      // 恰为上限：不标 truncated（边界不误伤）
+      const exact = (await (await read("exact.txt")).json()) as WorkspaceFileContent;
+      expect(exact.truncated).toBeUndefined();
+      expect(exact.content.length).toBe(WORKSPACE_FILE_MAX_BYTES);
+      // 相对归一：sub/../ 合法落在围栏内
+      expect(((await (await read("sub/../note.txt")).json()) as WorkspaceFileContent).content).toBe(
+        note,
+      );
+      expect(
+        ((await (await read("sub/../sub/deep.txt")).json()) as WorkspaceFileContent).content,
+      ).toBe("deep body");
       // 二进制超限：残缺字节不可用 → 400
       expect((await read("big.bin")).status).toBe(400);
       expect((await (await read("big.bin")).json()) as { error: string }).toMatchObject({
@@ -1206,6 +1219,15 @@ describe("REST 面与设置", () => {
       `${JSON.stringify({ version: 1, id: sid, createdAt: 1, cwd })}\n`,
       "utf8",
     );
+    // R191：header.cwd 形状非法（空串）→ 404，不得把围栏根错设成 server 进程 cwd
+    const badSid = "s-hist0000-bad999";
+    const badDir = path.join(dataDir, "projects", "--hist-test--", "sessions", badSid);
+    await fs.mkdir(badDir, { recursive: true });
+    await fs.writeFile(
+      path.join(badDir, SESSION_LOG_FILE),
+      `${JSON.stringify({ version: 1, id: badSid, createdAt: 1, cwd: "" })}\n`,
+      "utf8",
+    );
     const server = await createServer({
       dataDir,
       globalDir,
@@ -1215,6 +1237,9 @@ describe("REST 面与设置", () => {
       const res = await fetch(`${server.url}/api/sessions/${sid}/file?path=old.txt`);
       expect(res.status).toBe(200);
       expect(((await res.json()) as WorkspaceFileContent).content).toBe("historical body");
+      expect((await fetch(`${server.url}/api/sessions/${badSid}/file?path=old.txt`)).status).toBe(
+        404,
+      );
     } finally {
       await server.stop();
       await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});

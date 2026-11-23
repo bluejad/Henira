@@ -14,6 +14,7 @@ import {
 } from "@henira/plugin-session";
 import {
   DECISIONS,
+  decodeUtf8Prefix,
   looksBinary,
   QUESTION_CUSTOM_MAX,
   REASONING_EFFORTS,
@@ -371,7 +372,7 @@ export function createApp(deps: AppDeps): Hono {
     const relative = c.req.query("path") ?? "";
     const root = path.resolve(entry.cwd);
     const target = path.resolve(root, relative);
-    if (target !== root && !target.startsWith(root + path.sep)) {
+    if (!isWithin(root, target)) {
       return c.json({ error: "path escapes session workspace" }, 400); // 路径围栏
     }
     let dirents: import("node:fs").Dirent[];
@@ -424,12 +425,30 @@ export function createApp(deps: AppDeps): Hono {
     if (!isWithin(realRoot, realTarget)) {
       return c.json({ error: "path escapes session workspace" }, 400);
     }
-    let bytes: Buffer;
+    // 读取上限只管输出、不管读入（R191 自审）：超限文件只读前缀——先 8KB 嗅探，
+    // 二进制残缺不可用直接拒绝（不把大文件整块拉进内存），文本只读 1 MiB 并标截断。
+    let bytes: Buffer | undefined;
     try {
+      if (stat.size > WORKSPACE_FILE_MAX_BYTES) {
+        const head = await readHead(realTarget, 8000);
+        if (looksBinary(head)) {
+          return c.json({ error: "file too large to preview" }, 400);
+        }
+        const prefix = await readHead(realTarget, WORKSPACE_FILE_MAX_BYTES);
+        const body: WorkspaceFileContent = {
+          path: realTarget,
+          encoding: "utf8",
+          content: decodeUtf8Prefix(prefix, WORKSPACE_FILE_MAX_BYTES),
+          size: stat.size,
+          truncated: true,
+        };
+        return c.json(body);
+      }
       bytes = await fs.readFile(realTarget);
     } catch {
       return c.json({ error: "not readable" }, 400);
     }
+    if (bytes === undefined) return c.json({ error: "not readable" }, 400);
     const binary = looksBinary(bytes);
     // 二进制只给完整字节（残缺 PDF/图片不可用）；文本按上限截断
     if (binary && bytes.byteLength > WORKSPACE_FILE_MAX_BYTES) {
@@ -445,7 +464,7 @@ export function createApp(deps: AppDeps): Hono {
       : {
           path: realTarget,
           encoding: "utf8",
-          content: bytes.subarray(0, WORKSPACE_FILE_MAX_BYTES).toString("utf8"),
+          content: decodeUtf8Prefix(bytes, WORKSPACE_FILE_MAX_BYTES),
           size: bytes.byteLength,
           ...(bytes.byteLength > WORKSPACE_FILE_MAX_BYTES ? { truncated: true } : {}),
         };
@@ -1137,7 +1156,30 @@ function isAbsoluteCwd(cwd: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("/") || cwd.startsWith("\\");
 }
 
-/** 路径围栏：target 等于 root 或在其子树内（词法判据；符号链接另经 realpath 复核） */
+/** 路径围栏：target 等于 root 或在其子树内（词法判据；符号链接另经 realpath 复核）。
+ *  win32 路径大小写不敏感（R191 自审：盘符大小写不同的合法路径不得误拒）。 */
 function isWithin(root: string, target: string): boolean {
+  if (process.platform === "win32") {
+    const r = root.toLowerCase();
+    const t = target.toLowerCase();
+    return t === r || t.startsWith(r + path.sep);
+  }
   return target === root || target.startsWith(root + path.sep);
+}
+
+/** 只读文件前 maxBytes 字节（分片循环，短读安全；预览前缀/二进制嗅探用，不整读大文件） */
+async function readHead(filePath: string, maxBytes: number): Promise<Buffer> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const chunk = Buffer.alloc(maxBytes);
+    let total = 0;
+    while (total < maxBytes) {
+      const { bytesRead } = await handle.read(chunk, total, maxBytes - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+    }
+    return chunk.subarray(0, total);
+  } finally {
+    await handle.close();
+  }
 }

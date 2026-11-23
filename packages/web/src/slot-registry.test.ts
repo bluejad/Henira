@@ -202,6 +202,45 @@ describe("single 槽（R183，dsh SlotKind single 行为层）", () => {
   });
 });
 
+describe("canonicalSlotName（R191 自审）：占用判据落在解析的键空间", () => {
+  const PREFIX = "sidebar.right.preview.";
+  const makeCanonical = () => {
+    const registry = createSlotRegistry({
+      slotAccepted: () => true,
+      onUnknownSlot: () => {},
+      officialId: "plugin-web-ui",
+      isSingleSlot: (name) => name.startsWith(PREFIX),
+      canonicalSlotName: (name) => {
+        if (!name.startsWith(PREFIX)) return name;
+        const suffix = name.slice(PREFIX.length).toLowerCase().replace(/^\.+/, "");
+        return `${PREFIX}${suffix === "" ? "*" : suffix}`;
+      },
+    });
+    return registry;
+  };
+
+  it("大小写/前导点变体落同一规范键；第二家第三方当场冲突", () => {
+    const registry = makeCanonical();
+    const a = registry.apiFor("ui-a");
+    const b = registry.apiFor("ui-b");
+    a.registerSlot("sidebar.right.preview.MD", () => "a");
+    expect(registry.slots.has("sidebar.right.preview.md")).toBe(true);
+    expect(() => b.registerSlot("sidebar.right.preview..md", () => "b")).toThrow(/slot conflict/);
+  });
+
+  it("空后缀 = 通配：与官方 `*` 同键（官方在位 → 顶替合法），卸载回落官方", () => {
+    const registry = makeCanonical();
+    const official = registry.apiFor("plugin-web-ui");
+    const plugin = registry.apiFor("ui-a");
+    const officialPart = () => "official";
+    official.registerSlot("sidebar.right.preview.*", officialPart);
+    const dispose = plugin.replaceSlot("sidebar.right.preview.", () => "plugin");
+    expect(registry.slots.get("sidebar.right.preview.*")?.[0]?.("x" as never)).toBe("plugin");
+    dispose();
+    expect(registry.slots.get("sidebar.right.preview.*")).toEqual([officialPart]);
+  });
+});
+
 describe("releaseOwner（R186 收尾，审查 P3⑨）：按调用方整批撤出", () => {
   const chainEntry = (id: string) => ({
     id,

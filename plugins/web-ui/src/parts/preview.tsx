@@ -90,7 +90,9 @@ function DiskPreviewBody(props: {
     return <div className="henira-preview-empty">{ctx.t("preview.loading")}</div>;
   }
   if (state.status === "failed") {
-    return <div className="henira-preview-empty">{ctx.t("preview.missing")}</div>;
+    // 读盘失败（已删/无权限/二进制/旧宿主无读能力）与「行已出窗」不是一回事——
+    // 「请重新打开文件」会误导（R191 自审）
+    return <div className="henira-preview-empty">{ctx.t("preview.unreadable")}</div>;
   }
   if (state.text === "") {
     return <div className="henira-preview-empty">{ctx.t("preview.empty")}</div>;
@@ -170,8 +172,16 @@ export function PreviewBody(props: { tab: PreviewTabPayload; ctx: WebPartContext
   const Seam =
     seam === undefined ? undefined : (ctx.slots.get(seam.name)?.[0] as PreviewView | undefined);
   if (seam !== undefined && Seam !== undefined) {
+    // 官方兜底件自身崩溃时不能拿同一实现当 fallback（deterministic 崩溃会从 fallback
+    // 逃逸、连累整页）——改渲染最小提示；第三方件崩溃仍回落官方体（R191 自审）
+    const fallback =
+      Seam === OfficialPreviewView
+        ? (): ReactNode => (
+            <div className="henira-preview-empty">{ctx.t("preview.unsupported")}</div>
+          )
+        : builtin;
     return (
-      <SlotBoundary key={seam.name} label={seam.name} fallback={builtin}>
+      <SlotBoundary key={seam.name} label={seam.name} fallback={fallback}>
         <Seam ctx={ctx} target={tab} ext={ext} row={toolRow} read={read} />
       </SlotBoundary>
     );

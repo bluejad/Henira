@@ -19,6 +19,9 @@ export interface SlotRegistryOptions {
   /** single 槽判定（R183，dsh SlotKind single）：命中者 registerSlot 也走认领/回落语义；
    *  缺省 = 全部 list 追加（旧语义，不改变既有宿主） */
   isSingleSlot?(name: string): boolean;
+  /** 槽名归一（R191 自审）：注册/顶替入口先归一再生效——「一个 key 一位」的占用
+   *  判据要落在与解析相同的键空间（预览键大小写/前导点/空后缀变体否则可静默共存） */
+  canonicalSlotName?(name: string): string;
 }
 
 export interface SlotRegistry {
@@ -128,36 +131,38 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
     apiFor(callerId) {
       return {
         registerSlot(name, part, registerOpts) {
-          if (!opts.slotAccepted(name)) {
-            opts.onUnknownSlot(name);
+          const slotName = opts.canonicalSlotName?.(name) ?? name;
+          if (!opts.slotAccepted(slotName)) {
+            opts.onUnknownSlot(slotName);
             return () => {};
           }
           // single 槽（R183）：同一时刻只一位占用者——认领/回落语义，不追加
-          if (opts.isSingleSlot?.(name) === true) {
-            return trackRelease(callerId, claimSlot(name, part, callerId));
+          if (opts.isSingleSlot?.(slotName) === true) {
+            return trackRelease(callerId, claimSlot(slotName, part, callerId));
           }
-          const list = slots.get(name) ?? [];
+          const list = slots.get(slotName) ?? [];
           const order = registerOpts?.order ?? 0;
           partOrders.set(part as unknown as object, order);
           partOwners.set(part as unknown as object, callerId);
           const at = list.findIndex((p) => (partOrders.get(p as unknown as object) ?? 0) > order);
           if (at === -1) list.push(part);
           else list.splice(at, 0, part);
-          slots.set(name, list);
+          slots.set(slotName, list);
           return trackRelease(callerId, () => {
-            const current = slots.get(name);
+            const current = slots.get(slotName);
             if (current === undefined) return;
             const index = current.indexOf(part);
             if (index >= 0) current.splice(index, 1);
-            if (current.length === 0) slots.delete(name); // 不残留空键（与 chain/claim 同款）
+            if (current.length === 0) slots.delete(slotName); // 不残留空键（与 chain/claim 同款）
           });
         },
         replaceSlot(name, part) {
-          if (!opts.slotAccepted(name)) {
-            opts.onUnknownSlot(name);
+          const slotName = opts.canonicalSlotName?.(name) ?? name;
+          if (!opts.slotAccepted(slotName)) {
+            opts.onUnknownSlot(slotName);
             return () => {};
           }
-          return trackRelease(callerId, claimSlot(name, part, callerId));
+          return trackRelease(callerId, claimSlot(slotName, part, callerId));
         },
         registerChainSlot(name, entry, registerOpts) {
           if (!opts.slotAccepted(name)) {

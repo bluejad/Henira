@@ -36,6 +36,11 @@ export { CodeGlyph } from "./parts/icons.js";
 export { LayoutFrame } from "./parts/layout-frame.js";
 export { ModelSeat } from "./parts/model-seat.js";
 export { ModelSelect } from "./parts/model-select.js";
+export {
+  canonicalPreviewSlotName,
+  normalizePreviewSuffix,
+  PREVIEW_SLOT_PREFIX,
+} from "./parts/preview-slot.js";
 export { QuestionAnswers, QuestionCard } from "./parts/question-card.js";
 export { QueueDock } from "./parts/queue-dock.js";
 export { RightPanel } from "./parts/right-panel.js";

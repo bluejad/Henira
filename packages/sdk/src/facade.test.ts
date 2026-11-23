@@ -16,6 +16,7 @@ import type {
   ServerFrame,
   ToolRow,
 } from "@henira/protocol";
+import { WORKSPACE_FILE_MAX_BYTES } from "@henira/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { autoRejectInteraction, createClient, createRuntime } from "./index.js";
 
@@ -880,10 +881,16 @@ describe.each(forms.map((f) => [f.name, f] as const))(
       expect(toolRow.output?.content).toContain("1\talpha");
     });
 
-    it("readWorkspaceFile（R190）：双形态同形——相对路径/二进制/围栏/404", async () => {
+    it("readWorkspaceFile（R190）：双形态同形——相对路径/二进制/截断/围栏/404", async () => {
       const { facade, dataDir } = await form.make([]);
       await fs.writeFile(path.join(dataDir, "note.txt"), "alpha\nbeta\n", "utf8");
       await fs.writeFile(path.join(dataDir, "blob.bin"), Buffer.from([0, 1, 2, 3]));
+      await fs.writeFile(
+        path.join(dataDir, "big.txt"),
+        "a".repeat(WORKSPACE_FILE_MAX_BYTES + 16),
+        "utf8",
+      );
+      await fs.writeFile(path.join(dataDir, "big.bin"), Buffer.alloc(WORKSPACE_FILE_MAX_BYTES + 1));
       const session = await facade.createSession({ cwd: dataDir });
       const text = await facade.readWorkspaceFile(session.id, "note.txt");
       expect(text).toMatchObject({
@@ -895,6 +902,12 @@ describe.each(forms.map((f) => [f.name, f] as const))(
       const binary = await facade.readWorkspaceFile(session.id, "blob.bin");
       expect(binary.encoding).toBe("base64");
       expect([...Buffer.from(binary.content, "base64")]).toEqual([0, 1, 2, 3]);
+      // R191：双形态截断/二进制超限同形（上限只管输出，前端仍拿 size + truncated）
+      const big = await facade.readWorkspaceFile(session.id, "big.txt");
+      expect(big.truncated).toBe(true);
+      expect(big.content.length).toBe(WORKSPACE_FILE_MAX_BYTES);
+      expect(big.size).toBe(WORKSPACE_FILE_MAX_BYTES + 16);
+      await expect(facade.readWorkspaceFile(session.id, "big.bin")).rejects.toThrow();
       await expect(facade.readWorkspaceFile(session.id, "../escape.txt")).rejects.toThrow();
       await expect(facade.readWorkspaceFile(session.id, "missing.txt")).rejects.toThrow();
     });

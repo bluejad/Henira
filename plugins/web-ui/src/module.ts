@@ -14,7 +14,7 @@ import { approvalTakeover, ComposerDock, questionTakeover } from "./parts/compos
 import { Conversation } from "./parts/conversation.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSeat } from "./parts/model-seat.js";
-import { OfficialPreviewView } from "./parts/preview.js";
+import { OfficialPreviewView, PREVIEW_WILDCARD_SLOT } from "./parts/preview.js";
 import { QueueDock } from "./parts/queue-dock.js";
 import { RightPanel } from "./parts/right-panel.js";
 import { SessionList } from "./parts/session-list.js";
@@ -92,7 +92,7 @@ export const defaultApprovalViews: Record<string, ApprovalCardView> = Object.fro
  * 与第三方同一注册路径（dsh builtin 同缝）；插件按后缀注册/顶替、卸载或崩溃回落本件。
  * 通配只兜无更精确后缀命中的情况（解析器见 parts/preview-slot.ts）。 */
 export const defaultPreviewViews: Record<string, PreviewView> = {
-  "sidebar.right.preview.*": OfficialPreviewView,
+  [PREVIEW_WILDCARD_SLOT]: OfficialPreviewView,
 };
 
 /** UI 模块装载入口：把官方件注册进宿主槽位；返回卸载函数 */

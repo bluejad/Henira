@@ -1,6 +1,7 @@
 // 预览缝解析器（R190）：后缀归一 / 最长匹配 / 通配回落 / 单占用键查找。
 import { describe, expect, it } from "vitest";
 import {
+  canonicalPreviewSlotName,
   normalizePreviewSuffix,
   PREVIEW_SLOT_PREFIX,
   pickPreviewSlot,
@@ -41,5 +42,14 @@ describe("preview slot resolver", () => {
   it("非预览前缀忽略；大小写不敏感", () => {
     expect(pickPreviewSlot(["tool.call.view.read", key("MD")], "a.md")?.suffix).toBe("md");
     expect(pickPreviewSlot(["Tool.Call.View.Read"], "a.md")).toBeUndefined();
+  });
+
+  it("注册口归一（R191）：大小写/前导点/空后缀变体落同一规范键", () => {
+    expect(canonicalPreviewSlotName(key("MD"))).toBe(key("md"));
+    expect(canonicalPreviewSlotName(key(".TAR.GZ"))).toBe(key("tar.gz"));
+    expect(canonicalPreviewSlotName(key("..md"))).toBe(key("md"));
+    expect(canonicalPreviewSlotName(key(""))).toBe(key("*"));
+    expect(canonicalPreviewSlotName(key("*"))).toBe(key("*"));
+    expect(canonicalPreviewSlotName("tool.call.view.read")).toBe("tool.call.view.read");
   });
 });

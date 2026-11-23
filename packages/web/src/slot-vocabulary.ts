@@ -3,6 +3,9 @@
 // 此前只有 slot-registry 测试自注入谓词，host 里的真实词表零覆盖。词表外 = 完全未知 →
 // 告警并忽略（§7.2）；keyed 前缀合法、后缀自由。新增槽位时三处同改：本文件、
 // plugins.md 词表、interfaces.md slotKinds（反向核对随批）。
+// R191 自审：预览前缀从 plugin-web-ui 公开出口引用（解析器与词表同一字面量，消双份漂移）。
+
+import { PREVIEW_SLOT_PREFIX } from "@henira/plugin-web-ui";
 
 const REGION_SLOTS: ReadonlySet<string> = new Set([
   "layout",
@@ -25,15 +28,13 @@ const REGION_SLOTS: ReadonlySet<string> = new Set([
  *  与 composer.model（模型 + 思考控制）；其余区域/追加位保持 list 语义。 */
 const SINGLE_SLOTS: ReadonlySet<string> = new Set(["composer.bar", "composer.model"]);
 
-/** 预览缝保留前缀（R190，D-076）：按后缀 keyed，一个后缀一位实现（通配 `*` 也占一位）。 */
-const PREVIEW_SLOT_PREFIX = "sidebar.right.preview.";
-
-/** single 判据：区域单槽 + 预览键全族（消灭 keyed 追加 [0] 赢的静默歧义）。 */
+/** single 判据：区域单槽 + 预览键全族（消灭 keyed 追加 [0] 赢的静默歧义）。
+ *  预览缝按后缀 keyed，一个后缀一位实现（通配 `*` 也占一位；R190/D-076）。 */
 function isSingleSlot(name: string): boolean {
   return SINGLE_SLOTS.has(name) || name.startsWith(PREVIEW_SLOT_PREFIX);
 }
 
-const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview.", "approval.view."] as const;
+const KEYED_PREFIXES = ["tool.call.view.", PREVIEW_SLOT_PREFIX, "approval.view."] as const;
 
 function slotAccepted(name: string): boolean {
   return REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));

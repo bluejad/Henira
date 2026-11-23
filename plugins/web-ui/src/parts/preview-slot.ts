@@ -31,6 +31,15 @@ export function normalizePreviewSuffix(suffix: string): string {
   return suffix.toLowerCase().replace(/^\.+/, "");
 }
 
+/** 规范预览槽名（R191 自审）：注册口先归一再进登记簿——后缀小写、去前导点，
+ *  空后缀归并为通配 `*`。这样「一个后缀一位实现」在键空间成立：`MD`/`.md`/`..md`
+ *  落同一个规范键，第二家 claim 当场报冲突，而不是解析期按 Map 顺序静默择一。 */
+export function canonicalPreviewSlotName(name: string): string {
+  if (!name.startsWith(PREVIEW_SLOT_PREFIX)) return name;
+  const suffix = normalizePreviewSuffix(name.slice(PREVIEW_SLOT_PREFIX.length));
+  return `${PREVIEW_SLOT_PREFIX}${suffix === "" ? PREVIEW_WILDCARD : suffix}`;
+}
+
 /** 在已占有槽名里选实现：最长后缀赢；同后缀不可能（预览键 single 占用）；通配最后兜底。 */
 export function pickPreviewSlot(
   slotNames: Iterable<string>,

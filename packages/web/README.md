@@ -2,7 +2,7 @@
 
 React 19 正式宿主（D-038）：会话列表 / 事件流渲染 / 审批卡 / 输入框 / 设置页；**可嵌入**——`createWebApp({ client })` 注入 client（npm 用户 = @henira/sdk + @henira/web 两包组合，web 自身的宿主用法即注入同源 client 的特例，D-037）。
 
-- 契约出处：[interfaces.md](../../docs/20-architecture/interfaces.md) web 段（M3 定稿）+ 插件 UI 宿主门面段（13 方法 M3/M4 标注）
+- 契约出处：[interfaces.md](../../docs/20-architecture/interfaces.md) web 段（M3 定稿）+ 插件 UI 宿主门面段（14 方法 M3/M4 标注）
 - 渲染架构：**哑渲染器**——行 store 应用 server 投影帧（快照整体替换 + 封闭增量 + 断档不猜），客户端零 reducer（组装逻辑唯一实现处在 server 投影器）
 - 界面件来自 [@henira/plugin-web-ui](../../plugins/web-ui/README.md)：正常装载走 UI 模块激活（公共注册路径，判据④正向）；安全模式（双击 Alt / `?ui=safe`）不激活模块、直用编译期出口默认组合（同一零件库两条通道）；槽位级自动回退；未装件槽位收起
 - 不 eval 插件源码（模块加载，D-021）

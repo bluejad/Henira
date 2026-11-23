@@ -1072,7 +1072,7 @@ interface WebPartContext {
   theme: string; // 主题 id：官方 light/dark 或已装主题包名（D-059）
   locale?: string; // 生效语言 id（宿主 boot 还原后的实际值——语言页显示生效值不读磁盘旧值；旧宿主缺省 = 官方 zh，审查三修 2026-11-19）
   store: RowStoreLike; // 流式增量从哪来
-  host: PluginUiHost; // 宿主门面（14 方法）
+  host: PluginUiHost; // 宿主门面（14 方法；另含可选 tokenizeCode?）
   slots: ReadonlyMap<string, readonly SlotPart[]>; // 槽位只读视图（结构性 / 区域 + 行级，D-057 / D-062）
   chains: ReadonlyMap<string, readonly ChainEntry[]>; // chain 槽只读视图（R182；priority 升序，消费侧 electChain）
   composer?: ComposerApi; // 输入座位 API（R183）：仅 composer.* 子树由 ComposerDock 注入——草稿/焦点/按次模型绑定/审批回调
@@ -1103,7 +1103,8 @@ interface PreviewApi {
 }
 
 // ── 预览缝（R190，D-076）：sidebar.right.preview.<后缀> 的件形状。官方兜底体注册在通配 *
-//    （与第三方同一注册路径）；解析 = 最长后缀（复合后缀支持）→ * → 代码兜底；预览键全族 single 占用 ──
+//    （与第三方同一注册路径）；解析 = 最长后缀（复合后缀支持）→ * → 代码兜底；预览键全族 single 占用；
+//    注册口归一（R191）：后缀小写、去前导点、空后缀→*，占用判据与解析键空间一致 ──
 interface PreviewViewArgs {
   ctx: WebPartContext;
   target: PreviewTabPayload; // { kind: "preview-file"|"preview-image"; path?; rowId?; src?; alt? }

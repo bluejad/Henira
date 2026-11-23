@@ -948,7 +948,8 @@ export class SessionRegistry {
   }
 
   /** 会话工作目录（workspace 文件读取的围栏根，R190）：在册取 entry.cwd，历史读账本首行 header。
-   *  找不到 / 账本首行读不了 = undefined（由调用方回 404）。 */
+   *  找不到 / 账本首行读不了 / cwd 形状非法 = undefined（由调用方回 404；R191 自审：
+   *  非字符串会让 path.resolve 抛 500，相对/空路径会把围栏根错设成 server 进程 cwd）。 */
   async sessionCwd(id: string): Promise<string | undefined> {
     const entry = this.#entries.get(id);
     if (entry !== undefined) return entry.cwd;
@@ -956,7 +957,9 @@ export class SessionRegistry {
     if (dir === undefined) return undefined;
     try {
       const header = await readSessionHeader(path.join(dir, SESSION_LOG_FILE));
-      return header.cwd;
+      const cwd: unknown = header.cwd;
+      if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return undefined;
+      return cwd;
     } catch {
       return undefined;
     }

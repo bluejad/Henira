@@ -151,6 +151,49 @@ describe("createWebApp", () => {
     el.remove();
   });
 
+  it("预览缝宿主接线（R191）：ui-state 出窗预览 tab → 按当前会话读工作区文件（read() 真链路）", async () => {
+    const reads: Array<[string, string]> = [];
+    const client = fakeClient({
+      listSessions: async () => [{ id: "s-1", cwd: "C:/demo", updatedAt: 1, busy: false }],
+      // 行已翻页出窗（快照里没有该 rowId）：官方体走 read() 读当前磁盘文本
+      snapshot: async () => ({
+        sessionId: "s-1",
+        seq: 0,
+        rows: [],
+        state: { busy: false },
+        hasOlder: false,
+        totalRows: 0,
+      }),
+      getSessionUiState: async () => ({
+        rightPanel: {
+          open: true,
+          active: "preview:t:gone",
+          tabs: [{ id: "preview:t:gone", kind: "preview-file", path: "notes.md", rowId: "t:gone" }],
+        },
+      }),
+      readWorkspaceFile: async (sessionId, path) => {
+        reads.push([sessionId, path]);
+        return { path: "C:/demo/notes.md", encoding: "utf8", content: "disk body", size: 9 };
+      },
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (!el.textContent?.includes("disk body")) throw new Error("preview read not rendered");
+        },
+        { timeout: 4000 },
+      );
+      expect(reads).toEqual([["s-1", "notes.md"]]); // 宿主方法按当前会话转发，不拿 tab 里的残值
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
   it("layout=composer：只渲染输入框（挑件语义，D-043 第 7 条）", async () => {
     const el = document.createElement("div");
     document.body.append(el);

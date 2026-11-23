@@ -33,6 +33,7 @@ export const zh = {
   "preview.image": "图片",
   "preview.close": "关闭预览",
   "preview.missing": "内容已不在当前窗口，请重新打开文件。",
+  "preview.unreadable": "当前文件无法读取。",
   "preview.unsupported": "该内容暂不支持预览。",
   "preview.empty": "文件内容为空。",
   "preview.loading": "正在读取…",

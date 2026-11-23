@@ -21,3 +21,34 @@ export interface WorkspaceFileContent {
 export function looksBinary(bytes: Uint8Array): boolean {
   return bytes.subarray(0, 8000).includes(0);
 }
+
+/** 按上限截断 UTF-8 字节并解码（R191 自审）：截断点落在多字节序列中间时回退到
+ *  序列起点，避免尾部出现残码（U+FFFD）。无效字节序列按 TextDecoder 默认替换处理。 */
+export function decodeUtf8Prefix(bytes: Uint8Array, maxBytes: number): string {
+  const end = Math.min(bytes.byteLength, Math.max(0, maxBytes));
+  if (end === 0) return "";
+  if (end === bytes.byteLength) return new TextDecoder().decode(bytes);
+  let cut = end;
+  // 向前跳过续字节（最多 3 个，4 字节序列上限），定位截断点之前的最后一个序列起点
+  let lead = end - 1;
+  for (let steps = 0; lead >= 0 && steps < 4; steps += 1) {
+    const byte = bytes[lead] ?? 0;
+    if ((byte & 0xc0) === 0x80) {
+      lead -= 1;
+      continue;
+    }
+    const need =
+      byte < 0x80
+        ? 1
+        : (byte & 0xe0) === 0xc0
+          ? 2
+          : (byte & 0xf0) === 0xe0
+            ? 3
+            : (byte & 0xf8) === 0xf0
+              ? 4
+              : 1; // 非法起点按单字节处理（交给解码器替换）
+    if (lead + need > end) cut = lead; // 序列未完整落入上限——整段回退
+    break;
+  }
+  return new TextDecoder().decode(bytes.subarray(0, cut));
+}

@@ -50,6 +50,7 @@ import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
   type Delta,
+  decodeUtf8Prefix,
   deriveSessionTitle,
   type GlobalUiState,
   type InteractionAnswer,
@@ -918,7 +919,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const session = requireSession(sessions, sessionId);
       const root = path.resolve(session.cwd);
       const target = path.resolve(root, dirPath ?? "");
-      if (target !== root && !target.startsWith(root + path.sep)) {
+      if (!isWithin(root, target)) {
         throw new Error("path escapes session workspace");
       }
       const dirents = await fs.readdir(target, { withFileTypes: true });
@@ -940,7 +941,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const session = requireSession(sessions, sessionId);
       const root = path.resolve(session.cwd);
       const target = path.resolve(root, filePath);
-      if (target !== root && !target.startsWith(root + path.sep)) {
+      if (!isWithin(root, target)) {
         throw new Error("path escapes session workspace");
       }
       const stat = await fs.stat(target).catch(() => undefined);
@@ -950,8 +951,23 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const realRoot = await fs.realpath(root).catch(() => root);
       const realTarget = await fs.realpath(target).catch(() => undefined);
       if (realTarget === undefined) throw new Error("file not found");
-      if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
+      if (!isWithin(realRoot, realTarget)) {
         throw new Error("path escapes session workspace");
+      }
+      // 读取上限只管输出、不管读入（R191 自审）：超限只读前缀，二进制直接拒绝
+      if (stat.size > WORKSPACE_FILE_MAX_BYTES) {
+        const head = await readHead(realTarget, 8000).catch(() => undefined);
+        if (head === undefined) throw new Error("not readable");
+        if (looksBinary(head)) throw new Error("file too large to preview");
+        const prefix = await readHead(realTarget, WORKSPACE_FILE_MAX_BYTES).catch(() => undefined);
+        if (prefix === undefined) throw new Error("not readable");
+        return {
+          path: realTarget,
+          encoding: "utf8",
+          content: decodeUtf8Prefix(prefix, WORKSPACE_FILE_MAX_BYTES),
+          size: stat.size,
+          truncated: true,
+        } satisfies WorkspaceFileContent;
       }
       const bytes = await fs.readFile(realTarget).catch(() => undefined);
       if (bytes === undefined) throw new Error("not readable");
@@ -969,7 +985,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         : {
             path: realTarget,
             encoding: "utf8",
-            content: bytes.subarray(0, WORKSPACE_FILE_MAX_BYTES).toString("utf8"),
+            content: decodeUtf8Prefix(bytes, WORKSPACE_FILE_MAX_BYTES),
             size: bytes.byteLength,
             ...(bytes.byteLength > WORKSPACE_FILE_MAX_BYTES ? { truncated: true } : {}),
           };
@@ -1108,6 +1124,33 @@ function requireSession(sessions: Map<string, RuntimeSession>, id: string): Runt
 /** 绝对路径判据（与 server 路由同式；win32 盘符形或 posix 根形） */
 function isAbsoluteCwd(cwd: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("/") || cwd.startsWith("\\");
+}
+
+/** 路径围栏（与 server 端点同式）：win32 大小写不敏感；符号链接由调用方另经 realpath 复核 */
+function isWithin(root: string, target: string): boolean {
+  if (process.platform === "win32") {
+    const r = root.toLowerCase();
+    const t = target.toLowerCase();
+    return t === r || t.startsWith(r + path.sep);
+  }
+  return target === root || target.startsWith(root + path.sep);
+}
+
+/** 只读文件前 maxBytes 字节（分片循环，短读安全；与 server app.ts 同款） */
+async function readHead(filePath: string, maxBytes: number): Promise<Buffer> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const chunk = Buffer.alloc(maxBytes);
+    let total = 0;
+    while (total < maxBytes) {
+      const { bytesRead } = await handle.read(chunk, total, maxBytes - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+    }
+    return chunk.subarray(0, total);
+  } finally {
+    await handle.close();
+  }
 }
 
 /** 磁盘会话目录定位（projects/<key>/sessions/<id> 逐 key 扫；历史会话删除用） */
