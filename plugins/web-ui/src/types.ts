@@ -179,24 +179,27 @@ export interface UiAssets {
   themes: UiAssetTheme[];
 }
 
+/** 目录模型条目（listModels 的 providers[p].models[]；模型选择器与设置页共用，R186 去重） */
+export interface CatalogModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  vision?: boolean;
+  reasoning?: boolean;
+  /** 思考档位集合真源（models.dev reasoning_options：toggle/effort 值——2026-11-19 思考档批） */
+  reasoningOptions?: ReasoningOption[];
+}
+
+/** 目录厂商条目（provider 级 reasoning = 厂商能力表；选择器只消费 name/baseUrl/models） */
+export interface CatalogProvider {
+  name?: string;
+  baseUrl?: string;
+  reasoning?: ReasoningCapability;
+  models?: CatalogModel[];
+}
+
 /** 模型目录快照（listModels 的 providers 面，types 与件共用命名；R183 从内联形状提出） */
-export type ModelCatalog = Record<
-  string,
-  {
-    name?: string;
-    baseUrl?: string;
-    reasoning?: ReasoningCapability;
-    models?: Array<{
-      id: string;
-      name?: string;
-      contextWindow?: number;
-      vision?: boolean;
-      reasoning?: boolean;
-      /** 思考档位集合真源（models.dev reasoning_options：toggle/effort 值——2026-11-19 思考档批） */
-      reasoningOptions?: ReasoningOption[];
-    }>;
-  }
->;
+export type ModelCatalog = Record<string, CatalogProvider>;
 
 /** 输入座位 API（R183，dsh owner props 行为层）：ComposerDock 构造、注入 composer.* 子树。
  *  草稿/焦点/按次模型绑定/审批回调的唯一真源——座位件（model/left/right/dock）不各自私存，
@@ -225,9 +228,11 @@ export interface ComposerApi {
   submit(text?: string, opts?: { steer?: boolean }): void;
   stop(): void;
   readonly pendingApproval: ApprovalRow | undefined;
+  /** 审批队列计数（接管卡「1/N」；第三方 takeover 条目同源 owner 字段） */
   readonly approvalQueueTotal: number;
-  /** 提问面（R184）：未答提问队首 + 队列计数（chain owner 同源；提问压过审批显示） */
+  /** 提问面（R184）：未答提问队首（chain owner 同源；提问压过审批显示） */
   readonly pendingQuestion: QuestionRow | undefined;
+  /** 提问队列计数（同 approvalQueueTotal 口径） */
   readonly questionQueueTotal: number;
   /** 审批乐观回调（点击即退场 / settle 失败回滚；R171 行为层） */
   onApprovalDecided(requestId: string): void;

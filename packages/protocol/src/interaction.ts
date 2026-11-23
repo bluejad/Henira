@@ -35,6 +35,10 @@ export interface QuestionAnswer {
   custom?: string;
 }
 
+/** 单题自定义回答长度上限（码点计数）：UI 输入框 / REST 校验 / 引擎归一 / 账本校验四处
+ *  同源。自由文本无上限 = 任意长粘贴撑爆账本与模型上下文（R175 家族，R186 收尾）。 */
+export const QUESTION_CUSTOM_MAX = 2000;
+
 export type ApprovalInteractionRequest = {
   kind: "approval";
   requestId: string;

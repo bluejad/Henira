@@ -201,3 +201,61 @@ describe("single 槽（R183，dsh SlotKind single 行为层）", () => {
     expect(registry.slots.get("composer.model")?.[0]?.("x" as never)).toBe("a2");
   });
 });
+
+describe("releaseOwner（R186 收尾，审查 P3⑨）：按调用方整批撤出", () => {
+  const chainEntry = (id: string) => ({
+    id,
+    priority: 0,
+    select: () => null,
+    Component: NullComponent,
+  });
+
+  it("list 追加 / 顶替 / chain 一次清干净：顶替位回落官方、追加位消失、chain 清空", () => {
+    const { registry } = make();
+    const official = registry.apiFor("plugin-web-ui");
+    const plugin = registry.apiFor("ui-a");
+    const officialPart = () => "official";
+    official.registerSlot("tool.call.view.read", officialPart);
+    const disposeRead = plugin.replaceSlot("tool.call.view.read", () => "plugin");
+    plugin.registerSlot("composer.dock", () => "dock");
+    plugin.registerChainSlot("composer.takeover", chainEntry("approval"));
+    expect(registry.slots.get("tool.call.view.read")?.[0]).not.toBe(officialPart);
+
+    registry.releaseOwner("ui-a");
+    expect(registry.slots.get("tool.call.view.read")).toEqual([officialPart]); // 回落官方
+    expect(registry.slots.has("composer.dock")).toBe(false);
+    expect(registry.chains.has("composer.takeover")).toBe(false);
+
+    // 已整批撤出后再调原撤销器 = 幂等（不抛、不误伤官方件）
+    expect(() => disposeRead()).not.toThrow();
+    expect(registry.slots.get("tool.call.view.read")).toEqual([officialPart]);
+  });
+
+  it("single 槽顶替件随 releaseOwner 回退官方（泄漏会顶掉官方件直到刷新）", () => {
+    const registry = createSlotRegistry({
+      slotAccepted: () => true,
+      onUnknownSlot: () => {},
+      officialId: "plugin-web-ui",
+      isSingleSlot: (name) => name === "composer.model",
+    });
+    const official = registry.apiFor("plugin-web-ui");
+    const plugin = registry.apiFor("ui-a");
+    const officialPart = () => "official";
+    official.registerSlot("composer.model", officialPart);
+    const dispose = plugin.registerSlot("composer.model", () => "plugin");
+    expect(registry.slots.get("composer.model")?.[0]).not.toBe(officialPart);
+
+    registry.releaseOwner("ui-a");
+    expect(registry.slots.get("composer.model")).toEqual([officialPart]);
+    expect(() => dispose()).not.toThrow();
+  });
+
+  it("未知 caller / 重复 releaseOwner = no-op（卸载清理路径安全）", () => {
+    const { registry } = make();
+    registry.apiFor("ui-a").registerSlot("composer.dock", () => "dock");
+    registry.releaseOwner("ui-a");
+    registry.releaseOwner("ui-a");
+    registry.releaseOwner("never-registered");
+    expect(registry.slots.has("composer.dock")).toBe(false);
+  });
+});

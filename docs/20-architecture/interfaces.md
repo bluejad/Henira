@@ -309,7 +309,7 @@ interface QuestionSpec {
 interface QuestionAnswer {
   id: string;
   selected: string[]; // 空数组 = 明确跳过
-  custom?: string; // 自定义输入（模型不得自带 Other——客户端恒提供）
+  custom?: string; // 自定义输入（模型不得自带 Other——客户端恒提供；≤2000 字符、码点计长，UI/REST/引擎/账本同源上限——R186）
 }
 
 type InteractionRequest =
@@ -630,7 +630,7 @@ POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404        
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   // 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话并装配入册，返回子会话 id（parentSession 指源；半回合切点补写 turn/end{forked}）；atSeq 缺省 = 复制到最新；越界切点 400
 POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
-POST /api/sessions/:id/questions/:requestId { answers: [{ id, selected: string[], custom? }] } | { cancelled: true } → { applied: boolean }  // 提问收答（R184）：answers 逐题（空 selected = 跳过）；cancelled = 取消整个请求（工具收 Error 结果、回合继续）；幂等先答者赢；body 不合规 400；requestId 从不存在 → 404 { error: "question not found" }（前端同款把 404 当已解决）
+POST /api/sessions/:id/questions/:requestId { answers: [{ id, selected: string[], custom? }] } | { cancelled: true } → { applied: boolean }  // 提问收答（R184）：answers 逐题（空 selected = 跳过）；cancelled = 取消整个请求（工具收 Error 结果、回合继续）；幂等先答者赢；body 不合规 400；custom 超 2000 字符（码点）400（R186）；requestId 从不存在 → 404 { error: "question not found" }（前端同款把 404 当已解决）
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
 //  写路径懒挂载（重启续聊，✓ 2026-11-18）：prompt / steer / interrupt / approvals / files 对磁盘历史会话
 //  （本进程未装配）首次调用按需重建运行体（定位目录 + 账本头核验 + 装配 + 投影从账本补账）——重启后不再

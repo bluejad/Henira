@@ -82,6 +82,11 @@
   gap: var(--henira-space-2);
   min-width: 0;
 }
+/* 件渲染 null（如宿主无设置方法时的模型席）→ wrapper 无子节点，整席退场不占 flex gap
+   （R186 收尾，审查 P3⑧：空 span 仍吃掉一个 8px 间距） */
+.henira-composer-seat:empty {
+  display: none;
+}
 .henira-composer-spacer {
   flex: 1 1 auto;
 }

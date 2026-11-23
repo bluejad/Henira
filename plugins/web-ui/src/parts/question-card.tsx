@@ -6,7 +6,12 @@
 // 空选提交 = 明确跳过。答案经 ctx.client.settleQuestion 收回（幂等先答者赢）；乐观摘卡与
 // 审批同款：提交/取消即 onAnswered，settle 失败回滚（404 = 已解决，不回滚）。
 
-import type { QuestionAnswer, QuestionRow, QuestionSpec } from "@henira/protocol";
+import {
+  QUESTION_CUSTOM_MAX,
+  type QuestionAnswer,
+  type QuestionRow,
+  type QuestionSpec,
+} from "@henira/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WebPartContext } from "../types.js";
 import { CaretGlyph, CheckGlyph } from "./icons.js";
@@ -319,6 +324,7 @@ export function QuestionCard(props: {
             ref={customRef}
             className="henira-question-input"
             rows={1}
+            maxLength={QUESTION_CUSTOM_MAX}
             placeholder={ctx.t("question.customPlaceholder")}
             value={draft.custom}
             disabled={!pending}

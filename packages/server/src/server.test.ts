@@ -16,6 +16,7 @@ import {
   mockUsage,
 } from "@henira/llm-mock";
 import type { ConfigService, LlmService, ServerFrame, ToolContext } from "@henira/protocol";
+import { QUESTION_CUSTOM_MAX } from "@henira/protocol";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type HeniraServer, type ServerOptions } from "./server.js";
 
@@ -464,6 +465,19 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({}),
+          })
+        ).status,
+      ).toBe(400);
+
+      // 自定义答案超上限 → 400（R186：UI/REST/引擎/账本同源上限，不进账本）
+      expect(
+        (
+          await fetch(`${base}/api/sessions/${id}/questions/${pending.requestId}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              answers: [{ id: "q1", selected: [], custom: "甲".repeat(QUESTION_CUSTOM_MAX + 1) }],
+            }),
           })
         ).status,
       ).toBe(400);

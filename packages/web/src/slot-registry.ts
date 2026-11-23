@@ -40,8 +40,11 @@ export interface SlotRegistry {
     ): () => void;
   };
   /** 全量重建前清场（renderSlots）：必须在第三方 dispose 之前清登记簿——重建期卸载回落
-   * 不得复活旧列表（dispose 闭包查不到登记 = no-op，清场后全量重装） */
+   *  不得复活旧列表（dispose 闭包查不到登记 = no-op，清场后全量重装） */
   reset(): void;
+  /** 按调用方整批撤出（R186 收尾，审查 P3⑨）：apply 注册后抛错 / 模块未返回 dispose 时，
+   *  宿主仍能把该插件的全部登记清干净（单槽下泄漏 = 官方件被顶掉直到刷新）。幂等。 */
+  releaseOwner(callerId: string): void;
 }
 
 export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
@@ -52,6 +55,8 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
   let partOwners = new WeakMap<object, string>();
   /** replaceSlot 顶替登记：name → { owner, part, previous }——卸载按登记回落 */
   const claims = new Map<string, { owner: string; part: SlotPart; previous: SlotPart[] }>();
+  /** 按调用方的撤销器总账（releaseOwner 用；register/replace/chain 全部登记） */
+  const ownerReleases = new Map<string, Set<() => void>>();
 
   // ── chain 槽（R182）：条目按 priority 升序；同 id 顶替按条目粒度回落（不整槽快照，
   //    免得顶替期间新挂的其它条目被卸载时一起冲掉） ──
@@ -105,6 +110,18 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
     };
   };
 
+  /** 登记撤销器到调用方总账：返回包装器（撤出后自动出账；重复调用安全） */
+  const trackRelease = (callerId: string, dispose: () => void): (() => void) => {
+    const set = ownerReleases.get(callerId) ?? new Set<() => void>();
+    ownerReleases.set(callerId, set);
+    const tracked = (): void => {
+      set.delete(tracked);
+      dispose();
+    };
+    set.add(tracked);
+    return tracked;
+  };
+
   return {
     slots,
     chains,
@@ -116,7 +133,9 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
             return () => {};
           }
           // single 槽（R183）：同一时刻只一位占用者——认领/回落语义，不追加
-          if (opts.isSingleSlot?.(name) === true) return claimSlot(name, part, callerId);
+          if (opts.isSingleSlot?.(name) === true) {
+            return trackRelease(callerId, claimSlot(name, part, callerId));
+          }
           const list = slots.get(name) ?? [];
           const order = registerOpts?.order ?? 0;
           partOrders.set(part as unknown as object, order);
@@ -125,19 +144,20 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
           if (at === -1) list.push(part);
           else list.splice(at, 0, part);
           slots.set(name, list);
-          return () => {
+          return trackRelease(callerId, () => {
             const current = slots.get(name);
             if (current === undefined) return;
             const index = current.indexOf(part);
             if (index >= 0) current.splice(index, 1);
-          };
+            if (current.length === 0) slots.delete(name); // 不残留空键（与 chain/claim 同款）
+          });
         },
         replaceSlot(name, part) {
           if (!opts.slotAccepted(name)) {
             opts.onUnknownSlot(name);
             return () => {};
           }
-          return claimSlot(name, part, callerId);
+          return trackRelease(callerId, claimSlot(name, part, callerId));
         },
         registerChainSlot(name, entry, registerOpts) {
           if (!opts.slotAccepted(name)) {
@@ -165,13 +185,13 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
           chainOwners.set(stored as unknown as object, callerId);
           insertChain(list, stored);
           chains.set(name, list);
-          return () => {
+          return trackRelease(callerId, () => {
             const current = chains.get(name);
             if (current === undefined) return;
             const at = current.indexOf(stored);
             if (at >= 0) current.splice(at, 1);
             if (current.length === 0) chains.delete(name);
-          };
+          });
         },
         replaceChainSlot(name, id, entry, registerOpts) {
           if (!opts.slotAccepted(name)) {
@@ -196,7 +216,7 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
           if (index >= 0) list.splice(index, 1);
           insertChain(list, stored);
           chains.set(name, list);
-          return () => {
+          return trackRelease(callerId, () => {
             const claim = chainClaims.get(key);
             if (claim === undefined || claim.owner !== callerId || claim.entry !== stored) return;
             chainClaims.delete(key);
@@ -206,7 +226,7 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
             if (at >= 0) now.splice(at, 1);
             if (claim.previous !== undefined) insertChain(now, claim.previous);
             if (now.length === 0) chains.delete(name);
-          };
+          });
         },
       };
     },
@@ -218,6 +238,19 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
       chains.clear();
       chainOwners = new WeakMap();
       chainClaims.clear();
+      ownerReleases.clear();
+    },
+    releaseOwner(callerId) {
+      const set = ownerReleases.get(callerId);
+      if (set === undefined) return;
+      ownerReleases.delete(callerId);
+      for (const dispose of [...set]) {
+        try {
+          dispose(); // 包装器先出账再走原撤销（Set 已从总账摘除，重复调用安全）
+        } catch {
+          // 单个撤出异常不阻断其余登记（卸载清理路径；避免一件坏件拖住整批回退）
+        }
+      }
     },
   };
 }

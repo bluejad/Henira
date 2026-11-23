@@ -10,6 +10,7 @@ import type {
   SessionSummary,
   ToolRow,
 } from "@henira/protocol";
+import { QUESTION_CUSTOM_MAX } from "@henira/protocol";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineChainEntry } from "./chain.js";
@@ -17,7 +18,12 @@ import { zh } from "./locales/zh.js";
 import { defaultToolViews, webUiModule } from "./module.js";
 import { ApprovalCard, ApprovalQueueCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
-import { approvalTakeover, ComposerDock, questionTakeover } from "./parts/composer-dock.js";
+import {
+  approvalTakeover,
+  ComposerDock,
+  pruneAnswered,
+  questionTakeover,
+} from "./parts/composer-dock.js";
 import { Conversation } from "./parts/conversation.js";
 import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
@@ -1107,7 +1113,8 @@ describe("输入座位四席 + Composer API（R183）", () => {
   });
 
   it("composer.left / composer.right：追加件在工具排渲染，经 API 写草稿/聚焦/发送", async () => {
-    const ctx = dockCtx();
+    const updateUiState = vi.fn();
+    const ctx = dockCtx({ updateUiState });
     const prompt = vi.spyOn(ctx.client, "prompt");
     const slots = new Map(ctx.slots);
     slots.set("composer.left", [LeftSeatProbe]);
@@ -1116,6 +1123,7 @@ describe("输入座位四席 + Composer API（R183）", () => {
     fireEvent.click(screen.getByRole("button", { name: "左席" }));
     const area = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(area.value).toBe("左席插入"); // 草稿真源在运行时
+    expect(updateUiState).toHaveBeenCalledWith({ draft: "左席插入" }); // setDraft 双写（审查 P3⑦）
     expect(document.activeElement).toBe(area); // api.focus() 落输入框
     fireEvent.click(screen.getByRole("button", { name: "闲" }));
     await waitFor(() =>
@@ -1125,6 +1133,32 @@ describe("输入座位四席 + Composer API（R183）", () => {
         reasoningEffort: undefined,
       }),
     );
+  });
+
+  it("工具排 DOM 顺序：模型席 → 左追加位 → 右追加位 → 发送钮（审查 P3⑦）", () => {
+    const ctx = dockCtx({ client: readyClient() });
+    const slots = new Map(ctx.slots);
+    slots.set("composer.left", [LeftSeatProbe]);
+    slots.set("composer.right", [RightSeatProbe]);
+    const { container } = render(<ComposerDock {...ctx} slots={slots} />);
+    const bar = container.querySelector(".henira-composer-bar") as HTMLElement;
+    const children = [...bar.children];
+    const seats = children.filter((el) => el.classList.contains("henira-composer-seat"));
+    expect(seats.length).toBe(3); // 模型/左/右（各一件；官方 bar 不再另开座位）
+    expect(seats[0]?.querySelector(`button[aria-label="${t("composer.model")}"]`)).not.toBeNull();
+    expect(seats[1]?.textContent).toContain("左席");
+    expect(seats[2]?.textContent).toContain("闲");
+    const sendIndex = children.findIndex((el) => el.classList.contains("henira-icon-round"));
+    expect(sendIndex).toBeGreaterThan(children.indexOf(seats[2] as Element));
+  });
+
+  it("宿主无设置方法：模型席 null 时座位 wrapper 无子节点（:empty 退场，不占 8px gap——审查 P3⑧）", () => {
+    const ctx = dockCtx(); // fixtureCtx 无 getSettings/listModels → settingsReady=false
+    const { container } = render(<ComposerDock {...ctx} />);
+    const emptySeat = [...container.querySelectorAll(".henira-composer-seat")].find(
+      (el) => el.childNodes.length === 0,
+    );
+    expect(emptySeat).toBeDefined(); // 无子节点 = 08-composer.css 的 :empty 规则命中
   });
 
   it("composer.dock：排队面板在 bar 外；审批接管时 dock 仍可见、bar 槽隐藏；dock 件拿审批面", () => {
@@ -1219,6 +1253,114 @@ describe("输入座位四席 + Composer API（R183）", () => {
         reasoningEffort: undefined,
       }),
     );
+  });
+
+  it("pruneAnswered：settled 的 id 出集合、仍 pending 的保留；无变化返回原引用（审查 P3④）", () => {
+    const pendingApproval = {
+      kind: "approval",
+      rowId: "p:r1",
+      turn: "t-1",
+      step: 1,
+      requestId: "r1",
+      toolName: "demo-write",
+      status: "pending",
+    } as ApprovalRow;
+    const settledApproval = {
+      ...pendingApproval,
+      rowId: "p:r2",
+      requestId: "r2",
+      status: "settled",
+    } as ApprovalRow;
+    const pendingQuestion = {
+      kind: "question",
+      rowId: "q:r3",
+      turn: "t-1",
+      step: 1,
+      requestId: "r3",
+      questions: [{ id: "q1", question: "?" }],
+      status: "pending",
+    } as QuestionRow;
+
+    const answered = new Set(["r1", "r2", "r3"]);
+    const next = pruneAnswered(answered, [pendingApproval, settledApproval, pendingQuestion]);
+    expect([...next].sort()).toEqual(["r1", "r3"]); // r2 已 settled → 裁掉（集合不再无限增长）
+
+    const unchanged = new Set(["r1"]);
+    expect(pruneAnswered(unchanged, [pendingApproval])).toBe(unchanged); // 引用不变，空转不渲染
+    expect([...pruneAnswered(unchanged, [])]).toEqual([]); // 行清空 → 集合清空
+  });
+
+  it("接管出现不夺座位外焦点（审查 P3③）：在设置弹窗输入时审批到达不拽走", () => {
+    let rows: Row[] = [];
+    const listeners = new Set<() => void>();
+    const ctx = dockCtx({
+      store: {
+        getSession: () => ({ rows, state: { busy: true } }),
+        subscribe: (cb) => {
+          listeners.add(cb);
+          return () => {
+            listeners.delete(cb);
+          };
+        },
+      },
+    });
+    const approvalRow = {
+      kind: "approval",
+      rowId: "p:r-1",
+      turn: "t-1",
+      step: 1,
+      requestId: "r-1",
+      toolName: "demo-write",
+      status: "pending",
+    } as ApprovalRow;
+    render(
+      <>
+        <input aria-label="设置项" />
+        <ComposerDock {...ctx} />
+      </>,
+    );
+    const outside = screen.getByLabelText("设置项") as HTMLInputElement;
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+    act(() => {
+      rows = [approvalRow];
+      for (const cb of [...listeners]) cb();
+    });
+    expect(document.querySelector(".henira-composer-takeover")).not.toBeNull(); // 卡已出现
+    expect(document.activeElement).toBe(outside); // 焦点仍在设置项
+  });
+
+  it("接管出现且焦点在 body → 接管容器获焦（守门不误伤常规路径）", () => {
+    let rows: Row[] = [];
+    const listeners = new Set<() => void>();
+    const ctx = dockCtx({
+      store: {
+        getSession: () => ({ rows, state: { busy: true } }),
+        subscribe: (cb) => {
+          listeners.add(cb);
+          return () => {
+            listeners.delete(cb);
+          };
+        },
+      },
+    });
+    const approvalRow = {
+      kind: "approval",
+      rowId: "p:r-1",
+      turn: "t-1",
+      step: 1,
+      requestId: "r-1",
+      toolName: "demo-write",
+      status: "pending",
+    } as ApprovalRow;
+    render(<ComposerDock {...ctx} />);
+    act(() => {
+      rows = [approvalRow];
+      for (const cb of [...listeners]) cb();
+    });
+    const takeover = document.querySelector(".henira-composer-takeover") as HTMLElement;
+    expect(takeover).not.toBeNull();
+    expect(document.activeElement).toBe(takeover);
   });
 });
 
@@ -1333,6 +1475,7 @@ describe("提问卡（R184）", () => {
     const custom = screen.getByPlaceholderText(
       t("question.customPlaceholder"),
     ) as HTMLTextAreaElement;
+    expect(custom.maxLength).toBe(QUESTION_CUSTOM_MAX); // 自由文本上限与协议同源（R186）
     fireEvent.change(custom, { target: { value: "都要" } });
     fireEvent.keyDown(custom, { key: "Enter" });
     expect(settle).toHaveBeenCalledWith("s-1", "r-m", [

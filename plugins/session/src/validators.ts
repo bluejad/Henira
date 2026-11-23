@@ -2,7 +2,7 @@
 // zod 是本包的实现细节，不进协议词汇（D-051）；注册进 protocol 的开放注册表，
 // 插件经 registerPluginEvent 追加自有事件（前缀 = 包名，session.md §2.3）。
 
-import { SessionEventRegistry } from "@henira/protocol";
+import { QUESTION_CUSTOM_MAX, SessionEventRegistry } from "@henira/protocol";
 import { z } from "zod";
 
 const surfaceOpSchema = z.union([
@@ -192,7 +192,13 @@ const schemas: Record<string, z.ZodType> = {
         z.object({
           id: z.string().min(1),
           selected: z.array(z.string()),
-          custom: z.string().optional(),
+          // 码点计长（与工具归一/REST/UI 同上限；zod .max 数 UTF-16 单元）
+          custom: z
+            .string()
+            .refine((value) => [...value].length <= QUESTION_CUSTOM_MAX, {
+              message: `custom answer must be at most ${QUESTION_CUSTOM_MAX} characters`,
+            })
+            .optional(),
         }),
       )
       .optional(),

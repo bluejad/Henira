@@ -14,6 +14,7 @@ import {
 } from "@henira/plugin-session";
 import {
   DECISIONS,
+  QUESTION_CUSTOM_MAX,
   REASONING_EFFORTS,
   type ReasoningCapability,
   type ReasoningOption,
@@ -334,6 +335,17 @@ export function createApp(deps: AppDeps): Hono {
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "body must be {answers:[...]} or {cancelled:true}" }, 400);
+    }
+    if (
+      "answers" in parsed.data &&
+      parsed.data.answers.some(
+        (a) => a.custom !== undefined && [...a.custom].length > QUESTION_CUSTOM_MAX,
+      )
+    ) {
+      return c.json(
+        { error: `custom answer too long (max ${QUESTION_CUSTOM_MAX} characters)` },
+        400,
+      );
     }
     const requestId = c.req.param("requestId");
     const answer =

@@ -32,6 +32,28 @@ import { SlotBoundary } from "./slot-boundary.js";
 
 const EMPTY_ROWS: readonly Row[] = [];
 
+/** 乐观已答集合按当前行裁剪（R186 收尾，审查 P3④）：只保留仍在 pending 的审批/提问
+ *  requestId——settled 行到达后 id 出集合，否则随重连/长会话越积越大。失败回滚不误裁：
+ *  回滚发生时行仍是 pending，id 被保留。集合未变化时返回原引用（避免空转渲染）。 */
+export function pruneAnswered(
+  answered: ReadonlySet<string>,
+  rows: readonly Row[],
+): ReadonlySet<string> {
+  const pending = new Set<string>();
+  for (const row of rows) {
+    if ((row.kind === "approval" || row.kind === "question") && row.status === "pending") {
+      pending.add(row.requestId);
+    }
+  }
+  let changed = false;
+  const next = new Set<string>();
+  for (const id of answered) {
+    if (pending.has(id)) next.add(id);
+    else changed = true;
+  }
+  return changed ? next : answered;
+}
+
 /** chain 选举 owner：ComposerDock 每渲染构一份（select 纯函数只读它） */
 export interface ComposerTakeoverOwner {
   pendingApproval: ApprovalRow | undefined;
@@ -130,6 +152,10 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
       return next;
     });
   }, []);
+  // 行状态回收乐观集合（settled 后 id 出集合；见 pruneAnswered）
+  useEffect(() => {
+    setAnswered((prev) => pruneAnswered(prev, rows));
+  }, [rows]);
   const pendingApprovals = useMemo(
     () =>
       rows.filter(
@@ -193,7 +219,7 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
   // 焦点：接管出现 → 接管容器（tabIndex=-1）；条目已自聚焦（提问卡）时不夺焦——父 effect
   // 后于子 effect 执行，无条件 focus 容器会把卡级键盘通道（Enter/Esc/Arrow）顶掉（R185 审查：
   // 到卡时键盘全盲，只能点进去）。接管结束 → 输入框。只在焦点仍在座位内/body（用户没去点
-  // 设置等别处）时才回焦，不抢用户焦点。
+  // 设置等别处）时才动焦点，不抢用户焦点。
   const dockRef = useRef<HTMLDivElement>(null);
   const wasTakeover = useRef(false);
   // 回焦走登记输入框（runtime.focus）而不是 querySelector("textarea")：composer.dock 也是
@@ -203,11 +229,11 @@ export const ComposerDock: WebPart = (ctx: WebPartContext) => {
     if (takeoverKey !== null) {
       wasTakeover.current = true;
       const takeover = dockRef.current?.querySelector<HTMLElement>(".henira-composer-takeover");
-      if (
-        takeover !== null &&
-        takeover !== undefined &&
-        !takeover.contains(document.activeElement)
-      ) {
+      const active = document.activeElement;
+      // 接管出现同样守门（审查 P3-3）：焦点在设置弹窗等座位外时被拽走 = 打断用户输入
+      const withinSeat =
+        active === null || active === document.body || dockRef.current?.contains(active) === true;
+      if (takeover !== null && takeover !== undefined && withinSeat && !takeover.contains(active)) {
         takeover.focus();
       }
       return;

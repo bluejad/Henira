@@ -33,6 +33,7 @@ import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode } from "./markdown.js";
 import { createResourcePump } from "./resource-pump.js";
 import { createSlotRegistry } from "./slot-registry.js";
+import { SINGLE_SLOTS, slotAccepted } from "./slot-vocabulary.js";
 import { RowStore } from "./store.js";
 import { streamingMarkdownNode } from "./streaming-markdown.js";
 
@@ -153,30 +154,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   }
 
   // ── 槽位管理：激活 UI 模块（公共注册路径）或安全模式直用编译期出口 ──
-  // 词表（D-033 区域 + D-043 官方槽 + D-057 keyed 前缀 + D-062 结构性/右栏）；词表外 =
-  // 完全未知 → 告警并忽略（§7.2；别的宿主词表随移动端词表落地再区分）。keyed 前缀合法、后缀自由。
-  const REGION_SLOTS = new Set([
-    "layout",
-    "sidebar",
-    "conversation",
-    "composer",
-    "composer.bar",
-    "composer.takeover",
-    "composer.model",
-    "composer.left",
-    "composer.right",
-    "composer.dock",
-    "sidebar.right",
-    "sidebar.right.tab",
-    "turn.tail",
-    "conversation.images",
-  ]);
-  /** single 槽（R183，dsh SlotKind single）：同一时刻只一位占用者——composer.bar（常驻输入栏）
-   *  与 composer.model（模型 + 思考控制）；其余区域/追加位保持 list 语义。 */
-  const SINGLE_SLOTS = new Set(["composer.bar", "composer.model"]);
-  const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview.", "approval.view."];
-  const slotAccepted = (name: string): boolean =>
-    REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
+  // 词表住在 slot-vocabulary.ts（R186 抽出可单测；词表外 = 完全未知 → 告警并忽略，§7.2）
   /** UI 装载告警（管理面 C3 消费；先 console + 收集） */
   const uiWarnings: string[] = [];
   // 槽位登记簿（slot-registry.ts，可单测）：官方默认件可被插件 replaceSlot 顶替、卸载回落
@@ -252,6 +230,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       } catch (err) {
         console.warn(`[henira] UI plugin dispose failed ${id}:`, err);
       }
+      // 模块没返回 dispose / dispose 抛错也整批撤出登记（R186：单槽泄漏会顶掉官方件）
+      registry.releaseOwner(id);
       thirdParty.delete(id);
     }
     if (uiPollTimer !== undefined) {
@@ -286,6 +266,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       } catch (err) {
         console.warn(`[henira] UI plugin dispose-before-reload failed ${id}:`, err);
       }
+      // 换版本/停用 = 旧件的全部登记整批回退（与 dispose 是否返回无关；R186）
+      registry.releaseOwner(id);
       thirdParty.delete(id);
     }
     const targets = snapshot.plugins.filter(
@@ -328,6 +310,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
           dispose: typeof dispose === "function" ? (dispose as () => void) : undefined,
         });
       } catch (err) {
+        // apply 注册到一半抛错：已登记的槽/chain 整批撤出，不留半装件（R186 审查 P3⑨）
+        registry.releaseOwner(plugin.id);
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`[henira] UI plugin load failed ${plugin.id}: ${message}`);
         uiWarnings.push(`UI load failed ${plugin.id}: ${message}`);

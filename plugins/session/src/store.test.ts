@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { QUESTION_CUSTOM_MAX } from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createSession,
@@ -152,6 +153,25 @@ describe("追加与落盘", () => {
     await expect(
       s.append({ type: "user/message", data: { turn: "t1", step: 0, source: "user" } }),
     ).rejects.toBeInstanceOf(EventDataInvalidError); // 缺 content
+  });
+
+  it("提问自定义答案超上限被账本闸拒绝（R186：UI/REST/引擎/账本同源上限）", async () => {
+    const s = await openSession("custom-max");
+    await s.append(turnStart("t1"));
+    const settled = (custom: string) => ({
+      type: "question/settled",
+      data: {
+        turn: "t1",
+        step: 1,
+        requestId: "r1",
+        outcome: "answered",
+        answers: [{ id: "q", selected: [], custom }],
+      },
+    });
+    await expect(s.append(settled("甲".repeat(QUESTION_CUSTOM_MAX + 1)))).rejects.toBeInstanceOf(
+      EventDataInvalidError,
+    );
+    await expect(s.append(settled("甲".repeat(QUESTION_CUSTOM_MAX)))).resolves.toBeDefined();
   });
 });
 

@@ -7,6 +7,7 @@ import {
   asHeniraContext,
   type InteractionAnswer,
   type InteractionRequest,
+  QUESTION_CUSTOM_MAX,
   type QuestionSpec,
   type ToolContext,
   type ToolDefinition,
@@ -162,6 +163,15 @@ describe("normalizeAnswers", () => {
       { id: "q1", selected: ["甲"], custom: "也可以丙" },
       { id: "q2", selected: [] },
     ]);
+  });
+
+  it("超长 custom 按码点截断到协议上限（R186 收尾；REST 已 400，直连路径兜底）", () => {
+    const long = "甲".repeat(QUESTION_CUSTOM_MAX + 10);
+    const [answer] = normalizeAnswers(
+      [{ id: "q", question: "?" }],
+      [{ id: "q", selected: [], custom: long }],
+    );
+    expect([...(answer?.custom ?? "")].length).toBe(QUESTION_CUSTOM_MAX);
   });
 });
 

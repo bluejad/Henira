@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { ServiceDefinition } from "@henira/kernel";
 import {
   asHeniraContext,
+  QUESTION_CUSTOM_MAX,
   type QuestionAnswer,
   type QuestionInteractionAnswer,
   type QuestionSpec,
@@ -209,8 +210,12 @@ export function normalizeAnswers(
             typeof label === "string" && (labels.size === 0 || labels.has(label)),
         )
       : [];
+    // 自由文本按码点截断到协议上限：REST 已 400 拦一次，这里兜其余宿主/直连路径
+    //（截断优于整笔失败——答案仍到达模型，不静默丢整题；R186 收尾）
     const custom =
-      typeof entry?.custom === "string" && entry.custom.trim() !== "" ? entry.custom : undefined;
+      typeof entry?.custom === "string" && entry.custom.trim() !== ""
+        ? [...entry.custom].slice(0, QUESTION_CUSTOM_MAX).join("")
+        : undefined;
     return {
       id: q.id,
       selected,

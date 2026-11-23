@@ -9,7 +9,6 @@
 // 活动项滚进可视区）；外点/Esc 收走 useDismiss 统一出口（原自写一份且监听 host 不一致）。
 // 复合面板（搜索+分组+管理入口）保留自研——不硬套 HeniraSelect 单选件。
 
-import type { ReasoningOption } from "@henira/protocol";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -19,24 +18,14 @@ import {
   useRef,
   useState,
 } from "react";
-import type { WebPartContext } from "../types.js";
+import type { CatalogModel, ModelCatalog, WebPartContext } from "../types.js";
 import { useDismiss } from "./dropdown.js";
 import { BrainGlyph, CaretDownGlyph, GearGlyph, MagnifierGlyph } from "./icons.js";
 
-/** 选择器目录条目（types.ts listModels 同形；本地声明——web-ui 不依 sdk） */
-export interface PickerModel {
-  id: string;
-  name?: string;
-  contextWindow?: number;
-  vision?: boolean;
-  reasoning?: boolean;
-  /** 思考档位集合真源（models.dev reasoning_options——composer 档位控件数据驱动） */
-  reasoningOptions?: ReasoningOption[];
-}
-export type PickerProviders = Record<
-  string,
-  { name?: string; baseUrl?: string; models?: PickerModel[] }
->;
+/** 选择器目录类型 = 宿主目录类型（R186 去重：此前本地两份近重复形状，provider 级
+ *  reasoning 只差一处，漂移风险由同一来源消除） */
+export type PickerModel = CatalogModel;
+export type PickerProviders = ModelCatalog;
 
 /** 上下文窗紧凑显示（≥1M 显 M 去尾零、其余 k）——设置页管理分组共用 */
 export function fmtWindow(n?: number): string {
