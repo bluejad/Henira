@@ -962,9 +962,9 @@ type ServerFrame =
 - 单端点 `GET /api/events`；首帧 `connected`，随后**逐会话快照帧**，之后增量帧按会话混排；
 - **列表信号帧**（R176）：`sessions.changed` 是全局帧（无 sessionId / 无 seq），只在列表事实变化时发（建 / 删 / fork / 懒挂载 / 目录增删）——**流式增量绝不发**；消费者（侧栏列表）按「装载一次 + 信号驱动重载」消费，服务端不推送列表内容本体；
 - 心跳：15s 注释帧（传输层）；每订阅者有界队列，溢出断开（客户端重连 = 重拉快照）；
-- **客户端字节看门狗（R193）**：心跳注释也算字节；`createClient` 默认 30s（2×心跳）无任何字节 →
-  判定半开连接，abort 本次连接并退避重连（`linkIdleTimeoutMs` 可调）——刷新不再是唯一恢复手段；
-  重连语义不变（volatile + 全量快照）。`onLinkState` 只在状态变化时通知 connected/reconnecting，
+- **客户端链路看门狗（R193）**：心跳注释也算字节；`createClient` 默认 30s（2×心跳）无任何字节 →
+  判定半开连接，abort 本次连接并退避重连（`linkIdleTimeoutMs` 可调，建立连接阶段未收到响应头时
+  同受此上限——悬挂 fetch 不无限等）——刷新不再是唯一恢复手段；重连语义不变（volatile + 全量快照）。`onLinkState` 只在状态变化时通知 connected/reconnecting，
   宿主据此渲染"连接中断，重连中…"横幅（5s 抗闪），与"模型慢"严格分开；
 - **重连补拉当前会话（R193）**：快照帧只覆盖「在册会话」——服务重启后当前会话可能已不在册；
   宿主在 `reconnecting → connected` 边沿补一次 `GET /api/sessions/:id/snapshot` 并应用
@@ -1062,7 +1062,7 @@ function createClient(opts: {
   token?: string;
   fetch?: typeof fetch;
   maxBackoffMs?: number; // 重连退避上限（默认 5s；起始 500ms 指数）
-  linkIdleTimeoutMs?: number; // R193 字节看门狗：默认 30s（2×心跳）无字节 = 半开连接 → 重连
+  linkIdleTimeoutMs?: number; // R193 链路看门狗：默认 30s（2×心跳）无字节/无响应头 = 半开 → 重连（非正值回落默认，上限钳 setTimeout 上限）
 }): HeniraFacade;
 ```
 

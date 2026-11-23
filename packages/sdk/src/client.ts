@@ -22,6 +22,9 @@ import {
   type ProviderCatalogEntry,
 } from "./facade.js";
 
+/** setTimeout 上限：超限延迟会被运行时钳成 1ms（反而秒杀连接）——配置值一律先钳再装表 */
+const MAX_TIMER_MS = 2_147_483_647;
+
 export interface ClientOptions {
   baseUrl: string;
   /** server token（回环三件套可选 token 位；Bearer / ?token=） */
@@ -379,7 +382,12 @@ export function createClient(opts: ClientOptions): HeniraFacade {
       const lastSeq = new Map<string, number>();
       const queue = frameQueue();
       const controller = new AbortController();
-      const linkIdleTimeoutMs = opts.linkIdleTimeoutMs ?? 30_000;
+      // 非正 / 非有限值回落默认；超大值钳到 setTimeout 上限（审查补：钳掉「配置越大越安全」的假象）
+      const requestedIdle = opts.linkIdleTimeoutMs;
+      const linkIdleTimeoutMs =
+        typeof requestedIdle === "number" && Number.isFinite(requestedIdle) && requestedIdle > 0
+          ? Math.min(requestedIdle, MAX_TIMER_MS)
+          : 30_000;
       eventControllers.add(controller);
       const pump = (async (): Promise<void> => {
         let backoff = 500;
@@ -390,10 +398,18 @@ export function createClient(opts: ClientOptions): HeniraFacade {
           const forwardAbort = (): void => connection.abort();
           controller.signal.addEventListener("abort", forwardAbort, { once: true });
           try {
-            const res = await doFetch(url("/api/events"), {
-              headers: { accept: "text/event-stream", ...authHeaders() },
-              signal: connection.signal,
-            });
+            // 建立连接阶段也套同一上限（审查补）：服务端接受连接却迟迟不回响应头时，
+            // fetch 会无限悬挂——此时还没有 body 可读，字节看门狗无处施展。超时先 abort
+            // 本条连接让 fetch 收口，再走同一条退避重连路径。
+            const res = await readWithIdle(
+              () =>
+                doFetch(url("/api/events"), {
+                  headers: { accept: "text/event-stream", ...authHeaders() },
+                  signal: connection.signal,
+                }),
+              linkIdleTimeoutMs,
+              () => connection.abort(),
+            );
             if (!res.ok || res.body === null) throw new Error(`events → ${res.status}`);
             backoff = 500; // 连上即重置
             emitLink("connected");
@@ -409,9 +425,15 @@ export function createClient(opts: ClientOptions): HeniraFacade {
                   lastSeq.set(frame.sessionId, frame.seq);
                   queue.push(frame);
                 } else {
-                  // 断档（溢出丢帧 / 非续接）：不猜——回拉快照换发
-                  const snapshot = await requestJson<SessionSnapshot>(
-                    `/api/sessions/${frame.sessionId}/snapshot`,
+                  // 断档（溢出丢帧 / 非续接）：不猜——回拉快照换发。回拉本身也受空闲上限
+                  // 约束（审查补）：它挂在事件泵的关键路径上，悬挂 = 帧消费静默停摆。
+                  const snapshot = await readWithIdle(
+                    () =>
+                      requestJson<SessionSnapshot>(`/api/sessions/${frame.sessionId}/snapshot`, {
+                        signal: connection.signal,
+                      }),
+                    linkIdleTimeoutMs,
+                    () => connection.abort(),
                   );
                   lastSeq.set(frame.sessionId, snapshot.seq);
                   queue.push({ kind: "snapshot", sessionId: frame.sessionId, snapshot });
@@ -421,9 +443,11 @@ export function createClient(opts: ClientOptions): HeniraFacade {
               }
             }
           } catch {
-            // 断线 / 半开（字节看门狗超时）/ 流自然结束（volatile 契约）：退避后重连，
-            // server 重发全量快照——刷新不再是唯一恢复手段
+            // 断线 / 半开（建连超时或字节看门狗超时）/ 流自然结束（volatile 契约）：退避后
+            // 重连，server 重发全量快照——刷新不再是唯一恢复手段
           } finally {
+            // 本条连接任何收尾路径都掐断：半开悬挂中的 fetch / body 不留活口（审查补）
+            connection.abort();
             controller.signal.removeEventListener("abort", forwardAbort);
           }
           if (controller.signal.aborted) break;
@@ -444,7 +468,12 @@ export function createClient(opts: ClientOptions): HeniraFacade {
         for (;;) {
           const result = await Promise.race([frames.next(), aborted]);
           if (result === "abort") return;
-          if (result.done === true) return;
+          if (result.done === true) {
+            // 队列自然结束只可能是溢出（push 超 cap → ended）——不是主动收尾：抛给消费方
+            // 监督重建事件泵，否则界面静默冻死（审查补；stop/dispose 走上面的 abort 分支）
+            if (controller.signal.aborted) return;
+            throw new Error("event frame queue overflow");
+          }
           yield result.value;
         }
       } finally {
@@ -484,7 +513,7 @@ async function* sseFrames(
       const { done, value } =
         options.idleTimeoutMs === undefined
           ? await reader.read()
-          : await readWithIdle(reader, options.idleTimeoutMs);
+          : await readWithIdle(() => reader.read(), options.idleTimeoutMs);
       if (done) return;
       buffer += decoder.decode(value, { stream: true });
       let index = buffer.indexOf("\n\n");
@@ -515,14 +544,22 @@ async function* sseFrames(
   }
 }
 
-/** 单次 read 的空闲上限：每次收到字节（含心跳注释）后重新计时 */
-async function readWithIdle<R>(reader: { read(): Promise<R> }, idleMs: number): Promise<R> {
+/** 单次等待（建立连接 / 读一帧）的空闲上限：每次收到字节（含心跳注释）后重新计时。
+ *  超时先 onTimeout 收口底层（掐连接），再抛错——否则悬挂的 fetch/body 会带着旧连接进重连。 */
+async function readWithIdle<R>(
+  read: () => Promise<R>,
+  idleMs: number,
+  onTimeout?: () => void,
+): Promise<R> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const idle = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`sse idle timeout after ${idleMs}ms`)), idleMs);
+    timer = setTimeout(() => {
+      onTimeout?.();
+      reject(new Error(`link idle timeout after ${idleMs}ms`));
+    }, idleMs);
   });
   try {
-    return await Promise.race([reader.read(), idle]);
+    return await Promise.race([read(), idle]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

@@ -16,11 +16,14 @@ export interface IdleStreamOptions {
   abort: () => void;
 }
 
+/** setTimeout 上限：超限延迟被运行时钳成 1ms（配「无限大」反而秒杀每条流）——先钳再装表 */
+const MAX_TIMER_MS = 2_147_483_647;
+
 /** settings.json plugins."plugin-llm".options.streamIdleTimeoutMs 的解释口——
  *  非正数 / 非数值 = 缺省（不把 0 当「关闭」：静默无上限正是本批要消灭的形态） */
 export function resolveIdleTimeoutMs(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
+    ? Math.min(value, MAX_TIMER_MS)
     : DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS;
 }
 

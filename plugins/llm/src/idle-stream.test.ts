@@ -26,6 +26,8 @@ describe("resolveIdleTimeoutMs", () => {
     expect(resolveIdleTimeoutMs(-1)).toBe(DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS);
     expect(resolveIdleTimeoutMs(Number.NaN)).toBe(DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS);
     expect(resolveIdleTimeoutMs("5000")).toBe(DEFAULT_LLM_STREAM_IDLE_TIMEOUT_MS);
+    // 超大值钳到 setTimeout 上限（超限被运行时钳成 1ms，反而秒杀每条流）
+    expect(resolveIdleTimeoutMs(Number.MAX_SAFE_INTEGER)).toBe(2_147_483_647);
   });
 });
 

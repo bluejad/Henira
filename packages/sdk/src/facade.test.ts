@@ -697,6 +697,136 @@ describe("client 独有：链路字节看门狗（R193）", () => {
       await facade.stop(); // stop = 事件泵收口（挂起中的 next() 随之 done）
     }
   });
+
+  it("建连阶段悬挂（拿不到响应头）→ 同一空闲上限掐连接并退避重连（审查补）", async () => {
+    let calls = 0;
+    const states: string[] = [];
+    const fakeFetch = ((input: string | URL, init?: RequestInit) => {
+      if (!String(input).includes("/api/events")) return Promise.resolve(new Response("{}"));
+      calls += 1;
+      // 接受连接但永不回响应头；只对 abort 收口（悬挂 fetch 的确定性复现）
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }) as unknown as typeof fetch;
+
+    const facade = createClient({
+      baseUrl: "http://127.0.0.1:0",
+      fetch: fakeFetch,
+      linkIdleTimeoutMs: 30,
+      maxBackoffMs: 10,
+    });
+    const off = facade.onLinkState?.((state) => states.push(state));
+    const iterator = facade.events()[Symbol.asyncIterator]();
+    void iterator.next();
+    try {
+      await waitFor(() => (calls >= 2 ? true : undefined), 2_000);
+      expect(states).not.toContain("connected"); // 从没拿到响应头
+      expect(states).toContain("reconnecting"); // 看门狗判半开 → 同一退避路径
+    } finally {
+      off?.();
+      await facade.stop();
+    }
+  });
+
+  it("断档回拉快照悬挂 → 同一空闲上限掐连接并重连（审查补）", async () => {
+    let eventCalls = 0;
+    const states: string[] = [];
+    const enc = new TextEncoder();
+    const frame = enc.encode(
+      `data: ${JSON.stringify({
+        kind: "delta",
+        sessionId: "s-1",
+        seq: 5, // lastSeq 0 → 期望 1：断档触发回拉
+        delta: { op: "state.updated", state: {} },
+      })}\n\n`,
+    );
+    const fakeFetch = ((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/events")) {
+        eventCalls += 1;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(frame); // 一帧后保持打开（链路本身没死）
+          },
+        });
+        return Promise.resolve(
+          new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } }),
+        );
+      }
+      if (url.includes("/snapshot")) {
+        // 回拉悬挂：只对 abort 收口（泵关键路径上的 REST 等待）
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as unknown as typeof fetch;
+
+    const facade = createClient({
+      baseUrl: "http://127.0.0.1:0",
+      fetch: fakeFetch,
+      linkIdleTimeoutMs: 30,
+      maxBackoffMs: 10,
+    });
+    const off = facade.onLinkState?.((state) => states.push(state));
+    const iterator = facade.events()[Symbol.asyncIterator]();
+    void iterator.next();
+    try {
+      await waitFor(() => (eventCalls >= 2 ? true : undefined), 2_000);
+      expect(states).toContain("reconnecting");
+    } finally {
+      off?.();
+      await facade.stop();
+    }
+  });
+
+  it("本地帧队列溢出 → events() 抛错（监督可重建），不再静默自然结束（审查补）", async () => {
+    const enc = new TextEncoder();
+    const burst = enc.encode(
+      `data: ${JSON.stringify({ kind: "connected" })}\n\n`.repeat(300), // > QUEUE_CAP 256
+    );
+    const fakeFetch = (async (input: string | URL) => {
+      if (!String(input).includes("/api/events")) return new Response("{}", { status: 200 });
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(burst);
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as unknown as typeof fetch;
+
+    const facade = createClient({
+      baseUrl: "http://127.0.0.1:0",
+      fetch: fakeFetch,
+      linkIdleTimeoutMs: 1_000,
+      maxBackoffMs: 10,
+    });
+    const iterator = facade.events()[Symbol.asyncIterator]();
+    try {
+      const first = await iterator.next();
+      expect(first.done).toBe(false);
+      // 消费端慢一拍：让泵把 256 上限灌满（溢出即 ended）
+      await new Promise((r) => setTimeout(r, 50));
+      let thrown: unknown;
+      try {
+        for (;;) {
+          const next = await iterator.next();
+          if (next.done === true) break;
+        }
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toBe("event frame queue overflow");
+    } finally {
+      await facade.stop();
+    }
+  });
 });
 
 describe("runtime 独有：缺省 fail-closed", () => {
