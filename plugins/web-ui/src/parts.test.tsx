@@ -560,7 +560,7 @@ describe("SessionList", () => {
     await waitFor(() => expect(listSessions.mock.calls.length).toBeGreaterThan(1));
   });
 
-  it("右键会话 → 删除项（busy 会话 disabled；当前选中会话不提供删除）→ 确认后 deleteSession(id)", async () => {
+  it("右键会话 → 删除项（busy 会话 disabled；非选中会话删后不动选中）→ 确认后 deleteSession(id)", async () => {
     // s-1 busy（demo 组）、s-2 idle（other 组，fixture sessionId=s-1 → s-2 非选中可删）
     const client: HeniraClientLike = {
       ...fixtureCtx().client,
@@ -592,6 +592,58 @@ describe("SessionList", () => {
     expect(screen.getByRole("dialog", { name: t("sessions.deleteTitle") })).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
     expect(deleteSession).toHaveBeenCalledWith("s-2");
+    // 删的不是选中会话 → 选中不被打扰（R185 收尾补的回落实现在此处不触发）
+    expect(ctx.selectSession).not.toHaveBeenCalled();
+  });
+
+  it("删当前选中会话 → 同目录下一条接棒（优先于列表更靠前的别目录会话）", async () => {
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      listSessions: async () => [
+        { id: "s-1", cwd: "C:\\demo", updatedAt: 3, busy: false },
+        { id: "s-3", cwd: "C:\\other", updatedAt: 2, busy: false },
+        { id: "s-2", cwd: "C:\\demo", updatedAt: 1, busy: false },
+      ],
+      deleteSession: async () => {},
+    };
+    const ctx = fixtureCtx({ client }); // 选中 = s-1（demo 组自动展开，列表内只有 s-1/s-2 两行）
+    const deleteSession = vi.spyOn(ctx.client, "deleteSession");
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2);
+    });
+    fireEvent.contextMenu(container.querySelectorAll(".henira-sessions li")[0] as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    await waitFor(() => {
+      expect(deleteSession).toHaveBeenCalledWith("s-1");
+    });
+    await waitFor(() => {
+      expect(ctx.selectSession).toHaveBeenCalledWith("s-2");
+    });
+  });
+
+  it("删最后一个会话 → 选中清空（空态，不指向已删 id）", async () => {
+    const client: HeniraClientLike = {
+      ...fixtureCtx().client,
+      listSessions: async () => [{ id: "s-1", cwd: "C:\\demo", updatedAt: 1, busy: false }],
+      deleteSession: async () => {},
+    };
+    const ctx = fixtureCtx({ client });
+    const deleteSession = vi.spyOn(ctx.client, "deleteSession");
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    });
+    fireEvent.contextMenu(container.querySelector(".henira-sessions li") as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    fireEvent.click(screen.getByRole("button", { name: t("menu.delete") }));
+    await waitFor(() => {
+      expect(deleteSession).toHaveBeenCalledWith("s-1");
+    });
+    await waitFor(() => {
+      expect(ctx.selectSession).toHaveBeenCalledWith(null);
+    });
   });
 
   it("新增目录弹窗：browseDirs 树渲染 + 确认走 addDir(路径)；Escape 关闭", async () => {

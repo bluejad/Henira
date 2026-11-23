@@ -318,6 +318,9 @@ test("directory area: add dir dialog, per-dir session, right-click delete", asyn
     await shot(page, "08-delete-confirm.png");
     await confirm.getByRole("button", { name: zh["menu.delete"] }).click();
     await expect(pickSession).toHaveCount(0);
+    // R185 收尾：删的是当前选中会话 → 立即回落，页头不再指向被删目录（此前会留死选中）
+    await expect(page.locator(".henira-header-dir")).toBeVisible();
+    await expect(page.locator(".henira-header-dir")).not.toHaveText(pickBase);
 
     // 右键目录 → 删除目录 → 确认（登记条目移除——无会话目录随之消失）
     await groupBtn.click({ button: "right" });

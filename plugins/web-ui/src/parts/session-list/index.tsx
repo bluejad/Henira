@@ -6,7 +6,7 @@ import { DirectoryDialog } from "../directory-dialog.js";
 import { CaretGlyph } from "../icons.js";
 import { ContextMenu } from "./context-menu.js";
 import { DeleteConfirm } from "./delete-confirm.js";
-import { buildGroups, type MenuState, type PendingDelete } from "./groups.js";
+import { buildGroups, type MenuState, type PendingDelete, sameCwd } from "./groups.js";
 import { SessionRow } from "./row.js";
 
 export const SessionList: WebPart = (ctx: WebPartContext) => {
@@ -375,6 +375,26 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
             setPending(null);
           }}
           onDone={() => {
+            // 删掉的若是当前选中会话（或含它的整个目录）→ 先按本地列表定回落再刷新：
+            // 不回落会留下指向已删 id 的空白界面（R185 收尾活体抓）。同目录下一条优先，
+            // 其次列表第一个，一个不剩 → 清选中（空态）；列表以服务端刷新为准
+            if (pending !== null && ctx.sessionId !== null) {
+              const removed =
+                pending.kind === "dir"
+                  ? new Set(
+                      sessions
+                        .filter((s) => sameCwd(s.cwd ?? "", pending.dir.cwd))
+                        .map((s) => s.id),
+                    )
+                  : new Set([pending.session.id]);
+              if (removed.has(ctx.sessionId)) {
+                const remaining = sessions.filter((s) => !removed.has(s.id));
+                const cwd = pending.kind === "session" ? (pending.session.cwd ?? "") : null;
+                const sibling =
+                  cwd === null ? undefined : remaining.find((s) => sameCwd(s.cwd ?? "", cwd));
+                ctx.selectSession((sibling ?? remaining[0])?.id ?? null);
+              }
+            }
             setPending(null);
             scheduleRefresh();
           }}
