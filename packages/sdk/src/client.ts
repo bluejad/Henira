@@ -12,6 +12,7 @@ import type {
   SessionSnapshot,
   SessionSummary,
   SessionUiState,
+  WorkspaceFileContent,
 } from "@henira/protocol";
 import {
   frameQueue,
@@ -271,6 +272,12 @@ export function createClient(opts: ClientOptions): HeniraFacade {
     async listDir(sessionId, dirPath) {
       const query = dirPath === undefined ? "" : `?path=${encodeURIComponent(dirPath)}`;
       return requestJson(`/api/sessions/${sessionId}/files${query}`);
+    },
+
+    async readWorkspaceFile(sessionId, filePath) {
+      return requestJson<WorkspaceFileContent>(
+        `/api/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`,
+      );
     },
 
     async listDirs() {

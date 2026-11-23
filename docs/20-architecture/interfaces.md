@@ -635,6 +635,7 @@ POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   /
 POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
 POST /api/sessions/:id/questions/:requestId { answers: [{ id, selected: string[], custom? }] } | { cancelled: true } → { applied: boolean }  // 提问收答（R184）：answers 逐题（空 selected = 跳过）；cancelled = 取消整个请求（工具收 Error 结果、回合继续）；幂等先答者赢；body 不合规 400；custom 超 2000 字符（码点）400（R186）；requestId 从不存在 → 404 { error: "question not found" }（前端同款把 404 当已解决）
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
+GET  /api/sessions/:id/file?path=                       → WorkspaceFileContent  // 工作区文件读取（R190 预览缝）：相对 cwd 或 cwd 内绝对路径；cwd 围栏 + realpath 复核；文本 utf8（1 MiB 截断 truncated）、二进制 base64（超 1 MiB 400）；只读，正文不落盘
 //  写路径懒挂载（重启续聊，✓ 2026-11-18）：prompt / steer / interrupt / approvals / files 对磁盘历史会话
 //  （本进程未装配）首次调用按需重建运行体（定位目录 + 账本头核验 + 装配 + 投影从账本补账）——重启后不再
 //  只读（读路径磁盘兜底照旧）；未知 id 仍 404；另一活进程持 session.lock → 409 { code: "session_busy" }
@@ -682,7 +683,7 @@ interface SettingsData {
   // GET/PUT /api/settings；凭据永不出现（D-030）
   version: 1;
   model?: string;
-  ui?: { theme?: string; locale?: string };
+  ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
 }
 interface CatalogModel {
   // 选择器单模型条目（收敛批 2026-11-19 条目化——裸 string id 退场）
@@ -1004,7 +1005,7 @@ interface HeniraFacade {
   getSettings(): Promise<SettingsData>; // 设置读（settings.json；凭据永不出现，D-030）
   putSettings(patch: {
     model?: string;
-    ui?: { theme?: string; locale?: string };
+    ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
   }): Promise<SettingsData>; // 设置写（程序写，data-directory §2.3）
   listModels(): Promise<ModelCatalog>; // 选择器清单（闸门分档——已知厂商 key+baseUrl、自定义 baseUrl；条目化 CatalogModel；无密钥）
   putCredential(providerId: string, key: string): Promise<void>; // 密钥写入（credentials.json 0600；无读取面——D-030 永不回读）
@@ -1018,6 +1019,7 @@ interface HeniraFacade {
   putCustomProvider(input: CustomProviderInput): Promise<{ id: string }>; // 自定义 OpenAI 兼容厂商（显式清单；返回生成的 user- 前缀 id）
   listUiAssets(): Promise<UiAssets>; // 界面资产清单（D-059 语言包/主题包）
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>; // 会话工作区文件列表（只限会话 cwd；隐藏项不返）
+  readWorkspaceFile(sessionId: string, path: string): Promise<WorkspaceFileContent>; // 工作区文件读取（R190；cwd 围栏 + realpath；文本 1 MiB 截断 / 二进制 base64；双形态同语义）
   listDirs(): Promise<RegisteredDir[]>; // 登记工作目录（data-directory §4 projects.json；D-060）
   addDir(cwd: string): Promise<RegisteredDir>; // 登记（绝对路径 + 存在 + 是目录；非法抛错）
   deleteDir(id: string): Promise<void>; // 删登记目录（该 cwd 全部会话 + 登记条目；盘上工作目录不动；busy 抛错——D-060）
@@ -1070,7 +1072,7 @@ interface WebPartContext {
   theme: string; // 主题 id：官方 light/dark 或已装主题包名（D-059）
   locale?: string; // 生效语言 id（宿主 boot 还原后的实际值——语言页显示生效值不读磁盘旧值；旧宿主缺省 = 官方 zh，审查三修 2026-11-19）
   store: RowStoreLike; // 流式增量从哪来
-  host: PluginUiHost; // 宿主门面（13 方法）
+  host: PluginUiHost; // 宿主门面（14 方法）
   slots: ReadonlyMap<string, readonly SlotPart[]>; // 槽位只读视图（结构性 / 区域 + 行级，D-057 / D-062）
   chains: ReadonlyMap<string, readonly ChainEntry[]>; // chain 槽只读视图（R182；priority 升序，消费侧 electChain）
   composer?: ComposerApi; // 输入座位 API（R183）：仅 composer.* 子树由 ComposerDock 注入——草稿/焦点/按次模型绑定/审批回调
@@ -1090,7 +1092,7 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 
 // ── 预览 API（R188）：官方件与第三方件共用；文件只存行引用，正文现场解析 ──
 type PreviewTarget =
-  | { kind: "file"; path: string; rowId: string } // 内容 = 该 tool 行 input/output（read/write/edit）
+  | { kind: "file"; path: string; rowId: string } // 行在窗 = 该 tool 行 input/output；行出窗 = 工作区路径读取（R190）
   | { kind: "image"; src: string; alt?: string }; // src = URL（引用，可持久化）或 data:（本页内存，落盘剔除）
 interface PreviewApi {
   settings: Readonly<Required<PreviewOpenSettings>>; // { file: "panel"|"modal", image: ... }（只读快照；写入走 setMode）
@@ -1098,6 +1100,24 @@ interface PreviewApi {
   setMode(kind: "file" | "image", mode: "panel" | "modal"): void; // 内存即时 + settings.json 深合并落盘
   modal: PreviewTarget | null; // 弹窗模式当前目标（框架件渲染）
   close(): void;
+}
+
+// ── 预览缝（R190，D-076）：sidebar.right.preview.<后缀> 的件形状。官方兜底体注册在通配 *
+//    （与第三方同一注册路径）；解析 = 最长后缀（复合后缀支持）→ * → 代码兜底；预览键全族 single 占用 ──
+interface PreviewViewArgs {
+  ctx: WebPartContext;
+  target: PreviewTabPayload; // { kind: "preview-file"|"preview-image"; path?; rowId?; src?; alt? }
+  ext: string; // 归一化扩展名（小写、去点、取最后一段；无扩展名 = ""；图片 = ""）
+  row?: ToolRow; // store 中按 rowId 找到的 tool 行；行已翻页出窗 = undefined（正文走 read()）
+  read(): Promise<WorkspaceFileContent>; // 会话 + 路径的 workspace 文件读取（不锚定工具行）
+}
+type PreviewView = (args: PreviewViewArgs) => ReactNode;
+interface WorkspaceFileContent {
+  path: string; // 实际读取的绝对路径（会话 cwd 围栏内）
+  encoding: "utf8" | "base64"; // utf8 = 文本（可能截断）；base64 = 二进制（完整）
+  content: string;
+  size: number; // 磁盘文件总字节数（截断前）
+  truncated?: boolean; // 文本超过 1 MiB 上限
 }
 
 // ── 输入座位 API（R183，dsh owner props 行为层）：ComposerDock 构造、注入 composer.* 子树。
@@ -1133,7 +1153,7 @@ interface ComposerApi {
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
-- **挂载点词表 v1 十七个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18 ＋ E6 审批卡缝 2026-11-21 ＋ R182 输入座位 / chain 2026-11-22 ＋ R183 输入座位四席 2026-11-22）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（**输入座位**——官方默认件 ComposerDock，chain 接管路由）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ **输入座位子槽六个（R182 两名 ＋ R183 四席）**：`composer.bar`（**常驻输入栏**，single；官方默认件 = Composer，chain fallback——接管时保持挂载、`display:none`，草稿 / DOM 态不丢）· `composer.takeover`（**接管 chain**：条目 = `id + priority + select(owner) + Component`；priority 升序、select 首个非 null 当选；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10）——提问压过审批；消费件负责 fallback 挂载与 overlay 隐藏；官方条目同走公共注册路径，第三方 `replaceChainSlot` 顶替、卸载按登记回落）· `composer.model`（**模型席**，single——模型 + 思考档同一席，官方默认件 = ModelSeat；第三方 `replaceSlot` 顶替）· `composer.left` / `composer.right`（**工具排左 / 右追加位**，list——官方空，只给插件加按钮）· `composer.dock`（**输入卡外通栏条目**，list——官方默认件 = QueueDock 排队面板，审批接管时仍可见）＋ 行级六个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——八键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep,ask_user}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（渲染总缝槽内件本身；官方 MCP 卡默认注册在此，插件可整类顶替）→ 通用卡兜底；`tool.call.view.mcp` 为总缝保留键——字面名 `mcp` 的工具不进总缝、直接落通用卡）· `approval.view.<工具名>`（**审批卡 keyed**，E6：官方 per-tool 审批卡注册进缝——edit/write diff 预览、bash/powershell 命令行、read/glob/grep 路径摘要、未知工具 JSON 预览；数据源 = ApprovalRow.args 完整原样（D-046「挂起自足可渲染」）；插件 `replaceSlot` 顶替、卸载回落通用卡）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<扩展名>`（文件预览 tab 的 body 实现缝，keyed；插件实现排官方默认前）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；**R182 输入座位 / chain 已生效（2026-11-22）**：`composer` = ComposerDock（消费 `composer.takeover` chain）· `composer.bar` = 常驻输入栏（fallback，接管时 display:none 保持挂载）· 宿主 chain 登记簿与 `WebPartContext.chains`；**R183 输入座位四席已生效（2026-11-22）**：`composer.model`（single，官方 ModelSeat）· `composer.left` / `composer.right`（list，官方空）· `composer.dock`（list，官方 QueueDock——排队面板移出 bar，接管时仍可见）· single 语义（`registerSlot` 认领/顶替、卸载回落）· `WebPartContext.composer`（ComposerApi）；**R184 提问已生效（2026-11-23）**：`ask_user` 专用工具（插件 `plugin-ask-user`——与审批分离，答案即工具结果）· `composer.takeover` 第二条官方条目 `question`（priority 5 压过审批）· `question/*` 账本对 + `QuestionRow` 投影 + `POST /questions/:requestId` · `tool.call.view.ask_user` 痕迹卡 · ComposerApi 提问面；`sidebar.right.preview.` 渲染挂点仍缺；
+- **挂载点词表 v1 十七个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18 ＋ E6 审批卡缝 2026-11-21 ＋ R182 输入座位 / chain 2026-11-22 ＋ R183 输入座位四席 2026-11-22）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（**输入座位**——官方默认件 ComposerDock，chain 接管路由）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ **输入座位子槽六个（R182 两名 ＋ R183 四席）**：`composer.bar`（**常驻输入栏**，single；官方默认件 = Composer，chain fallback——接管时保持挂载、`display:none`，草稿 / DOM 态不丢）· `composer.takeover`（**接管 chain**：条目 = `id + priority + select(owner) + Component`；priority 升序、select 首个非 null 当选；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10）——提问压过审批；消费件负责 fallback 挂载与 overlay 隐藏；官方条目同走公共注册路径，第三方 `replaceChainSlot` 顶替、卸载按登记回落）· `composer.model`（**模型席**，single——模型 + 思考档同一席，官方默认件 = ModelSeat；第三方 `replaceSlot` 顶替）· `composer.left` / `composer.right`（**工具排左 / 右追加位**，list——官方空，只给插件加按钮）· `composer.dock`（**输入卡外通栏条目**，list——官方默认件 = QueueDock 排队面板，审批接管时仍可见）＋ 行级六个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——八键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep,ask_user}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（渲染总缝槽内件本身；官方 MCP 卡默认注册在此，插件可整类顶替）→ 通用卡兜底；`tool.call.view.mcp` 为总缝保留键——字面名 `mcp` 的工具不进总缝、直接落通用卡）· `approval.view.<工具名>`（**审批卡 keyed**，E6：官方 per-tool 审批卡注册进缝——edit/write diff 预览、bash/powershell 命令行、read/glob/grep 路径摘要、未知工具 JSON 预览；数据源 = ApprovalRow.args 完整原样（D-046「挂起自足可渲染」）；插件 `replaceSlot` 顶替、卸载回落通用卡）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<后缀>`（文件预览 tab 的 body 实现缝，keyed；官方兜底体注册在通配 `*`——插件按后缀（含 `tar.gz` 复合）注册或 `replaceSlot` 顶替、卸载与渲染崩溃回落官方；预览键全族 single 占用；件形状 `PreviewView`，R190）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例；R190 已补）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；**R182 输入座位 / chain 已生效（2026-11-22）**：`composer` = ComposerDock（消费 `composer.takeover` chain）· `composer.bar` = 常驻输入栏（fallback，接管时 display:none 保持挂载）· 宿主 chain 登记簿与 `WebPartContext.chains`；**R183 输入座位四席已生效（2026-11-22）**：`composer.model`（single，官方 ModelSeat）· `composer.left` / `composer.right`（list，官方空）· `composer.dock`（list，官方 QueueDock——排队面板移出 bar，接管时仍可见）· single 语义（`registerSlot` 认领/顶替、卸载回落）· `WebPartContext.composer`（ComposerApi）；**R184 提问已生效（2026-11-23）**：`ask_user` 专用工具（插件 `plugin-ask-user`——与审批分离，答案即工具结果）· `composer.takeover` 第二条官方条目 `question`（priority 5 压过审批）· `question/*` 账本对 + `QuestionRow` 投影 + `POST /questions/:requestId` · `tool.call.view.ask_user` 痕迹卡 · ComposerApi 提问面；**R190 预览缝已生效（2026-11-23）**：`sidebar.right.preview.<后缀>` 渲染挂点接线——官方兜底体注册通配 `*`、插件按后缀顶替、预览键 single 占用、`PreviewView` props `{ctx,target,ext,row?,read()}`、工作区文件读取 `GET /api/sessions/:id/file`（文本截断/二进制 base64）；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；
@@ -1157,7 +1177,8 @@ interface ComposerApi {
 ```ts
 interface UiModuleContext {
   registerSlot(name: string, component: unknown, opts?: { order?: number }): Disposable; // 追挂（append）；name 按当前宿主词表校验（D-033）；
-  //   keyed 词表按前缀识别（tool.call.view. / sidebar.right.preview. 前缀合法、后缀自由，D-057）
+  //   keyed 词表按前缀识别（tool.call.view. / sidebar.right.preview. 前缀合法、后缀自由，D-057）；
+  //   single 槽（composer.bar / composer.model / sidebar.right.preview.* 全族）registerSlot 也走认领/顶替
   replaceSlot(name: string, component: unknown): Disposable; // 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 冲突报错（D-022 同款）；
   //   卸载 / 停用自动回落官方（D-048 同语义）；安全模式下行级缝全部收起回落默认渲染
   host: PluginUiHost;
@@ -1184,6 +1205,7 @@ interface PluginUiHost {
   useResource(address: string): ResourceSnapshot; // ✓ C5（plugin-mcp 数据泵：2s 共享轮询 / 越权地址返回 failed 快照、不订阅）；React hook 语义：仅 render 期调用
   listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // ✓ 批 C（GET /api/plugins；管理面数据源；category 过滤预留）
   listDir(path: string): Promise<DirEntry[]>; // ✓ M3（经 server files 端点）；只限会话工作区；隐藏项不返
+  readWorkspaceFile(path: string): Promise<WorkspaceFileContent>; // ✓ R190（预览缝 read() 的宿主实现；经 GET /api/sessions/:id/file；旧宿主缺 = 预览仅行快照）
   listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3（经 GET /api/sessions）
 
   // 宿主

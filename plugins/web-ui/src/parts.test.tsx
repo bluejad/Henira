@@ -15,7 +15,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineChainEntry } from "./chain.js";
 import { zh } from "./locales/zh.js";
-import { defaultToolViews, webUiModule } from "./module.js";
+import { defaultPreviewViews, defaultToolViews, webUiModule } from "./module.js";
 import { ApprovalCard, ApprovalQueueCard, ApprovalSettledRow } from "./parts/approval-card.js";
 import { Composer } from "./parts/composer.js";
 import {
@@ -29,6 +29,7 @@ import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSeat } from "./parts/model-seat.js";
 import { ModelSelect } from "./parts/model-select.js";
+import { PreviewBody } from "./parts/preview.js";
 import { QuestionCard } from "./parts/question-card.js";
 import { QueueDock } from "./parts/queue-dock.js";
 import { QueuePanel } from "./parts/queue-panel.js";
@@ -38,6 +39,7 @@ import { SettingsModal } from "./parts/settings-modal.js";
 import { AskUserCard, McpCard, ReadCard } from "./parts/tool-cards.js";
 import type {
   HeniraClientLike,
+  PreviewViewArgs,
   RowStoreLike,
   SlotPart,
   WebPart,
@@ -173,6 +175,23 @@ function fixtureCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     },
     ...overrides,
   };
+}
+
+/** R190 预览缝探针（模块级：组件不随 render 重建；captured 记录最近一次 args） */
+const capturedPreview: { args?: PreviewViewArgs } = {};
+function previewSeamArgs(): PreviewViewArgs | undefined {
+  return capturedPreview.args;
+}
+function PreviewSeamProbe(args: PreviewViewArgs) {
+  capturedPreview.args = args;
+  return (
+    <div data-testid="seam">
+      {args.ext}:{args.target.path}:{args.row?.name}
+    </div>
+  );
+}
+function PreviewCrashProbe(): never {
+  throw new Error("intentional preview crash");
 }
 
 afterEach(cleanup);
@@ -2113,6 +2132,7 @@ describe("行级挂载点（D-057）", () => {
       "layout",
       "sidebar",
       "sidebar.right",
+      "sidebar.right.preview.*",
       "tool.call.view.ask_user",
       "tool.call.view.bash",
       "tool.call.view.edit",
@@ -2134,7 +2154,8 @@ describe("行级挂载点（D-057）", () => {
           n === "composer.model" ||
           n === "composer.dock" ||
           n.startsWith("tool.call.view.") ||
-          n.startsWith("approval.view."),
+          n.startsWith("approval.view.") ||
+          n.startsWith("sidebar.right.preview."),
       ),
     ).toBe(true);
   });
@@ -2409,6 +2430,141 @@ describe("右栏 tab 框架（D-062 sidebar.right 官方默认件）", () => {
     fireEvent.click(screen.getByRole("button", { name: t("rightPanel.maximize") }));
     expect(container.querySelector(".henira-right-panel--max")).not.toBeNull();
     expect(screen.getByRole("button", { name: t("rightPanel.restore") })).not.toBeNull();
+  });
+});
+
+describe("预览缝（R190 sidebar.right.preview.<后缀>）", () => {
+  const toolRow: ToolRow = {
+    kind: "tool",
+    rowId: "t:1:1:c1",
+    rowSeq: 2,
+    turn: "t-1",
+    step: 1,
+    callId: "c1",
+    name: "read",
+    status: "done",
+    input: '{"file_path":"C:\\\\demo\\\\notes.md"}',
+    output: { content: "row snapshot body", isError: false, durationMs: 1 },
+  };
+
+  function seamCtx(
+    rows: Row[],
+    slots: Map<string, readonly SlotPart[]>,
+    read: (
+      path: string,
+    ) => Promise<{ path: string; encoding: "utf8"; content: string; size: number }>,
+  ): WebPartContext {
+    const base = fixtureCtx();
+    const snapshot = { rows, state: { busy: false } }; // 引用稳定（useSyncExternalStore 语义）
+    return {
+      ...base,
+      store: {
+        getSession: () => snapshot,
+        subscribe: () => () => {},
+      },
+      slots,
+      host: { ...base.host, readWorkspaceFile: read },
+    };
+  }
+
+  it("精确后缀命中：件拿 target/ext/row/read；内置体不进 DOM", async () => {
+    capturedPreview.args = undefined;
+    const read = vi.fn(async (path: string) => ({
+      path,
+      encoding: "utf8" as const,
+      content: "disk body",
+      size: 9,
+    }));
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["sidebar.right.preview.md", [PreviewSeamProbe as SlotPart]],
+    ]);
+    render(
+      <PreviewBody
+        tab={{ kind: "preview-file", path: "C:\\demo\\notes.md", rowId: toolRow.rowId }}
+        ctx={seamCtx([toolRow], slots, read)}
+      />,
+    );
+    expect(screen.getByTestId("seam").textContent).toBe("md:C:\\demo\\notes.md:read");
+    expect(previewSeamArgs()?.row?.rowId).toBe(toolRow.rowId);
+    expect(previewSeamArgs()?.read).toBeDefined();
+    await expect(previewSeamArgs()?.read()).resolves.toMatchObject({ content: "disk body" });
+    expect(read).toHaveBeenCalledWith("C:\\demo\\notes.md");
+    expect(document.querySelector(".henira-preview-text")).toBeNull();
+  });
+
+  it("无件回落官方内置体：行在窗 = 行快照；图片无路径只落通配", () => {
+    const slots = new Map<string, readonly SlotPart[]>([
+      ["sidebar.right.preview.md", [() => <div data-testid="md-seam">md</div>]],
+    ]);
+    const { container } = render(
+      <PreviewBody
+        tab={{ kind: "preview-file", path: "C:\\demo\\plain.txt", rowId: toolRow.rowId }}
+        ctx={seamCtx([toolRow], slots, vi.fn())}
+      />,
+    );
+    expect(screen.queryByTestId("md-seam")).toBeNull();
+    expect(container.querySelector(".henira-preview-text")?.textContent).toBe("row snapshot body");
+
+    let captured: PreviewViewArgs | undefined;
+    const wildcard = (args: PreviewViewArgs) => {
+      captured = args;
+      return <div data-testid="wildcard">{args.ext === "" ? "no-ext" : args.ext}</div>;
+    };
+    cleanup();
+    render(
+      <PreviewBody
+        tab={{ kind: "preview-image", src: "https://example.test/a.png" }}
+        ctx={seamCtx([], new Map([["sidebar.right.preview.*", [wildcard as SlotPart]]]), vi.fn())}
+      />,
+    );
+    expect(screen.getByTestId("wildcard").textContent).toBe("no-ext");
+    expect(captured?.target.kind).toBe("preview-image");
+  });
+
+  it("行出窗：官方体按路径读当前磁盘文本（提示当前磁盘内容）", async () => {
+    const read = vi.fn(async (path: string) => ({
+      path,
+      encoding: "utf8" as const,
+      content: "disk body",
+      size: 9,
+      truncated: true,
+    }));
+    const wildcard = defaultPreviewViews["sidebar.right.preview.*"];
+    expect(wildcard).toBeDefined();
+    const { container } = render(
+      <PreviewBody
+        tab={{ kind: "preview-file", path: "C:\\demo\\out.md", rowId: "t:gone" }}
+        ctx={seamCtx([], new Map([["sidebar.right.preview.*", [wildcard as SlotPart]]]), read)}
+      />,
+    );
+    await waitFor(() => {
+      expect(container.querySelector(".henira-preview-text")?.textContent).toBe("disk body");
+    });
+    expect(container.querySelector(".henira-preview-note")?.textContent).toContain(
+      t("preview.diskCurrent"),
+    );
+    expect(container.querySelector(".henira-preview-note")?.textContent).toContain(
+      t("preview.truncated"),
+    );
+    expect(read).toHaveBeenCalledWith("C:\\demo\\out.md");
+  });
+
+  it("件渲染崩溃：SlotBoundary 隔离并回落官方体（行快照仍在）", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { container } = render(
+      <PreviewBody
+        tab={{ kind: "preview-file", path: "C:\\demo\\notes.md", rowId: toolRow.rowId }}
+        ctx={seamCtx(
+          [toolRow],
+          new Map([["sidebar.right.preview.md", [PreviewCrashProbe as SlotPart]]]),
+          vi.fn(),
+        )}
+      />,
+    );
+    expect(container.querySelector(".henira-preview-text")?.textContent).toBe("row snapshot body");
+    error.mockRestore();
+    warn.mockRestore();
   });
 });
 

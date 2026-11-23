@@ -15,6 +15,7 @@ import {
   defaultComposerBar,
   defaultComposerSeats,
   defaultParts,
+  defaultPreviewViews,
   defaultToolViews,
   type LayoutOption,
   makeT,
@@ -41,7 +42,7 @@ import type { HeniraFacade } from "@henira/sdk";
 import { markdownNode, tokenizeCode as tokenizeMarkdownCode } from "./markdown.js";
 import { createResourcePump } from "./resource-pump.js";
 import { createSlotRegistry } from "./slot-registry.js";
-import { SINGLE_SLOTS, slotAccepted } from "./slot-vocabulary.js";
+import { isSingleSlot, slotAccepted } from "./slot-vocabulary.js";
 import { RowStore } from "./store.js";
 import { streamingMarkdownNode } from "./streaming-markdown.js";
 import { sanitizeSessionUiState } from "./ui-state-sanitize.js";
@@ -238,7 +239,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       uiWarnings.push(message);
     },
     officialId: "plugin-web-ui",
-    isSingleSlot: (name) => SINGLE_SLOTS.has(name),
+    isSingleSlot: (name) => isSingleSlot(name),
   });
   const slots = registry.slots;
   let moduleCtx: UiModuleContext | undefined;
@@ -266,6 +267,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       }
       // per-tool 官方审批卡同灌（E6）：同上——审批卡 keyed 缝同一语义
       for (const [name, view] of Object.entries(defaultApprovalViews)) {
+        official.registerSlot(name, view as SlotPart);
+      }
+      // R190：预览兜底体（通配键同走公共注册路径——安全模式与插件通道观感一致）
+      for (const [name, view] of Object.entries(defaultPreviewViews)) {
         official.registerSlot(name, view as SlotPart);
       }
       official.registerSlot("composer.bar", defaultComposerBar);
@@ -508,6 +513,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     async listDir(path: string) {
       if (sessionId === null) return [];
       return opts.client.listDir(sessionId, path);
+    },
+    async readWorkspaceFile(path: string) {
+      if (sessionId === null) throw new Error("no active session");
+      return opts.client.readWorkspaceFile(sessionId, path);
     },
     async listSessionsByCwd(cwd: string) {
       const all: SessionSummary[] = await opts.client.listSessions();

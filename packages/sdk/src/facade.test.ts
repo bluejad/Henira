@@ -880,6 +880,25 @@ describe.each(forms.map((f) => [f.name, f] as const))(
       expect(toolRow.output?.content).toContain("1\talpha");
     });
 
+    it("readWorkspaceFile（R190）：双形态同形——相对路径/二进制/围栏/404", async () => {
+      const { facade, dataDir } = await form.make([]);
+      await fs.writeFile(path.join(dataDir, "note.txt"), "alpha\nbeta\n", "utf8");
+      await fs.writeFile(path.join(dataDir, "blob.bin"), Buffer.from([0, 1, 2, 3]));
+      const session = await facade.createSession({ cwd: dataDir });
+      const text = await facade.readWorkspaceFile(session.id, "note.txt");
+      expect(text).toMatchObject({
+        encoding: "utf8",
+        content: "alpha\nbeta\n",
+        size: Buffer.byteLength("alpha\nbeta\n"),
+      });
+      expect(text.path).toBe(path.join(dataDir, "note.txt"));
+      const binary = await facade.readWorkspaceFile(session.id, "blob.bin");
+      expect(binary.encoding).toBe("base64");
+      expect([...Buffer.from(binary.content, "base64")]).toEqual([0, 1, 2, 3]);
+      await expect(facade.readWorkspaceFile(session.id, "../escape.txt")).rejects.toThrow();
+      await expect(facade.readWorkspaceFile(session.id, "missing.txt")).rejects.toThrow();
+    });
+
     it("停用 fs 服务 → fs 工具不注册、shell 照常（能力服务装载强制，双形态）", async () => {
       const { facade, dataDir } = await form.make([
         [

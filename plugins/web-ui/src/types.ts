@@ -24,6 +24,7 @@ import type {
   SessionSummary,
   SessionUiState,
   ToolRow,
+  WorkspaceFileContent,
 } from "@henira/protocol";
 import type { ReactNode } from "react";
 
@@ -272,6 +273,31 @@ export interface PreviewImageTarget {
 }
 export type PreviewTarget = PreviewFileTarget | PreviewImageTarget;
 
+/** 右栏预览 tab / 弹窗目标的载荷形状（R188；R190 起同时是预览缝件的 target）。
+ *  kind 前缀固定；文件只存引用（path+rowId），图片存 src+alt。 */
+export interface PreviewTabPayload {
+  kind: "preview-file" | "preview-image";
+  path?: string;
+  rowId?: string;
+  src?: string;
+  alt?: string;
+}
+
+/** keyed 预览体参数（sidebar.right.preview.<后缀>，D-057/R190）：件拿得到目标与行数据，
+ *  正文按需读取（read() = 会话 + 路径的 workspace 文件读取，不锚定工具行）。 */
+export interface PreviewViewArgs {
+  ctx: WebPartContext;
+  target: PreviewTabPayload;
+  /** 归一化扩展名（小写、去点、取最后一段；无扩展名 = ""） */
+  ext: string;
+  /** store 中按 rowId 找到的事件行（行已翻页出窗 = undefined，正文走 read()） */
+  row?: ToolRow;
+  read(): Promise<WorkspaceFileContent>;
+}
+
+/** keyed 预览体（sidebar.right.preview.<后缀>）：官方兜底体与第三方实现同缝。 */
+export type PreviewView = (args: PreviewViewArgs) => ReactNode;
+
 /** 预览 API（宿主注入；官方件与第三方件共用）：open 按设置路由到右栏 tab 或弹窗。 */
 export interface PreviewApi {
   readonly settings: Readonly<Required<PreviewOpenSettings>>;
@@ -354,8 +380,8 @@ export type ApprovalCardView = (args: {
 }) => ReactNode;
 
 /** 槽位件联合：区域槽/追加位 = WebPart；keyed 工具卡 = ToolCallView；keyed 审批卡 =
- * ApprovalCardView（消费侧按槽种收窄） */
-export type SlotPart = WebPart | ToolCallView | ApprovalCardView;
+ * ApprovalCardView；keyed 预览体 = PreviewView（消费侧按槽种收窄） */
+export type SlotPart = WebPart | ToolCallView | ApprovalCardView | PreviewView;
 
 /** chain 槽条目（R182，dsh SlotKind 行为层）：select 纯函数按 owner 判定是否当选
  *（null = 让给下一条）；priority 升序、同值按注册顺序；Component 以组件方式渲染（hooks 合法）。
@@ -446,6 +472,9 @@ export interface PluginUiHost {
   listDir(
     path: string,
   ): Promise<{ name: string; kind: "file" | "dir"; size?: number; mtime?: number }[]>;
+  /** 工作区文件读取（R190 预览缝；可选——旧宿主缺 = 预览只能走行快照）。
+   *  path 相对当前会话 cwd 或 cwd 内绝对路径。 */
+  readWorkspaceFile?(path: string): Promise<WorkspaceFileContent>;
   listSessionsByCwd(
     cwd: string,
   ): Promise<{ id: string; cwd: string; title?: string; updatedAt: number }[]>;

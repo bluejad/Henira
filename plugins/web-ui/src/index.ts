@@ -11,6 +11,7 @@ export {
   defaultComposerBar,
   defaultComposerSeats,
   defaultParts,
+  defaultPreviewViews,
   defaultToolViews,
   webUiModule,
 } from "./module.js";
@@ -69,7 +70,10 @@ export type {
   PluginInfo,
   PluginUiHost,
   PreviewApi,
+  PreviewTabPayload,
   PreviewTarget,
+  PreviewView,
+  PreviewViewArgs,
   ResourceSnapshot,
   RowStoreLike,
   SettingsSection,

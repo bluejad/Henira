@@ -15,3 +15,4 @@ export * from "./services.js";
 export * from "./session-title.js";
 export * from "./shell.js";
 export * from "./tools.js";
+export * from "./workspace-file.js";

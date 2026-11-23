@@ -686,6 +686,12 @@
 .henira-preview-text {
   min-width: min-content;
 }
+/* 行出窗回落：当前磁盘内容提示（R190；不抢正文视觉） */
+.henira-preview-note {
+  margin-bottom: var(--henira-space-2);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
 .henira-preview-diff .henira-diff-view {
   max-height: none; /* 预览区滚动交给外层，不叠 240px 二级滚动 */
 }

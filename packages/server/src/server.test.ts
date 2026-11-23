@@ -16,8 +16,14 @@ import {
   mockUsage,
 } from "@henira/llm-mock";
 import { projectKey, SESSION_LOG_FILE } from "@henira/plugin-session";
-import type { ConfigService, LlmService, ServerFrame, ToolContext } from "@henira/protocol";
-import { QUESTION_CUSTOM_MAX } from "@henira/protocol";
+import type {
+  ConfigService,
+  LlmService,
+  ServerFrame,
+  ToolContext,
+  WorkspaceFileContent,
+} from "@henira/protocol";
+import { QUESTION_CUSTOM_MAX, WORKSPACE_FILE_MAX_BYTES } from "@henira/protocol";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type HeniraServer, type ServerOptions } from "./server.js";
 
@@ -1127,6 +1133,116 @@ describe("REST 面与设置", () => {
     } finally {
       await cleanup();
       await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("工作区文件读取（R190）：文本/绝对路径/二进制/截断 + 404/400 矩阵", async () => {
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-file-cwd-"));
+    const note = "alpha\nbeta\n";
+    await fs.writeFile(path.join(cwd, "note.txt"), note, "utf8");
+    await fs.writeFile(path.join(cwd, "blob.bin"), Buffer.from([0, 1, 2, 3]));
+    await fs.writeFile(path.join(cwd, "big.txt"), "a".repeat(WORKSPACE_FILE_MAX_BYTES + 16));
+    await fs.writeFile(path.join(cwd, "big.bin"), Buffer.alloc(WORKSPACE_FILE_MAX_BYTES + 1));
+    await fs.mkdir(path.join(cwd, "sub"));
+    const { base, cleanup } = await makeServer([]);
+    try {
+      const id = await createSession(base, cwd);
+      const read = (p: string): Promise<Response> =>
+        fetch(`${base}/api/sessions/${id}/file?path=${encodeURIComponent(p)}`);
+      const text = (await (await read("note.txt")).json()) as WorkspaceFileContent;
+      expect(text).toEqual({
+        path: path.join(cwd, "note.txt"),
+        encoding: "utf8",
+        content: note,
+        size: Buffer.byteLength(note),
+      });
+      // 绝对路径（cwd 内）同样可读
+      const absolute = (await (
+        await read(path.join(cwd, "note.txt"))
+      ).json()) as WorkspaceFileContent;
+      expect(absolute.content).toBe(note);
+      // 二进制 → base64 完整字节
+      const bin = (await (await read("blob.bin")).json()) as WorkspaceFileContent;
+      expect(bin.encoding).toBe("base64");
+      expect([...Buffer.from(bin.content, "base64")]).toEqual([0, 1, 2, 3]);
+      // 文本超限：截断 + 总大小如实
+      const big = (await (await read("big.txt")).json()) as WorkspaceFileContent;
+      expect(big.truncated).toBe(true);
+      expect(big.content.length).toBe(WORKSPACE_FILE_MAX_BYTES);
+      expect(big.size).toBe(WORKSPACE_FILE_MAX_BYTES + 16);
+      // 二进制超限：残缺字节不可用 → 400
+      expect((await read("big.bin")).status).toBe(400);
+      expect((await (await read("big.bin")).json()) as { error: string }).toMatchObject({
+        error: "file too large to preview",
+      });
+      // 越界 / 目录 / 不存在 / 缺 path / 未知会话
+      expect((await read("../../escape.txt")).status).toBe(400);
+      expect((await read("sub")).status).toBe(400);
+      expect((await read("nope.txt")).status).toBe(404);
+      expect((await fetch(`${base}/api/sessions/${id}/file`)).status).toBe(400);
+      expect((await fetch(`${base}/api/sessions/nope/file?path=note.txt`)).status).toBe(404);
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("工作区文件读取：历史会话从账本首行 header 取 cwd（不需挂载）", async () => {
+    const dataDir = path.join(root, `file-hist-${Math.random().toString(36).slice(2, 8)}`);
+    const globalDir = path.join(dataDir, "config");
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.writeFile(
+      path.join(globalDir, "settings.json"),
+      JSON.stringify({ version: 1, model: "mock/mock-1" }),
+      "utf8",
+    );
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-file-hist-"));
+    await fs.writeFile(path.join(cwd, "old.txt"), "historical body", "utf8");
+    const sid = "s-hist0000-abc123";
+    const ledgerDir = path.join(dataDir, "projects", "--hist-test--", "sessions", sid);
+    await fs.mkdir(ledgerDir, { recursive: true });
+    await fs.writeFile(
+      path.join(ledgerDir, SESSION_LOG_FILE),
+      `${JSON.stringify({ version: 1, id: sid, createdAt: 1, cwd })}\n`,
+      "utf8",
+    );
+    const server = await createServer({
+      dataDir,
+      globalDir,
+      llm: llmStub(mockLlm([]).service),
+    });
+    try {
+      const res = await fetch(`${server.url}/api/sessions/${sid}/file?path=old.txt`);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as WorkspaceFileContent).content).toBe("historical body");
+    } finally {
+      await server.stop();
+      await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("工作区文件读取：符号链接逃逸被 realpath 复核拦下（平台无 symlink 权限则跳过）", async () => {
+    const cwd = await fs.mkdtemp(path.join(tmpdir(), "henira-file-link-"));
+    const outside = await fs.mkdtemp(path.join(tmpdir(), "henira-file-outside-"));
+    await fs.writeFile(path.join(outside, "secret.txt"), "secret", "utf8");
+    const made = await fs
+      .symlink(path.join(outside, "secret.txt"), path.join(cwd, "link.txt"), "file")
+      .then(() => true)
+      .catch(() => false);
+    const { base, cleanup } = await makeServer([]);
+    try {
+      const id = await createSession(base, cwd);
+      if (!made) return; // Windows 未开开发者模式：跳过（CI Linux 覆盖）
+      const res = await fetch(`${base}/api/sessions/${id}/file?path=link.txt`);
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toMatchObject({
+        error: "path escapes session workspace",
+      });
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(outside, { recursive: true, force: true }).catch(() => {});
     }
   });
 

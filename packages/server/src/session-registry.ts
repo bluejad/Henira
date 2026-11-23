@@ -36,6 +36,7 @@ import { mcpPlugin } from "@henira/plugin-mcp";
 import {
   forkSession,
   projectKey,
+  readSessionHeader,
   repairSessionLedger,
   SESSION_LOG_FILE,
   type SessionHandle,
@@ -944,6 +945,21 @@ export class SessionRegistry {
   /** 会话目录定位（ui-state 等宿主侧会话文件读写用）：在册取 entry.directory，历史会话扫盘 */
   async resolveSessionDir(id: string): Promise<string | undefined> {
     return this.get(id)?.directory ?? (await this.#findSessionDir(id));
+  }
+
+  /** 会话工作目录（workspace 文件读取的围栏根，R190）：在册取 entry.cwd，历史读账本首行 header。
+   *  找不到 / 账本首行读不了 = undefined（由调用方回 404）。 */
+  async sessionCwd(id: string): Promise<string | undefined> {
+    const entry = this.#entries.get(id);
+    if (entry !== undefined) return entry.cwd;
+    const dir = await this.#findSessionDir(id);
+    if (dir === undefined) return undefined;
+    try {
+      const header = await readSessionHeader(path.join(dir, SESSION_LOG_FILE));
+      return header.cwd;
+    } catch {
+      return undefined;
+    }
   }
 
   /** 新会话上线：向全部在订者推快照帧（新会话投影尚空——快照即"已出现"信号）；

@@ -25,10 +25,18 @@ const REGION_SLOTS: ReadonlySet<string> = new Set([
  *  与 composer.model（模型 + 思考控制）；其余区域/追加位保持 list 语义。 */
 const SINGLE_SLOTS: ReadonlySet<string> = new Set(["composer.bar", "composer.model"]);
 
+/** 预览缝保留前缀（R190，D-076）：按后缀 keyed，一个后缀一位实现（通配 `*` 也占一位）。 */
+const PREVIEW_SLOT_PREFIX = "sidebar.right.preview.";
+
+/** single 判据：区域单槽 + 预览键全族（消灭 keyed 追加 [0] 赢的静默歧义）。 */
+function isSingleSlot(name: string): boolean {
+  return SINGLE_SLOTS.has(name) || name.startsWith(PREVIEW_SLOT_PREFIX);
+}
+
 const KEYED_PREFIXES = ["tool.call.view.", "sidebar.right.preview.", "approval.view."] as const;
 
 function slotAccepted(name: string): boolean {
   return REGION_SLOTS.has(name) || KEYED_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
-export { KEYED_PREFIXES, REGION_SLOTS, SINGLE_SLOTS, slotAccepted };
+export { isSingleSlot, KEYED_PREFIXES, REGION_SLOTS, SINGLE_SLOTS, slotAccepted };

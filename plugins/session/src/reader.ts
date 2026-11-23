@@ -55,6 +55,20 @@ export async function readSessionFile(filePath: string): Promise<ReadResult> {
   return { header, events: parsed.events, truncatedAt: parsed.truncatedAt };
 }
 
+/** 只读账本首行 header（会话 cwd 等目录级查询用）：不解析事件、不做半行截断修理 */
+export async function readSessionHeader(filePath: string): Promise<SessionHeader> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const chunk = Buffer.alloc(64 * 1024);
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, 0);
+    const newline = chunk.subarray(0, bytesRead).indexOf(0x0a);
+    if (newline < 0) throw new SessionCorruptError("missing header line");
+    return parseHeader(chunk.subarray(0, newline).toString("utf8"));
+  } finally {
+    await handle.close();
+  }
+}
+
 function parseHeader(line: string): SessionHeader {
   let header: SessionHeader;
   try {

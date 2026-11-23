@@ -20,6 +20,7 @@ import type {
   SessionSnapshot,
   SessionSummary,
   SessionUiState,
+  WorkspaceFileContent,
 } from "@henira/protocol";
 
 export interface SettingsData {
@@ -176,6 +177,10 @@ export interface HeniraFacade {
   executeResource(sessionId: string, pluginId: string, address: string): Promise<ResourceReply>;
   /** 会话工作区文件列表（只限会话 cwd；隐藏项不返） */
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>;
+  /** 会话工作区文件读取（R190 预览缝）：path 相对会话 cwd 或 cwd 内绝对路径；
+   *  cwd 围栏 + 符号链接复核；文本 utf8（1 MiB 截断）、二进制 base64（超限报错）。
+   *  读取权威 = 会话 + 路径，不锚定工具行——行翻页出窗后预览仍可重读。 */
+  readWorkspaceFile(sessionId: string, path: string): Promise<WorkspaceFileContent>;
   /** 登记工作目录列表（data-directory §4 projects.json——权威工作区列表，含自愈） */
   listDirs(): Promise<RegisteredDir[]>;
   /** 登记工作目录（校验：绝对路径 + 存在 + 是目录；非法抛错） */

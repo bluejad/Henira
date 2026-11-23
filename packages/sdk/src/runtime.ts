@@ -57,6 +57,7 @@ import {
   type InteractionService,
   type LlmService,
   type LoopEvent,
+  looksBinary,
   Projection,
   type QueuedPrompt,
   type ResourceReply,
@@ -67,6 +68,8 @@ import {
   type SessionSummary,
   type SessionUiState,
   sliceRowsPage,
+  WORKSPACE_FILE_MAX_BYTES,
+  type WorkspaceFileContent,
 } from "@henira/protocol";
 import {
   type CustomProviderInput,
@@ -931,6 +934,46 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         });
       }
       return entries;
+    },
+
+    async readWorkspaceFile(sessionId, filePath) {
+      const session = requireSession(sessions, sessionId);
+      const root = path.resolve(session.cwd);
+      const target = path.resolve(root, filePath);
+      if (target !== root && !target.startsWith(root + path.sep)) {
+        throw new Error("path escapes session workspace");
+      }
+      const stat = await fs.stat(target).catch(() => undefined);
+      if (stat === undefined) throw new Error("file not found");
+      if (!stat.isFile()) throw new Error("not a file");
+      // 符号链接复核（server 端点同语义——双形态行为一致）
+      const realRoot = await fs.realpath(root).catch(() => root);
+      const realTarget = await fs.realpath(target).catch(() => undefined);
+      if (realTarget === undefined) throw new Error("file not found");
+      if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
+        throw new Error("path escapes session workspace");
+      }
+      const bytes = await fs.readFile(realTarget).catch(() => undefined);
+      if (bytes === undefined) throw new Error("not readable");
+      const binary = looksBinary(bytes);
+      if (binary && bytes.byteLength > WORKSPACE_FILE_MAX_BYTES) {
+        throw new Error("file too large to preview");
+      }
+      const content: WorkspaceFileContent = binary
+        ? {
+            path: realTarget,
+            encoding: "base64",
+            content: bytes.toString("base64"),
+            size: bytes.byteLength,
+          }
+        : {
+            path: realTarget,
+            encoding: "utf8",
+            content: bytes.subarray(0, WORKSPACE_FILE_MAX_BYTES).toString("utf8"),
+            size: bytes.byteLength,
+            ...(bytes.byteLength > WORKSPACE_FILE_MAX_BYTES ? { truncated: true } : {}),
+          };
+      return content;
     },
 
     async snapshot(sessionId) {

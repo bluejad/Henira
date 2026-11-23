@@ -955,3 +955,17 @@
 - **理由**：预览是「看内容」的通用动作，不该由每种内容各自拍开法；设置驱动 + 两表面同 resolver 是唯一不会分叉的形状。左栏同名与 header 恒「新对话」是内容不真，不是审美；不补标题，任何 CSS 都救不回来。对话区那堵墙的根因是判空写法不一致——按 trim 统一是最小且可测的修法。
 - **非目标（挂账）**：会话标题重命名（`meta.json` 预留）；PDF/docx/表格等更多预览类型（`ui.preview` 是 map，加 key 即可）；`sidebar.right.preview.<扩展名>` 插件预览缝仍未落码（官方预览 tab 是内置件，不是该 keyed 槽的消费者）；模型管理重做成参照的左侧厂商导航 + 右侧详情（本批只做行内身份/层级/状态）。
 - **备注**：测试 = protocol 标题/预览模式、web-ui 外观页分段/折叠体/分组 trim/编辑无变更/插件分段 switch、web host tokenizeCode/图片点击、server 设置深合并；e2e fs 预览改右侧 tab 断言；隔离 serve（HENIRA_HOME 临时 + --mock）实锤 title 列表/快照/header 三处同源、preview 持久化与非法值 400；真 key 活体与截图随收口批。
+
+## D-076 预览缝：通配官方兜底 + 工作区路径读取（R190）
+
+- **状态**：已定 · 2026-11-23 · 用户批「好」（先看 dsh 再定：读取契约选路径基准、官方体通配显式占用、本批不做 PDF）；✓ 同日落码
+- **背景**：D-057/D-062 把 `sidebar.right.preview.<扩展名>` 写进词表，D-075 承认 R188 内置预览 tab 不是该槽消费者、渲染挂点缺——写进没人读的抽屉。dsh 取证（只读参照）：预览按地址（session+path）认领 tab，正文走 workspace 文件服务（分页+版本），官方 body 与插件同一条 keyed 注册路径（builtin 优先本，后缀最长匹配、外部实现优先），内容不进布局/会话存档。
+- **决定**：
+  1. **读取契约 = 会话 + 路径**：`GET /api/sessions/:id/file?path=`（相对会话 cwd 或 cwd 内绝对路径）；cwd 围栏 + realpath 复核；文本 utf8（1 MiB 截断，truncated）、二进制 base64（超 1 MiB 400）；SDK `readWorkspaceFile` 双形态同语义。tab 仍存 `{path,rowId}`——rowId 只作溯源与行快照来源，读取权威是会话+路径（行翻页出窗后仍可重读；本地图片地址化的前置砖）。
+  2. **官方兜底体显式占用通配键**：官方 `PreviewBody` 注册 `sidebar.right.preview.*`（webUiModule 与安全模式同一路径）；解析 = 文件名归一后最长后缀匹配（`tar.gz` > `gz`，复合后缀允许）→ `*` → 代码内最终兜底；图片无扩展名只落 `*`；精确键只对 preview-file。
+  3. **预览键全族 single 占用**：`registerSlot`/`replaceSlot` 都走认领/卸载回落，一个后缀一位实现，第二家第三方冲突（消灭 keyed 追加 `[0]` 赢的静默歧义）；卸载/停用/安全模式回落 `*`；件渲染崩溃 SlotBoundary 隔离并回落官方体。
+  4. **件形状 `PreviewView`**：`{ctx,target({kind,path?,rowId?,src?,alt?}),ext,row?,read()}`；`ext` = 归一化最后一段（小写、去点；无 = ""）；`read()` 读 `target.path`；官方内置体同走此形状（`defaultPreviewViews`）。
+  5. **内置体行为**：行在窗 = R188 行快照语义（edit diff / write 内容 / read 输出）；行出窗 = `read()` 显示当前磁盘文本并标「当前磁盘内容」（截断另标）；二进制/失败回落 missing。
+- **理由**：dsh 的地址即权限模型让预览不依赖行窗口；行锚定会把图片/附件/非工具行文件永远挡在通道外，且行翻页后无法重读。路径围栏与既有 `listDir` 同一信任级（回环 + token + cwd 围栏 + realpath），不引入新面。通配显式占用让官方新类型（PDF/docx）与第三方替换同一条注册路径，消灭 R188 的两条车道。
+- **非目标**：分页读/文件版本号（dsh 有；v1 整文件 + 1 MiB 上限）；多候选「打开方式」选择器（v1 单占用）；`actions`/`unpreviewable` 子槽；PDF/docx/xlsx 官方件（PDF 留下一内容批）；工作区外文件读盘（仍走行快照）。
+- **备注**：落点 = protocol workspace-file + plugin-session reader/header + server sessionCwd/file 端点 + sdk facade/client/runtime + web-ui types/preview-slot/preview/module/locale/css + web slot-vocabulary/host 安全模式 + e2e 插件接管→停用回落 + 文档六处；测试 = 协议嗅探、server 文本/二进制/截断/围栏/realpath/历史会话、sdk 双形态、web-ui 解析器/缝件/回落/崩溃、e2e 真浏览器。

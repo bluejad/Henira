@@ -15,6 +15,7 @@ export { type SessionPluginOptions, sessionPlugin } from "./plugin.js";
 export { projectKey } from "./project-key.js";
 export {
   readSessionFile,
+  readSessionHeader,
   SessionCorruptError,
   SessionVersionError,
   UnknownEventTypeError,

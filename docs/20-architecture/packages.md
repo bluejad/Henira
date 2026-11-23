@@ -62,7 +62,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 │   ├── hooks\            @henira/plugin-hooks         钩子读者（事件上执行插件包 hooks/ 声明的外部命令）
 │   ├── commands\         @henira/plugin-commands      命令收集（扫 commands/，占 commands 槽位，宿主消费）
 │   └── web-ui\           @henira/plugin-web-ui        官方默认界面套件（D-043）：布局 + 会话列表 / 对话面板 /
-│                                                    输入框 / 审批卡各件各占槽；真插件，M3 随 web 诞生
+│                                                    输入框 / 审批卡 / 右栏 tab 框架与预览体（R190 预览缝通配兜底）各件各占槽；真插件，M3 随 web 诞生
 ├── test-support\                   ← 测试支撑件（假模型 / 假 server / 测试夹具）——目录即宣言：
 │   │                                  产品包与测试假件一眼分家，整根不进发布集、不做官方件
 │   ├── llm-mock\         @henira/llm-mock       llm 槽位的脚本化 mock 实现（50-open 归档 2026-11-16）：
@@ -83,7 +83,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 
 - **内圈 = 最小可运行集**（缺一不可）：`session` / `llm` / `tools` / `approval` / `loop`——它们让 agent 能跑：记得住、说得出、干得了、管得住、转得起来。**内圈 5 本来就是服务**（D-049 的规矩对它们早已成立）。
 - **外圈 = 可逐块追加**，能力件一律"**服务件 + 工具件**"按族分包（D-049）：fs 族（fs / fs-tools / fs-search）、shell 族（shell / shell-tools）、fetch、compaction、subagent、任务族（tasks / plan / todo）、熔断件 1（breaker，死循环兜底，D-058），读者 4（skills / mcp / hooks / commands），以及未来的沙箱 / 评测等。每加一块只做两件事：**新增插件包** + **在官方预设里多一行 `.use(...)`**；不改任何已有插件。
-- **界面套件 1**：`web-ui`——官方默认界面以**真插件**交付（D-043）：布局与会话列表 / 对话面板 / 输入框 / 审批卡各件各占槽；不属两圈（不占引擎槽位、不进 D-041 批次名额），M3 随 web 诞生。界面挂点 = 界面侧服务（D-049）。
+- **界面套件 1**：`web-ui`——官方默认界面以**真插件**交付（D-043）：布局与会话列表 / 对话面板 / 输入框 / 审批卡 / 右栏 tab 框架与预览体（`sidebar.right.preview.*` 通配兜底，R190）各件各占槽；不属两圈（不占引擎槽位、不进 D-041 批次名额），M3 随 web 诞生。界面挂点 = 界面侧服务（D-049）。
 - **唯一会动骨架的情况**：新插件需要**新槽位**（例如沙箱需要 `SandboxService`）→ 在 protocol 加接口 → 承重槽位立 ADR；**能力服务槽位随该插件的设计文档进 protocol（D-049 授权，不逐个立 ADR）**。除此之外，插件开发是纯加法。
 
 ## 依赖方向
@@ -131,11 +131,11 @@ plugins/*（23 个官方插件：服务件 + 工具件按族分包，D-049 / D-0
 | `plugin-mcp`         | MCP 读者：按插件包 `mcp/` 定义起进程 / 连远程（标准 MCP 协议，兼容 `.mcp.json` 生态写法），把工具转接进注册表（坏服务器退避重连）。**✓ 已落码（D-064，批 C 收尾）**——官方 SDK、确认指纹、${credential:} 宿主注入、McpService + useResource 同批                                                                        | 不做循环；不做导入 / 同步管线（D-019）                                         |
 | `plugin-hooks`       | 钩子读者：事件上执行插件包 `hooks/` 声明的外部命令（stdin 灌事件、退出码裁决、fail-open；兼认生态聚合 `hooks.json` 写法）                                                                                                                                                                                              | 不做审批策略（approval 的事）；拦截语义经测试锁定                              |
 | `plugin-commands`    | 命令收集：扫插件包 `commands/`（md 模板 + `$ARGUMENTS`），占 `commands` 槽位（`CommandService.list / expand`，D-025）；宿主把展开后的文本放进输入框                                                                                                                                                                    | 不渲染界面（宿主的事）                                                         |
-| `plugin-web-ui`      | 官方默认界面套件（D-043）：布局 + 会话列表 / 对话面板 / 输入框 / 审批卡各件各占槽；宿主标准件出口（import map）的同版本来源；安全模式（双击 Alt / URL `?ui=safe`）由 web 宿主实现、此包供默认组合                                                                                                                      | 不含引擎逻辑；不做非 web 宿主界面                                              |
+| `plugin-web-ui`      | 官方默认界面套件（D-043）：布局 + 会话列表 / 对话面板 / 输入框 / 审批卡 / 右栏 tab 框架与预览体（R190 预览缝通配兜底）各件各占槽；宿主标准件出口（import map）的同版本来源；安全模式（双击 Alt / URL `?ui=safe`）由 web 宿主实现、此包供默认组合                                                                       | 不含引擎逻辑；不做非 web 宿主界面                                              |
 | `server`             | Hono HTTP + SSE、会话注册表、投影器消费（组装逻辑住 @henira/protocol 双形态共用——ServerEvent 词表行模型核心与 ZCode 同构，interfaces.md server 段）、审批端点、设置端点、插件管理端点（M4，D-029）；回环三件套——只绑 127.0.0.1 / 随机端口 / Host 校验＋可选 token 位（D-035）                                          | 不含业务策略                                                                   |
 | `sdk`                | 进程内 createRuntime + 远程 createClient，同一 HeniraFacade 门面吐同一 ServerEvent 词表（双形态行为一致测试锁定）；纯 TS，零 React / 界面依赖（D-037）                                                                                                                                                                 | 不实现引擎逻辑；不携带界面                                                     |
 | `cli`                | 读 config、装配的命令入口：`serve`（起服务，命令保留，D-018）/ `run`（headless 一次性任务，进程内嵌③，D-037）/ 黑窗口聊天（发布后，D-018）                                                                                                                                                                             | 聊天 v1 不含（D-018）                                                          |
-| `web`                | 会话列表、事件流渲染、审批卡、输入框、设置页（插件管理：列表 / 详情 / 版本 / 卸载 / 数据区，D-029）；插件界面 UI 挂载（v1 三个挂载点，D-021）与 13 方法宿主门面（D-028 / D-042）；界面**可嵌入**——`createWebApp(client)` 注入 client，宿主用法即注入默认 client 的特例，npm 用户与宿主同路（D-037）                    | 不 eval 插件源码（模块加载，D-021）                                            |
+| `web`                | 会话列表、事件流渲染、审批卡、输入框、设置页（插件管理：列表 / 详情 / 版本 / 卸载 / 数据区，D-029）；插件界面 UI 挂载（v1 三个挂载点，D-021）与 14 方法宿主门面（D-028 / D-042）；界面**可嵌入**——`createWebApp(client)` 注入 client，宿主用法即注入默认 client 的特例，npm 用户与宿主同路（D-037）                    | 不 eval 插件源码（模块加载，D-021）                                            |
 | `desktop`            | Electron 薄壳宿主（中远期，D-035）：utilityProcess 拉 server 子进程、server.json 握手、窗口加载回环地址、托盘 / 自动更新 / 防双开                                                                                                                                                                                      | 不实现引擎 / 协议 / 界面（全部复用 server 与 web）                             |
 | `tui`                | 终端宿主（占位，发布后按需求建，50-open 🟢）：C1 薄客户端连本地 server，终端自身不起服务                                                                                                                                                                                                                               | 不实现引擎逻辑（复用 server 与 sdk）                                           |
 

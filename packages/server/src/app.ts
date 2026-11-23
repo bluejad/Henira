@@ -14,6 +14,7 @@ import {
 } from "@henira/plugin-session";
 import {
   DECISIONS,
+  looksBinary,
   QUESTION_CUSTOM_MAX,
   REASONING_EFFORTS,
   type ReasoningCapability,
@@ -22,6 +23,8 @@ import {
   rebuildProjection,
   type ServerFrame,
   type SessionUiState,
+  WORKSPACE_FILE_MAX_BYTES,
+  type WorkspaceFileContent,
 } from "@henira/protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -389,6 +392,64 @@ export function createApp(deps: AppDeps): Hono {
       });
     }
     return c.json(entries);
+  });
+
+  // ── 工作区文件读取（R190 预览缝：读取权威 = 会话 + 路径，不锚定工具行）──
+  // 围栏语义同 /files：相对路径按会话 cwd 解析、绝对路径必须在 cwd 内；
+  // realpath 复核防符号链接逃逸。文本 utf8（超上限截断），二进制 base64（超上限拒绝）。
+  app.get("/api/sessions/:id/file", async (c) => {
+    const id = c.req.param("id");
+    const cwd = await deps.registry.sessionCwd(id);
+    if (cwd === undefined) return c.json({ error: "session not found" }, 404);
+    const requested = c.req.query("path");
+    if (requested === undefined || requested.trim() === "") {
+      return c.json({ error: "path is required" }, 400);
+    }
+    const root = path.resolve(cwd);
+    const target = path.resolve(root, requested);
+    if (!isWithin(root, target)) {
+      return c.json({ error: "path escapes session workspace" }, 400);
+    }
+    let stat: import("node:fs").Stats;
+    try {
+      stat = await fs.stat(target);
+    } catch {
+      return c.json({ error: "file not found" }, 404);
+    }
+    if (!stat.isFile()) return c.json({ error: "not a file" }, 400);
+    // 符号链接逃逸：词法围栏后再按真实路径复核（root 与 target 都取 canonical）
+    const realRoot = await fs.realpath(root).catch(() => root);
+    const realTarget = await fs.realpath(target).catch(() => undefined);
+    if (realTarget === undefined) return c.json({ error: "file not found" }, 404);
+    if (!isWithin(realRoot, realTarget)) {
+      return c.json({ error: "path escapes session workspace" }, 400);
+    }
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(realTarget);
+    } catch {
+      return c.json({ error: "not readable" }, 400);
+    }
+    const binary = looksBinary(bytes);
+    // 二进制只给完整字节（残缺 PDF/图片不可用）；文本按上限截断
+    if (binary && bytes.byteLength > WORKSPACE_FILE_MAX_BYTES) {
+      return c.json({ error: "file too large to preview" }, 400);
+    }
+    const body: WorkspaceFileContent = binary
+      ? {
+          path: realTarget,
+          encoding: "base64",
+          content: bytes.toString("base64"),
+          size: bytes.byteLength,
+        }
+      : {
+          path: realTarget,
+          encoding: "utf8",
+          content: bytes.subarray(0, WORKSPACE_FILE_MAX_BYTES).toString("utf8"),
+          size: bytes.byteLength,
+          ...(bytes.byteLength > WORKSPACE_FILE_MAX_BYTES ? { truncated: true } : {}),
+        };
+    return c.json(body);
   });
 
   // ── 删会话（data-directory §7：删账本目录整棵；busy 拒绝——先中断再删）──
@@ -1074,4 +1135,9 @@ async function requireEntry(c: Context, deps: AppDeps) {
 /** 绝对路径判据（win32 盘符形或 posix 根形） */
 function isAbsoluteCwd(cwd: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("/") || cwd.startsWith("\\");
+}
+
+/** 路径围栏：target 等于 root 或在其子树内（词法判据；符号链接另经 realpath 复核） */
+function isWithin(root: string, target: string): boolean {
+  return target === root || target.startsWith(root + path.sep);
 }
