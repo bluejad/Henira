@@ -1,0 +1,142 @@
+/* R187 拆分：原 08-composer.css 524-665（审批卡） */
+/* ── 审批卡（E6；R180 按参照重排：中性弹层卡 + 编号选项行，去掉黄底/徽章/mono 工具名）── */
+.henira-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-xl);
+  background: var(--henira-panel);
+  padding: var(--henira-space-3);
+  margin-bottom: var(--henira-space-2);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+}
+.henira-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+}
+.henira-approval-title {
+  font-size: var(--henira-fs-base);
+  font-weight: 500;
+  color: var(--henira-text-subtle);
+}
+.henira-approval-queue {
+  margin-left: auto;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.henira-approval-reason {
+  margin: 0;
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+  line-height: 1.5;
+}
+/* 预览块：工具行 chrome（图标 + 等待审批 + 工具身份）+ 内容卡 */
+.henira-approval-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-approval-block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+  line-height: 24px;
+}
+.henira-approval-block-kind {
+  flex: none;
+  color: var(--henira-text-subtle);
+}
+.henira-approval-block-tool {
+  flex: none;
+  color: var(--henira-text-subtlest);
+}
+.henira-approval-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  min-width: 0;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-card);
+  background: var(--henira-surface);
+  padding: 10px 12px;
+}
+.henira-approval-block-body .henira-diff-view {
+  max-height: 240px;
+}
+.henira-approval-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-approval-digest {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  word-break: break-all;
+}
+/* 选项行：编号 + 主文案 + 说明；点击即决定（Enter=允许一次、Esc=拒绝） */
+.henira-approval-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-app .henira-approval-option {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-3);
+  width: 100%;
+  border: none;
+  border-radius: var(--henira-radius-lg);
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  text-align: left;
+  padding: var(--henira-space-2) var(--henira-space-3);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.henira-app .henira-approval-option:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-approval-option.is-default {
+  background: var(--henira-surface-hover);
+}
+.henira-approval-index {
+  flex: none;
+  width: 20px;
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+}
+.henira-approval-option.is-default .henira-approval-index {
+  color: var(--henira-text-subtle);
+}
+.henira-approval-option-text {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px var(--henira-space-3);
+  min-width: 0;
+}
+.henira-approval-option-label {
+  font-weight: 500;
+  color: var(--henira-text);
+}
+.henira-approval-option-desc {
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+.henira-approval-hint {
+  margin: 0;
+  padding: 0 var(--henira-space-1);
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+}

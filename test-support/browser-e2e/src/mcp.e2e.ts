@@ -148,7 +148,7 @@ test("MCP 全链：未确认泵 failed → 管理面确认连接 → 新会话�
 
     // 新会话（确认语义 = 新会话装配自动连接）：泵 2s 轮询在旧会话仍 failed（旧会话装配时
     // servers=[]）——切新会话后 MCP 连接建立 → live 数据上屏
-    await page.getByRole("button", { name: `+ ${zh["sessions.new"]}` }).click();
+    await page.getByRole("button", { name: zh["sessions.new"] }).click();
     const deadline = Date.now() + 15000;
     let state = "";
     let errorText = "";

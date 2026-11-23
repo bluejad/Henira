@@ -1,0 +1,25 @@
+/* R187 拆分：原 08-composer.css 855-878（痕迹行/问答对） */
+/* 痕迹行 / 已答卡内的问答对 */
+.henira-question-answers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.henira-question-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.henira-question-answer-q {
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+.henira-question-answer-a {
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+  overflow-wrap: anywhere;
+}

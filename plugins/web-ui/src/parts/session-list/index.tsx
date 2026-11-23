@@ -1,9 +1,9 @@
 // 侧栏目录区主件（R177 拆分）：目录 + 会话两层、刷新、弹窗与菜单接线。
 import type { RegisteredDir, SessionSummary } from "@henira/protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { WebPart, WebPartContext } from "../../types.js";
 import { DirectoryDialog } from "../directory-dialog.js";
-import { CaretGlyph } from "../icons.js";
+import { CaretGlyph, PlusGlyph } from "../icons.js";
 import { ContextMenu } from "./context-menu.js";
 import { DeleteConfirm } from "./delete-confirm.js";
 import {
@@ -18,6 +18,24 @@ import { SessionRow } from "./row.js";
 export const SessionList: WebPart = (ctx: WebPartContext) => {
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
   const [dirs, setDirs] = useState<readonly RegisteredDir[] | null>(null);
+  // 首载完成标记（R188）：列表空态在首次请求落定前显示「加载中」，不再闪「还没有会话」
+  const [loaded, setLoaded] = useState(false);
+  // 相对时间分钟刻度（R188）：列表不重拉也要让「刚刚/分钟前」走字；行 memo 比 now 桶
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 60_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+  // 当前会话的活跃标题（R188）：store 的 snapshot/delta 已带 title——列表不重拉也能换行名
+  const liveTitle = useSyncExternalStore(
+    ctx.store.subscribe,
+    () => (ctx.sessionId === null ? undefined : ctx.store.getSession(ctx.sessionId)?.title),
+    () => undefined,
+  );
   // 「目录」区标题行折叠/展开（纯本地态，用户确认 2026-11-19：不持久化——跟下面分组同玩法）
   const [dirsCollapsed, setDirsCollapsed] = useState(false);
   // 折叠组是纯本地态（用户裁决 2026-11-18：折叠不持久化——刷新/重启只展开选中会话所在组、
@@ -75,6 +93,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
     }
     void Promise.allSettled(requests).then(() => {
       inFlightRef.current = false;
+      if (mountedRef.current) setLoaded(true);
       if (dirtyRef.current) {
         dirtyRef.current = false;
         refreshRef.current?.();
@@ -236,9 +255,11 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         width: "100%", // 随宿主列宽走（D-063 拖宽落宿主列内联宽，var 缺省时同值）
       }}
     >
-      {/* 「＋新会话」独立一行置任务列表之上（用户裁定 2026-11-18 三栏骨架形状） */}
-      <button type="button" className="henira-primary henira-new-session" onClick={createSession}>
-        + {ctx.t("sessions.new")}
+      {/* 「＋新会话」独立一行置任务列表之上（用户裁定 2026-11-18 三栏骨架形状；
+          R188 改安静行：参照物入口是图标+文字的行，不是通栏实心 CTA） */}
+      <button type="button" className="henira-new-session" onClick={createSession}>
+        <PlusGlyph size={14} />
+        <span>{ctx.t("sessions.new")}</span>
       </button>
       <div
         className="henira-sidebar-header"
@@ -282,7 +303,9 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         ) : null}
       </div>
       {!dirsCollapsed &&
-        (sessions.length === 0 && groups.length === 0 ? (
+        (!loaded ? (
+          <span style={{ color: "var(--henira-text-muted)" }}>{ctx.t("dirs.loading")}</span>
+        ) : sessions.length === 0 && groups.length === 0 ? (
           <span style={{ color: "var(--henira-text-muted)" }}>{ctx.t("sessions.empty")}</span>
         ) : (
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
@@ -353,6 +376,10 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
                           session={s}
                           selected={ctx.sessionId === s.id}
                           ctx={ctx}
+                          now={now}
+                          titleOverride={
+                            s.id === ctx.sessionId ? liveTitle : ctx.store.getSession(s.id)?.title
+                          }
                           canDelete={canDeleteSession}
                           onSelect={ctx.selectSession}
                           onContextMenu={(session, x, y) => {

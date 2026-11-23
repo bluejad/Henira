@@ -7,6 +7,7 @@ import type {
   Decision,
   DirBrowse,
   GlobalUiState,
+  PreviewOpenSettings,
   PromptOptions,
   PromptReceipt,
   QuestionAnswer,
@@ -24,7 +25,7 @@ import type {
 export interface SettingsData {
   version: 1;
   model?: string;
-  ui?: { theme?: string; locale?: string };
+  ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
 }
 
 export interface DirEntry {
@@ -136,7 +137,7 @@ export interface HeniraFacade {
   /** 设置写（程序写；data-directory §2.3） */
   putSettings(patch: {
     model?: string;
-    ui?: { theme?: string; locale?: string };
+    ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
   }): Promise<SettingsData>;
   /** 模型目录（手写覆盖 + models.dev 快照清单 + 凭据在册厂商；无密钥） */
   listModels(): Promise<ModelCatalog>;

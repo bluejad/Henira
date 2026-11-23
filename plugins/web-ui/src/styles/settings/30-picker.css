@@ -1,0 +1,61 @@
+/* R187 拆分：原 13-settings.css 147-194（厂商选择页） */
+/* 厂商选择页 */
+.henira-provider-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.henira-provider-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: var(--henira-space-2) 4px 2px;
+}
+.henira-provider-section-count {
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+}
+.henira-models-toolbar-space {
+  flex: 1;
+}
+.henira-app button.henira-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-3);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text);
+  padding: 6px 8px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+}
+.henira-app button.henira-picker-item:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-picker-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.henira-picker-state {
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-picker-state.is-on {
+  color: var(--henira-ok-text);
+}
+.henira-picker-tag {
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  border: 1px solid var(--henira-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}

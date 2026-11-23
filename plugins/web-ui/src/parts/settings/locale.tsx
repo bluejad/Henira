@@ -36,20 +36,30 @@ function LocalePage(props: { ctx: WebPartContext; locales: UiAssetLocale[] }): R
   };
 
   return (
-    <div className="henira-dialog-field">
-      <div className="henira-field-label">{ctx.t("settings.locale")}</div>
-      <HeniraSelect
-        variant="input"
-        ariaLabel={ctx.t("settings.locale")}
-        value={localeId}
-        options={[
-          { value: "zh", label: ctx.t("settings.locale.zh") },
-          ...props.locales.map((locale) => ({ value: locale.lang, label: locale.lang })),
-        ]}
-        onChange={(lang) => {
-          changeLocale(lang);
-        }}
-      />
+    <div className="henira-settings-page">
+      <header className="henira-settings-page-head">
+        <h2>{ctx.t("settings.locale.pageTitle")}</h2>
+        <p>{ctx.t("settings.locale.pageHint")}</p>
+      </header>
+      <div className="henira-settings-card">
+        <div className="henira-settings-row">
+          <div className="henira-settings-row-text">
+            <div className="henira-settings-row-label">{ctx.t("settings.locale")}</div>
+          </div>
+          <HeniraSelect
+            variant="input"
+            ariaLabel={ctx.t("settings.locale")}
+            value={localeId}
+            options={[
+              { value: "zh", label: ctx.t("settings.locale.zh") },
+              ...props.locales.map((locale) => ({ value: locale.lang, label: locale.lang })),
+            ]}
+            onChange={(lang) => {
+              changeLocale(lang);
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

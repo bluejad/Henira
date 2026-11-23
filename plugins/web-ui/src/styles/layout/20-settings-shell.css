@@ -1,0 +1,45 @@
+/* R187 拆分：原 11-layout.css 184-227（设置弹窗外壳） */
+/* 设置弹窗（左菜单右内容；大面板形态，鬼鬼祟祟小窗退场） */
+.henira-settings-dialog {
+  width: min(1060px, calc(100vw - 64px));
+  height: min(780px, calc(100vh - 72px));
+}
+.henira-settings-body {
+  display: flex;
+  gap: var(--henira-space-4);
+  flex: 1;
+  min-height: 0;
+}
+.henira-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  border-right: 1px solid var(--henira-border);
+  padding-right: var(--henira-space-2);
+}
+.henira-app .henira-settings-nav button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--henira-radius);
+  font: inherit;
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.henira-app .henira-settings-nav button:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-app .henira-settings-nav button[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}

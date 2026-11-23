@@ -1,5 +1,6 @@
-/* CSS 入口（R177 拆分）：只做汇总，@import 顺序 = 原单文件顺序（级联零变化）。
-   实际规则在 styles/ 下按区存放；宿主 import "@henira/plugin-web-ui/tokens.css" 不变。 */
+/* CSS 入口（R177 拆分；R187 二次拆分）：只做汇总，@import 顺序 = 原单文件顺序（级联零变化）。
+   实际规则在 styles/ 下按组件/功能区就近存放（conversation/ composer/ sidebar/ dialogs/
+   layout/ settings/）；宿主 import "@henira/plugin-web-ui/tokens.css" 不变。 */
 @import "./styles/01-tokens.css";
 @import "./styles/02-scrollbar.css";
 @import "./styles/03-tokens-dark.css";
@@ -9,12 +10,30 @@
 @import "./styles/conversation/20-actions.css";
 @import "./styles/conversation/30-rows.css";
 @import "./styles/conversation/40-turn.css";
+@import "./styles/conversation/50-empty.css";
 @import "./styles/06-controls.css";
 @import "./styles/07-conversation-shell.css";
-@import "./styles/08-composer.css";
-@import "./styles/09-sidebar.css";
-@import "./styles/10-dialogs.css";
-@import "./styles/11-layout.css";
+@import "./styles/composer/00-shell.css";
+@import "./styles/composer/10-model-select.css";
+@import "./styles/controls/10-select.css";
+@import "./styles/composer/20-queue.css";
+@import "./styles/composer/30-approval.css";
+@import "./styles/composer/40-question.css";
+@import "./styles/composer/50-trace.css";
+@import "./styles/sidebar/10-session-row.css";
+@import "./styles/sidebar/20-dirs.css";
+@import "./styles/sidebar/30-menu.css";
+@import "./styles/dialogs/00-dialog.css";
+@import "./styles/dialogs/10-dir-tree.css";
+@import "./styles/dialogs/20-actions.css";
+@import "./styles/layout/00-header.css";
+@import "./styles/layout/10-right-panel.css";
+@import "./styles/layout/20-settings-shell.css";
+@import "./styles/layout/30-new-session.css";
 @import "./styles/12-reduced-motion.css";
-@import "./styles/13-settings.css";
+@import "./styles/settings/10-list.css";
+@import "./styles/settings/20-switch.css";
+@import "./styles/settings/30-picker.css";
+@import "./styles/settings/40-forms.css";
+@import "./styles/settings/50-page.css";
 @import "./styles/14-plugins.css";

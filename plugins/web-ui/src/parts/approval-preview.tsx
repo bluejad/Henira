@@ -96,7 +96,7 @@ function EditPreview({
       </div>
       <DiffRowsView
         rows={
-          notes.length > 0 ? [...diff.rows, { kind: "note", text: notes.join(" · ") }] : diff.rows
+          notes.length > 0 ? [...diff.rows, { kind: "note", text: notes.join(" / ") }] : diff.rows
         }
       />
     </>

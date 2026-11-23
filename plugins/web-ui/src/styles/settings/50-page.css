@@ -1,0 +1,80 @@
+/* 设置页通用版式（R188）：页标题 + 说明 + 行式卡片（主题/预览；语言页同用）。
+   主题页原来只有一个 280px 下拉装在 1060×780 弹窗里——一页一个控件是空荡感的根源。 */
+.henira-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-4);
+  max-width: 760px;
+}
+.henira-settings-page-head h2 {
+  margin: 0;
+  font-size: var(--henira-fs-lg);
+  font-weight: 600;
+  color: var(--henira-text-strong);
+}
+.henira-settings-page-head p {
+  margin: 4px 0 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-settings-card {
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-lg);
+  background: var(--henira-surface);
+  padding: 0 var(--henira-space-4);
+}
+.henira-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-4);
+  padding: var(--henira-space-3) 0;
+  border-bottom: 1px solid var(--henira-border);
+}
+.henira-settings-row:last-child {
+  border-bottom: none;
+}
+.henira-settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.henira-settings-row-label {
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text);
+}
+.henira-settings-row-hint {
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-settings-row .henira-select--input {
+  width: 200px;
+  flex-shrink: 0;
+}
+/* 二选一分段（右侧 / 弹窗）：贴在本行右侧，不拉满 */
+.henira-segment {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  flex-shrink: 0;
+  border-radius: var(--henira-radius);
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-segment button {
+  padding: 3px 10px;
+  border: none;
+  border-radius: calc(var(--henira-radius) - 2px);
+  background: none;
+  color: var(--henira-text-muted);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-app .henira-segment button:hover:not([data-active="true"]) {
+  color: var(--henira-text);
+}
+.henira-app .henira-segment button[data-active="true"] {
+  background: var(--henira-panel);
+  color: var(--henira-text-strong);
+}

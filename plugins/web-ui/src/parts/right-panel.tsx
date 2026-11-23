@@ -8,9 +8,31 @@
 import { type ReactNode, useRef, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { useDismiss } from "./dropdown.js";
-import { ArrowsInGlyph, ArrowsOutGlyph, CaretDownGlyph, PlusGlyph, XGlyph } from "./icons.js";
+import {
+  ArrowsInGlyph,
+  ArrowsOutGlyph,
+  CaretDownGlyph,
+  FileGlyph,
+  ImageGlyph,
+  PlusGlyph,
+  XGlyph,
+} from "./icons.js";
+import { PreviewBody, type PreviewTabPayload } from "./preview.js";
+import { baseName } from "./tool-cards/shell.js";
 
-type PanelTab = { id: string; kind: string };
+type PanelTab = {
+  id: string;
+  kind: string;
+  title?: string;
+  path?: string;
+  rowId?: string;
+  src?: string;
+  alt?: string;
+};
+
+function isPreviewTab(tab: PanelTab): tab is PanelTab & PreviewTabPayload {
+  return tab.kind === "preview-file" || tab.kind === "preview-image";
+}
 
 export const RightPanel: WebPart = (ctx: WebPartContext): ReactNode => {
   const rp = ctx.uiState?.rightPanel;
@@ -93,8 +115,14 @@ function RightPanelView(props: {
     setListOpen(false);
   });
 
-  const labelOf = (tab: PanelTab): string =>
-    tab.kind === "blank" ? ctx.t("rightPanel.blank") : tab.kind;
+  const labelOf = (tab: PanelTab): string => {
+    if (tab.kind === "blank") return ctx.t("rightPanel.blank");
+    if (tab.kind === "preview-file") {
+      return tab.title ?? (baseName(tab.path ?? "") || ctx.t("rightPanel.previewFile"));
+    }
+    if (tab.kind === "preview-image") return tab.title ?? ctx.t("preview.image");
+    return tab.kind;
+  };
 
   return (
     <div
@@ -178,7 +206,12 @@ function RightPanelView(props: {
                   props.onSelect(tab.id);
                 }}
               >
-                {labelOf(tab)}
+                {tab.kind === "preview-file" ? (
+                  <FileGlyph size={12} />
+                ) : tab.kind === "preview-image" ? (
+                  <ImageGlyph size={12} />
+                ) : null}
+                <span className="henira-right-tab-text">{labelOf(tab)}</span>
               </button>
               <button
                 type="button"
@@ -235,13 +268,24 @@ function RightPanelView(props: {
         </button>
       </div>
       <div className="henira-right-body">
-        {tabs.map((tab) =>
-          tab.id === active && tab.kind === "blank" ? (
-            <div key={tab.id} className="henira-right-empty">
-              {ctx.t("rightPanel.placeholder")}
-            </div>
-          ) : null,
-        )}
+        {tabs.map((tab) => {
+          if (tab.id !== active) return null;
+          if (tab.kind === "blank") {
+            return (
+              <div key={tab.id} className="henira-right-empty">
+                {ctx.t("rightPanel.placeholder")}
+              </div>
+            );
+          }
+          if (isPreviewTab(tab)) {
+            return (
+              <div key={tab.id} className="henira-right-preview">
+                <PreviewBody tab={tab} ctx={ctx} />
+              </div>
+            );
+          }
+          return null;
+        })}
         {pluginParts.map((Part) => {
           const id = `plugin:${Part.name}`;
           return id === active ? <Part key={id} {...ctx} /> : null;

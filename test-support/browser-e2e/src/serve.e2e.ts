@@ -212,7 +212,7 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   await expect(page.locator(".henira-sessions li")).toHaveCount(2);
   const originalItem = page
     .locator(".henira-sessions li")
-    .filter({ hasText: path.basename(dataDir) });
+    .filter({ hasText: "run the probe tool please" });
   await expect(originalItem).toHaveCount(1);
   await originalItem.click();
   await expect(page.getByText(FINAL_TEXT)).toBeVisible(); // 会话行随快照回来
@@ -236,7 +236,7 @@ test("turn tail actions: timestamp, copy, fork to child session", async ({ page 
   // 回到用例①的原会话（含已落定 probe 回合——以回复文本收尾 = fork 可点）
   const originalItem = page
     .locator(".henira-sessions li")
-    .filter({ hasText: path.basename(dataDir) });
+    .filter({ hasText: "run the probe tool please" });
   await originalItem.click();
   await expect(page.getByText(FINAL_TEXT)).toBeVisible();
 
@@ -446,9 +446,12 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
   const fsGroups = page.locator(".henira-work-group-head");
   if (await fsGroups.count()) await fsGroups.last().click();
   await page.locator(".henira-file-link").first().click();
-  await expect(page.getByText("alpha")).toBeVisible();
-  await expect(page.getByText("beta")).toBeVisible();
-  await page.keyboard.press("Escape");
+  // R188：文件预览默认走右侧 tab（设置可改为弹窗）——内容同源 resolver
+  await expect(page.locator(".henira-right-preview")).toContainText("alpha");
+  await expect(page.locator(".henira-right-preview")).toContainText("beta");
+  await shot(page, "fs-02-right-preview.png");
+  // 关掉预览 tab，避免右栏开态影响后续用例（同会话 ui-state 持久化）
+  await page.locator(".henira-right-tab-close").click();
   await shot(page, "fs-02-tool-rows.png");
 });
 

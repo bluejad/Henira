@@ -1,3 +1,4 @@
+/* R187 拆分：原 13-settings.css 1-115（模型管理列表/组/行） */
 /* R177 拆分：原 tokens.css 第 1624-1838 行（顺序保持，级联零变化） */
 /* ── 模型管理页（分组列表 / 厂商选择 / 连接 / 自定义四视图）── */
 .henira-models-panel {
@@ -19,7 +20,6 @@
 .henira-models-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--henira-space-3);
 }
 .henira-models-hint {
@@ -28,6 +28,10 @@
 }
 .henira-models-search {
   width: 100%;
+}
+.henira-models-toolbar .henira-models-search {
+  flex: 1;
+  min-width: 0;
 }
 .henira-models-error {
   color: var(--henira-danger-text);
@@ -61,10 +65,26 @@
 .henira-provider-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--henira-space-2);
   padding: 2px 0;
 }
+.henira-provider-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: calc(var(--henira-radius) - 1px);
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .henira-provider-name {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
   font-size: var(--henira-fs-base);
   color: var(--henira-text-strong);
@@ -78,6 +98,12 @@
   cursor: pointer;
   padding: 2px 6px;
   border-radius: var(--henira-radius);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.henira-provider-head:hover .henira-provider-disconnect,
+.henira-provider-head:focus-within .henira-provider-disconnect {
+  opacity: 1;
 }
 .henira-app button.henira-provider-disconnect:hover {
   color: var(--henira-danger-text);
@@ -108,108 +134,25 @@
 .henira-model-meta {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
   white-space: nowrap;
 }
-
-/* 显隐开关（role=switch） */
-.henira-app button.henira-switch {
-  width: 30px;
-  height: 17px;
-  border-radius: 17px;
-  border: none;
-  background: var(--henira-border-strong);
-  position: relative;
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-  transition: background 0.15s ease;
+.henira-model-meta-window {
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
 }
-.henira-app button.henira-switch.is-on {
-  background: var(--henira-accent);
-}
-.henira-switch-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: var(--henira-panel);
-  transition: transform 0.15s ease;
-}
-.henira-app button.henira-switch.is-on .henira-switch-knob {
-  transform: translateX(13px);
-}
-
-/* 厂商选择页 */
-.henira-provider-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-  min-height: 0;
-}
-.henira-provider-section {
-  color: var(--henira-text-muted);
-  font-size: var(--henira-fs-sm);
-  padding: var(--henira-space-2) 4px 2px;
-}
-.henira-app button.henira-picker-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: none;
-  border: none;
-  font: inherit;
-  font-size: var(--henira-fs-base);
-  color: var(--henira-text);
-  padding: 6px 8px;
-  border-radius: var(--henira-radius);
-  cursor: pointer;
-}
-.henira-app button.henira-picker-item:hover {
-  background: var(--henira-surface-hover);
-}
-.henira-picker-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.henira-picker-state {
-  font-size: var(--henira-fs-sm);
-  color: var(--henira-text-muted);
-}
-.henira-picker-state.is-on {
-  color: var(--henira-ok-text);
-}
-.henira-picker-tag {
-  font-size: var(--henira-fs-sm);
-  color: var(--henira-text-muted);
+.henira-model-tag {
+  padding: 0 6px;
   border: 1px solid var(--henira-border);
   border-radius: 999px;
-  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--henira-text-muted);
 }
-
-/* 连接/自定义表单 */
-.henira-provider-form-title {
-  font-weight: 600;
-  font-size: var(--henira-fs-lg, var(--henira-fs-base));
-  color: var(--henira-text-strong);
-}
-.henira-model-form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--henira-space-2);
-}
-.henira-custom-model-row {
-  display: flex;
-  gap: var(--henira-space-2);
+.henira-model-meta-icon {
+  display: inline-flex;
   align-items: center;
-}
-.henira-custom-model-row .henira-input {
-  flex: 1;
-  min-width: 0;
+  color: var(--henira-text-subtlest);
 }

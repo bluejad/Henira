@@ -1,0 +1,162 @@
+/* R187 拆分：原 08-composer.css 113-269（模型选择弹层） */
+/* 工具排：模型选择弹层（触发钮 + 搜索 + 厂商分组 + 管理模型入口） */
+.henira-model-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+}
+.henira-app button.henira-model-trigger {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 3px 8px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  min-width: 0;
+}
+.henira-app button.henira-model-trigger:hover {
+  color: var(--henira-text);
+  border-color: var(--henira-border);
+}
+.henira-app button.henira-model-trigger:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+}
+.henira-model-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-model-popover {
+  position: absolute;
+  z-index: 65;
+  min-width: 260px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-model-popover[data-direction="up"] {
+  bottom: calc(100% + 4px);
+}
+.henira-model-popover[data-direction="down"] {
+  top: calc(100% + 4px);
+}
+.henira-model-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 6px;
+  border-bottom: 1px solid var(--henira-border);
+  margin-bottom: 4px;
+  color: var(--henira-text-muted);
+}
+.henira-model-search {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  outline: none;
+}
+.henira-model-list {
+  display: block;
+  overflow-y: auto;
+  max-height: 220px;
+}
+.henira-model-group {
+  display: block;
+}
+.henira-model-group-label {
+  display: block;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 8px 2px;
+  background: var(--henira-panel);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app button.henira-model-item {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.henira-model-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 行尾徽章排（上下文窗 + 视觉 + 思考图标） */
+.henira-model-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app button.henira-model-item:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-model-item[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+/* 键盘活动项（↑↓/Home/End 移动，aria-activedescendant——hover 同款弱底） */
+.henira-app button.henira-model-item[data-kbd="true"] {
+  background: var(--henira-surface-hover);
+}
+.henira-model-empty {
+  display: block;
+  padding: 8px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-app button.henira-model-manage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--henira-border);
+  background: none;
+  text-align: left;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 0 0 calc(var(--henira-radius) - 2px) calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-app button.henira-model-manage:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}

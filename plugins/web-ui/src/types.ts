@@ -7,6 +7,9 @@ import type {
   ApprovalRow,
   Decision,
   DirBrowse,
+  PreviewKind,
+  PreviewOpenMode,
+  PreviewOpenSettings,
   PromptReceipt,
   QuestionAnswer,
   QuestionRow,
@@ -62,11 +65,15 @@ export interface HeniraClientLike {
   /** 界面资产清单（D-059：已装语言包/主题包） */
   listUiAssets(): Promise<UiAssets>;
   /** 设置读（可选——结构同形 sdk SettingsData；凭据永不出现，D-030） */
-  getSettings?(): Promise<{ version: 1; model?: string; ui?: { theme?: string; locale?: string } }>;
-  /** 设置写（可选——输入卡模型选择器消费；程序写面） */
+  getSettings?(): Promise<{
+    version: 1;
+    model?: string;
+    ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
+  }>;
+  /** 设置写（可选——输入卡模型选择器/外观页消费；程序写面） */
   putSettings?(patch: {
     model?: string;
-    ui?: { theme?: string; locale?: string };
+    ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
   }): Promise<{ version: 1 }>;
   /** 模型目录（可选——key+baseUrl 齐备的厂商才出现；条目带显示名/徽章位，模型目录收敛批） */
   listModels?(): Promise<{ providers: ModelCatalog }>;
@@ -152,10 +159,14 @@ export interface RowStoreLike {
   getSession(sessionId: string | null): {
     rows: readonly Row[];
     state: SessionState;
+    /** 会话标题（服务端快照派生，缺省 = 尚无用户消息） */
+    title?: string;
     hasOlder?: boolean;
     totalRows?: number;
   };
   subscribe(cb: () => void): Disposable;
+  /** 会话是否已有已投影数据（宿主可选；缺省按 rows 非空推断——空态首帧不闪） */
+  has?(sessionId: string): boolean;
   /** 历史前插（loadOlder）：页行按 rowSeq 过滤+去重后前插；无新行返回 false（可选——宿主缺 = 不翻页） */
   mergeOlderRows?(sessionId: string, page: readonly Row[]): boolean;
 }
@@ -244,6 +255,31 @@ export interface ComposerApi {
   registerInput(el: HTMLTextAreaElement | null): void;
 }
 
+/** 预览目标（R188）：文件 = 会话行引用（右栏/弹窗共用同一 resolver）；图片 = src。 */
+export interface PreviewFileTarget {
+  kind: "file";
+  /** 绝对路径（弹窗标题/右栏 tab 标签） */
+  path: string;
+  /** 来源工具行（内容按行 input/output 现场解析，不把文件正文塞进 ui-state） */
+  rowId: string;
+}
+export interface PreviewImageTarget {
+  kind: "image";
+  src: string;
+  alt?: string;
+}
+export type PreviewTarget = PreviewFileTarget | PreviewImageTarget;
+
+/** 预览 API（宿主注入；官方件与第三方件共用）：open 按设置路由到右栏 tab 或弹窗。 */
+export interface PreviewApi {
+  readonly settings: Readonly<Required<PreviewOpenSettings>>;
+  open(target: PreviewTarget): void;
+  setMode(kind: PreviewKind, mode: PreviewOpenMode): void;
+  /** 弹窗模式的当前目标（框架件渲染；null = 无弹窗） */
+  readonly modal: PreviewTarget | null;
+  close(): void;
+}
+
 /** 官方件承重缝（interfaces.md web 段定稿）：件 + 会话上下文一起给 */
 export interface WebPartContext {
   client: HeniraClientLike;
@@ -292,6 +328,8 @@ export interface WebPartContext {
    *（断开当场回落，不等设置关闭）。两者缺席 = 宿主无目录缓存语义 */
   notifyModelCatalogChanged?(): void;
   modelCatalogVersion?: number;
+  /** 预览打开方式（R188）：缺席 = 旧宿主，官方件保留本地弹窗回退，设置页不显示预览分区 */
+  preview?: PreviewApi;
 }
 
 export type WebPart = (ctx: WebPartContext) => ReactNode;
@@ -394,6 +432,11 @@ export interface PluginUiHost {
   onTurnFinished(cb: (result: { ok: boolean; text?: string; reason?: string }) => void): Disposable;
   prefill(input: { text: string }): void;
   renderMarkdown(text: string, opts?: { streaming?: boolean }): ReactNode;
+  /** 代码整段 token 化（差异卡高亮；可选——旧宿主缺 = 纯文本）。返回每行 token */
+  tokenizeCode?(
+    code: string,
+    lang: string,
+  ): Promise<Array<Array<{ content: string; color?: string }>> | undefined>;
   getSession(): { sessionId: string; cwd: string } | null;
   openInExplorer(path: string): Promise<boolean>; // 仅桌面宿主；其他宿主恒 false
   openPlugin(id: string, view?: unknown): void;

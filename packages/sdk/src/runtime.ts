@@ -50,6 +50,7 @@ import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
   type Delta,
+  deriveSessionTitle,
   type GlobalUiState,
   type InteractionAnswer,
   type InteractionRequest,
@@ -551,7 +552,14 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     },
 
     async listSessions() {
-      return [...sessions.values()].map((s) => ({ ...s.summary, busy: s.projection.state.busy }));
+      return [...sessions.values()].map((s) => {
+        const title = s.summary.title ?? deriveSessionTitle(s.projection.rows);
+        return {
+          ...s.summary,
+          ...(title !== undefined ? { title } : {}),
+          busy: s.projection.state.busy,
+        };
+      });
     },
 
     async prompt(sessionId, text, opts) {

@@ -1,0 +1,78 @@
+/* R187 拆分：原 09-sidebar.css 15-95（拖宽把手/目录组/设置钮） */
+/* 侧栏拖宽把手（D-063）：贴侧栏右缘 5px 竖条（button 过 a11y 闸），hover/拖动中显线 */
+.henira-app button.henira-drag-handle {
+  width: 5px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  cursor: col-resize;
+  background: transparent;
+}
+.henira-app button.henira-drag-handle:hover,
+.henira-app button.henira-drag-handle:active {
+  background: var(--henira-border-strong);
+}
+.henira-app button.henira-drag-handle:focus-visible {
+  outline: none;
+}
+
+/* 目录分组头（ZCode projects view 行为层：chevron+名称+计数，安静可折叠） */
+.henira-app button.henira-session-group {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  width: 100%;
+  min-height: 28px;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  padding: 4px 8px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-base);
+}
+.henira-app button.henira-session-group:hover {
+  border: none;
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-group-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--henira-text-muted);
+  transition: transform 0.12s ease;
+}
+.henira-session-count {
+  flex-shrink: 0;
+  padding: 0 2px;
+  font-size: var(--henira-fs-sm);
+  line-height: 16px;
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「目录」区标题行本体 = 折叠开关（用户反馈②：点标题收起/展开整个目录列表，纯本地不持久化） */
+.henira-app button.henira-dirs-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-1);
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  padding: 2px 4px;
+}
+.henira-app button.henira-dirs-toggle:hover {
+  border: none;
+  background: var(--henira-surface-hover);
+}
+
+/* 左下角设置按钮 = 通栏（用户反馈⑤：宽度等于左栏宽，齿轮住左；横向内边距按钮自带——
+   footer 不再顶它） */
+.henira-app button.henira-footer-settings {
+  width: 100%;
+  text-align: left;
+  padding: 6px var(--henira-space-4);
+}

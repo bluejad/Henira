@@ -71,7 +71,7 @@ export function ToolView({ row, ctx }: CardProps): React.ReactNode {
       busy={running}
       canToggle={input !== null || row.output !== undefined}
       persistKey={`${ctx.sessionId ?? "none"}:${row.callId}`}
-      rowTitle={`${row.name} · ${row.callId}`}
+      rowTitle={`${row.name} (${row.callId})`}
       status={toolFailure(row, ctx.t)}
       statusTitle={failureTitle(row)}
     >

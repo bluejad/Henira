@@ -1,0 +1,113 @@
+/* R187 拆分：原 08-composer.css 1-112（输入座位/输入卡/发送钮；顺序保持，级联零变化） */
+/* R177 拆分：原 tokens.css 第 603-1048 行（顺序保持，级联零变化） */
+/* ── 输入座位（R182）：dock 持列宽/轴/内衬；bar 与接管卡共享同一座位 ───────────────
+   composer = 座位（chain 接管路由，ComposerDock），composer.bar = 常驻输入栏（fallback）。
+   接管时 bar display:none 但保持挂载（草稿/DOM 态不丢——dsh overlay 语义）。 */
+.henira-composer-dock {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--henira-column-max);
+  margin: 0 auto;
+  padding: 0 var(--henira-space-5) var(--henira-space-4);
+}
+.henira-composer {
+  display: flex;
+  flex-direction: column;
+}
+.henira-composer-bar-slot {
+  min-width: 0;
+}
+.henira-composer-takeover {
+  position: relative;
+  z-index: 1; /* 接管卡同样压住 dock 排队卡的负底边距（R183：排队卡改在 bar 外渲染） */
+  min-width: 0;
+  outline: none; /* 容器只作焦点落点；可见焦点由卡内选项承担 */
+}
+/* 卡：白底 + 10% 细边 + 两层轻影（ZCode 行为层）；hover/focus 只把边框加深到 16%，
+   不再用黑边聚焦——层级靠底色/描边/影，不靠重对比。 */
+.henira-composer-card {
+  position: relative;
+  z-index: 1; /* 排队卡负底边距塞到卡后（R182） */
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-xl);
+  background: var(--henira-card-bg);
+  padding: var(--henira-space-3);
+  box-shadow: var(--henira-shadow-composer);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.henira-composer-card:hover {
+  border-color: var(--henira-border-strong);
+}
+.henira-composer-card:focus-within {
+  border-color: var(--henira-border-strong);
+  background: var(--henira-card-bg);
+}
+.henira-composer-card textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  line-height: 20px; /* ZCode leading-5：与 mention/工具排基线一致 */
+  padding: 0;
+  min-height: 40px; /* 空态两行呼吸（ZCode min-h-10） */
+  max-height: 160px; /* ZCode max-h-40 */
+  overflow-y: auto;
+}
+.henira-composer-card textarea::placeholder {
+  color: var(--henira-text-subtlest); /* 占位最弱档（ZCode foreground-subtlest） */
+}
+/* 焦点指示只留卡边框一处（ZCode 行为层）——全局 textarea 焦点环在卡内排除（R125 蓝框双重指示） */
+.henira-composer-card textarea:focus-visible {
+  outline: none;
+}
+.henira-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  min-height: 28px;
+}
+/* 座位容器（R183）：模型席 / 左追加位 / 右追加位——同排内联组，空席不渲染不占位 */
+.henira-composer-seat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+/* 件渲染 null（如宿主无设置方法时的模型席）→ wrapper 无子节点，整席退场不占 flex gap
+   （R186 收尾，审查 P3⑧：空 span 仍吃掉一个 8px 间距） */
+.henira-composer-seat:empty {
+  display: none;
+}
+.henira-composer-spacer {
+  flex: 1 1 auto;
+}
+.henira-app button.henira-icon-round {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+/* 停止态圆钮（danger 实色；发送=henira-primary 圆钮照旧） */
+.henira-app button.henira-icon-round.henira-stop {
+  background: var(--henira-danger-bg);
+  border-color: var(--henira-danger-text);
+  color: var(--henira-danger-text);
+}
+.henira-app button.henira-icon-round.henira-stop:hover {
+  background: var(--henira-danger-text);
+  color: var(--henira-panel);
+}

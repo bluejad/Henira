@@ -1,0 +1,190 @@
+/* R187 拆分：原 08-composer.css 666-854（提问卡） */
+/* ── 提问卡（R184；与审批卡同卡面语言：中性弹层 + 编号选项行 + 末位自定义输入）── */
+.henira-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-xl);
+  background: var(--henira-panel);
+  padding: var(--henira-space-3);
+  margin-bottom: var(--henira-space-2);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+  outline: none;
+}
+.henira-question:focus-visible {
+  border-color: var(--henira-border-strong, var(--henira-border));
+}
+.henira-question-head {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  min-width: 0;
+}
+.henira-question-title {
+  font-size: var(--henira-fs-base);
+  font-weight: 500;
+  color: var(--henira-text-subtle);
+}
+.henira-question-chip {
+  flex: none;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-pill, 999px);
+  padding: 0 8px;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-sm);
+  line-height: 20px;
+}
+.henira-question-queue {
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.henira-question-pager {
+  margin-left: auto;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.henira-question-spacer {
+  flex: 1;
+}
+.henira-question-status {
+  margin-left: auto;
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+}
+.henira-question-text {
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.henira-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.henira-app .henira-question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--henira-space-3);
+  width: 100%;
+  border: none;
+  border-radius: var(--henira-radius-lg);
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  text-align: left;
+  padding: var(--henira-space-2) var(--henira-space-3);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.henira-app .henira-question-option:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-question-option.is-selected {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-question-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.henira-question-mark {
+  flex: none;
+  width: 20px;
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.henira-question-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 1px solid var(--henira-border);
+  border-radius: 4px;
+  color: var(--henira-accent, var(--henira-text));
+}
+.henira-question-check.is-on {
+  border-color: var(--henira-accent, var(--henira-text));
+}
+.henira-question-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.henira-question-option-label {
+  font-weight: 500;
+  color: var(--henira-text);
+}
+.henira-question-option-desc {
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-base);
+}
+/* 自定义输入：恒在末位（第 N+1 项）；按内容增高、五行后内部滚动 */
+.henira-question-custom {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--henira-space-3);
+  border-radius: var(--henira-radius-lg);
+  padding: var(--henira-space-2) var(--henira-space-3);
+  cursor: text;
+}
+.henira-question-custom:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-question-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 5lh;
+  border: none;
+  background: none;
+  color: var(--henira-text);
+  font: inherit;
+  line-height: 1.5;
+  padding: 0;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+  field-sizing: content;
+}
+.henira-app .henira-question-input::placeholder {
+  color: var(--henira-text-subtlest);
+}
+.henira-question-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  flex-wrap: wrap;
+}
+.henira-question-hint {
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+}
+.henira-question-foot .henira-question-hint {
+  margin-right: auto;
+}
+.henira-app .henira-question-cancel,
+.henira-app .henira-question-nav,
+.henira-app .henira-question-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--henira-fs-base);
+  padding: 4px 12px;
+}
+.henira-app .henira-question-cancel:hover,
+.henira-app .henira-question-nav:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-app .henira-question-cancel:disabled,
+.henira-app .henira-question-nav:disabled,
+.henira-app .henira-question-submit:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

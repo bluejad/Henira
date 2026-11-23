@@ -19,6 +19,7 @@ import {
   type LayoutOption,
   makeT,
   type PluginUiHost,
+  type PreviewTarget,
   type ResourceSnapshot,
   type SettingsSection,
   type SlotPart,
@@ -29,8 +30,15 @@ import {
   webUiModule,
 } from "@henira/plugin-web-ui";
 import type { GlobalUiState, ServerFrame, SessionSummary, SessionUiState } from "@henira/protocol";
+import {
+  DEFAULT_PREVIEW_OPEN,
+  type PreviewKind,
+  type PreviewOpenMode,
+  type PreviewOpenSettings,
+  previewMode,
+} from "@henira/protocol";
 import type { HeniraFacade } from "@henira/sdk";
-import { markdownNode } from "./markdown.js";
+import { markdownNode, tokenizeCode as tokenizeMarkdownCode } from "./markdown.js";
 import { createResourcePump } from "./resource-pump.js";
 import { createSlotRegistry } from "./slot-registry.js";
 import { SINGLE_SLOTS, slotAccepted } from "./slot-vocabulary.js";
@@ -80,6 +88,61 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   let theme: string = opts.theme ?? "light";
   /** 当前生效语言 id（官方 zh 或语言包 lang）：设置弹窗语言页显示生效值（审查 P3-b） */
   let localeLang = "zh";
+  /** 打开预览（R188）：按设置路由——右侧 = 当前会话 rightPanel 加/激活一个 tab；
+   *  弹窗 = 宿主持目标、框架件渲染。文件只存行引用（正文不塞 ui-state）。 */
+  function openPreview(target: PreviewTarget): void {
+    // 大内联图（data URI >16KB）不进 ui-state（64KB 闸）：直接弹窗，避免把会话文档撑爆
+    if (target.kind === "image" && target.src.length > 16_000) {
+      previewModal = target;
+      render();
+      return;
+    }
+    const mode = previewMode(previewSettings, target.kind);
+    if (mode === "modal" || sessionId === null) {
+      previewModal = target;
+      render();
+      return;
+    }
+    const id = previewTabId(target);
+    const tabs = uiState?.rightPanel?.tabs ?? [];
+    const tab =
+      target.kind === "file"
+        ? { id, kind: "preview-file", path: target.path, rowId: target.rowId }
+        : {
+            id,
+            kind: "preview-image",
+            src: target.src,
+            ...(target.alt !== undefined ? { alt: target.alt } : {}),
+          };
+    const nextTabs = tabs.some((t) => t.id === id) ? tabs : [...tabs, tab];
+    updateUiState({ rightPanel: { open: true, active: id, tabs: nextTabs } });
+  }
+
+  /** 预览 tab id：文件按行（同一行复用 tab）；图片按 src 指纹（同图复用） */
+  function previewTabId(target: PreviewTarget): string {
+    if (target.kind === "file") return `preview:file:${target.rowId}`;
+    let hash = 2166136261;
+    for (let i = 0; i < target.src.length; i += 1) {
+      hash ^= target.src.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `preview:image:${(hash >>> 0).toString(36)}`;
+  }
+
+  /** 设置页写预览打开方式：内存即时生效 + 落 settings.json（旧服务器静默） */
+  function setPreviewMode(kind: PreviewKind, mode: PreviewOpenMode): void {
+    if (previewSettings[kind] === mode) return;
+    previewSettings = { ...previewSettings, [kind]: mode };
+    void opts.client.putSettings?.({ ui: { preview: previewSettings } }).catch(() => {});
+    render();
+  }
+
+  function closePreview(): void {
+    if (previewModal === null) return;
+    previewModal = null;
+    render();
+  }
+
   /** 外观已被显式选择（用户手选/嵌入方 setTheme）——boot 还原竞态守卫：getSettings 晚到的
    *  磁盘旧值不翻回用户刚做的选择（审查 P3-a；与语言侧 override 判据同旨） */
   let appearanceTouched = false;
@@ -102,6 +165,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   //    + 统一 500ms 防抖整份 PUT；切会话前冲刷、pagehide 冲刷。undefined = 新会话文档未加载。
   let uiState: SessionUiState | undefined;
   let uiStateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 预览打开方式（R188）：settings.json ui.preview；缺省文件右侧/图片弹窗 */
+  let previewSettings: Required<PreviewOpenSettings> = { ...DEFAULT_PREVIEW_OPEN };
+  /** 弹窗模式的当前目标（框架件渲染；右栏模式走会话 ui-state 的 rightPanel tab） */
+  let previewModal: PreviewTarget | null = null;
   /** 设置弹窗当前分区（null = 关闭；宿主持有开合，框架件经 ctx 读渲染） */
   let settingsSection: SettingsSection | null = null;
   /** 模型目录版本号：设置内写操作（连接/断开/开关/自定义/刷新）成功 → 自增重渲 → composer
@@ -409,10 +476,23 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     renderMarkdown(text: string, opts?: { streaming?: boolean }) {
       // markdown 落地（M4 批 A；E2 增量管线）：settled 臂在 markdown.ts（GFM；raw HTML
       // 不渲染），流式臂在 streaming-markdown.ts（冻结已完成块、每帧只重渲尾段）。
-      // t 由宿主注入（代码块复制钮文案跟随语言包）。
+      // t 由宿主注入（代码块复制钮文案跟随语言包）；图片点击路由到预览（R188）。
+      const mdOpts = {
+        t,
+        onImageClick: (image: { src: string; alt?: string }) => {
+          openPreview({
+            kind: "image",
+            src: image.src,
+            ...(image.alt !== undefined ? { alt: image.alt } : {}),
+          });
+        },
+      };
       return opts?.streaming === true
-        ? streamingMarkdownNode(text, { t })
-        : markdownNode(text, { t });
+        ? streamingMarkdownNode(text, mdOpts)
+        : markdownNode(text, mdOpts);
+    },
+    tokenizeCode(code: string, lang: string) {
+      return tokenizeMarkdownCode(code, lang);
     },
     getSession() {
       return sessionId === null ? null : { sessionId, cwd: sessionCwd };
@@ -511,8 +591,13 @@ export function createWebApp(opts: WebAppOptions): WebApp {
    */
   async function restoreAppearance(checkTouched: boolean): Promise<void> {
     if (safeMode || opts.client.getSettings === undefined) return;
-    if (checkTouched && appearanceTouched) return;
     const s = await opts.client.getSettings();
+    // 预览打开方式与外观无关：先读（别被 appearanceTouched 的早退挡掉）
+    previewSettings = {
+      file: previewMode(s.ui?.preview, "file"),
+      image: previewMode(s.ui?.preview, "image"),
+    };
+    if (checkTouched && appearanceTouched) return;
     const assets =
       opts.client.listUiAssets !== undefined
         ? await opts.client.listUiAssets().catch(() => ({ locales: [], themes: [] }))
@@ -562,6 +647,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     void flushUiState(); // 冲刷旧会话 pending（flush 捕获的是切换前的 id+doc，不会串写）
     sessionId = id;
     uiState = undefined; // 新会话文档未加载——件保持现状，到位后回填
+    previewModal = null; // 弹窗目标属于旧会话行引用——切会话即收
     if (cwd !== undefined) {
       sessionCwd = cwd;
     } else {
@@ -608,6 +694,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
           void flushUiState();
           sessionId = null;
           uiState = undefined;
+          previewModal = null;
           render();
           return;
         }
@@ -653,6 +740,13 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         render();
       },
       modelCatalogVersion,
+      preview: {
+        settings: previewSettings,
+        open: openPreview,
+        setMode: setPreviewMode,
+        modal: previewModal,
+        close: closePreview,
+      },
     };
     // root 只挂 layout 槽的官方框架件（D-062 整页框架槽；顶替者经 replaceSlot("layout")
     // 占槽即整页重排——官方区域件声明随框架件消失，安全模式回落官方框架）

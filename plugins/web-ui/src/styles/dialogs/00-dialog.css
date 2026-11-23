@@ -1,0 +1,69 @@
+/* R187 拆分：原 10-dialogs.css 1-67（弹窗/输入基础） */
+/* R177 拆分：原 tokens.css 第 1226-1379 行（顺序保持，级联零变化） */
+/* 弹窗（删除确认 / 新增目录共用形态） */
+.henira-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.henira-dialog {
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius-lg);
+  padding: var(--henira-space-5);
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(600px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+}
+.henira-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--henira-space-3);
+}
+.henira-app .henira-dialog-head button {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-dialog-message {
+  margin: 0 0 var(--henira-space-2);
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text);
+}
+.henira-dialog-path {
+  margin: 0 0 var(--henira-space-2);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  word-break: break-all;
+}
+.henira-dialog-field {
+  display: block;
+  margin-bottom: var(--henira-space-3);
+}
+.henira-field-label {
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  margin-bottom: 4px;
+}
+.henira-field-hint {
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  margin-top: 4px;
+}
+.henira-input {
+  width: 100%;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-bg);
+  color: var(--henira-text);
+  padding: 6px 10px;
+  font: inherit;
+  box-sizing: border-box;
+}

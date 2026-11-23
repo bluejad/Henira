@@ -33,12 +33,23 @@ export function WriteCard({ row, ctx }: CardProps): React.ReactNode {
     <ToolRow
       icon={toolGlyph(row.name)}
       kindLabel={kind}
-      primary={<FileChip path={filePath} />}
+      primary={
+        <FileChip
+          path={filePath}
+          onOpen={
+            ctx.preview === undefined
+              ? undefined
+              : () => {
+                  ctx.preview?.open({ kind: "file", path: filePath, rowId: row.rowId });
+                }
+          }
+        />
+      }
       diff={created === true ? <DiffTotals added={lines.length} removed={0} /> : undefined}
       busy={running}
       canToggle
       persistKey={`${ctx.sessionId ?? "none"}:${row.callId}`}
-      rowTitle={`${row.name} · ${row.callId}`}
+      rowTitle={`${row.name} (${row.callId})`}
       status={toolFailure(row, ctx.t)}
       statusTitle={failureTitle(row)}
     >

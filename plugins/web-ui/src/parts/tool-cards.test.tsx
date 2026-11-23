@@ -4,7 +4,7 @@
 // ToolRow 默认收起——断言展开体前先点角色按钮（openCards helper）。
 
 import type { ToolRow } from "@henira/protocol";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { zh } from "../locales/zh.js";
@@ -299,6 +299,57 @@ describe("EditCard（diff 卡）", () => {
     expect(text).toContain("beta");
     expect(text).toContain("BETA");
     expect(text).not.toContain("0.0 秒");
+  });
+
+  it("old === new → 仍走 edit 行（已编辑 + 无变更），不回落通用参数卡（R179）", () => {
+    const text = renderCard(
+      createElement(EditCard, {
+        row: editRow({
+          input: JSON.stringify({
+            file_path: "demo.txt",
+            old_string: "same",
+            new_string: "same",
+          }),
+        }),
+        ctx,
+      }),
+    );
+    expect(text).toContain(t("tool.kind.edited"));
+    expect(text).toContain("demo.txt");
+    expect(text).toContain(t("tool.noChanges"));
+    expect(text).not.toContain(t("tool.params"));
+  });
+
+  it("diff 高亮（R188）：宿主 tokenizeCode → 差异行按 token 着色", async () => {
+    const tokenizeCode = async (code: string) => {
+      const tail = code.includes("2;") ? " = 2;" : " = 1;";
+      return [
+        [
+          { content: "const", color: "red" },
+          { content: " x", color: undefined },
+          { content: tail, color: undefined },
+        ],
+      ];
+    };
+    const hlCtx = { t, host: { tokenizeCode } } as unknown as WebPartContext;
+    const view = render(
+      createElement(EditCard, {
+        row: editRow({
+          input: JSON.stringify({
+            file_path: "demo.ts",
+            old_string: "const x = 1;",
+            new_string: "const x = 2;",
+          }),
+        }),
+        ctx: hlCtx,
+      }),
+    );
+    fireEvent.click(
+      view.container.querySelector('[role="button"][aria-expanded="false"]') as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(view.container.querySelector('.henira-diff-text span[style*="color"]')).not.toBeNull();
+    });
   });
 
   it("replacements > 1 不再上摘要（差异由 diff 本身表达）", () => {

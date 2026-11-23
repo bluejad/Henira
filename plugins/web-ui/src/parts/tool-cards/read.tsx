@@ -21,13 +21,24 @@ export function ReadCard({ row, ctx }: CardProps): React.ReactNode {
           filePath !== null ? (
             <FileChip
               path={filePath}
-              onOpen={content === undefined ? undefined : () => setPreview(true)}
+              onOpen={
+                content === undefined
+                  ? undefined
+                  : () => {
+                      // R188：宿主有预览 API → 按设置路由（右侧/弹窗）；旧宿主保持本地弹窗
+                      if (ctx.preview !== undefined) {
+                        ctx.preview.open({ kind: "file", path: filePath, rowId: row.rowId });
+                      } else {
+                        setPreview(true);
+                      }
+                    }
+              }
             />
           ) : null
         }
         busy={running}
         canToggle={false}
-        rowTitle={`${row.name} · ${row.callId}`}
+        rowTitle={`${row.name} (${row.callId})`}
         status={toolFailure(row, ctx.t)}
         statusTitle={failureTitle(row)}
       />

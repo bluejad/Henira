@@ -167,14 +167,20 @@ function advance(prev: StreamState, text: string, opts: MarkdownOptions, now: nu
 export function IncrementalMarkdown(props: {
   text: string;
   t?: (key: string) => string;
+  onImageClick?: (image: { src: string; alt?: string }) => void;
 }): ReactNode {
   const stateRef = useRef<StreamState>(EMPTY);
-  const opts: MarkdownOptions = { streaming: true, t: props.t };
+  const opts: MarkdownOptions = {
+    streaming: true,
+    t: props.t,
+    ...(props.onImageClick !== undefined ? { onImageClick: props.onImageClick } : {}),
+  };
   const state = advance(stateRef.current, props.text, opts, performance.now());
   stateRef.current = state;
   const tailOpts: MarkdownOptions = {
     streaming: true,
     t: props.t,
+    ...(props.onImageClick !== undefined ? { onImageClick: props.onImageClick } : {}),
     reveal: { state: state.reveal, seam: state.seam },
   };
   return createElement(
@@ -190,6 +196,10 @@ export function streamingMarkdownNode(text: string, opts: MarkdownOptions): Reac
   return createElement(
     "div",
     { className: "henira-md" },
-    createElement(IncrementalMarkdown, { text, t: opts.t }),
+    createElement(IncrementalMarkdown, {
+      text,
+      t: opts.t,
+      ...(opts.onImageClick !== undefined ? { onImageClick: opts.onImageClick } : {}),
+    }),
   );
 }

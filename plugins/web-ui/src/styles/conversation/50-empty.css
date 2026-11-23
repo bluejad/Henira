@@ -1,0 +1,52 @@
+/* 空会话草稿态（R188）：问候 + 品牌水印 + 一句能力提示。
+   行为层参照草稿空态（按小时问候、品牌图形垫底）；不放入场动画——不是每个区块都 fade-up。 */
+.henira-empty {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--henira-space-2);
+  padding: 0 var(--henira-space-5) calc(var(--henira-space-6) + var(--henira-space-5));
+  overflow: hidden;
+}
+.henira-empty-watermark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -56%);
+  color: var(--henira-text);
+  opacity: 0.035;
+  pointer-events: none;
+  line-height: 0;
+  width: 280px;
+  height: 280px;
+}
+.henira-empty-greeting {
+  position: relative;
+  margin: 0;
+  font-size: clamp(24px, 2.2vw, 30px);
+  line-height: 1.2;
+  font-weight: 500;
+  color: var(--henira-text-strong);
+}
+.henira-empty-hint {
+  position: relative;
+  margin: 0;
+  max-width: 52ch;
+  font-size: var(--henira-fs-base);
+  line-height: 1.6;
+  color: var(--henira-text-muted);
+  text-align: center;
+}
+/* 空会话也要挂 turn.tail 追加位（插件全局条/提示件不因无行而消失） */
+.henira-empty-tail {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: var(--henira-column-max);
+  margin: 0 auto;
+  padding: 0 var(--henira-space-5) var(--henira-space-4);
+}

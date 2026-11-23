@@ -1,0 +1,150 @@
+/* R187 拆分：原 08-composer.css 270-419（思考档 + HeniraSelect 基础弹层 + 发送失败行；保持在原级联位置） */
+/* 思考档（Brain 图标 + 档位 ghost 触发钮 + 自制弹层——原生 select 系统菜单退场；
+   none=置灰「—」） */
+.henira-thinking-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-thinking-select[data-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── 统一下拉弹层（HeniraSelect 基础件，基础件批 2026-11-20）：触发钮 ghost 形态同
+   model-trigger 语言；--input 形态配表单字段（henira-input 同款）；弹层 = .henira-pop
+   通用面板（panel 实底 + border-strong + shadow-pop，z-65 与模型弹层同档）── */
+.henira-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.henira-app button.henira-select-trigger {
+  appearance: none;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  padding: 3px 8px;
+  border-radius: var(--henira-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.henira-app button.henira-select-trigger:hover:not(:disabled) {
+  color: var(--henira-text);
+  border-color: var(--henira-border);
+}
+/* 工具排控件 28px / 14px 字（ZCode h-7 + text-ui-base）；hover 浅底不描边。
+   前缀 .henira-app .henira-composer-bar 压过全局按钮基线（0,4,1 对 0,3,1）。
+   位置在基础触发钮规则之后——同级元素按特异度升序排，避免降序告警。 */
+.henira-app .henira-composer-bar button.henira-model-trigger,
+.henira-app .henira-composer-bar button.henira-select-trigger {
+  height: 28px;
+  padding: 3px 8px;
+  font-size: var(--henira-fs-base);
+  box-sizing: border-box;
+}
+.henira-app .henira-composer-bar button.henira-model-trigger:hover,
+.henira-app .henira-composer-bar button.henira-select-trigger:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+  border-color: transparent;
+  color: var(--henira-text);
+}
+.henira-composer-bar .henira-thinking-select {
+  font-size: var(--henira-fs-base);
+}
+.henira-app button.henira-select-trigger:focus-visible {
+  outline: 1px solid var(--henira-info-text);
+}
+.henira-select-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-select--input {
+  width: 100%;
+  max-width: 280px; /* 全宽字段 = 两字横贯 900px 的荒诞比例（用户实拍裁定收口） */
+}
+.henira-app .henira-select--input button.henira-select-trigger {
+  border: 1px solid var(--henira-border);
+  background: var(--henira-bg);
+  color: var(--henira-text);
+  font: inherit;
+  padding: 6px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.henira-select--input .henira-select-trigger-label {
+  flex: 1;
+}
+.henira-pop {
+  box-sizing: border-box;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-select-pop {
+  position: absolute;
+  z-index: 65;
+  min-width: 140px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.henira-select--input .henira-select-pop {
+  min-width: 100%;
+}
+.henira-select-pop[data-direction="up"] {
+  bottom: calc(100% + 4px);
+}
+.henira-select-pop[data-direction="down"] {
+  top: calc(100% + 4px);
+}
+.henira-app button.henira-pop-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.henira-app button.henira-pop-item:hover:not(:disabled):not([data-active="true"]) {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-pop-item[data-active="true"] {
+  background: var(--henira-selected);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-pop-item[data-kbd="true"] {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-pop-item:disabled {
+  color: var(--henira-text-muted);
+  cursor: not-allowed;
+}
+/* 发送失败行内提示（prompt 失败不静默，R125） */
+.henira-send-error {
+  margin: 0 0 var(--henira-space-2);
+  color: var(--henira-danger-text);
+  background: var(--henira-danger-bg);
+  border-radius: var(--henira-radius);
+  padding: var(--henira-space-1) var(--henira-space-3);
+  font-size: var(--henira-fs-sm);
+}

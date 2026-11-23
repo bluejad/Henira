@@ -5,7 +5,7 @@
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { markdownChildren, markdownNode } from "./markdown.js";
+import { markdownChildren, markdownNode, tokenizeCode } from "./markdown.js";
 
 afterEach(cleanup);
 
@@ -89,6 +89,23 @@ describe("markdownNode（host.renderMarkdown 实现体）", () => {
     const { container } = render(markdownNode("[文档](https://henira.dev) 与 ![图](x.png)"));
     expect(container.querySelector("a")?.getAttribute("href")).toBe("https://henira.dev");
     expect(container.querySelector("img")?.getAttribute("src")).toBe("x.png");
+  });
+
+  it("onImageClick（R188）：图片包成按钮，点击回调收到 src/alt", () => {
+    const clicks: Array<{ src: string; alt?: string }> = [];
+    const { container } = render(
+      markdownNode("![图](x.png)", { onImageClick: (image) => clicks.push(image) }),
+    );
+    const button = container.querySelector("button.henira-md-image");
+    expect(button).not.toBeNull();
+    fireEvent.click(button as HTMLElement);
+    expect(clicks).toEqual([{ src: "x.png", alt: "图" }]);
+  });
+
+  it("tokenizeCode（R188 差异高亮）：逐行 token；未知语言降 undefined", async () => {
+    const lines = await tokenizeCode("const x = 1;", "typescript");
+    expect(lines?.[0]?.map((t) => t.content).join("")).toBe("const x = 1;");
+    expect(await tokenizeCode("x", "nosuchlang")).toBeUndefined();
   });
 
   it("外链新标签打开；相对链接不把宿主应用导航走（R177）", () => {

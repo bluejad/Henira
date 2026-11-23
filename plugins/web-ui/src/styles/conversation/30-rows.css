@@ -110,7 +110,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--henira-space-2);
-  max-width: 100%;
+  flex: 1;
   min-width: 0;
   padding: 0;
   border: none;
@@ -177,6 +177,14 @@
   font-size: var(--henira-fs-base);
   white-space: nowrap;
 }
+/* 行尾收口：次要文本之后吃掉剩余宽度，状态词/箭头固定贴右（R188） */
+.henira-row-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.henira-work-preview .henira-row-spacer {
+  display: none;
+}
 .henira-row-status.is-error {
   color: var(--henira-danger-text);
   text-decoration: underline dotted;
@@ -196,6 +204,26 @@
 }
 .henira-row-body {
   padding: var(--henira-space-2) 0 0;
+}
+/* 开合动画（R188）：外层 grid 0fr↔1fr + 内层 overflow 裁切；padding 放内层，
+   收起时随高度一起收掉（reduced-motion 由 12-reduced-motion.css 统一关过渡） */
+.henira-row-body.henira-collapsible {
+  padding: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--henira-dur-collapse) var(--henira-ease-out),
+    opacity var(--henira-dur-collapse) var(--henira-ease-out);
+}
+.henira-row-body.henira-collapsible.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.henira-collapsible-inner {
+  overflow: hidden;
+  min-height: 0;
+  padding-top: var(--henira-space-2);
 }
 
 /* 旧 DisclosureRow 出口（插件兼容）：标题/摘要/耗时的既有类继续可用 */
@@ -654,6 +682,40 @@
   line-height: 1.55;
   color: var(--henira-text);
   white-space: pre;
+}
+.henira-preview-text {
+  min-width: min-content;
+}
+.henira-preview-diff .henira-diff-view {
+  max-height: none; /* 预览区滚动交给外层，不叠 240px 二级滚动 */
+}
+.henira-preview-image-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+.henira-preview-image {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: var(--henira-radius-card);
+}
+.henira-preview-empty {
+  padding: var(--henira-space-5);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-base);
+  text-align: center;
+}
+/* 右栏预览体：同 resolver，容器给内衬/滚动 */
+.henira-right-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--henira-space-3);
+}
+.henira-right-preview .henira-preview-image {
+  max-height: none;
 }
 .henira-preview-head .henira-iconbtn {
   margin-left: auto;

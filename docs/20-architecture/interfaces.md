@@ -436,7 +436,10 @@ interface HeniraConfig {
 }
 
 // ── 全局 ~/.henira/config/settings.json（界面上点、程序写、不进 git，见 data-directory.md §2.3）──
-//   { version, model?, plugins?: { <id>: { enabled?, version?, options? } }, ui?: { theme? } }
+//   { version, model?, plugins?: { <id>: { enabled?, version?, options? } },
+//     ui?: { theme?, locale?, preview?: { file?: "panel"|"modal", image?: "panel"|"modal" } } }
+//   ui.preview = 预览打开方式（R188）：缺省 file=panel（右侧）、image=modal（弹窗）；
+//   按内容类型各自可设，深合并（只改 image 不丢 file）——设置 → 外观页两行分段控件。
 //
 // 装配三步（每个新会话执行，D-016）：
 //   ① 基础清单 = cfg.plugins ?? defaultPreset
@@ -618,9 +621,9 @@ interface SessionSummary {
 
 ```text
 POST /api/sessions                          { cwd? }    → SessionSummary   // cwd 传必须绝对路径（400）；建成功自动登记 projects.json（D-060）
-GET  /api/sessions                                      → SessionSummary[]
+GET  /api/sessions                                      → SessionSummary[] // title?: string —— 首条非 breaker 用户消息派生（R188；列表/左栏/header 同一真源）
 DELETE /api/sessions/:id                                → { ok: true }     // busy → 409 { code: "session_busy" }；删账本目录整棵（data-directory §7）
-GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口；长会话 = 尾窗 60——ZCode snapshotTailWindowRows 同档）
+GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口；长会话 = 尾窗 60——ZCode snapshotTailWindowRows 同档；title 随快照下发——R188）
 GET  /api/sessions/:id/rows?before=&limit=              → RowsPage        // 行翻页（长会话历史：before = rowSeq 排他游标、页首补齐到轮边界、limit 钳 200——D-061）
 POST /api/sessions/:id/prompt               { text, steer?, modelId?, reasoningEffort? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；steer=true 忙时直插（E1 发送模式 Ctrl+Enter）；模型/思考按次覆盖（每次提问绑定，骨架批）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
@@ -646,7 +649,7 @@ GET  /api/dirs/browse?path=                             → DirBrowse        // 
                                                         //   隐藏项不返、只回目录；信任边界 = 回环三件套之上，D-060）
 GET  /api/server/info                                   → { version; startedAt; model }
 GET  /api/settings                                      → settings.json 内容（凭据永不出现，D-030）
-PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3）
+PUT  /api/settings                                      → 程序写 settings.json（data-directory §2.3；ui.preview 深合并——R188）
 GET  /api/models                                        → 选择器清单（闸门分档——已知厂商 key+baseUrl 齐备、自定义厂商 baseUrl；断开即摘出清单；开关关的模型过滤；条目带显示名/上下文窗/视觉·思考徽章位/**reasoningOptions 档位真源**；无密钥——收敛批+思考档批 2026-11-19）
 PUT  /api/credentials/:provider             { key }     → 写 credentials.json（0600）；GET 无对应端点（D-030）
 // ── 模型管理面（✓ 模型管理批 2026-11-19）──
@@ -748,7 +751,17 @@ interface SessionUiState {
   rightPanel?: {
     open?: boolean;
     active?: string | null;
-    tabs?: Array<{ id: string; kind: string }>;
+    // kind = blank | preview-file | preview-image | 插件 tab；preview-* 只存引用
+    // （path+rowId 或 src+alt），正文由行数据/source 现场解析（R188）
+    tabs?: Array<{
+      id: string;
+      kind: string;
+      title?: string;
+      path?: string;
+      rowId?: string;
+      src?: string;
+      alt?: string;
+    }>;
   };
   model?: string; // 会话级模型记忆（composer 回填；权威在每次请求携带，引擎无会话态——骨架批）
   reasoningEffort?: ReasoningEffort; // 会话级思考档记忆（同上）
@@ -896,6 +909,7 @@ interface SessionState {
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
+  title?: string; // 会话标题（R188：首条非 breaker 用户消息；缺省 = 尚无用户消息）
   seq: number; // 该会话当前水位（此后增量帧 seq 单调 +1）——增量帧只动尾部窗口内的行
   rows: Row[]; // 尾部窗口（长会话只含最近段——历史经 /rows 翻页拉取，D-061）
   state: SessionState;
@@ -1059,6 +1073,7 @@ interface WebPartContext {
   slots: ReadonlyMap<string, readonly SlotPart[]>; // 槽位只读视图（结构性 / 区域 + 行级，D-057 / D-062）
   chains: ReadonlyMap<string, readonly ChainEntry[]>; // chain 槽只读视图（R182；priority 升序，消费侧 electChain）
   composer?: ComposerApi; // 输入座位 API（R183）：仅 composer.* 子树由 ComposerDock 注入——草稿/焦点/按次模型绑定/审批回调
+  preview?: PreviewApi; // R188 预览：open(target) 按 settings.ui.preview 路由到右栏 tab / 弹窗；设置页用 settings/setMode
   uiState?: SessionUiState; // 每会话界面绑定态（D-063，宿主加载好的文档）
   updateUiState?(patch: SessionUiState): void; // 部件只交 patch，宿主合并防抖落盘
   layout?: "full" | "center" | "composer" | { parts: Partial<Record<WebSlotName, WebPart>> }; // D-043 挑件（缺席按 full）
@@ -1066,11 +1081,23 @@ interface WebPartContext {
   sessionCwd?: string | null; // 中列 header 目录名
   onTheme?(next: string, cssUrl?: string): void; // 设置弹窗主题页（D-059 <link> 注入在宿主）
   onLocale?(dict: Record<string, string> | undefined, localeId: string): void; // 设置弹窗语言页
-  openSettings?(section?: "theme" | "locale" | "models"): void; // 设置弹窗开（宿主持有开合状态）
+  openSettings?(section?: "theme" | "locale" | "models" | "plugins"): void; // 设置弹窗开（宿主持有开合状态）
   closeSettings?(): void;
-  settingsSection?: "theme" | "locale" | "models" | null; // 当前开着的分区（null = 关闭）
+  settingsSection?: "theme" | "locale" | "models" | "plugins" | null; // 当前开着的分区（null = 关闭）
 }
 type WebPart = (ctx: WebPartContext) => ReactNode;
+
+// ── 预览 API（R188）：官方件与第三方件共用；文件只存行引用，正文现场解析 ──
+type PreviewTarget =
+  | { kind: "file"; path: string; rowId: string } // 内容 = 该 tool 行 input/output（read/write/edit）
+  | { kind: "image"; src: string; alt?: string };
+interface PreviewApi {
+  settings: Required<PreviewOpenSettings>; // { file: "panel"|"modal", image: ... }
+  open(target: PreviewTarget): void; // panel = 当前会话 rightPanel 加/激活 tab；modal = 框架件渲染弹窗
+  setMode(kind: "file" | "image", mode: "panel" | "modal"): void; // 内存即时 + settings.json 深合并落盘
+  modal: PreviewTarget | null; // 弹窗模式当前目标（框架件渲染）
+  close(): void;
+}
 
 // ── 输入座位 API（R183，dsh owner props 行为层）：ComposerDock 构造、注入 composer.* 子树。
 //    草稿/焦点/按次模型绑定/审批回调的唯一真源——座位件与 bar 不各自私存状态 ──
@@ -1114,7 +1141,8 @@ interface ComposerApi {
   - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——确认弹窗 + busy 前置守卫）；
   - **会话列表刷新契约（R176，2026-11-22——五家 0/5 铁律落码）**：列表**装载一次 + `sessions.changed` 信号驱动**（建 / 删 / fork / 懒挂载 / 目录增删）——250ms 去抖 + 单飞（在飞只标脏、落定恰补一枪）+ 失败保旧列表**不自动重试**（下个信号再来）；`state.updated` 帧就地翻 busy 点（零请求）；重连快照对未知会话补一次重载。**流式 token 增量绝不触发列表请求**（行 store 通知不再接列表刷新）；e2e 以网络面板计数断言「流式回合列表零请求」；
   - **中间对话区输出组织契约（R178，2026-11-22——按参照实现逐行修正，D-069；D-068 的旧描述以本节为准）**：视觉层级 = 正文 / subtle 类别与摘要 / subtlest 状态；**行本身无边框无底色，结果才用卡片**，hover 才提亮显箭头。**工具行** = 工具身份图标（read/search 放大镜、bash/powershell 终端、edit/write 铅笔、MCP 插头、兜底扳手，16px 弱色）+ 类别词（正在读取 / 已读取、正在搜索 / 已搜索、正在执行 / 已执行、正在编辑 / 已编辑、正在写入 / 已更新、MCP）+ 主信息 + diff 计数 + **仅失败时**的状态词（虚线下划线 + 原因 title）；成功行不显示状态词 / 单次耗时；错误不自动展开；展开状态按 `sessionId:callId` 记忆。**read / search / glob 是静态行**（`canToggle=false`，无按钮语义 / 箭头）：read 主信息 = 文件图标 + 文件名（点击弹窗看账本已捕获 content；不显示行号范围 / 耗时）；search / glob 只有一句「查找 \<query\>」/「列出 \<path\>」，不展开结果列表 / 文件 chip。**思考块**：默认收起；「正在思考」/「思考 持续了 N 秒」（历史无起点「持续了几秒」）；流式摘要在同一行右侧；展开 14px/1.75 纯文本、左导线、max-h 240。**完成轮过程折叠**：最终回答之前的思考 / 工具 / 中间文本收进「已工作 3 分 44 秒」（无「用时」、无工具计数；底边细分隔线；箭头常显），最终回答留在外面；运行中不显示轮级折叠头（过程直接展开 + 末尾「工作中 + 时长」加载行）；中断「已停止」、无时长「已处理」；异常轮默认展开；用户手动开合优先；最终回答行自带 reasoning 收进折叠体。**轮内过程分组**：连续「思考 + 有类别的工具」**项数 ≥2** 折叠（思考也算一项）；未知工具 / MCP 是边界不分组；组头统计「已查阅 N 项，已执行 N 命令，已修改 N 文件」（运行中未完成措辞；中文逗号；change 按去重文件数，路径未知单列）；**收起态修改组显示去重文件名（basename；展开回统计）**；运行中组头显示当前活动项摘要，**展开后显示统计**；组内左导线 + 16lh + 120px 上限，**子行不重复工具图标、思考块不叠二级导线（组导线唯一）**。**审批**：pending 在输入区 dock；**settled 痕迹不进官方对话流**（行模型无 approval 行；数据仍在 store，自定义 conversation 区域可消费）。**不上屏**：usage / 思考档行徽章、assistant 下「已中断」胶囊。**结果卡**：兜底扁平参数 = 两列键值表（不露花括号；空对象显「无参数」），嵌套对象才用 JSON；MCP 结果优先（短结果小卡 / 长结果代码块 288px）+ 参数收进二级「查看调用详情」；execute 命令 3lh 可展开到 10lh、输出 5lh；diff 上限 240px。正文 markdown：14px / 1.75 / 0.025em；strong 500；ul 各级 disc、ol inside、li 内 p margin 0；行内 code 12px 无边框；标题 mt 24 / mb 16；引用 pl 12；链接蓝色点线；外链新标签、相对链接不导航。**不改协议 / 行投影 / 存储 / 槽语义**；`conversation` 区域槽、`tool.call.view.*` / `tool.call.view.mcp`、`approval.view.*` 顶替与卸载回落、公共出口与 `ToolCallView` / `ApprovalCardView` props 原样保留；JSX 结构变化只发生在官方默认件内部；
-  - **CSS / 组件组织（R177 初拆 / R178 按功能收口）**：样式拆 `plugins/web-ui/src/styles/` 分区文件，对话区再拆 `styles/conversation/` 五个功能文件（`00-motion` / `10-markdown` / `20-actions` / `30-rows` / `40-turn`，顺序 = 级联顺序）；入口 `tokens.css` 只做 `@import` 汇总（包出口 `./tokens.css` 不变，宿主 import 零改动；构建 copy 脚本递归复制 styles/）；组件按职责拆 `parts/conversation/`、`parts/tool-cards/`、`parts/settings/`、`parts/session-list/`，旧路径保留 re-export 薄壳；中间区布局样式出组件、走 CSS 类；
+  - **CSS / 组件组织（R177 初拆 / R178 对话区 / R187 二次拆分 / R188 设置重排）**：样式拆 `plugins/web-ui/src/styles/` 分区文件，对话区再拆 `styles/conversation/` 六个功能文件（`00-motion` / `10-markdown` / `20-actions` / `30-rows` / `40-turn` / `50-empty`），输入区拆 `composer/`（shell / model-select / queue / approval / question / trace）与 `controls/`（HeniraSelect 基础弹层，保持原级联位置），三栏/弹窗/设置拆 `sidebar/` / `dialogs/` / `layout/` / `settings/`；入口 `tokens.css` 只做 `@import` 汇总（包出口 `./tokens.css` 不变，宿主 import 零改动；构建 copy 脚本递归复制 styles/）；组件按职责拆 `parts/conversation/`、`parts/tool-cards/`、`parts/settings/`（模型管理四视图 = `models/` 下 index/list/picker/connect/custom + shared）、`parts/session-list/`，旧路径保留 re-export 薄壳；中间区布局样式出组件、走 CSS 类；
+  - **界面收口（R188，2026-11-23）**：左栏会话行 = 服务端派生 `title`（首条非 breaker user/message，40 码点截断；空 → 目录名回落）+ 相对时间（刚刚/N 分钟/N 小时/昨天/N 天/日期）；busy 只留前置 spinner，无 idle 灰点；「＋新会话」= 图标+文字安静行；中列 header = 目录弱前缀（Folder 图标）+ 标题强（真实 title，缺省「新会话」），不再用「·」点串；空会话草稿态 = 按时段问候 + 品牌水印 + 一句真实能力提示（无 suggestion 假卡片）；设置「外观」= 页标题/说明/行卡（主题 select + 文件/图片预览分段），语言页同版式；文件预览默认右侧 tab、图片默认弹窗（`ui.preview` 按类型可改；文件 tab 只存 rowId/path 引用，正文现场解析），`ctx.preview` 为官方/第三方共用入口；工具行失败状态固定贴右、开合 300ms（reduced-motion 直卸）、edit old===new 显示「无变更」行；diff 按扩展名 shiki 高亮（异步、120k 上限、失败降纯文本）；插件页按内置/可管理分段、统一 switch、卸载 hover 浮现；模型管理加厂商标记、meta 去点串、加载/错误态；
   - **审批卡 / 排队卡（R180，2026-11-22——按参照重排；D-071）**：审批卡 = **中性弹层卡**（border + radius-xl + panel 底，无黄底 / 无状态徽章）+「权限请求」标题 + 工具预览块（图标 + 等待审批 + 工具身份 + 内容卡：diff / 命令 / JSON）+ **编号选项行**（主文案 + 说明，首行默认底；点击即决定；Enter=允许一次、Esc=拒绝，焦点在可编辑控件时不抢键）+ 键盘提示行；队列计数仅 >1 时以弱色尾注显示。排队卡 = 贴在输入卡上沿的**静音列表**（无标题 / 计数头）：14px 主文字行、steer 徽章、行动作 hover/focus 浮现；暂停态 = 中性提示条 + 继续发送。keyed 缝 `approval.view.*` 与 `composer.queue.*` 词表不变；
   - **输入座位 / chain（R182，2026-11-22——D-072）**：`composer` = 官方件 **ComposerDock**（chain 接管路由），`composer.bar` = 常驻输入栏（单槽 fallback），`composer.takeover` = chain（条目 = `id + priority + select(owner) + Component`；升序、first non-null wins；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10））。待审批 / 待提问时输入栏 `display:none` 但保持挂载（草稿不丢），接管卡占同一座位；焦点移入接管座位（提问卡落卡本体、其余落容器——R185 审查修夺焦）、决定或提交后回输入栏（仅当焦点没被用户移走）。点击即决定 / 乐观摘卡与回滚 / Enter=允许一次 / Esc=拒绝 / 可编辑控件守卫全部不变；提问卡语义：无预选、Space 多选、Enter 单选推进 / 末题提交、Ctrl+Enter 随时提交、Esc 首题取消整个请求 / 后续题回退、IME 组合不提交（R184）。应用侧兜底：**未答**审批或提问在位时输入栏 submit 直接返回——乐观已答不计：卡已离场、输入栏已回来，不吞发送（审查修复）。chain 登记簿 = `registerChainSlot` / `replaceChainSlot`（官方条目同走公共注册路径，第三方顶替、卸载按登记回落；同槽同 id 冲突 D-022 同款）。**四个座位与 Composer API（R183，2026-11-22——D-073）**：`composer.model`（**single**——模型 + 思考档同一席，官方件 ModelSeat；`registerSlot` 认领、卸载回落、第二家第三方冲突）· `composer.left` / `composer.right`（**list**——工具排左 / 右追加位，官方空）· `composer.dock`（**list**——输入卡外通栏条目，官方件 QueueDock 排队面板；R182 前排队面板在 bar 内，接管时随 bar 隐藏，R183 移出后接管期间仍可见）。四席与 `composer.bar` 共用 `ComposerApi`（`WebPartContext.composer`，ComposerDock 注入）：草稿 `draft/setDraft`（会话级 uiState 双写）· `focus/registerInput`（bar 登记输入框）· 按次模型绑定 `model/setModel/effort/setEffort/catalog/settingsReady` · 发送 `submit/stop` · 审批面 `pendingApproval/approvalQueueTotal/onApprovalDecided/onApprovalFailed`（乐观摘卡/回滚）· 提问面 `pendingQuestion/questionQueueTotal/onQuestionDecided/onQuestionFailed`（R184，同款乐观/回滚）。状态唯一真源 = `useComposerRuntime`（ComposerDock 内），bar 与座位件不私存；`Composer` 单独渲染 = fail-loud（须经 ComposerDock 整座装配）。`composer.bar` 与 `composer.model` 按 dsh single 槽语义落码（同一时刻一位占用）；dsh 的 `input.dock`（卡上）/`composer.dock`（卡下）两缝在本表合并为一个 `composer.dock`（卡上，装第一个真实消费者排队面板），卡下缝等第二个消费者再拆；提问（第二条 chain entry）R184 已落码（ask_user 专用工具 + 提问卡 + 痕迹行）**；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；**字重规范（基础件批 2026-11-20）= UI chrome 静态图标 bold + 操作钮 14px**（regular 细笔画在 ≤14px 操作钮尺寸糊成「小点/空方块」——用户实拍根因；Horse 用 fill、Spinner 保持 regular）；小图标操作钮统一 `.henira-iconbtn` 基类（透明重置全局按钮基线，muted 常态 hover 升 strong + surface-hover）；**统一下拉弹层件 `HeniraSelect`**（`parts/dropdown.tsx`，原生 `<select>` 系统菜单退场——受控单选 + 键盘 ↑↓/Home/End/Enter + `useDismiss` 统一外点/Esc 收，思考档 / 设置主题 / 设置语言三处已换装；复合面板 ModelSelect 保留自研但接 useDismiss + 键盘导航）；排队卡行操作钮 / 右栏 tab 关闭钮 hover·focus-within 浮现（opacity-only）；品牌标 / favicon 自绘缓建，M3 用文字词标占位；
@@ -1145,7 +1173,11 @@ interface PluginUiHost {
   //   M3 实装 = 简版：会话 busy 沿（true→false）即通知、恒 {ok:true}、无 own-receipt 过滤——
   //   receipt 形（恰一次/终局映射 interrupted|error|submit_failed）随插件批升级（现无消费者）
   prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送（web 宿主现空实现——官方输入框自管草稿，接线随命令进输入框批）
-  renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——delta 高频重渲下高亮留到回合完成）；E2 起 streaming=true 走增量臂（streaming-markdown：冻结已完成顶层块——元素按源偏移 key 只建一次引用复用、每帧只解析重渲尾段 2 块；非前缀输入整体重置），settled 全文单实例一次成型；已知取舍 = 跨冻结边界的链接引用定义流式期渲染为字面文本、settled 自愈，settle 时全文重渲一次（选区丢失一次）；R177 起外链新标签打开、相对链接不导航（`preventDefault`）、GFM 任务列表只读主题化
+  renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——delta 高频重渲下高亮留到回合完成）；E2 起 streaming=true 走增量臂（streaming-markdown：冻结已完成顶层块——元素按源偏移 key 只建一次引用复用、每帧只解析重渲尾段 2 块；非前缀输入整体重置），settled 全文单实例一次成型；已知取舍 = 跨冻结边界的链接引用定义流式期渲染为字面文本、settled 自愈，settle 时全文重渲一次（选区丢失一次）；R177 起外链新标签打开、相对链接不导航（`preventDefault`）、GFM 任务列表只读主题化；R188 起内联图片可点开预览（宿主按 ui.preview.image 路由）
+  tokenizeCode?(
+    code: string,
+    lang: string,
+  ): Promise<Array<Array<{ content: string; color?: string }>> | undefined>; // ✓ R188 web 宿主（shiki 整段 token 化；差异卡按行取 token——120k 字符上限、未知语言 undefined 降纯文本；可选方法，旧宿主缺 = 差异卡纯文本）
 
   // 数据
   useResource(address: string): ResourceSnapshot; // ✓ C5（plugin-mcp 数据泵：2s 共享轮询 / 越权地址返回 failed 快照、不订阅）；React hook 语义：仅 render 期调用

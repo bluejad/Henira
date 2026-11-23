@@ -1038,15 +1038,30 @@ describe("REST 面与设置", () => {
       const put = await fetch(`${base}/api/settings`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model: "mock/mock-1", ui: { theme: "dark" } }),
+        body: JSON.stringify({
+          model: "mock/mock-1",
+          ui: { theme: "dark", preview: { file: "modal" } },
+        }),
       });
       expect(put.status).toBe(200);
       const settings = (await (await fetch(`${base}/api/settings`)).json()) as {
         model?: string;
-        ui?: { theme?: string };
+        ui?: { theme?: string; preview?: { file?: string; image?: string } };
       };
       expect(settings.model).toBe("mock/mock-1");
       expect(settings.ui?.theme).toBe("dark");
+      expect(settings.ui?.preview?.file).toBe("modal");
+
+      // 预览设置深合并：只改 image 不丢 file（R188）
+      await fetch(`${base}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ui: { preview: { image: "panel" } } }),
+      });
+      const merged = (await (await fetch(`${base}/api/settings`)).json()) as {
+        ui?: { preview?: { file?: string; image?: string } };
+      };
+      expect(merged.ui?.preview).toEqual({ file: "modal", image: "panel" });
 
       await fetch(`${base}/api/credentials/deepseek`, {
         method: "PUT",

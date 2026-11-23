@@ -1,0 +1,14 @@
+/* R187 拆分：原 09-sidebar.css 1-14（会话行态） */
+/* R177 拆分：原 tokens.css 第 1049-1225 行（顺序保持，级联零变化） */
+/* ── 会话列表项（hover/选中态收口在此：派生档填充，无描边——ZCode TaskListItem 行为层参照）── */
+.henira-sessions li button {
+  background: transparent; /* 未选中透明（原内联 transparent 压死选中底色——真因已抓修） */
+  border: 1px solid transparent;
+  transition: background 0.12s ease;
+}
+.henira-sessions li button:hover {
+  background: var(--henira-surface-hover);
+}
+.henira-sessions li button[data-active="true"] {
+  background: var(--henira-selected);
+}

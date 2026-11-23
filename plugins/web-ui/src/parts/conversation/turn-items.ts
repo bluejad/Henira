@@ -49,7 +49,7 @@ function emptyStats(): WorkStats {
 function isEmptyStep(row: Row): boolean {
   return (
     row.kind === "assistant" &&
-    row.text === "" &&
+    row.text.trim() === "" &&
     row.streaming !== true &&
     row.interrupted !== true &&
     (row.reasoning === undefined || row.reasoning === "")
@@ -60,7 +60,9 @@ function isEmptyStep(row: Row): boolean {
 function groupable(row: Row): boolean {
   if (row.kind === "tool") return categoryOf(row.name) !== null;
   if (row.kind !== "assistant") return false;
-  if (row.text !== "" || row.streaming === true || row.interrupted === true) return false;
+  // 判空按 trim：模型常回 "\n\n" 这类空白正文 + reasoning——此前 === "" 把纯换行当
+  // 「带正文」边界，思考步永远进不了组，运行中一轮变成一堵「已执行/思考」交替行（R188）
+  if (row.text.trim() !== "" || row.streaming === true || row.interrupted === true) return false;
   return row.reasoning !== undefined && row.reasoning !== "";
 }
 

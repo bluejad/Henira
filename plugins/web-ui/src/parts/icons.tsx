@@ -16,8 +16,10 @@ import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
 import { CircleNotchIcon } from "@phosphor-icons/react/dist/csr/CircleNotch";
 import { FileCodeIcon } from "@phosphor-icons/react/dist/csr/FileCode";
 import { FileTextIcon } from "@phosphor-icons/react/dist/csr/FileText";
+import { FolderIcon } from "@phosphor-icons/react/dist/csr/Folder";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { HorseIcon } from "@phosphor-icons/react/dist/csr/Horse";
+import { ImageIcon } from "@phosphor-icons/react/dist/csr/Image";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
 import { PencilIcon } from "@phosphor-icons/react/dist/csr/Pencil";
 import { PlugIcon } from "@phosphor-icons/react/dist/csr/Plug";
@@ -123,6 +125,16 @@ export function PlugGlyph(props: Props) {
 /** 兜底工具行图标（第三方/未知工具） */
 export function WrenchGlyph(props: Props) {
   return <WrenchIcon size={props.size ?? 16} color={props.color} weight="bold" />;
+}
+
+/** 目录图标（中列 header 当前工作目录） */
+export function FolderGlyph(props: Props) {
+  return <FolderIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 图片预览 tab 图标 */
+export function ImageGlyph(props: Props) {
+  return <ImageIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 /** 文件 chip 图标（读/编辑/写入的文件名前置） */

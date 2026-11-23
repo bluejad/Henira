@@ -1,0 +1,34 @@
+/* R187 拆分：原 10-dialogs.css 122-154（动作行/危险钮） */
+.henira-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--henira-space-2);
+  margin-top: var(--henira-space-2);
+}
+.henira-danger {
+  background: var(--henira-danger-bg);
+  border: 1px solid var(--henira-danger-text);
+  color: var(--henira-danger-text);
+  border-radius: var(--henira-radius);
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.henira-danger:hover:not(:disabled) {
+  background: var(--henira-danger-text);
+  color: var(--henira-panel);
+}
+.henira-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.henira-back-bottom:hover {
+  background: var(--henira-surface-hover, var(--henira-border));
+  border-color: var(--henira-text-muted);
+}
+.henira-back-bottom {
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}

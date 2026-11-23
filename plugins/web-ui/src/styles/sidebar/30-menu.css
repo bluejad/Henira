@@ -1,0 +1,83 @@
+/* R187 拆分：原 09-sidebar.css 96-177（hover 显隐/右键菜单） */
+/* ── 侧栏目录区交互（R127）：hover 显隐 + 右键菜单 + 删除确认/新增目录弹窗 ── */
+/* hover 显隐（ZCode WorkspacePurposeSection / ProjectNodeContent 行为层：hover 才出现，
+   focus-within 键盘可达；data-open 常显出口留给菜单开着等状态） */
+.henira-hover-reveal {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.henira-sidebar-header:hover .henira-hover-reveal,
+.henira-sidebar-header:focus-within .henira-hover-reveal,
+.henira-group-row:hover .henira-hover-reveal,
+.henira-group-row:focus-within .henira-hover-reveal,
+.henira-hover-reveal[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.henira-sidebar-header button.henira-hover-reveal,
+.henira-group-row button.henira-hover-reveal {
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  border-radius: var(--henira-radius);
+  padding: 2px 6px;
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+}
+.henira-sidebar-header button.henira-hover-reveal:hover,
+.henira-group-row button.henira-hover-reveal:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text);
+}
+.henira-group-row {
+  display: flex;
+  align-items: center;
+}
+.henira-group-row > button.henira-session-group {
+  flex: 1;
+  min-width: 0;
+}
+.henira-group-add {
+  flex-shrink: 0;
+}
+
+/* 右键菜单（非模态浮层） */
+.henira-context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 148px;
+  background: var(--henira-panel);
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  box-shadow: var(--henira-shadow-pop);
+  padding: 4px;
+}
+.henira-app button.henira-menu-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text);
+  cursor: pointer;
+}
+.henira-app button.henira-menu-item:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+}
+.henira-app button.henira-menu-item:disabled {
+  color: var(--henira-text-muted);
+  cursor: not-allowed;
+}
+.henira-app button.henira-menu-item[data-danger="true"] {
+  color: var(--henira-danger-text);
+}
+.henira-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--henira-border);
+}

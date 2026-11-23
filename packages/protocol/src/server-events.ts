@@ -150,6 +150,8 @@ export interface SessionState {
 
 export interface SessionSnapshot {
   sessionId: string;
+  /** 会话标题（R188：首条非 breaker 用户消息，服务端派生；缺省 = 尚无用户消息） */
+  title?: string;
   /** 该会话当前水位（此后增量帧 seq 单调 +1）——增量帧只动尾部窗口内的行 */
   seq: number;
   /** 尾部窗口（长会话分页：全量行超出 tailRows 时只含最近段——历史经 rows 翻页拉取） */

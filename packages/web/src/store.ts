@@ -5,10 +5,13 @@
 // getSession 返回缓存对象（版本化）——useSyncExternalStore 要求引用稳定。
 
 import type { Delta, Row, ServerFrame, SessionSnapshot, SessionState } from "@henira/protocol";
+import { formatSessionTitle } from "@henira/protocol";
 
 export interface SessionView {
   rows: readonly Row[];
   state: SessionState;
+  /** 会话标题（R188：服务端快照派生；缺省 = 尚无用户消息） */
+  title?: string;
   /** true = 窗口首行之前还有历史（快照窗口化随帧下发；loadOlder 翻页依据） */
   hasOlder: boolean;
   /** 全序行数（快照下发；滚动条长度估计用） */
@@ -22,6 +25,7 @@ export class RowStore {
       rows: Row[];
       byId: Map<string, Row>;
       state: SessionState;
+      title?: string;
       lastSeq: number;
       totalRows: number;
       version: number;
@@ -80,6 +84,7 @@ export class RowStore {
       view: {
         rows: [...session.rows],
         state: { ...session.state },
+        ...(session.title !== undefined ? { title: session.title } : {}),
         hasOlder: session.totalRows > session.rows.length,
         totalRows: session.totalRows,
       },
@@ -94,6 +99,7 @@ export class RowStore {
     session.rows = [...snapshot.rows];
     session.byId = new Map(snapshot.rows.map((row) => [row.rowId, row]));
     session.state = { ...snapshot.state };
+    session.title = snapshot.title;
     session.lastSeq = snapshot.seq;
     // totalRows = 全序行数，此后客户端自持（delta 追加自增、前插不变）——快照帧只在连接时发，
     // 跨过窗口边界时 hasOlder 无帧通知 → hasOlder 改派生（totalRows > rows.length），永不过期
@@ -123,6 +129,11 @@ export class RowStore {
         session.rows.push(row);
         session.byId.set(row.rowId, row);
         session.totalRows += 1; // 全序行数客户端自持（新行 = 新账本事实）
+        // 首条用户消息即标题：header 不等下一次快照（R188；与 protocol 派生同一规则）
+        if (session.title === undefined && row.kind === "user" && row.source !== "breaker") {
+          const title = formatSessionTitle(row.text);
+          if (title !== undefined) session.title = title;
+        }
         break;
       }
       case "row.delta": {
@@ -153,6 +164,14 @@ export class RowStore {
           session.rows[index] = delta.row;
         }
         session.byId.set(delta.row.rowId, delta.row);
+        if (
+          session.title === undefined &&
+          delta.row.kind === "user" &&
+          delta.row.source !== "breaker"
+        ) {
+          const title = formatSessionTitle(delta.row.text);
+          if (title !== undefined) session.title = title;
+        }
         break;
       }
       case "state.updated": {
@@ -166,6 +185,7 @@ export class RowStore {
     rows: Row[];
     byId: Map<string, Row>;
     state: SessionState;
+    title?: string;
     lastSeq: number;
     totalRows: number;
     version: number;

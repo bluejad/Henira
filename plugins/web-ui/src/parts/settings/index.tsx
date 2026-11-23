@@ -2,10 +2,10 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { SettingsSection, UiAssetLocale, UiAssetTheme, WebPartContext } from "../../types.js";
 import { XGlyph } from "../icons.js";
+import { AppearancePage } from "./appearance.js";
 import { LocalePage } from "./locale.js";
 import { ModelsPage } from "./models.js";
 import { PluginsPage } from "./plugins.js";
-import { ThemePage } from "./theme.js";
 
 const SECTIONS: SettingsSection[] = ["theme", "locale", "models", "plugins"];
 
@@ -78,7 +78,7 @@ export function SettingsModal(props: {
             ))}
           </nav>
           <div className="henira-settings-content">
-            {section === "theme" ? <ThemePage ctx={ctx} themes={themes} /> : null}
+            {section === "theme" ? <AppearancePage ctx={ctx} themes={themes} /> : null}
             {section === "locale" ? <LocalePage ctx={ctx} locales={locales} /> : null}
             {section === "models" ? <ModelsPage ctx={ctx} /> : null}
             {section === "plugins" ? <PluginsPage ctx={ctx} /> : null}

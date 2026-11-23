@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import type { WebPart, WebPartContext } from "../../types.js";
 import { SlotBoundary } from "../slot-boundary.js";
 import { BOTTOM_EPSILON_PX, LOAD_OLDER_TRIGGER_PX, PAGE_SIZE } from "./constants.js";
+import { ConversationEmpty } from "./empty-state.js";
 import { formatWorkDuration } from "./format.js";
 import { ConversationTimeline } from "./timeline.js";
 import { buildTurnUnits } from "./turn-units.js";
@@ -159,52 +160,65 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
   });
 
   const backVisible = !following && snapshot.rows.length > 0;
+  // 空会话草稿态：已加载 + 无行 + 不忙——首帧（快照未到）不闪问候
+  const loaded =
+    ctx.sessionId !== null && (ctx.store.has?.(ctx.sessionId) ?? snapshot.rows.length > 0);
+  const empty = loaded && snapshot.rows.length === 0 && !busy;
   const backToBottom = (): void => {
     commitFollowing(true);
     const el = scrollRef.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
   };
 
+  const tailNodes = tailParts.map((part, i) => {
+    // 件 = React 组件（可带 hooks）：JSX 渲染，不直呼（直呼会把 hooks 落进外层序列——批 C 修正）
+    const TailPart = part as WebPart;
+    return (
+      // biome-ignore lint/suspicious/noArrayIndexKey: 追加位按注册序渲染、卸载即整表移除——索引键无重排歧义
+      <SlotBoundary key={i} label="turn.tail">
+        <TailPart {...ctx} />
+      </SlotBoundary>
+    );
+  });
+
   return (
     <div ref={wrapRef} className="henira-conversation-wrap">
-      <div className="henira-conversation" ref={scrollRef}>
-        {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
-        <ConversationTimeline
-          key={ctx.sessionId ?? "none"}
-          units={units}
-          ctx={ctx}
-          scrollRef={scrollRef}
-          turnTimings={snapshot.state.turnTimings}
-          runningTurn={busy ? snapshot.state.lastTurnId : undefined}
-        />
-        {busy ? (
-          <p className={`henira-loading-dots${stalled ? " henira-stalled" : ""}`}>
-            <span>·</span>
-            <span>·</span>
-            <span>·</span>{" "}
-            {stalled ? (
-              ctx.t("response.stalled")
-            ) : (
-              <>
-                <span className="henira-sweep">{ctx.t("conversation.working")}</span>{" "}
-                <span className="henira-loading-duration">
-                  {formatWorkDuration(busySeconds * 1000, ctx.t)}
-                </span>
-              </>
-            )}
-          </p>
-        ) : null}
-        {tailParts.map((part, i) => {
-          // 件 = React 组件（可带 hooks）：JSX 渲染，不直呼（直呼会把 hooks 落进外层序列——批 C 修正）
-          const TailPart = part as WebPart;
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 追加位按注册序渲染、卸载即整表移除——索引键无重排歧义
-            <SlotBoundary key={i} label="turn.tail">
-              <TailPart {...ctx} />
-            </SlotBoundary>
-          );
-        })}
-      </div>
+      {empty ? (
+        <>
+          <ConversationEmpty ctx={ctx} />
+          {tailNodes.length > 0 ? <div className="henira-empty-tail">{tailNodes}</div> : null}
+        </>
+      ) : (
+        <div className="henira-conversation" ref={scrollRef}>
+          {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
+          <ConversationTimeline
+            key={ctx.sessionId ?? "none"}
+            units={units}
+            ctx={ctx}
+            scrollRef={scrollRef}
+            turnTimings={snapshot.state.turnTimings}
+            runningTurn={busy ? snapshot.state.lastTurnId : undefined}
+          />
+          {busy ? (
+            <p className={`henira-loading-dots${stalled ? " henira-stalled" : ""}`}>
+              <span>·</span>
+              <span>·</span>
+              <span>·</span>{" "}
+              {stalled ? (
+                ctx.t("response.stalled")
+              ) : (
+                <>
+                  <span className="henira-sweep">{ctx.t("conversation.working")}</span>{" "}
+                  <span className="henira-loading-duration">
+                    {formatWorkDuration(busySeconds * 1000, ctx.t)}
+                  </span>
+                </>
+              )}
+            </p>
+          ) : null}
+          {tailNodes}
+        </div>
+      )}
       {loadingOlder ? (
         <div className="henira-loading-older">{ctx.t("conversation.loadingOlder")}</div>
       ) : null}

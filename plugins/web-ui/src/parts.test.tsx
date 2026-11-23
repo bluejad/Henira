@@ -244,7 +244,7 @@ describe("SessionList", () => {
     render(<SessionList {...ctx} />);
     expect(screen.getByText(t("dirs.title"))).toBeDefined();
     await waitFor(() => expect(screen.getAllByRole("button").length).toBeGreaterThan(1));
-    const newButton = screen.getByText(`+ ${t("sessions.new")}`);
+    const newButton = screen.getByRole("button", { name: t("sessions.new") });
     fireEvent.click(newButton);
     expect(createSession).toHaveBeenCalledOnce();
   });
@@ -270,7 +270,8 @@ describe("SessionList", () => {
     }
     await new Promise((resolve) => setTimeout(resolve, 350));
     expect(listSessions).toHaveBeenCalledTimes(1); // 首载之外零请求
-    expect(storeListeners.size).toBe(0); // 根本不再订阅 store
+    // R188：允许一条活跃标题订阅（store 标题即时换行名）；列表刷新仍不接 store 通知
+    expect(storeListeners.size).toBeLessThanOrEqual(1);
   });
 
   it("R176：sessions.changed 信号风暴 → 250ms 去抖后恰一枪", async () => {
@@ -329,7 +330,7 @@ describe("SessionList", () => {
       seq: 7,
       delta: { op: "state.updated", state: { busy: false } },
     });
-    await waitFor(() => expect(screen.getByLabelText(t("sessions.idle"))).toBeDefined());
+    await waitFor(() => expect(screen.queryByLabelText(t("sessions.busy"))).toBeNull());
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(listSessions).toHaveBeenCalledTimes(1); // 推送翻内存，零请求
   });
@@ -1158,7 +1159,7 @@ describe("输入座位四席 + Composer API（R183）", () => {
     const emptySeat = [...container.querySelectorAll(".henira-composer-seat")].find(
       (el) => el.childNodes.length === 0,
     );
-    expect(emptySeat).toBeDefined(); // 无子节点 = 08-composer.css 的 :empty 规则命中
+    expect(emptySeat).toBeDefined(); // 无子节点 = composer/00-shell.css 的 :empty 规则命中
   });
 
   it("composer.dock：排队面板在 bar 外；审批接管时 dock 仍可见、bar 槽隐藏；dock 件拿审批面", () => {
@@ -2489,6 +2490,36 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
     expect(localeTrigger.textContent).toContain(t("settings.locale.zh"));
   });
 
+  it("外观页（R188）：预览打开方式两行 + 分段切换写 ctx.preview.setMode", async () => {
+    const setMode = vi.fn();
+    const base = fixtureCtx();
+    const ctx: WebPartContext = {
+      ...base,
+      preview: {
+        settings: { file: "panel", image: "modal" },
+        open: vi.fn(),
+        setMode,
+        modal: null,
+        close: vi.fn(),
+      },
+    };
+    render(<SettingsModal ctx={ctx} section="theme" onClose={() => {}} />);
+    const fileLabel = await screen.findByText(t("settings.preview.file"));
+    const fileRow = fileLabel.closest(".henira-settings-row") as HTMLElement;
+    const modalButton = [...fileRow.querySelectorAll("button")].find(
+      (b) => b.textContent === t("settings.preview.modal"),
+    );
+    expect(modalButton).toBeDefined();
+    fireEvent.click(modalButton as HTMLButtonElement);
+    expect(setMode).toHaveBeenCalledWith("file", "modal");
+    // 图片行默认弹窗档为选中态
+    const imageLabel = screen.getByText(t("settings.preview.image"));
+    const imageRow = imageLabel.closest(".henira-settings-row") as HTMLElement;
+    expect(imageRow.querySelector('button[data-active="true"]')?.textContent).toBe(
+      t("settings.preview.modal"),
+    );
+  });
+
   it("模型管理面板（四视图）：分组+开关回调 → 厂商选择页 → 连接表单 → 自定义表单", async () => {
     const setModelEnabled = vi.fn().mockResolvedValue(undefined);
     const connectProvider = vi.fn().mockResolvedValue(undefined);
@@ -3037,9 +3068,9 @@ describe("插件页（批 C，plugins.md §6.4 管理面）", () => {
     await waitFor(() => expect(container.textContent).toContain("bad-pack"));
     expect(container.textContent).toContain(zh["settings.plugins.state.failed"]);
     expect(container.textContent).toContain(zh["settings.plugins.state.confirm"]);
-    expect(container.textContent).toContain(zh["settings.plugins.official"]);
-    // 官方件只读：checkbox 只有两个第三方件
-    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(2);
+    expect(container.textContent).toContain(zh["settings.plugins.builtinSection"]);
+    // 内置件只读：switch 只有两个第三方件
+    expect(container.querySelectorAll('button[role="switch"]').length).toBe(2);
     // 确认按钮 → confirmPlugin（版本取行上的 version）
     const confirmButton = [...container.querySelectorAll("button")].find(
       (b) => b.textContent === zh["settings.plugins.confirm"],
@@ -3048,8 +3079,8 @@ describe("插件页（批 C，plugins.md §6.4 管理面）", () => {
     fireEvent.click(confirmButton as HTMLButtonElement);
     await waitFor(() => expect(calls).toContain("confirm:new-pack:2.0.0"));
     // 启停开关 → setPluginEnabled
-    const firstCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
-    fireEvent.click(firstCheckbox);
+    const firstSwitch = container.querySelector('button[role="switch"]') as HTMLButtonElement;
+    fireEvent.click(firstSwitch);
     await waitFor(() => expect(calls.some((c) => c.startsWith("enabled:bad-pack:"))).toBe(true));
     // 卸载（window.confirm 确认后）→ removePlugin
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -3124,9 +3155,9 @@ describe("插件页 MCP 详情（C5，D-064）", () => {
     expect(confirmButton).toBeDefined();
     fireEvent.click(confirmButton as HTMLButtonElement);
     await waitFor(() => expect(calls).toContain("confirmMcp:echo-mcp"));
-    // plugin-mcp：官方外圈件——有停用开关（可关）、无卸载钮（不可卸）、官方徽章
-    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-    const mcpToggle = [...checkboxes].find(
+    // plugin-mcp：内置外圈件——有停用开关（可关）、无卸载钮（不可卸）、归入内置段
+    const switches = container.querySelectorAll('button[role="switch"]');
+    const mcpToggle = [...switches].find(
       (el) => el.closest('[data-plugin-id="plugin-mcp"]') !== null,
     );
     expect(mcpToggle).toBeDefined();
@@ -3136,9 +3167,7 @@ describe("插件页 MCP 详情（C5，D-064）", () => {
     expect(removeButtons.every((b) => b.closest('[data-plugin-id="plugin-mcp"]') === null)).toBe(
       true,
     );
-    expect(container.querySelector('[data-plugin-id="plugin-mcp"]')?.textContent).toContain(
-      zh["settings.plugins.official"],
-    );
+    expect(container.textContent).toContain(zh["settings.plugins.builtinSection"]);
   });
 });
 

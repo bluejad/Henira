@@ -229,3 +229,17 @@
   max-width: 100%;
   border-radius: var(--henira-radius-card);
 }
+/* 可点图片（R188）：包一层按钮但保持行内图观感——去掉全局按钮基线，只留 zoom 光标 */
+.henira-app .henira-md .henira-md-image {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  vertical-align: bottom;
+  cursor: zoom-in;
+}
+.henira-app .henira-md .henira-md-image img {
+  display: block;
+  max-width: 100%;
+}

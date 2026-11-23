@@ -68,6 +68,8 @@ export type {
   ModelCatalog,
   PluginInfo,
   PluginUiHost,
+  PreviewApi,
+  PreviewTarget,
   ResourceSnapshot,
   RowStoreLike,
   SettingsSection,

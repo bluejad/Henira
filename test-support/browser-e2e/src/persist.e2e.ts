@@ -161,7 +161,7 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(activeRow(page)).toContainText("persist-a"); // 上次选中
+    await expect(activeRow(page)).toContainText("persist seed"); // 上次选中（R188 标题=首条用户消息）
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 }); // 正文随快照回
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT); // 文档已进宿主（稳定锚）
     await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 刷新前 li=0 → 现在只有活跃组 1 行
@@ -173,7 +173,7 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
     await expect(activeRow(page)).toContainText("persist-b");
     await expect(page.getByTestId("composer-input")).toHaveValue("");
-    await rowA.click();
+    await page.locator(".henira-sessions li button", { hasText: "persist seed" }).click();
     await expect(page.getByTestId("composer-input")).toHaveValue(DRAFT);
     await shot(page, "17-persist-reload.png");
   } finally {
@@ -219,13 +219,13 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(activeRow(page)).toContainText("persist-a"); // 上次选中跨重启
+    await expect(activeRow(page)).toContainText("persist seed"); // 上次选中跨重启（R188 标题）
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 }); // 正文跨重启
     await expect(page.locator(".henira-sessions li")).toHaveCount(1); // 组态重播：A 展开、B 折叠
     await groupB.click(); // 展开 B → 切 B → 草稿随 B 文档为空
     await page.locator(".henira-sessions li button", { hasText: "persist-b" }).click();
     await expect(page.getByTestId("composer-input")).toHaveValue("");
-    await rowA.click();
+    await page.locator(".henira-sessions li button", { hasText: "persist seed" }).click();
     await expect(page.getByTestId("composer-input")).toHaveValue(DRAFT); // 草稿跨重启
     // 重启续聊（懒挂载 attach）：历史会话发消息不再 404——回复行落定
     const area2 = page.getByTestId("composer-input");

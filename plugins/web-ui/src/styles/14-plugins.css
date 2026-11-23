@@ -3,6 +3,31 @@
 .henira-plugins-page {
   display: flex;
   flex-direction: column;
+  gap: var(--henira-space-3);
+}
+.henira-plugin-summary {
+  display: flex;
+  gap: var(--henira-space-3);
+  margin-top: 4px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
+}
+.henira-plugin-section {
+  display: flex;
+  flex-direction: column;
+}
+.henira-plugin-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--henira-space-2) 0 4px;
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+}
+.henira-plugin-section-count {
+  color: var(--henira-text-subtlest);
+  font-variant-numeric: tabular-nums;
 }
 .henira-plugin-row {
   display: flex;
@@ -22,6 +47,43 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.henira-plugin-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  color: var(--henira-text-subtlest);
+  font-size: var(--henira-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.henira-plugin-form {
+  color: var(--henira-text-muted);
+}
+.henira-plugin-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  flex-shrink: 0;
+}
+.henira-app button.henira-plugin-remove {
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  color: var(--henira-text-muted);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  cursor: pointer;
+  border-radius: var(--henira-radius);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.henira-plugin-row:hover .henira-plugin-remove,
+.henira-plugin-row:focus-within .henira-plugin-remove {
+  opacity: 1;
+}
+.henira-app button.henira-plugin-remove:hover:not(:disabled) {
+  color: var(--henira-danger-text);
+  background: var(--henira-surface-hover);
 }
 .henira-plugin-badge {
   font-size: var(--henira-fs-sm);

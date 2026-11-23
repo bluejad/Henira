@@ -90,7 +90,7 @@ export function TerminalCard({ row, ctx }: CardProps): React.ReactNode {
       : m.timedOut === true
         ? ctx.t("tool.timedOut")
         : m.signal !== undefined
-          ? `${ctx.t("tool.killed")} · ${m.signal}`
+          ? `${ctx.t("tool.killed")} ${m.signal}`
           : m.stderr.trim() !== ""
             ? m.stderr.trim().split("\n")[0]
             : m.exitCode !== null && m.exitCode !== 0
@@ -105,7 +105,7 @@ export function TerminalCard({ row, ctx }: CardProps): React.ReactNode {
       busy={running}
       canToggle
       persistKey={`${ctx.sessionId ?? "none"}:${row.callId}`}
-      rowTitle={`${row.name} · ${row.callId}`}
+      rowTitle={`${row.name} (${row.callId})`}
       status={status}
       statusTitle={statusTitle}
     >

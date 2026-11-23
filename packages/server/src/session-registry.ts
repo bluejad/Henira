@@ -47,6 +47,8 @@ import { toolsPlugin } from "@henira/plugin-tools";
 import type { LlmService, McpServerSpec, McpService, QueuedPrompt } from "@henira/protocol";
 import {
   asHeniraContext,
+  deriveSessionTitle,
+  formatSessionTitle,
   type LoopEvent,
   Projection,
   type Row,
@@ -150,6 +152,8 @@ export class SessionRegistry {
   readonly #pluginRoot: string;
   /** 最近一次装配前置结果（管理面读面 / 指纹轮询用；每次会话装配刷新） */
   #prepared: PrepareResult | undefined;
+  /** 会话标题缓存（首次 user/message 即成定局；磁盘列表每条只读一次有界前缀） */
+  readonly #titleCache = new Map<string, string>();
 
   constructor(opts: RegistryOptions) {
     this.#opts = opts;
@@ -484,6 +488,42 @@ export class SessionRegistry {
     return this.#entries.get(id);
   }
 
+  /** 会话标题：首条非 breaker 用户消息（有界读文件头 64KB；首条消息几乎总在头部）。
+      缓存只记成功——新会话首枪后下一次列表自动补上，不缓存「暂无」。 */
+  async #titleOf(id: string, dir: string): Promise<string | undefined> {
+    const cached = this.#titleCache.get(id);
+    if (cached !== undefined) return cached;
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+    try {
+      handle = await fs.open(path.join(dir, SESSION_LOG_FILE), "r");
+      const buf = Buffer.alloc(64 * 1024);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      const text = buf.subarray(0, bytesRead).toString("utf8");
+      for (const line of text.split("\n")) {
+        if (line.trim() === "") continue;
+        let event: { type?: unknown; data?: { content?: unknown; source?: unknown } };
+        try {
+          event = JSON.parse(line) as typeof event;
+        } catch {
+          continue; // 截断尾行/坏行跳过
+        }
+        if (event.type !== "user/message") continue;
+        if (event.data?.source === "breaker") continue;
+        if (typeof event.data?.content !== "string") continue;
+        const title = formatSessionTitle(event.data.content);
+        if (title !== undefined) {
+          this.#titleCache.set(id, title);
+          return title;
+        }
+      }
+    } catch {
+      // 读不了 = 无标题（列表仍可用）
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+    return undefined;
+  }
+
   /** 列表 = 磁盘全扫（含历史会话）∪ 本进程在订（busy 状态仅后者可知） */
   async list(): Promise<SessionSummary[]> {
     const summaries = new Map<string, SessionSummary>();
@@ -510,9 +550,11 @@ export class SessionRegistry {
           ) as { id?: string; cwd?: string; createdAt?: number };
           if (header.id === undefined || header.cwd === undefined) continue;
           const stat = await fs.stat(dir).catch(() => undefined);
+          const title = await this.#titleOf(header.id, dir);
           summaries.set(header.id, {
             id: header.id,
             cwd: header.cwd,
+            ...(title !== undefined ? { title } : {}),
             updatedAt: stat?.mtimeMs ?? header.createdAt ?? 0,
             busy: false,
           });
@@ -520,9 +562,11 @@ export class SessionRegistry {
       }
     }
     for (const entry of this.#entries.values()) {
+      const title = deriveSessionTitle(entry.projection.rows) ?? summaries.get(entry.id)?.title;
       summaries.set(entry.id, {
         id: entry.id,
         cwd: entry.cwd,
+        ...(title !== undefined ? { title } : {}),
         updatedAt: entry.createdAt,
         busy: entry.projection.state.busy,
       });
@@ -727,7 +771,12 @@ export class SessionRegistry {
       this.#opts.fanout.currentSeq(entry.id),
       tailRows === undefined ? undefined : { tailRows },
     );
-    return { ...snap, state: this.#stateWithQueue(entry, snap.state) };
+    const title = deriveSessionTitle(entry.projection.rows);
+    return {
+      ...snap,
+      ...(title !== undefined ? { title } : {}),
+      state: this.#stateWithQueue(entry, snap.state),
+    };
   }
 
   /** 磁盘会话账本读取（历史会话快照重建用）；找不到 / 读不了返回 undefined */

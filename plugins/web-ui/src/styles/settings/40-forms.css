@@ -1,0 +1,36 @@
+/* R187 拆分：原 13-settings.css 196-215（连接/自定义表单） */
+/* 连接/自定义表单 */
+.henira-models-form {
+  max-width: 560px; /* 表单不拉满弹窗（原 916px 单列） */
+}
+.henira-form-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-3);
+  padding: var(--henira-space-4);
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-lg);
+  background: var(--henira-surface);
+}
+.henira-form-card .henira-dialog-field {
+  margin-bottom: 0;
+}
+.henira-provider-form-title {
+  font-weight: 600;
+  font-size: var(--henira-fs-lg, var(--henira-fs-base));
+  color: var(--henira-text-strong);
+}
+.henira-model-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--henira-space-2);
+}
+.henira-custom-model-row {
+  display: flex;
+  gap: var(--henira-space-2);
+  align-items: center;
+}
+.henira-custom-model-row .henira-input {
+  flex: 1;
+  min-width: 0;
+}

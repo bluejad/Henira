@@ -26,7 +26,7 @@ function SearchCard({ row, ctx }: CardProps): React.ReactNode {
       primary={searchPhrase(row, ctx)}
       busy={running}
       canToggle={false}
-      rowTitle={`${row.name} · ${row.callId}`}
+      rowTitle={`${row.name} (${row.callId})`}
       status={toolFailure(row, ctx.t)}
       statusTitle={failureTitle(row)}
     />

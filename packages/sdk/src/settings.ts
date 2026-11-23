@@ -3,6 +3,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { PreviewOpenSettings } from "@henira/protocol";
 
 export interface SettingsFile {
   version: 1;
@@ -19,7 +20,7 @@ export interface SettingsFile {
       options?: Record<string, unknown>;
     }
   >;
-  ui?: { theme?: string; locale?: string };
+  ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
 }
 
 export function isPluginEnabled(settings: SettingsFile | undefined, id: string): boolean {
@@ -41,7 +42,7 @@ export async function writeSettings(
   globalDir: string,
   patch: {
     model?: string;
-    ui?: { theme?: string; locale?: string };
+    ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
     plugins?: SettingsFile["plugins"];
   },
 ): Promise<SettingsFile> {
@@ -51,7 +52,13 @@ export async function writeSettings(
     ...patch,
     version: 1, // 恒为 1：调用方改不动版本位
     plugins: patch.plugins ?? current.plugins,
-    ui: { ...current.ui, ...patch.ui },
+    ui: {
+      ...current.ui,
+      ...patch.ui,
+      ...(patch.ui?.preview !== undefined
+        ? { preview: { ...current.ui?.preview, ...patch.ui.preview } }
+        : {}),
+    },
   };
   await fs.writeFile(
     path.join(globalDir, "settings.json"),

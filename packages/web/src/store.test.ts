@@ -38,6 +38,28 @@ describe("RowStore", () => {
     expect(store.has("s-2")).toBe(false);
   });
 
+  it("标题随首条用户消息增量落地（R188：header 不等下一次快照）", () => {
+    const store = new RowStore();
+    store.applySnapshot(snapshotFrame("s-1", 0));
+    store.applyFrame({
+      kind: "delta",
+      sessionId: "s-1",
+      seq: 1,
+      delta: {
+        op: "row.appended",
+        row: {
+          kind: "user",
+          rowId: "u:1",
+          rowSeq: 1,
+          turn: "t-1",
+          text: "补上左栏标题",
+          source: "send",
+        },
+      },
+    });
+    expect(store.getSession("s-1").title).toBe("补上左栏标题");
+  });
+
   it("增量：row.appended → row.delta 追加文本 → state.updated", () => {
     const store = new RowStore();
     const listener = vi.fn();

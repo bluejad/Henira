@@ -184,7 +184,7 @@ test("管理面：设置 → 插件页 → 停用 → 插件从界面消失", as
     await expect(row).toBeVisible({ timeout: 8000 });
     await shot(page, "06-admin-plugins.png");
     // 停用开关 → 宿主轮询后插件从 turn.tail 消失
-    await row.locator('input[type="checkbox"]').click();
+    await row.locator('button[role="switch"]').click();
     await expect(page.locator('[data-ui-plugin="hello-pack"]')).toHaveCount(0, { timeout: 12000 });
     await shot(page, "07-admin-disabled.png");
   } finally {

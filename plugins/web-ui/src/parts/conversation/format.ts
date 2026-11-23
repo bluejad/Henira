@@ -37,6 +37,14 @@ function formatTurnClock(ms: number, now = new Date()): string {
   return d.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}/${md} ${hm}`;
 }
 
+/** 空会话问候档（ZCode 草稿空态行为层：按小时换问候，不做随机文案） */
+function greetingKey(hour: number): "morning" | "afternoon" | "evening" | "lateNight" {
+  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 12 && hour < 18) return "afternoon";
+  if (hour >= 18 && hour < 23) return "evening";
+  return "lateNight";
+}
+
 /** fork 可点判定（dsh turn-tail.ts:98 同款语义）：本回合最后一条实质内容是已落定的文本
  *  回复——透明步级行跳过；文本后跟工具/错误/审批/插话的轮「不干净」，置灰 + 原因提示 */
 function turnEndsWithText(rows: readonly Row[]): boolean {
@@ -50,4 +58,4 @@ function turnEndsWithText(rows: readonly Row[]): boolean {
   return false;
 }
 
-export { formatTurnClock, formatWorkDuration, reasoningPreview, turnEndsWithText };
+export { formatTurnClock, formatWorkDuration, greetingKey, reasoningPreview, turnEndsWithText };

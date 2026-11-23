@@ -480,7 +480,18 @@ export function createApp(deps: AppDeps): Hono {
     const parsed = z
       .object({
         model: z.string().min(1).optional(),
-        ui: z.object({ theme: z.string().optional(), locale: z.string().optional() }).optional(),
+        ui: z
+          .object({
+            theme: z.string().optional(),
+            locale: z.string().optional(),
+            preview: z
+              .object({
+                file: z.enum(["panel", "modal"]).optional(),
+                image: z.enum(["panel", "modal"]).optional(),
+              })
+              .optional(),
+          })
+          .optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid settings patch" }, 400);

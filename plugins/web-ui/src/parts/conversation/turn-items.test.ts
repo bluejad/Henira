@@ -112,6 +112,35 @@ describe("buildProcessItems（过程分组）", () => {
     expect(first.stats.unresolved).toBe(1);
   });
 
+  it("空白正文（\\n\\n）+ reasoning 不算正文边界：与工具同组（R188）", () => {
+    const whitespaceThinking: Row = {
+      kind: "assistant",
+      ...nextId("ws"),
+      turn: "t-1",
+      step: 1,
+      text: "\n\n",
+      streaming: false,
+      reasoning: "继续查",
+    };
+    const items = buildProcessItems([tool("bash", { command: "ls" }), whitespaceThinking]);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.kind).toBe("group");
+  });
+
+  it("空白正文且无 reasoning 仍是空步级行：剔除，不参与分组", () => {
+    const bare: Row = {
+      kind: "assistant",
+      ...nextId("bare"),
+      turn: "t-1",
+      step: 1,
+      text: "\n\n",
+      streaming: false,
+    };
+    const items = buildProcessItems([bare, tool("bash", { command: "ls" })]);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.kind).toBe("row");
+  });
+
   it("纯空步级行剔除；中断行断组但保留", () => {
     const empty: Row = {
       kind: "assistant",

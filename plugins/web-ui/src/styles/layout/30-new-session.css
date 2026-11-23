@@ -1,0 +1,28 @@
+/* R187 拆分：原 11-layout.css 229-237（新会话入口） */
+/* 「＋新会话」独立行（任务列表之上——用户裁定三栏骨架形状）
+   R188：安静行（图标 + 文字 + hover 底），退掉通栏实心 CTA——入口不应压过会话列表 */
+.henira-app button.henira-new-session {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  margin-bottom: var(--henira-space-3);
+  justify-content: flex-start;
+  padding: 4px var(--henira-space-2);
+  border: none;
+  background: none;
+  border-radius: var(--henira-radius);
+  color: var(--henira-text);
+  font-size: var(--henira-fs-base);
+  text-align: left;
+  cursor: pointer;
+}
+.henira-app button.henira-new-session:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-new-session svg {
+  color: var(--henira-text-muted);
+  flex-shrink: 0;
+}

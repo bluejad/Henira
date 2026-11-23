@@ -940,3 +940,18 @@
 - **理由**：提问是澄清表单、审批是闭合裁决——合并会让「提问」变成「先审批再提问」，且答案形状被迫压进 Decision 词表；dsh 的不合并是结构上更干净的一条。UI 取 ZCode 是因为它的卡片交互语义已被真实用户使用打磨（预选歧义、IME 误提交、Esc 误取消都是踩过的坑）。提问卡第三方可整只换（chain 条目 `replaceChainSlot("composer.takeover")` 同 id；痕迹卡走 keyed 缝），「一切皆插件」不破。
 - **非目标**：MCP elicitation / prompts（50-open 仍挂）；plan-review 式提问；超时自动收口；伪造 user 消息；Esc=停止混合语义（单独拍）。
 - **备注**：落点 = protocol interaction/server-events/projection + plugins/session validators/store repair + plugins/ask-user + server interaction-service/app + sdk facade/client/runtime + plugins/web-ui（composer-dock/question-card/tool-cards/locale/css/module）+ 文档五处；测试 = 协议联合/投影/修复、工具三路取消、server REST 全链、SDK 双形态、web-ui 10 例（R185 审查补焦点两例）、e2e 答题+取消（键盘链）、真 key 活体双主题。
+
+## D-075 界面收口：预览打开方式按内容类型可设 + 会话标题 + 全界面去模板味（R188）
+
+- **状态**：已定 · 2026-11-23 · 用户批「好」并批注「弹窗、右侧显示都要，在设置里能设置，图片/文件等等需要看的都能各自设置弹窗还是右侧」；✓ 同日落码
+- **背景**：R177–R184 只把中间对话区与输入区两张卡按参照重做过；左栏、右栏、设置三页、插件页、模型管理仍是早期形状。全界面审计（明暗截图 + 参照物对表）抓到五类问题：①左栏会话行显示 cwd 末段、同组全部同名；`SessionSummary.title` 协议有字段但服务端从不填；中列 header 恒「新对话」。②新会话整屏空白、右栏文案是开发者话术、模型页无加载态。③设置页一页一个下拉装在 1060×780 弹窗里；模型列表扁平无厂商标识、meta 用「·」串；插件页 id 写两遍、「官方」胶囊逐行重复、原生 checkbox 与自制 switch 两套开关。④点串 meta、通栏实心「＋新会话」、失败状态随文本漂移等模板痕迹。⑤对话区「已执行/思考」交替成墙——`groupable`/`isEmptyStep` 用 `text !== ""` 判空，模型回的 `"\n\n"` 被当正文边界，思考永远进不了组（`findFinalIndex` 却用 `.trim()`，两处不一致）。
+- **决定**：
+  1. **预览打开方式**：`settings.ui.preview = { file?: "panel"|"modal", image?: "panel"|"modal" }`（缺省 file=panel、image=modal）；弹窗与右栏 tab 两种表面都实现，按内容类型各自可设，设置 → 外观页两行分段控件；写入深合并（只改 image 不丢 file），REST/服务端/SDK/Web UI 类型同形。
+  2. **预览内容不塞 ui-state**：文件 tab 只存 `{path, rowId}`，正文由该 tool 行 input/output 现场解析（read=output、write=input.content、edit=old/new 现算 diff；行已翻出窗口 → 「重新打开文件」提示）；图片存 `{src, alt}`。同文件/同图复用 tab（file 按 rowId、image 按 src 指纹）。
+  3. **统一入口**：`WebPartContext.preview`（`PreviewApi`）——`open(target)` 按设置路由、`setMode(kind, mode)` 内存即时 + 落盘、`modal`/`close` 供框架件渲染弹窗；官方件与第三方件同一入口；旧宿主缺 `preview` 时官方件保留本地弹窗回退、设置页隐藏预览行。
+  4. **会话标题单一真源**：新增 `formatSessionTitle`/`deriveSessionTitle`（protocol；首条非 breaker 用户消息、空白归一、40 码点截断加省略号）；服务端列表有界读账本头部（64KB，成功缓存）、快照从投影行派生、SDK 从内存投影派生；`SessionSnapshot.title?` 随快照下发，web store 透传，左栏行与中列 header 同源。`meta.json` 仍只作预留（当前不落）。
+  5. **界面收口清单**：左栏「＋新会话」改安静行、会话行显示 title + 相对时间、去 idle 灰点、组计数去描边胶囊；中列 header = 目录弱前缀（Folder 图标）+ 标题强，去「·」；空会话草稿态 = 按时段问候 + 品牌水印 + 一句真实能力提示；设置「外观」= 页标题/说明/行卡（主题 + 文件/图片预览分段）、语言页同版式；模型管理加厂商标记、meta 去点串（窗口/视觉标签/思考图标带间距）、断开 hover 浮现、加载/错误态、选择页页头/分区计数；插件页按内置/可管理分段、去重复 id 与「官方」胶囊、统一 switch、卸载 hover；工具行失败状态固定贴右、开合 300ms（reduced-motion 直卸）、edit old===new 显示「无变更」行；diff 按扩展名 shiki 高亮（宿主 `tokenizeCode`，异步、120k 上限、失败降纯文本）。
+  6. **CSS / 组件拆分**：`styles/` 二次拆 `composer/`、`controls/`、`sidebar/`、`dialogs/`、`layout/`、`settings/`（级联位置不变）；`settings/models.tsx` 按四视图拆 `models/`（index/list/picker/connect/custom/shared），旧路径 re-export 薄壳。
+- **理由**：预览是「看内容」的通用动作，不该由每种内容各自拍开法；设置驱动 + 两表面同 resolver 是唯一不会分叉的形状。左栏同名与 header 恒「新对话」是内容不真，不是审美；不补标题，任何 CSS 都救不回来。对话区那堵墙的根因是判空写法不一致——按 trim 统一是最小且可测的修法。
+- **非目标（挂账）**：会话标题重命名（`meta.json` 预留）；PDF/docx/表格等更多预览类型（`ui.preview` 是 map，加 key 即可）；`sidebar.right.preview.<扩展名>` 插件预览缝仍未落码（官方预览 tab 是内置件，不是该 keyed 槽的消费者）；模型管理重做成参照的左侧厂商导航 + 右侧详情（本批只做行内身份/层级/状态）。
+- **备注**：测试 = protocol 标题/预览模式、web-ui 外观页分段/折叠体/分组 trim/编辑无变更/插件分段 switch、web host tokenizeCode/图片点击、server 设置深合并；e2e fs 预览改右侧 tab 断言；隔离 serve（HENIRA_HOME 临时 + --mock）实锤 title 列表/快照/header 三处同源、preview 持久化与非法值 400；真 key 活体与截图随收口批。

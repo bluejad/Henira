@@ -1,9 +1,11 @@
-// 会话行（R177 拆分）：memo——只重渲 busy/选中变化的行。
+// 会话行（R177 拆分；R188 内容真值）：标题走服务端派生 title（缺省回落目录名），
+// 右侧相对时间；busy 只留前置 spinner（不再每行一个无意义灰点+「进行中」文字）。
 import type { SessionSummary } from "@henira/protocol";
 import { memo } from "react";
 import type { WebPartContext } from "../../types.js";
 import { SpinnerGlyph } from "../icons.js";
 import { dirBasename } from "./groups.js";
+import { formatRelativeTime } from "./time.js";
 
 /** 会话行（memo——侧栏每帧刷新只重渲 busy/选中变化的行；折叠组天然不渲染子行，
  *  ZCode 侧栏阈值虚拟化（>80 行）挂账 D-061——触发信号 = 实测卡顿或几百会话场景） */
@@ -12,11 +14,14 @@ const SessionRow = memo(
     session: SessionSummary;
     selected: boolean;
     ctx: WebPartContext;
+    now: number;
+    titleOverride?: string;
     canDelete: boolean;
     onSelect(sessionId: string): void;
     onContextMenu(session: SessionSummary, x: number, y: number): void;
   }) {
     const { session: s, selected, ctx, canDelete } = props;
+    const title = props.titleOverride?.trim() || s.title?.trim() || dirBasename(s.cwd) || s.cwd;
     return (
       <li
         style={{ marginBottom: "2px" }}
@@ -29,6 +34,7 @@ const SessionRow = memo(
         <button
           type="button"
           data-active={selected ? "true" : undefined}
+          title={title}
           onClick={() => {
             props.onSelect(s.id);
           }}
@@ -46,52 +52,44 @@ const SessionRow = memo(
             boxSizing: "border-box",
           }}
         >
-          <span
-            role="img"
-            aria-label={s.busy ? ctx.t("sessions.busy") : ctx.t("sessions.idle")}
-            style={{
-              display: "inline-flex",
-              width: 16,
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            {s.busy ? (
+          {s.busy ? (
+            <span
+              role="img"
+              aria-label={ctx.t("sessions.busy")}
+              title={ctx.t("sessions.busy")}
+              style={{
+                display: "inline-flex",
+                width: 16,
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
               <SpinnerGlyph size={14} color="var(--henira-info-text)" />
-            ) : (
-              <span
-                style={{
-                  display: "inline-block",
-                  width: "7px",
-                  height: "7px",
-                  borderRadius: "50%",
-                  background: "var(--henira-border-strong)",
-                }}
-              />
-            )}
-          </span>
+            </span>
+          ) : null}
           <span
             style={{
+              flex: 1,
+              minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               color: selected ? "var(--henira-text-strong)" : "var(--henira-text)",
             }}
           >
-            {dirBasename(s.cwd) || s.cwd}
+            {title}
           </span>
-          {s.busy ? (
-            <span
-              style={{
-                marginLeft: "auto",
-                color: "var(--henira-text-muted)",
-                fontSize: "var(--henira-fs-sm)",
-                flexShrink: 0,
-              }}
-            >
-              {ctx.t("sessions.busy")}
-            </span>
-          ) : null}
+          <span
+            style={{
+              marginLeft: "auto",
+              color: "var(--henira-text-subtlest)",
+              fontSize: "var(--henira-fs-sm)",
+              flexShrink: 0,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {formatRelativeTime(s.updatedAt, ctx.t, props.now)}
+          </span>
         </button>
       </li>
     );
@@ -99,6 +97,8 @@ const SessionRow = memo(
   (a, b) =>
     a.session === b.session && // 列表刷新未变会话同对象——跳过重渲
     a.selected === b.selected &&
+    a.now === b.now &&
+    a.titleOverride === b.titleOverride &&
     a.canDelete === b.canDelete &&
     a.ctx.t === b.ctx.t,
 );

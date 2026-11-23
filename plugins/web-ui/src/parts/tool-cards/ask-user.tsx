@@ -79,7 +79,7 @@ export function AskUserCard({ row, ctx }: CardProps): React.ReactNode {
       )}
       busy={running}
       summary={summary}
-      rowTitle={`${row.name} · ${row.callId}`}
+      rowTitle={`${row.name} (${row.callId})`}
       tone={cancelled ? "var(--henira-warn-text)" : undefined}
       initialOpen={!running}
       expandable={meta?.answers !== undefined}

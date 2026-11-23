@@ -4,9 +4,10 @@
 // 从 ctx.slots 渲染 sidebar / conversation / composer / sidebar.right；几何（列宽/拖宽/
 // 持久化）是框架的职责，区域件不自管列宽。宿主零界面 JSX——一切可见物都在本件与子件。
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LayoutOption, WebPart, WebPartContext, WebSlotName } from "../types.js";
-import { GearGlyph, HorseGlyph } from "./icons.js";
+import { FolderGlyph, GearGlyph, HorseGlyph } from "./icons.js";
+import { PreviewModal } from "./preview.js";
 import { SettingsModal } from "./settings-modal.js";
 import { SlotBoundary } from "./slot-boundary.js";
 
@@ -17,6 +18,14 @@ const SIDEBAR_DEFAULT = 260;
 /** 右栏（ZCode sidePane 档位行为层：默认 ~45% 视口，这里取 380px 基准 + 50% 上限） */
 const RIGHT_MIN = 280;
 const RIGHT_DEFAULT = 380;
+
+/** 会话标题：store 快照里的 title（R188 服务端派生）；订阅 store——快照到达时 header 跟着换。 */
+function useSessionTitle(ctx: WebPartContext): string | undefined {
+  const subscribe = useMemo(() => (cb: () => void) => ctx.store.subscribe(cb), [ctx.store]);
+  const getSnapshot = (): string | undefined =>
+    ctx.sessionId === null ? undefined : ctx.store.getSession(ctx.sessionId).title;
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
 
 export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
   const layout: LayoutOption = ctx.layout ?? "full";
@@ -34,6 +43,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
     custom !== undefined ? custom["sidebar.right"] !== undefined : layout === "full";
   // 右栏开合（件自管收起态窄轨 / 开态全栏；拖宽把手只在开态在场）
   const rightOpen = (ctx.uiState?.rightPanel?.open ?? false) === true;
+  const sessionTitle = useSessionTitle(ctx);
 
   // 区域件取用：挑件表（object form）优先，否则槽位表（官方默认件经公共注册路径在表内）
   const partsOf = (slot: WebSlotName): WebPart[] => {
@@ -117,7 +127,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
 
   const t = ctx.t; // 宿主侧引用稳定（语言包变化才换新）
 
-  // 中列 header：目录名 · 会话标题占位（标题生成随功能批接入，先占位）
+  // 中列 header：目录弱前缀 + 会话标题（R188 服务端派生 title；不再点串/占位）
   const headerDir = useMemo(() => {
     const cwd = ctx.sessionCwd ?? "";
     const segs = cwd.split(/[\\/]/).filter((s) => s !== "");
@@ -224,12 +234,14 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
         {showConversation ? (
           <header className="henira-header">
             {headerDir !== "" ? (
-              <>
-                <span className="henira-header-dir">{headerDir}</span>
-                <span className="henira-header-sep">·</span>
-              </>
+              <span className="henira-header-dir" title={ctx.sessionCwd ?? undefined}>
+                <FolderGlyph size={13} />
+                <span className="henira-header-dir-name">{headerDir}</span>
+              </span>
             ) : null}
-            <span className="henira-header-title">{t("app.untitled")}</span>
+            <span className="henira-header-title" title={sessionTitle ?? t("app.untitled")}>
+              {sessionTitle ?? t("app.untitled")}
+            </span>
           </header>
         ) : null}
         {showConversation ? (
@@ -276,6 +288,9 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
           section={ctx.settingsSection}
           onClose={() => ctx.closeSettings?.()}
         />
+      ) : null}
+      {ctx.preview?.modal !== undefined && ctx.preview.modal !== null ? (
+        <PreviewModal target={ctx.preview.modal} ctx={ctx} onClose={() => ctx.preview?.close()} />
       ) : null}
       {ctx.safeMode === true ? (
         <div

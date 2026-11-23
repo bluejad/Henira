@@ -35,7 +35,7 @@
 │       ├─ sessions/
 │       │   └─ <sessionId>/
 │       │       ├─ session.v1.jsonl   # 只追加：会话头 + 事件
-│       │       ├─ meta.json          # 标题等可改元数据（不放计划 / 任务）
+│       │       ├─ meta.json          # （预留）标题等可改元数据——当前标题由账本首条 user/message 派生（R188），未落 meta
 │       │       ├─ attachments/       # 本会话附件
 │       │       ├─ subagents/         # 本会话子代理记录
 │       │       │   └─ <runId>.jsonl
@@ -155,7 +155,8 @@
     "office-tools": { "version": "1.2.0" },                // 钉住版本
     "plugin-fetch": { "options": { "timeoutMs": 30000 } }  // 插件参数
   },
-  "ui": { "theme": "sea", "locale": "ja" }                 // 界面偏好（官方 light/dark/zh 或已装资产包 id，D-059）
+  "ui": { "theme": "sea", "locale": "ja",                  // 界面偏好（官方 light/dark/zh 或已装资产包 id，D-059）
+          "preview": { "file": "panel", "image": "modal" } } // 预览打开方式（R188：文件默认右侧、图片默认弹窗；按类型可改）
 }
 ```
 

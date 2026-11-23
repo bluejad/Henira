@@ -395,7 +395,9 @@ export function QuestionAnswers({
           <li key={q.id} className="henira-question-answer">
             <span className="henira-question-answer-q">{q.question}</span>
             <span className="henira-question-answer-a">
-              {picked.length === 0 ? ctx.t("question.skipped") : picked.join(" · ")}
+              {picked.length === 0
+                ? ctx.t("question.skipped")
+                : picked.join(ctx.t("question.answerJoin"))}
             </span>
           </li>
         );

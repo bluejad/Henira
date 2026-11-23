@@ -68,7 +68,7 @@ export function McpCard({ row, ctx }: CardProps): React.ReactNode {
       busy={running}
       canToggle={output !== undefined || input !== null}
       persistKey={`${ctx.sessionId ?? "none"}:${row.callId}`}
-      rowTitle={`${row.name} · ${row.callId}`}
+      rowTitle={`${row.name} (${row.callId})`}
       status={failed ? ctx.t("row.status.error") : toolFailure(row, ctx.t)}
       statusTitle={failureTitle(row)}
     >

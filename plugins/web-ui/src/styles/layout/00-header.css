@@ -1,0 +1,42 @@
+/* R187 拆分：原 11-layout.css 1-31（中列 header） */
+/* R177 拆分：原 tokens.css 第 1380-1616 行（顺序保持，级联零变化） */
+/* ── 三栏骨架（D-062 UI 侧子项）：中列 header / 右栏 tab 框架 / 设置弹窗左菜单 / 新会话行 ── */
+
+/* 中列 header：目录（弱） + 会话标题（强）（ZCode WorkspaceHeader 行为层：标题是主信息，
+   工作区上下文作弱前缀，不再用「·」点串）；box-sizing 进框——48px 含底边线，与左品牌行/
+   右 tab 条同一条线（用户反馈④，活体测量 48/49 不齐修） */
+.henira-header {
+  height: var(--henira-header-height);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  padding: 0 var(--henira-space-4);
+  border-bottom: 1px solid var(--henira-border);
+  background: var(--henira-surface);
+  font-size: var(--henira-fs-base);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.henira-header-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 42%;
+  min-width: 0;
+  color: var(--henira-text-muted);
+  flex-shrink: 0;
+}
+.henira-header-dir-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.henira-header-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--henira-text-strong);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

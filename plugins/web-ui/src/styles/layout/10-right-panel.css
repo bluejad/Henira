@@ -1,35 +1,4 @@
-/* R177 拆分：原 tokens.css 第 1380-1616 行（顺序保持，级联零变化） */
-/* ── 三栏骨架（D-062 UI 侧子项）：中列 header / 右栏 tab 框架 / 设置弹窗左菜单 / 新会话行 ── */
-
-/* 中列 header：目录名 · 会话标题占位（ZCode WorkspaceHeader h-12 行为层）；box-sizing 进框——
-   48px 含底边线，与左品牌行/右 tab 条同一条线（用户反馈④，活体测量 48/49 不齐修） */
-.henira-header {
-  height: var(--henira-header-height);
-  box-sizing: border-box;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 var(--henira-space-4);
-  border-bottom: 1px solid var(--henira-border);
-  background: var(--henira-surface);
-  font-size: var(--henira-fs-base);
-  overflow: hidden;
-  white-space: nowrap;
-}
-.henira-header-dir {
-  color: var(--henira-text-strong);
-  font-weight: 600;
-}
-.henira-header-sep {
-  color: var(--henira-text-muted);
-}
-.henira-header-title {
-  color: var(--henira-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* R187 拆分：原 11-layout.css 33-182（右栏框架/rail/tab） */
 /* 右栏（官方默认件 RightPanel：⌄ + tabs + ＋ + ⤢；溢出横滚，tab 最小 60px） */
 .henira-right-col {
   display: flex;
@@ -124,6 +93,9 @@
 .henira-app button.henira-right-tab-label {
   flex: 1;
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   background: none;
   padding: 0;
@@ -132,6 +104,14 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.henira-app button.henira-right-tab-label > svg {
+  flex-shrink: 0;
+}
+.henira-right-tab-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -179,59 +159,4 @@
   justify-content: center;
   color: var(--henira-text-muted);
   font-size: var(--henira-fs-sm);
-}
-
-/* 设置弹窗（左菜单右内容；大面板形态，鬼鬼祟祟小窗退场） */
-.henira-settings-dialog {
-  width: min(1060px, calc(100vw - 64px));
-  height: min(780px, calc(100vh - 72px));
-}
-.henira-settings-body {
-  display: flex;
-  gap: var(--henira-space-4);
-  flex: 1;
-  min-height: 0;
-}
-.henira-settings-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 120px;
-  border-right: 1px solid var(--henira-border);
-  padding-right: var(--henira-space-2);
-}
-.henira-app .henira-settings-nav button {
-  border: none;
-  background: none;
-  text-align: left;
-  padding: 6px 10px;
-  border-radius: var(--henira-radius);
-  font: inherit;
-  font-size: var(--henira-fs-base);
-  color: var(--henira-text-muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.henira-app .henira-settings-nav button:hover {
-  background: var(--henira-surface-hover);
-  color: var(--henira-text);
-}
-.henira-app .henira-settings-nav button[data-active="true"] {
-  background: var(--henira-selected);
-  color: var(--henira-text-strong);
-}
-.henira-settings-content {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
-}
-
-/* 「＋新会话」独立行（任务列表之上——用户裁定三栏骨架形状） */
-.henira-new-session {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: var(--henira-space-3);
-  justify-content: flex-start;
 }

@@ -6,6 +6,45 @@ import { Fragment, useEffect, useState } from "react";
 import { CaretGlyph } from "./icons.js";
 import { useToolPreview } from "./tool-preview.js";
 
+/** 开合动画时长（= tokens --henira-dur-collapse；reduced-motion 下 JS 也立即卸载） */
+const COLLAPSE_MS = 300;
+
+/** 折叠体（R188）：关闭时先留在 DOM 300ms 让高度/透明度收完再卸载——与参照实现同档；
+ *  展开时先挂载再下一帧置 open，CSS grid 0fr→1fr 才有过渡。 */
+function CollapsibleBody(props: { open: boolean; children?: React.ReactNode }): React.ReactNode {
+  const [present, setPresent] = useState(props.open);
+  const [visible, setVisible] = useState(props.open);
+  useEffect(() => {
+    if (props.open) {
+      setPresent(true);
+      const raf =
+        typeof requestAnimationFrame === "function"
+          ? requestAnimationFrame(() => setVisible(true))
+          : undefined;
+      if (raf === undefined) setVisible(true);
+      return () => {
+        if (raf !== undefined) cancelAnimationFrame(raf);
+      };
+    }
+    setVisible(false);
+    const reduce =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const timer = setTimeout(() => setPresent(false), reduce ? 0 : COLLAPSE_MS);
+    return () => clearTimeout(timer);
+  }, [props.open]);
+  if (!present) return null;
+  return (
+    <div
+      className={`henira-row-body henira-collapsible${visible ? " is-open" : ""}`}
+      aria-hidden={!props.open}
+    >
+      <div className="henira-collapsible-inner">{props.children}</div>
+    </div>
+  );
+}
+
 export type DisclosureRowProps = {
   /** 前置状态图标槽（16px 语义色 glyph——状态语义由调用方定） */
   icon?: React.ReactNode;
@@ -81,7 +120,7 @@ export function DisclosureRow(props: DisclosureRowProps): React.ReactNode {
           <span className="henira-row-actions">{props.actions}</span>
         ) : null}
       </div>
-      {expandable && open ? <div className="henira-row-body">{props.children}</div> : null}
+      <CollapsibleBody open={expandable && open}>{props.children}</CollapsibleBody>
     </div>
   );
 }
@@ -163,6 +202,8 @@ export function ToolRow(props: ToolRowProps): React.ReactNode {
         </span>
       ) : null}
       {props.diff !== undefined ? <span className="henira-row-diff">{props.diff}</span> : null}
+      {/* 右侧收口：状态词与展开箭头固定贴行尾（此前 status 跟着次要文本漂——R188） */}
+      <span className="henira-row-spacer" />
       {props.status !== undefined ? (
         <span className="henira-row-status is-error" title={props.statusTitle}>
           {props.status}
@@ -204,7 +245,7 @@ export function ToolRow(props: ToolRowProps): React.ReactNode {
           <span className="henira-row-actions">{props.actions}</span>
         ) : null}
       </div>
-      {expandable && open ? <div className="henira-row-body">{props.children}</div> : null}
+      <CollapsibleBody open={expandable && open}>{props.children}</CollapsibleBody>
     </div>
   );
 }

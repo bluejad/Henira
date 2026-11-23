@@ -28,6 +28,8 @@ export type MarkdownOptions = {
   streaming?: boolean;
   /** 代码块复制钮文案（host 注入 t——markdown 是纯渲染层，不持有字典） */
   t?: (key: string) => string;
+  /** 图片点击（R188）：宿主注入预览路由；缺席 = 普通 img（嵌入方/测试不发生预览） */
+  onImageClick?: (image: { src: string; alt?: string }) => void;
   /** 逐词淡入渲染上下文（E3——仅流式尾臂传入；冻结臂/settled 臂不传 = 整段 settled）。
    * state = 排期真源（advance 每帧重建 plans）；seam = 尾段在全文中的绝对偏移（块 key 基准） */
   reveal?: { state: import("./streaming-reveal.js").RevealState; seam: number };
@@ -216,6 +218,45 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
   );
+}
+
+// ── 差异卡高亮（R188）：逐行 token 给 web-ui 差异卡用（CSS 变量主题，随 data-theme 自动切）──
+export interface CodeToken {
+  content: string;
+  color?: string;
+}
+const DIFF_TOKENIZE_MAX_CHARS = 120_000; // ZCode highlighted diff 同档上限
+const tokenizeCache = new Map<string, CodeToken[][]>();
+const TOKENIZE_CACHE_CAP = 60;
+
+/** 整段 token 化（不拼 HTML）：返回每行 token；未知语言/超限/失败 = undefined（降纯文本）。 */
+export async function tokenizeCode(code: string, lang: string): Promise<CodeToken[][] | undefined> {
+  if (code.length > DIFF_TOKENIZE_MAX_CHARS) return undefined;
+  const key = `${lang}\u0000${code}`;
+  const hit = tokenizeCache.get(key);
+  if (hit !== undefined) return hit;
+  if (!(await ensureLang(lang))) return undefined;
+  try {
+    const hl = await getHighlighter();
+    const { tokens } = hl.codeToTokens(code, { lang, theme: "henira" }) as unknown as {
+      tokens: ThemedToken[][];
+    };
+    const lines: CodeToken[][] = tokens.map((line) =>
+      line.map((token) => ({
+        content: token.content,
+        ...(token.color !== undefined ? { color: token.color } : {}),
+      })),
+    );
+    tokenizeCache.set(key, lines);
+    while (tokenizeCache.size > TOKENIZE_CACHE_CAP) {
+      const oldest = tokenizeCache.keys().next().value;
+      if (oldest === undefined) break;
+      tokenizeCache.delete(oldest);
+    }
+    return lines;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 围栏代码块（真组件——换行切换局部 state + 高亮异步 swap 的 hooks 经 React 渲染进
@@ -468,6 +509,25 @@ export function markdownChildren(
             disabled: true,
             className: "henira-task-checkbox",
           }),
+        // 图片 = 可点预览入口（R188）：宿主注入 onImageClick 时包一层按钮；
+        // 缺席保持普通 img（嵌入方零行为变化）
+        img: ({ src, alt }: { src?: string; alt?: string }) => {
+          if (typeof src !== "string" || src === "") return null;
+          const image = createElement("img", { src, alt: alt ?? "", loading: "lazy" });
+          if (opts.onImageClick === undefined) return image;
+          return createElement(
+            "button",
+            {
+              type: "button",
+              className: "henira-md-image",
+              title: alt ?? "",
+              onClick: () => {
+                opts.onImageClick?.({ src, ...(alt !== undefined ? { alt } : {}) });
+              },
+            },
+            image,
+          );
+        },
       },
     },
     text,
