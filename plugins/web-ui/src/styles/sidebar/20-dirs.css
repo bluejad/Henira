@@ -69,10 +69,29 @@
   background: var(--henira-surface-hover);
 }
 
-/* 左下角设置按钮 = 通栏（用户反馈⑤：宽度等于左栏宽，齿轮住左；横向内边距按钮自带——
-   footer 不再顶它） */
-.henira-app button.henira-footer-settings {
-  width: 100%;
-  text-align: left;
-  padding: 6px var(--henira-space-4);
+/* 底部行（R194）：左 = 本地服务 + 链路状态点（无账号体系，不造头像身份）；
+   右 = 设置齿轮（基础件批的通栏钮退场——状态与动作分成两侧） */
+.henira-footer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-left: var(--henira-space-1);
+  color: var(--henira-text-muted);
+  font-size: var(--henira-fs-sm);
+  white-space: nowrap;
+  cursor: default;
+}
+.henira-status-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--henira-text-subtlest);
+}
+.henira-status-dot.is-ok {
+  background: var(--henira-ok-text);
+}
+.henira-status-dot.is-warn {
+  background: var(--henira-warn-text);
 }

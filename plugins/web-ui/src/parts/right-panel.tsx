@@ -1,5 +1,5 @@
-// 官方默认件（槽 sidebar.right，D-062）：右栏 tab 框架——ZCode 右栏行为层（⌄ 已开面板清单
-// 在最左 + tab 条 + ＋ 新建 + ⤢ 最大化/还原；溢出走横向滚动，tab 最小 60px）。
+// 官方默认件（槽 sidebar.right，D-062）：右栏 tab 框架——⌄ 已开面板清单在最左 + tab 条 +
+// ＋ 新建 + ⤢ 最大化/还原 + 收起（R194：收起后不渲染窄轨，重开入口在中列 header）。
 // tab 总账 = ui-state.json rightPanel{open,active,tabs}（D-063 留位本批接线；按会话各记各的，
 // 只存引用，＋ 建空白面板展位 kind:"blank"——内容随插件接入）。`sidebar.right.tab` 追加位的
 // 注册件各成一 tab（官方 tab 与插件 tab 并存，D-062），标签暂取件名；顶替 sidebar.right 本体
@@ -15,6 +15,7 @@ import {
   FileGlyph,
   ImageGlyph,
   PlusGlyph,
+  SidebarGlyph,
   XGlyph,
 } from "./icons.js";
 import { PreviewBody, type PreviewTabPayload } from "./preview.js";
@@ -57,22 +58,8 @@ export const RightPanel: WebPart = (ctx: WebPartContext): ReactNode => {
     persist({ active: id, tabs: [...tabs, { id, kind: "blank" }] });
   };
 
-  // 收起态 = 细轨（ZCode 边缘轨行为层）：只有 ＋——面板关着也要有入口（＋住在面板内则永远打不开）
-  if (!open) {
-    return (
-      <div className="henira-right-rail">
-        <button
-          type="button"
-          className="henira-iconbtn"
-          aria-label={ctx.t("rightPanel.new")}
-          title={ctx.t("rightPanel.new")}
-          onClick={newTab}
-        >
-          <PlusGlyph size={14} />
-        </button>
-      </div>
-    );
-  }
+  // 收起态由框架件直接不渲染本件（R194：去掉窄轨；重开入口见 LayoutFrame 中列 header）
+  if (!open) return null;
 
   const active = rp?.active ?? tabs[0]?.id ?? null;
   const select = (id: string): void => persist({ active: id });
@@ -94,6 +81,7 @@ export const RightPanel: WebPart = (ctx: WebPartContext): ReactNode => {
       onSelect={select}
       onNew={newTab}
       onClose={closeTab}
+      onCollapse={() => persist({ open: false })}
     />
   );
 };
@@ -106,6 +94,7 @@ function RightPanelView(props: {
   onSelect(id: string): void;
   onNew(): void;
   onClose(id: string): void;
+  onCollapse(): void;
 }): ReactNode {
   const { ctx, tabs, pluginParts, active } = props;
   const [maximized, setMaximized] = useState(false);
@@ -268,8 +257,20 @@ function RightPanelView(props: {
         >
           {maximized ? <ArrowsInGlyph size={12} /> : <ArrowsOutGlyph size={12} />}
         </button>
+        <button
+          type="button"
+          className="henira-iconbtn"
+          aria-label={ctx.t("rightPanel.collapse")}
+          title={ctx.t("rightPanel.collapse")}
+          onClick={props.onCollapse}
+        >
+          <SidebarGlyph side="right" size={14} />
+        </button>
       </div>
       <div className="henira-right-body">
+        {tabs.length === 0 && pluginParts.length === 0 ? (
+          <div className="henira-right-empty">{ctx.t("rightPanel.placeholder")}</div>
+        ) : null}
         {tabs.map((tab) => {
           if (tab.id !== active) return null;
           if (tab.kind === "blank") {

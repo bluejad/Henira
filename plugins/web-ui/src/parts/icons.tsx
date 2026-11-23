@@ -26,6 +26,7 @@ import { PencilIcon } from "@phosphor-icons/react/dist/csr/Pencil";
 import { PlugIcon } from "@phosphor-icons/react/dist/csr/Plug";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { QuestionIcon } from "@phosphor-icons/react/dist/csr/Question";
+import { SidebarSimpleIcon } from "@phosphor-icons/react/dist/csr/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 import { TerminalIcon } from "@phosphor-icons/react/dist/csr/Terminal";
 import { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning";
@@ -40,6 +41,18 @@ export function ArrowsInGlyph(props: Props) {
 
 export function ArrowsOutGlyph(props: Props) {
   return <ArrowsOutIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 侧栏开合（R194）：左/右各用一份，右侧镜像同一图标 */
+export function SidebarGlyph(props: Props & { side?: "left" | "right" }) {
+  return (
+    <SidebarSimpleIcon
+      size={props.size ?? 14}
+      color={props.color}
+      weight="bold"
+      style={props.side === "right" ? { transform: "scaleX(-1)" } : undefined}
+    />
+  );
 }
 
 export function CaretDownGlyph(props: Props) {

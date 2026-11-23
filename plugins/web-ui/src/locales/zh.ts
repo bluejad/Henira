@@ -6,6 +6,8 @@ export const zh = {
   "app.title": "Henira",
   "app.safeMode": "安全模式",
   "app.dragHint": "拖动调宽 · 双击复位",
+  "app.collapseSidebar": "收起侧栏",
+  "app.expandSidebar": "展开侧栏",
   "app.untitled": "新会话",
   "dirs.title": "目录",
   "dirs.add": "新增目录",
@@ -329,9 +331,14 @@ export const zh = {
   "rightPanel.maximize": "最大化面板",
   "rightPanel.restore": "还原面板",
   "rightPanel.close": "关闭面板",
+  "rightPanel.collapse": "收起右侧面板",
+  "rightPanel.open": "打开右侧面板",
   "rightPanel.blank": "新面板",
   "rightPanel.placeholder": "从对话里的文件名或图片打开预览。",
   "rightPanel.previewFile": "文件预览",
+  "footer.localService": "本地服务",
+  "footer.connected": "已连接",
+  "footer.reconnecting": "重连中",
 } as const;
 
 export type Dict = Record<string, string>;

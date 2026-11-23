@@ -16,16 +16,7 @@
   z-index: 40;
   background: var(--henira-bg);
 }
-/* 收起态窄轨（ZCode 边缘轨行为层）：只放 ＋——面板关着也要有入口（＋ 格顶格 48px 见
-   .henira-right-barbtn 之后的 rail 作用域规则——顶线收起态也不断，用户反馈④） */
-.henira-right-rail {
-  width: 36px;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  box-sizing: border-box;
-}
+/* R194：收起态不再渲染窄轨（整列不占位）；重开入口 = 中列 header 的侧栏开关 */
 .henira-right-tabs {
   /* 三栏顶等高（用户反馈④，照 ZCode h-12=48px 一条线）：左品牌行/中 header/右 tab 条同 var；
      box-sizing 进框——48px 含底边线 */
@@ -136,14 +127,6 @@
 }
 .henira-app button.henira-right-tab-close:hover {
   background: var(--henira-surface-hover);
-}
-/* 窄轨里的 ＋ 格顶格 48px（顶线收起态也不断——与三栏顶等高同批，用户反馈④；
-   钮本体 = henira-iconbtn 基类） */
-.henira-right-rail .henira-iconbtn {
-  height: var(--henira-header-height);
-  width: 100%;
-  border-bottom: 1px solid var(--henira-border);
-  border-radius: 0;
 }
 .henira-right-body {
   flex: 1;

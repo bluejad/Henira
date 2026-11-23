@@ -243,6 +243,17 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   await page.getByRole("button", { name: zh["settings.open"] }).click();
   const settings = page.getByRole("dialog", { name: zh["settings.title"] });
   await expect(settings).toBeVisible();
+  // R194：设置页统一铺满内容区（不再 760 固定列左贴边留右侧死区）
+  const widths = await settings.evaluate((el) => {
+    const pageEl = el.querySelector(".henira-settings-page") as HTMLElement | null;
+    const contentEl = el.querySelector(".henira-settings-content") as HTMLElement | null;
+    return {
+      page: pageEl?.getBoundingClientRect().width ?? 0,
+      content: contentEl?.clientWidth ?? 0,
+    };
+  });
+  expect(widths.content).toBeGreaterThan(600);
+  expect(Math.abs(widths.page - widths.content)).toBeLessThanOrEqual(2);
   await settings.locator(".henira-select-trigger").first().click();
   await page.getByRole("option", { name: zh["settings.theme.dark"] }).click();
   await expect(page.locator(".henira-app[data-theme='dark']")).toHaveCount(1);

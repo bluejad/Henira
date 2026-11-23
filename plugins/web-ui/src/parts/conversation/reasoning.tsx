@@ -1,6 +1,7 @@
 // 思考块（R178）：默认收起；触发行 = 脑图标 + 「正在思考」/「思考 持续了 N 秒」，
 // 流式收起态在同一行右侧显示最后一行摘要；展开体 = 左导线纯文本（14px/1.75）。
-import { useEffect, useRef, useState } from "react";
+// R194：流式中展开 → 内滚视口直接落在最新一行并继续跟随；用户上滚即暂停，回底恢复。
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { WebPartContext } from "../../types.js";
 import { BrainGlyph, CaretGlyph } from "../icons.js";
 import { reasoningPreview } from "./format.js";
@@ -15,6 +16,21 @@ function ReasoningView({
   ctx: WebPartContext;
 }): React.ReactNode {
   const [open, setOpen] = useState(false);
+  // 展开体是 240px 内滚视口：流式中新 token 到达时贴底；用户上滚（>4px）让出阅读权
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const followRef = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reasoning 是内容变化信号（触发贴底），体内只读 ref
+  useLayoutEffect(() => {
+    if (!open || !streaming) return; // 历史/已收尾的思考展开从头看
+    const el = bodyRef.current;
+    if (el === null || !followRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [open, streaming, reasoning]);
+  const onBodyScroll = (): void => {
+    const el = bodyRef.current;
+    if (el === null) return;
+    followRef.current = el.scrollHeight - el.clientHeight - el.scrollTop <= 4;
+  };
   // 流式耗时：协议无 reasoning 时间戳，客户端起表；历史行无起点 → 「持续了几秒」
   const startedAtRef = useRef<number | null>(streaming ? Date.now() : null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number | null>(null);
@@ -45,6 +61,7 @@ function ReasoningView({
         className="henira-reasoning-trigger"
         aria-expanded={open}
         onClick={() => {
+          if (!open) followRef.current = true; // 每次重新展开都从最新一行开始
           setOpen(!open);
         }}
       >
@@ -72,7 +89,11 @@ function ReasoningView({
           <CaretGlyph size={16} />
         </span>
       </button>
-      {open ? <div className="henira-reasoning-body">{reasoning}</div> : null}
+      {open ? (
+        <div className="henira-reasoning-body" ref={bodyRef} onScroll={onBodyScroll}>
+          {reasoning}
+        </div>
+      ) : null}
     </div>
   );
 }

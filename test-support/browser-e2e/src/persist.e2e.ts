@@ -249,14 +249,15 @@ test("右栏 tab 框架持久化（骨架批）：＋开空白面板 → rightPa
     await expect(page.getByTestId("composer-input")).toBeVisible({
       timeout: 15_000,
     });
-    // 初态右栏收起 = 窄轨（只有 ＋——面板关着也要有入口）
-    await expect(page.locator(".henira-right-rail")).toHaveCount(1);
-    await expect(page.locator(".henira-right-tab")).toHaveCount(0);
-    // ＋ 新建空白面板展位 tab → 开态全栏 + tab 在场；rightPanel 总账落盘轮询
+    // 初态右栏收起 = 整列不渲染（R194 去窄轨）；重开入口在中列 header
+    await expect(page.locator(".henira-right-rail")).toHaveCount(0);
+    await expect(page.locator(".henira-right-panel")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: zh["rightPanel.open"] })).toBeVisible();
+    // header 开 → 空面板占位；＋ 新建空白面板展位 tab；rightPanel 总账落盘轮询
+    await page.getByRole("button", { name: zh["rightPanel.open"] }).click();
+    await expect(page.locator(".henira-right-empty")).toContainText(zh["rightPanel.placeholder"]);
     await page.getByRole("button", { name: zh["rightPanel.new"] }).click();
     await expect(page.locator(".henira-right-tab")).toHaveCount(1);
-    await expect(page.locator(".henira-right-rail")).toHaveCount(0);
-    await expect(page.locator(".henira-right-empty")).toContainText(zh["rightPanel.placeholder"]);
     await waitUiStateOnDisk(ctx.dataDir, (doc) => {
       const rp = doc.rightPanel as { open?: unknown } | undefined;
       return rp?.open === true;
@@ -269,9 +270,20 @@ test("右栏 tab 框架持久化（骨架批）：＋开空白面板 → rightPa
     });
     await expect(page.locator(".henira-right-tab")).toHaveCount(1);
     await expect(page.locator(".henira-right-rail")).toHaveCount(0);
-    // ✕ 关闭末个 tab → 回到窄轨（open:false 回写）
+    // 收起钮 → 整列消失（无窄轨）+ 回写 open:false；header 重开 → tab 还在
+    await page.getByRole("button", { name: zh["rightPanel.collapse"] }).click();
+    await expect(page.locator(".henira-right-panel")).toHaveCount(0);
+    await expect(page.locator(".henira-right-rail")).toHaveCount(0);
+    await waitUiStateOnDisk(ctx.dataDir, (doc) => {
+      const rp = doc.rightPanel as { open?: unknown } | undefined;
+      return rp?.open === false;
+    });
+    await page.getByRole("button", { name: zh["rightPanel.open"] }).click();
+    await expect(page.locator(".henira-right-tab")).toHaveCount(1);
+    // ✕ 关闭末个 tab → open:false（整列消失，窄轨不回来）
     await page.locator(".henira-right-tab-close").click();
-    await expect(page.locator(".henira-right-rail")).toHaveCount(1);
+    await expect(page.locator(".henira-right-panel")).toHaveCount(0);
+    await expect(page.locator(".henira-right-rail")).toHaveCount(0);
     await waitUiStateOnDisk(ctx.dataDir, (doc) => {
       const rp = doc.rightPanel as { open?: unknown } | undefined;
       return rp?.open === false;

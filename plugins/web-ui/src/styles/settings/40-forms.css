@@ -1,7 +1,7 @@
 /* R187 拆分：原 13-settings.css 196-215（连接/自定义表单） */
-/* 连接/自定义表单 */
+/* 连接/自定义表单（R194：与其余设置页同宽铺满，不再单独收窄） */
 .henira-models-form {
-  max-width: 560px; /* 表单不拉满弹窗（原 916px 单列） */
+  width: 100%;
 }
 .henira-form-card {
   display: flex;

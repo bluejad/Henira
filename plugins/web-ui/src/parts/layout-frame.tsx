@@ -6,7 +6,7 @@
 
 import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LayoutOption, WebPart, WebPartContext, WebSlotName } from "../types.js";
-import { FolderGlyph, GearGlyph, HorseGlyph } from "./icons.js";
+import { FolderGlyph, GearGlyph, HorseGlyph, SidebarGlyph } from "./icons.js";
 import { PreviewModal } from "./preview.js";
 import { SettingsModal } from "./settings-modal.js";
 import { SlotBoundary } from "./slot-boundary.js";
@@ -41,8 +41,10 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
       : layout === "full" || layout === "composer" || layout === "center";
   const showRight =
     custom !== undefined ? custom["sidebar.right"] !== undefined : layout === "full";
-  // 右栏开合（件自管收起态窄轨 / 开态全栏；拖宽把手只在开态在场）
+  // 右栏开合（R194：收起 = 整列不渲染、不留窄轨；重开入口在中列 header）
   const rightOpen = (ctx.uiState?.rightPanel?.open ?? false) === true;
+  // 左栏收起（R194，纯本地态——这是窗口布局偏好，不跨刷新/不写 ui-state）
+  const [leftHidden, setLeftHidden] = useState(false);
   const sessionTitle = useSessionTitle(ctx);
 
   // 区域件取用：挑件表（object form）优先，否则槽位表（官方默认件经公共注册路径在表内）
@@ -143,11 +145,19 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       {showSidebar && sidebarHas ? (
         <div
+          className="henira-left-col"
+          data-collapsed={leftHidden ? "true" : undefined}
+          aria-hidden={leftHidden || undefined}
+          inert={leftHidden ? true : undefined}
           style={{
             display: "flex",
             flexDirection: "column",
-            width: sidebarWidth,
+            // R194：收起 = 列宽收 0（保持挂载，列表滚动/折叠态不丢）；不是卸载、不留窄轨
+            width: leftHidden ? 0 : sidebarWidth,
             flexShrink: 0,
+            overflow: "hidden",
+            opacity: leftHidden ? 0 : 1,
+            pointerEvents: leftHidden ? "none" : undefined,
           }}
         >
           {/* 品牌行（ZCode 左栏顶部行行为层：logo 住栏顶，48px 与中右两栏顶连成一条线） */}
@@ -176,25 +186,57 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
             >
               {t("app.title")}
             </span>
+            <button
+              type="button"
+              className="henira-iconbtn"
+              style={{ marginLeft: "auto" }}
+              aria-label={t("app.collapseSidebar")}
+              title={t("app.collapseSidebar")}
+              onClick={() => {
+                setLeftHidden(true);
+              }}
+            >
+              <SidebarGlyph side="left" size={14} />
+            </button>
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>{renderParts("sidebar")}</div>
-          {/* 底部固定行（ZCode WorkspaceSidebarFooter 行为层：footer shrink-0 收尾）——齿轮住左下；
-              横向零内边距（按钮自身带）——按钮宽=左栏宽（用户反馈⑤） */}
+          {/* 底部固定行（R194）：本地服务 + 链路状态（无账号体系，不造头像身份）；
+              齿轮住右下——左侧状态、右侧动作一行收尾 */}
           <footer
             style={{
               flexShrink: 0,
               display: "flex",
               alignItems: "center",
-              padding: "var(--henira-space-2) 0 var(--henira-space-4)",
+              justifyContent: "space-between",
+              gap: "var(--henira-space-2)",
+              padding: "var(--henira-space-2) var(--henira-space-3) var(--henira-space-4)",
               background: "var(--henira-surface)",
               borderRight: "1px solid var(--henira-border)",
               boxSizing: "border-box",
               width: sidebarWidth,
             }}
           >
+            <span
+              className="henira-footer-status"
+              role="status"
+              aria-label={`${t("footer.localService")} ${
+                ctx.linkState === "reconnecting" ? t("footer.reconnecting") : t("footer.connected")
+              }`}
+              title={
+                ctx.linkState === "reconnecting" ? t("footer.reconnecting") : t("footer.connected")
+              }
+            >
+              <span
+                className={`henira-status-dot${
+                  ctx.linkState === "reconnecting" ? " is-warn" : " is-ok"
+                }`}
+                aria-hidden="true"
+              />
+              {t("footer.localService")}
+            </span>
             <button
               type="button"
-              className="henira-footer-settings"
+              className="henira-iconbtn henira-footer-settings"
               aria-label={t("settings.open")}
               title={t("settings.title")}
               onClick={() => {
@@ -218,7 +260,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
           </button>
         </div>
       )}
-      {showSidebar && sidebarHas ? (
+      {showSidebar && sidebarHas && !leftHidden ? (
         <button
           type="button"
           className="henira-drag-handle"
@@ -233,6 +275,19 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
         {showConversation ? (
           <header className="henira-header">
+            {leftHidden ? (
+              <button
+                type="button"
+                className="henira-iconbtn"
+                aria-label={t("app.expandSidebar")}
+                title={t("app.expandSidebar")}
+                onClick={() => {
+                  setLeftHidden(false);
+                }}
+              >
+                <SidebarGlyph side="left" size={14} />
+              </button>
+            ) : null}
             {headerDir !== "" ? (
               <span className="henira-header-dir" title={ctx.sessionCwd ?? undefined}>
                 <FolderGlyph size={13} />
@@ -242,6 +297,28 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
             <span className="henira-header-title" title={sessionTitle ?? t("app.untitled")}>
               {sessionTitle ?? t("app.untitled")}
             </span>
+            {showRight && !rightOpen ? (
+              <button
+                type="button"
+                className="henira-iconbtn"
+                aria-label={t("rightPanel.open")}
+                title={t("rightPanel.open")}
+                // 会话 ui-state 尚未加载时不能发写——空 tabs 会抹掉磁盘上的 tab 总账
+                disabled={ctx.uiState === undefined}
+                onClick={() => {
+                  // 会话 ui-state 是顶层浅合并——重开必须带上既有 tab 总账，不能只发 open
+                  ctx.updateUiState?.({
+                    rightPanel: {
+                      open: true,
+                      active: ctx.uiState?.rightPanel?.active ?? null,
+                      tabs: ctx.uiState?.rightPanel?.tabs ?? [],
+                    },
+                  });
+                }}
+              >
+                <SidebarGlyph side="right" size={14} />
+              </button>
+            ) : null}
           </header>
         ) : null}
         {showConversation ? (
@@ -259,25 +336,19 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
         ) : null}
         {showComposer ? <div>{renderParts("composer")}</div> : null}
       </div>
-      {showRight ? (
+      {showRight && rightOpen ? (
         <>
-          {rightOpen ? (
-            <button
-              type="button"
-              className="henira-drag-handle"
-              title={t("app.dragHint")}
-              onMouseDown={startRightDrag}
-              onDoubleClick={() => {
-                setRightWidth(RIGHT_DEFAULT);
-                ctx.updateUiState?.({ layout: { rightWidth: RIGHT_DEFAULT } });
-              }}
-            />
-          ) : null}
-          {/* 收起态列宽塌到窄轨自宽（件内 36px 竖条）；开态全宽 + 把手 */}
-          <div
-            className="henira-right-col"
-            style={rightOpen ? { width: rightWidthStyle } : undefined}
-          >
+          <button
+            type="button"
+            className="henira-drag-handle"
+            title={t("app.dragHint")}
+            onMouseDown={startRightDrag}
+            onDoubleClick={() => {
+              setRightWidth(RIGHT_DEFAULT);
+              ctx.updateUiState?.({ layout: { rightWidth: RIGHT_DEFAULT } });
+            }}
+          />
+          <div className="henira-right-col" style={{ width: rightWidthStyle }}>
             {renderParts("sidebar.right")}
           </div>
         </>

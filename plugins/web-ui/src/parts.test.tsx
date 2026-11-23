@@ -24,6 +24,7 @@ import {
   pruneAnswered,
   questionTakeover,
 } from "./parts/composer-dock.js";
+import { ReasoningView } from "./parts/conversation/reasoning.js";
 import { Conversation } from "./parts/conversation.js";
 import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
@@ -2531,26 +2532,28 @@ describe("右栏 tab 框架（D-062 sidebar.right 官方默认件）", () => {
     });
   }
 
-  it("收起态 = 窄轨（＋ 常在入口——面板内 ＋ 会永远打不开的死锁防）；开态全栏无轨", () => {
-    const updateUiState = vi.fn();
-    const { container } = render(
-      <RightPanel {...rightCtx({ rightPanel: { open: false }, updateUiState })} />,
-    );
-    // 窄轨：只有 ＋，无 tab 条 / 面板体
-    expect(container.querySelector(".henira-right-rail")).not.toBeNull();
-    expect(container.querySelector(".henira-right-panel")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.new") }));
-    expect(updateUiState).toHaveBeenCalledTimes(1);
-    const patch = updateUiState.mock.calls[0][0] as {
-      rightPanel: { open: boolean; tabs: unknown[] };
-    };
-    expect(patch.rightPanel.open).toBe(true);
-    expect(patch.rightPanel.tabs).toHaveLength(1);
+  it("收起态不渲染（R194 去窄轨）；开态全栏 + 收起钮回写 open:false", () => {
+    const closed = render(<RightPanel {...rightCtx({ rightPanel: { open: false } })} />);
+    // 收起 = 整件不渲染：既无面板体，也无 36px 竖条
+    expect(closed.container.querySelector(".henira-right-panel")).toBeNull();
+    expect(closed.container.querySelector(".henira-right-rail")).toBeNull();
+    expect(closed.container.firstChild).toBeNull();
     cleanup();
-    // 开态：全栏在、窄轨不在
-    const open = render(<RightPanel {...rightCtx({ rightPanel: { open: true } })} />);
-    expect(open.container.querySelector(".henira-right-rail")).toBeNull();
+    // 开态：全栏在；收起钮回写 open:false 且保留既有 tab 总账
+    const updateUiState = vi.fn();
+    const open = render(
+      <RightPanel
+        {...rightCtx({
+          rightPanel: { open: true, tabs: [{ id: "t-1", kind: "blank" }] },
+          updateUiState,
+        })}
+      />,
+    );
     expect(open.container.querySelector(".henira-right-panel")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.collapse") }));
+    expect(updateUiState).toHaveBeenCalledWith({
+      rightPanel: { open: false, active: null, tabs: [{ id: "t-1", kind: "blank" }] },
+    });
   });
 
   it("＋ 新建空白面板展位 tab：rightPanel 总账经 updateUiState 持久化（open:true + active 指向新 tab）", () => {
@@ -2987,6 +2990,59 @@ describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
   });
 });
 
+describe("思考展开跟底（R194）", () => {
+  const ctx = { t } as unknown as WebPartContext;
+  const bodyOf = (container: HTMLElement): HTMLDivElement =>
+    container.querySelector(".henira-reasoning-body") as HTMLDivElement;
+  const mockScroll = (el: HTMLElement, scrollHeight: number, clientHeight: number): void => {
+    Object.defineProperty(el, "scrollHeight", { value: scrollHeight, configurable: true });
+    Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+  };
+
+  it("流式中展开 → 内滚落在最新一行；新内容继续贴底", () => {
+    const { container, rerender } = render(
+      <ReasoningView reasoning={"第一行"} streaming ctx={ctx} />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    const body = bodyOf(container);
+    mockScroll(body, 500, 240);
+    rerender(<ReasoningView reasoning={"第一行\n第二行"} streaming ctx={ctx} />);
+    expect(body.scrollTop).toBe(500);
+    mockScroll(body, 620, 240);
+    rerender(<ReasoningView reasoning={"第一行\n第二行\n第三行"} streaming ctx={ctx} />);
+    expect(body.scrollTop).toBe(620);
+  });
+
+  it("用户上滚离开底部 >4px → 暂停跟随；滚回底部恢复", () => {
+    const { container, rerender } = render(<ReasoningView reasoning={"a"} streaming ctx={ctx} />);
+    fireEvent.click(screen.getByRole("button"));
+    const body = bodyOf(container);
+    mockScroll(body, 500, 240);
+    rerender(<ReasoningView reasoning={"a\nb"} streaming ctx={ctx} />);
+    expect(body.scrollTop).toBe(500);
+    body.scrollTop = 100;
+    fireEvent.scroll(body);
+    rerender(<ReasoningView reasoning={"a\nb\nc"} streaming ctx={ctx} />);
+    expect(body.scrollTop).toBe(100); // 阅读权：新 token 不把视口拽回底部
+    body.scrollTop = 500;
+    fireEvent.scroll(body);
+    mockScroll(body, 700, 240);
+    rerender(<ReasoningView reasoning={"a\nb\nc\nd"} streaming ctx={ctx} />);
+    expect(body.scrollTop).toBe(700);
+  });
+
+  it("已收尾的思考展开：不抢滚动（从头看）", () => {
+    const { container, rerender } = render(
+      <ReasoningView reasoning={"历史"} streaming={false} ctx={ctx} />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    const body = bodyOf(container);
+    mockScroll(body, 500, 240);
+    rerender(<ReasoningView reasoning={"历史\n更多"} streaming={false} ctx={ctx} />);
+    expect(body.scrollTop).toBe(0);
+  });
+});
+
 describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JSX 的载体）", () => {
   function frameCtx(overrides?: Partial<WebPartContext>): WebPartContext {
     const stub: WebPart = () => <div data-stub="part" />;
@@ -3012,9 +3068,62 @@ describe("官方框架件 LayoutFrame（D-062 layout 槽——宿主零界面 JS
       t("app.untitled"),
     );
     expect(container.querySelectorAll("[data-stub='part']")).toHaveLength(3); // 三区
-    expect(container.querySelector(".henira-right-rail")).not.toBeNull(); // 右栏收起轨（＋ 常在入口）
+    // R194：右栏收起 = 整列不渲染（无窄轨）；重开入口在中列 header
+    expect(container.querySelector(".henira-right-rail")).toBeNull();
+    const rightOpenButton = screen.getByRole("button", {
+      name: t("rightPanel.open"),
+    }) as HTMLButtonElement;
+    expect(rightOpenButton).toBeDefined();
+    // ui-state 未加载时重开禁用——空 tabs 写入会抹掉磁盘上的 tab 总账
+    expect(rightOpenButton.disabled).toBe(true);
+    // R194：footer 左状态 + 右齿轮
+    expect(container.textContent).toContain(t("footer.localService"));
     fireEvent.click(screen.getByRole("button", { name: t("settings.open") }));
     expect(openSettings).toHaveBeenCalled(); // 缺省分区由宿主定（默认主题页）
+  });
+
+  it("左栏收起/展开（R194）：列宽收 0 保持挂载（列表状态不丢）；header 展开钮恢复", () => {
+    const { container } = render(<LayoutFrame {...frameCtx()} />);
+    const col = (): HTMLElement => container.querySelector(".henira-left-col") as HTMLElement;
+    expect(col().style.width).not.toBe("0px");
+    expect(container.querySelector(".henira-brand")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("app.collapseSidebar") }));
+    // 不是卸载：品牌行/列表仍挂载，只是列宽收 0 + opacity 0 + 不可交互
+    expect(col().style.width).toBe("0px");
+    expect(col().dataset.collapsed).toBe("true");
+    expect(col().getAttribute("aria-hidden")).toBe("true");
+    expect(col().hasAttribute("inert")).toBe(true); // 焦点/读屏也不得进入隐藏栏
+    expect(container.querySelector(".henira-brand")).not.toBeNull();
+    expect(screen.getByRole("button", { name: t("app.expandSidebar") })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: t("app.expandSidebar") }));
+    // 宽度回填是 var(--henira-sidebar-width)——jsdom 不接受 var() 进 width，故只锁折叠标记；
+    // 真浏览器宽度恢复由活体验收（R194 活体：收起 0 → 展开 260，列表滚动位置保留）
+    expect(col().dataset.collapsed).toBeUndefined();
+    expect(col().getAttribute("aria-hidden")).toBeNull();
+    expect(col().hasAttribute("inert")).toBe(false);
+    expect(container.querySelector(".henira-brand")).not.toBeNull();
+  });
+
+  it("右栏重开走 header（R194）：只发 open 会丢 tab——必须带既有总账", () => {
+    const updateUiState = vi.fn();
+    render(
+      <LayoutFrame
+        {...frameCtx({
+          updateUiState,
+          uiState: {
+            rightPanel: {
+              open: false,
+              active: "t-9",
+              tabs: [{ id: "t-9", kind: "blank" }],
+            },
+          },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: t("rightPanel.open") }));
+    expect(updateUiState).toHaveBeenCalledWith({
+      rightPanel: { open: true, active: "t-9", tabs: [{ id: "t-9", kind: "blank" }] },
+    });
   });
 
   it("conversation 区域槽可整块顶替（「一切皆插件」不回退）", () => {

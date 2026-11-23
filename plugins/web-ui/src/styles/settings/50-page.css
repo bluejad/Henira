@@ -1,10 +1,11 @@
 /* 设置页通用版式（R188）：页标题 + 说明 + 行式卡片（主题/预览；语言页同用）。
-   主题页原来只有一个 280px 下拉装在 1060×780 弹窗里——一页一个控件是空荡感的根源。 */
+   主题页原来只有一个 280px 下拉装在 1060×780 弹窗里——一页一个控件是空荡感的根源。
+   R194：四页统一铺满内容区（原先 760 固定列左贴边，右侧留一条死区 + 滚动条脱节）。 */
 .henira-settings-page {
   display: flex;
   flex-direction: column;
   gap: var(--henira-space-4);
-  max-width: 760px;
+  width: 100%;
 }
 .henira-settings-page-head h2 {
   margin: 0;
