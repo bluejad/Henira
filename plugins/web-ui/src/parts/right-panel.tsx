@@ -37,7 +37,9 @@ function isPreviewTab(tab: PanelTab): tab is PanelTab & PreviewTabPayload {
 export const RightPanel: WebPart = (ctx: WebPartContext): ReactNode => {
   const rp = ctx.uiState?.rightPanel;
   const open = rp?.open === true;
-  const tabs: PanelTab[] = rp?.tabs ?? [];
+  // ui-state 是开放文档（服务端不解释内容）：坏形状不许炸掉整条右栏（R189 防御）
+  const rawTabs: unknown = rp?.tabs;
+  const tabs: PanelTab[] = Array.isArray(rawTabs) ? (rawTabs as PanelTab[]) : [];
   const pluginParts = (ctx.slots.get("sidebar.right.tab") ?? []) as WebPart[];
 
   const persist = (patch: { active?: string | null; tabs?: PanelTab[]; open?: boolean }): void => {

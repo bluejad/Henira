@@ -260,12 +260,16 @@ describe("turn/step 状态机（loop.md §1）", () => {
   });
 
   it("E1 排队面：pending()/remove() 读写队列；queue/changed 随变更广播（enqueue/升格/remove/冲刷）", async () => {
+    // 当前回合用显式闸放行：固定 sleep 在并行负载下会让回合在断言前收尾（慢机竞态——
+    // 与 R189 无关的既有 flaky 家族；闸门让「回合进行中」成为确定事实）
+    let releaseFirstTurn!: () => void;
+    const firstTurnGate = new Promise<void>((resolve) => {
+      releaseFirstTurn = resolve;
+    });
     const { harness, ctx, loop } = await startedLoop([
       (req) => {
         void req;
-        return new Promise((resolve) => {
-          setTimeout(() => resolve([mockText("一"), mockUsage(USAGE), mockFinish("stop")]), 60);
-        });
+        return firstTurnGate.then(() => [mockText("一"), mockUsage(USAGE), mockFinish("stop")]);
       },
       [mockText("二"), mockUsage(USAGE), mockFinish("stop")],
       [mockText("三"), mockUsage(USAGE), mockFinish("stop")],
@@ -288,6 +292,7 @@ describe("turn/step 状态机（loop.md §1）", () => {
     expect(await loop.remove(q2.id)).toBe(true);
     expect(await loop.remove("q不存在")).toBe(false);
     expect(loop.pending().map((e) => e.id)).toEqual([q1.id]); // 删除生效
+    releaseFirstTurn(); // 放行当前回合 → 回合末冲刷 q1（升格条目作新回合跑掉）
     await consuming;
     expect(loop.pending()).toHaveLength(0); // 回合末冲刷清空（升格条目作新回合跑掉）
     expect(changes).toContain(2);

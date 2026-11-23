@@ -356,6 +356,9 @@ export interface PluginState {
   version: string;
   name: string;
   description?: string;
+  /** 来源（R188 审查 P2）：official = defaultPreset 官方件（含外圈 fs/shell/breaker/ask-user/mcp），
+   *  managed = 用户目录件。管理面分段/卸载可见性用它，不再硬编码 id 表 */
+  source: "official" | "managed";
   forms: Array<"engine" | "ui" | "content">;
   enabled: boolean;
   state: "loaded" | "disabled" | "failed" | "awaiting-confirm";
@@ -528,6 +531,7 @@ export async function preparePlugins(opts: {
       id: manifest.id,
       version: manifest.version,
       name: manifest.name,
+      source: "managed",
       forms,
       enabled,
       state: "loaded",

@@ -146,6 +146,7 @@ describe("preparePlugins（装配前置：确认门 / 兼容门 / inject 预检 
       hostVersion: "0.0.0",
     });
     expect(pending.states[0]?.state).toBe("awaiting-confirm");
+    expect(pending.states[0]?.source).toBe("managed"); // 目录件来源（R189）
     expect(pending.definitions).toHaveLength(0);
 
     const confirmed = await preparePlugins({

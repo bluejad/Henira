@@ -606,8 +606,8 @@ interface ShellService {
 interface SessionSummary {
   id: string;
   cwd: string;
-  title?: string; // ⏳ 未实装（M3 list 两条路径均不产出——首条用户消息派生随侧栏批；现侧栏显目录名 + 会话 id）
-  updatedAt: number;
+  title?: string; // 首条非 breaker 用户消息派生（R188 已实装；列表/快照/SDK 三路同源，缺省 = 尚无用户消息）
+  updatedAt: number; // 活动时间 = 账本文件 mtime（R189：追加即回顶列表；非目录 mtime）
   busy: boolean; // 回合进行中（投影 state 提供）
 }
 // POST /api/sessions { cwd? } → SessionSummary：装配三步 ①③（D-016：官方 preset + settings.plugins
@@ -752,7 +752,8 @@ interface SessionUiState {
     open?: boolean;
     active?: string | null;
     // kind = blank | preview-file | preview-image | 插件 tab；preview-* 只存引用
-    // （path+rowId 或 src+alt），正文由行数据/source 现场解析（R188）
+    // （path+rowId 或 URL src+alt），正文由行数据/地址现场解析（R188）；
+    // data: 内联图 tab 只活在本页内存（内容不是引用，宿主落盘前剔除——R189）
     tabs?: Array<{
       id: string;
       kind: string;
@@ -1090,9 +1091,9 @@ type WebPart = (ctx: WebPartContext) => ReactNode;
 // ── 预览 API（R188）：官方件与第三方件共用；文件只存行引用，正文现场解析 ──
 type PreviewTarget =
   | { kind: "file"; path: string; rowId: string } // 内容 = 该 tool 行 input/output（read/write/edit）
-  | { kind: "image"; src: string; alt?: string };
+  | { kind: "image"; src: string; alt?: string }; // src = URL（引用，可持久化）或 data:（本页内存，落盘剔除）
 interface PreviewApi {
-  settings: Required<PreviewOpenSettings>; // { file: "panel"|"modal", image: ... }
+  settings: Readonly<Required<PreviewOpenSettings>>; // { file: "panel"|"modal", image: ... }（只读快照；写入走 setMode）
   open(target: PreviewTarget): void; // panel = 当前会话 rightPanel 加/激活 tab；modal = 框架件渲染弹窗
   setMode(kind: "file" | "image", mode: "panel" | "modal"): void; // 内存即时 + settings.json 深合并落盘
   modal: PreviewTarget | null; // 弹窗模式当前目标（框架件渲染）

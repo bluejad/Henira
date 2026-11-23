@@ -5,19 +5,27 @@ import type { WebPartContext } from "../../types.js";
 
 // ── 插件页（批 C，plugins.md §6.4）：列表 / 状态 / 启停 / 确认 / 卸载 + 装载告警 ──
 // 状态模型见 §5（enabled 只是选择；loaded/failed/awaiting-confirm 才是装载结果）。
-// 官方五件只读展示（不给关、不给版本钉、不可卸载——§5 :222）。
+// 官方五件只读展示（不给关、不给版本钉、不可卸载——§5 :222）；分段与卸载可见性按
+// 服务端 source 判定（R188 审查 P2：外圈官方件曾被误分到「可管理」并给出必 404 的卸载）。
 
 type PluginRow = Awaited<
   ReturnType<NonNullable<WebPartContext["client"]["listPlugins"]>>
 >["plugins"][number];
 
-const OFFICIAL_PLUGIN_IDS = new Set([
+/** 内核五件（不可停用；外圈官方件可停用但不可卸载）——这是内圈槽位事实，不随 source 变化 */
+const CORE_PLUGIN_IDS = new Set([
   "plugin-session",
   "plugin-tools",
   "plugin-llm",
   "plugin-approval",
   "plugin-loop",
 ]);
+
+/** 官方件判定：新服务器读 source；旧服务器按五件 + plugin-mcp 回落（兼容面） */
+function isOfficialRow(row: PluginRow): boolean {
+  if (row.source !== undefined) return row.source === "official";
+  return CORE_PLUGIN_IDS.has(row.id) || row.id === "plugin-mcp";
+}
 
 function pluginStateKey(state: PluginRow["state"]): "loaded" | "disabled" | "failed" | "confirm" {
   if (state === "loaded") return "loaded";
@@ -81,9 +89,9 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
   }
 
   const renderRow = (row: PluginRow): ReactNode => {
-    const officialCore = OFFICIAL_PLUGIN_IDS.has(row.id);
-    // plugin-mcp 是外圈官方件：可停用（不给卸载、版本钉）
-    const builtin = officialCore || row.id === "plugin-mcp";
+    const officialCore = CORE_PLUGIN_IDS.has(row.id);
+    // 外圈官方件（fs / shell / breaker / ask-user / mcp）：可停用，不给卸载
+    const builtin = isOfficialRow(row);
     const stateKey = pluginStateKey(row.state);
     return (
       <div
@@ -204,12 +212,8 @@ function PluginsPage(props: { ctx: WebPartContext }): ReactNode {
     );
   };
 
-  const builtinRows = (rows ?? []).filter(
-    (row) => OFFICIAL_PLUGIN_IDS.has(row.id) || row.id === "plugin-mcp",
-  );
-  const managedRows = (rows ?? []).filter(
-    (row) => !OFFICIAL_PLUGIN_IDS.has(row.id) && row.id !== "plugin-mcp",
-  );
+  const builtinRows = (rows ?? []).filter(isOfficialRow);
+  const managedRows = (rows ?? []).filter((row) => !isOfficialRow(row));
 
   return (
     <div className="henira-settings-page henira-plugins-page">

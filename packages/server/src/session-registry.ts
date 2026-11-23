@@ -187,6 +187,7 @@ export class SessionRegistry {
         id: entry.id,
         version: serverVersion(),
         name: entry.id,
+        source: "official",
         forms: ["engine"],
         enabled,
         state: enabled ? "loaded" : "disabled",
@@ -549,7 +550,9 @@ export class SessionRegistry {
             (await fs.readFile(path.join(dir, SESSION_LOG_FILE), "utf8")).split("\n")[0],
           ) as { id?: string; cwd?: string; createdAt?: number };
           if (header.id === undefined || header.cwd === undefined) continue;
-          const stat = await fs.stat(dir).catch(() => undefined);
+          // 活动时间 = 账本文件 mtime（目录 mtime 不随文件追加变化——R188 审查 P2：
+          // 旧实现让历史会话恒按创建时间排序，追加的回合从不把会话推回列表顶部）
+          const stat = await fs.stat(path.join(dir, SESSION_LOG_FILE)).catch(() => undefined);
           const title = await this.#titleOf(header.id, dir);
           summaries.set(header.id, {
             id: header.id,
@@ -567,7 +570,8 @@ export class SessionRegistry {
         id: entry.id,
         cwd: entry.cwd,
         ...(title !== undefined ? { title } : {}),
-        updatedAt: entry.createdAt,
+        // 在订条目也用磁盘账本 mtime（同一份活动真源）；账本尚未落盘 = 创建时间
+        updatedAt: Math.max(entry.createdAt, summaries.get(entry.id)?.updatedAt ?? 0),
         busy: entry.projection.state.busy,
       });
     }
@@ -881,6 +885,7 @@ export class SessionRegistry {
     const dir = entry?.directory ?? (await this.#findSessionDir(id));
     if (dir === undefined) return false;
     await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    this.#titleCache.delete(id); // 缓存按会话 id 记成功；删了不摘 = 同 id 复用脏标题
     if (entry !== undefined) {
       entry.interaction.dispose();
       await entry.harness.dispose().catch(() => {});
@@ -904,6 +909,7 @@ export class SessionRegistry {
       await entry.harness.dispose().catch(() => {});
       this.#entries.delete(entry.id);
     }
+    this.#titleCache.clear(); // 整项目删除：盘上（非在订）会话的缓存无法逐 id 定位，整体作废
     await fs.rm(path.join(this.#opts.dataDir, "projects", key), {
       recursive: true,
       force: true,

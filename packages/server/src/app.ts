@@ -149,7 +149,8 @@ export function createApp(deps: AppDeps): Hono {
     }
     const entry = await deps.registry.create({ cwd: body.cwd });
     await deps.dirs.upsert(entry.cwd, entry.id); // 带目录建会话 = 自动登记（data-directory §4 权威列表）
-    return c.json({ id: entry.id, cwd: entry.cwd, busy: false });
+    // 形状 = SessionSummary（协议契约）：updatedAt 缺了会让客户端排序/显示拿 undefined
+    return c.json({ id: entry.id, cwd: entry.cwd, updatedAt: Date.now(), busy: false });
   });
 
   app.get("/api/sessions", async (c) => {

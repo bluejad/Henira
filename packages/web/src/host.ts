@@ -44,6 +44,7 @@ import { createSlotRegistry } from "./slot-registry.js";
 import { SINGLE_SLOTS, slotAccepted } from "./slot-vocabulary.js";
 import { RowStore } from "./store.js";
 import { streamingMarkdownNode } from "./streaming-markdown.js";
+import { sanitizeSessionUiState } from "./ui-state-sanitize.js";
 
 /** 整页布局选项（形状真源在 plugin-web-ui types.LayoutOption；API 兼容别名） */
 export type Layout = LayoutOption;
@@ -186,7 +187,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     const doc = uiState;
     if (id === null || doc === undefined) return Promise.resolve();
     if (opts.client.putSessionUiState === undefined) return Promise.resolve(); // 旧宿主端点缺席
-    return opts.client.putSessionUiState(id, doc).catch(() => {});
+    // 内联图 tab 不进 ui-state（内容不是引用，且 64KB 闸会连草稿一起拒掉）
+    return opts.client.putSessionUiState(id, sanitizeSessionUiState(doc)).catch(() => {});
   }
 
   function updateUiState(patch: SessionUiState): void {
@@ -209,7 +211,8 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     void job
       .then((doc) => {
         if (sessionId !== id) return; // 期间用户已切走——丢弃过期文档
-        uiState = doc;
+        // 旧版落盘的 data: 图片 tab 也按新语义丢弃（内联图只活在本页内存）
+        uiState = sanitizeSessionUiState(doc);
         render();
       })
       .catch(() => {

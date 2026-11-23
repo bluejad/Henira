@@ -3092,6 +3092,65 @@ describe("插件页（批 C，plugins.md §6.4 管理面）", () => {
     await waitFor(() => expect(calls.some((c) => c.startsWith("remove:"))).toBe(true));
     confirmSpy.mockRestore();
   });
+
+  it("source 驱动分段（R189）：外圈官方件进内置段、可停用不可卸载", async () => {
+    const base = fixtureCtx();
+    const ctx: WebPartContext = {
+      ...base,
+      client: {
+        ...base.client,
+        listPlugins: async () => ({
+          plugins: [
+            {
+              id: "plugin-session",
+              version: "0.0.0",
+              name: "plugin-session",
+              source: "official" as const,
+              forms: ["engine"] as const,
+              enabled: true,
+              state: "loaded" as const,
+              warnings: [],
+            },
+            {
+              id: "plugin-fs",
+              version: "0.0.0",
+              name: "plugin-fs",
+              source: "official" as const,
+              forms: ["engine"] as const,
+              enabled: true,
+              state: "loaded" as const,
+              warnings: [],
+            },
+            {
+              id: "user-pack",
+              version: "1.0.0",
+              name: "user-pack",
+              source: "managed" as const,
+              forms: ["ui"] as const,
+              enabled: true,
+              state: "loaded" as const,
+              warnings: [],
+            },
+          ],
+          fingerprint: "abc123456789",
+        }),
+        setPluginEnabled: async () => {},
+        removePlugin: async () => {},
+      },
+    };
+    const { container } = render(<SettingsModal ctx={ctx} section="plugins" onClose={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("user-pack"));
+    const sections = [...container.querySelectorAll(".henira-plugin-section")];
+    expect(sections.length).toBe(2);
+    // 内置段 = 官方件全部（含外圈 fs）；内核件无开关、外圈官方件有开关、都无卸载
+    expect(sections[0]?.textContent).toContain("plugin-session");
+    expect(sections[0]?.textContent).toContain("plugin-fs");
+    expect(sections[0]?.querySelectorAll('button[role="switch"]').length).toBe(1);
+    expect(sections[0]?.textContent).not.toContain(zh["settings.plugins.remove"]);
+    // 可管理段 = 目录件（有卸载）
+    expect(sections[1]?.textContent).toContain("user-pack");
+    expect(sections[1]?.textContent).toContain(zh["settings.plugins.remove"]);
+  });
 });
 
 describe("插件页 MCP 详情（C5，D-064）", () => {

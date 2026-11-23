@@ -198,6 +198,16 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     void frames;
   });
 
+  it("会话 updatedAt 随活动推进（R189：列表排序真源，不再停在建会话时刻）", async () => {
+    const { facade } = await form.make([[mockText("回复正文"), mockFinish("stop")]]);
+    const session = await facade.createSession();
+    expect(session.updatedAt).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 5)); // 毫秒分辨率：拉开建会话与首次活动的时戳
+    await facade.prompt(session.id, "问一句");
+    const listed = (await facade.listSessions()).find((s) => s.id === session.id);
+    expect(listed?.updatedAt).toBeGreaterThan(session.updatedAt);
+  });
+
   it("R176：列表事实变化 → 全局 sessions.changed（双形态同形；流式增量不发）", async () => {
     const { facade } = await form.make([
       [mockText("回复正文"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
@@ -417,6 +427,8 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
       expect(ids.has(id)).toBe(true);
     }
     expect(snapshot.plugins.every((p) => p.state === "loaded" && p.enabled)).toBe(true);
+    // 来源标记（R189）：官方件全部 official（管理面据此分段/隐藏卸载）
+    expect(snapshot.plugins.every((p) => p.source === "official")).toBe(true);
     expect(snapshot.fingerprint).toMatch(/^[0-9a-f]{12}$/);
   });
 

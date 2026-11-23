@@ -130,6 +130,8 @@ export interface HeniraClientLike {
       id: string;
       version: string;
       name: string;
+      /** 来源（R188 起；旧服务器缺省 = 按内核五件 id 表回落判定） */
+      source?: "official" | "managed";
       description?: string;
       forms: Array<"engine" | "ui" | "content">;
       enabled: boolean;

@@ -456,6 +456,8 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       projection,
     };
     const onAppend = (event: SessionEvent): void => {
+      // 活动时间真源 = 账本追加（列表排序用；旧实现停在建会话时刻——R188 审查 P2）
+      session.summary.updatedAt = Date.now();
       const deltas = projection
         .ingest(event)
         .map((d): typeof d =>
@@ -563,13 +565,14 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     },
 
     async prompt(sessionId, text, opts) {
-      const receipt = await requireSession(sessions, sessionId)
-        .ctx.get("loop")
-        .send(text, {
-          steer: (opts as { steer?: boolean } | undefined)?.steer,
-          modelId: opts?.modelId,
-          reasoningEffort: opts?.reasoningEffort,
-        });
+      const session = requireSession(sessions, sessionId);
+      // 入队即活动：忙时排队不立即落账，onAppend 摸不到——先摸一次（列表排序真源）
+      session.summary.updatedAt = Date.now();
+      const receipt = await session.ctx.get("loop").send(text, {
+        steer: (opts as { steer?: boolean } | undefined)?.steer,
+        modelId: opts?.modelId,
+        reasoningEffort: opts?.reasoningEffort,
+      });
       return { queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id };
     },
 
@@ -812,6 +815,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
           id: entry.id,
           version: sdkVersion(),
           name: entry.id,
+          source: "official",
           forms: ["engine"],
           enabled,
           state: enabled ? "loaded" : "disabled",

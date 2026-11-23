@@ -15,6 +15,7 @@ import {
   mockToolCall,
   mockUsage,
 } from "@henira/llm-mock";
+import { projectKey, SESSION_LOG_FILE } from "@henira/plugin-session";
 import type { ConfigService, LlmService, ServerFrame, ToolContext } from "@henira/protocol";
 import { QUESTION_CUSTOM_MAX } from "@henira/protocol";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -1071,6 +1072,39 @@ describe("REST 面与设置", () => {
       const settingsAgain = await (await fetch(`${base}/api/settings`)).text();
       expect(settingsAgain).not.toContain("sk-secret-value"); // 明文永不回读
       expect((await fetch(`${base}/api/credentials/deepseek`)).status).toBe(404); // 无 GET 端点
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("会话列表 updatedAt = 账本 mtime（R189：新活动回顶，非目录 mtime）", async () => {
+    const { base, cleanup, dataDir } = await makeServer([]);
+    try {
+      const a = await createSession(base, dataDir);
+      const b = await createSession(base, dataDir);
+      const list = async (): Promise<Array<{ id: string; updatedAt: number }>> =>
+        (await (await fetch(`${base}/api/sessions`)).json()) as Array<{
+          id: string;
+          updatedAt: number;
+        }>;
+      // b 建得晚 → 初次列表 b 在前
+      const first = await list();
+      expect(first[0]?.id).toBe(b);
+
+      // a 的账本追加活动（mtime 推后；目录 mtime 不随文件追加变化）→ a 回顶
+      const logA = path.join(
+        dataDir,
+        "projects",
+        projectKey(dataDir),
+        "sessions",
+        a,
+        SESSION_LOG_FILE,
+      );
+      const future = new Date(Date.now() + 60_000);
+      await fs.utimes(logA, future, future);
+      const second = await list();
+      expect(second[0]?.id).toBe(a);
+      expect(second[0]?.updatedAt).toBeGreaterThan(first[0]?.updatedAt ?? 0);
     } finally {
       await cleanup();
     }
@@ -2139,14 +2173,18 @@ describe("插件装载（批 C：目录发现 + 确认门 + 目录件装配）",
     try {
       await writeProbePack(dataDir);
       const before = (await (await fetch(`${base}/api/plugins`)).json()) as {
-        plugins: { id: string; state: string; forms: string[] }[];
+        plugins: { id: string; state: string; forms: string[]; source?: string }[];
         fingerprint: string;
       };
       const pending = before.plugins.find((p) => p.id === "probe-pack");
       expect(pending?.state).toBe("awaiting-confirm");
+      expect(pending?.source).toBe("managed"); // 目录件来源（R189）
       expect(pending?.forms).toContain("engine");
-      // 官方五件在列（source official 由 UI 侧区分；状态 loaded）
+      // 官方件在列（source official 由 UI 侧区分；状态 loaded）——含外圈 fs（R189）
       expect(before.plugins.some((p) => p.id === "plugin-loop" && p.state === "loaded")).toBe(true);
+      expect(before.plugins.some((p) => p.id === "plugin-fs" && p.source === "official")).toBe(
+        true,
+      );
       expect(before.fingerprint).toMatch(/^[0-9a-f]{12}$/);
 
       // 未确认 = fail-closed：会话里没有 probe 槽

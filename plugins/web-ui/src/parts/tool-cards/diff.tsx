@@ -239,14 +239,28 @@ export function DiffTotals({
   );
 }
 
+/** diff 展开体：token 化只随展开体挂载（收起态/无变更不 token；R189 懒加载）。 */
+function EditDiffBody(props: {
+  ctx: WebPartContext;
+  rows: DiffRow[];
+  oldText: string;
+  newText: string;
+  path: string;
+}): React.ReactNode {
+  const tokens = useDiffTokens(props.ctx, props.oldText, props.newText, props.path);
+  return (
+    <div className="henira-tool-card">
+      <DiffRowsView rows={props.rows} tokens={tokens} />
+    </div>
+  );
+}
+
 /** edit 卡：old/new 从行 input JSON 解析；行本身可展开看 diff。 */
 export function EditCard({ row, ctx }: CardProps): React.ReactNode {
   const input = parseInput(row);
   const oldText = input === null ? null : str(input.old_string);
   const newText = input === null ? null : str(input.new_string);
   const filePath = input === null ? null : (str(input.file_path) ?? str(input.path));
-  // hooks 必须在任何早退之前（行数据可能从 running 变 done，早退分支会变）
-  const tokens = useDiffTokens(ctx, oldText ?? "", newText ?? "", filePath ?? "");
   if (oldText === null || newText === null || filePath === null) {
     return <ToolView row={row} ctx={ctx} />;
   }
@@ -307,9 +321,7 @@ export function EditCard({ row, ctx }: CardProps): React.ReactNode {
       status={toolFailure(row, ctx.t)}
       statusTitle={failureTitle(row)}
     >
-      <div className="henira-tool-card">
-        <DiffRowsView rows={diffRows} tokens={tokens} />
-      </div>
+      <EditDiffBody ctx={ctx} rows={diffRows} oldText={oldText} newText={newText} path={filePath} />
     </ToolRow>
   );
 }

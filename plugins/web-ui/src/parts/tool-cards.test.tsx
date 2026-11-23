@@ -320,8 +320,10 @@ describe("EditCard（diff 卡）", () => {
     expect(text).not.toContain(t("tool.params"));
   });
 
-  it("diff 高亮（R188）：宿主 tokenizeCode → 差异行按 token 着色", async () => {
+  it("diff 高亮（R188）：展开才 token 化（R189 懒加载）→ 差异行按 token 着色", async () => {
+    let calls = 0;
     const tokenizeCode = async (code: string) => {
+      calls += 1;
       const tail = code.includes("2;") ? " = 2;" : " = 1;";
       return [
         [
@@ -344,12 +346,32 @@ describe("EditCard（diff 卡）", () => {
         ctx: hlCtx,
       }),
     );
+    expect(calls).toBe(0); // 收起态不 token 化
     fireEvent.click(
       view.container.querySelector('[role="button"][aria-expanded="false"]') as HTMLElement,
     );
     await waitFor(() => {
       expect(view.container.querySelector('.henira-diff-text span[style*="color"]')).not.toBeNull();
     });
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  it("无变更卡不触发 tokenize（R189：diff 体不存在，token 化随展开体挂载）", () => {
+    let calls = 0;
+    const tokenizeCode = async () => {
+      calls += 1;
+      return [[{ content: "x" }]];
+    };
+    const lazyCtx = { t, host: { tokenizeCode } } as unknown as WebPartContext;
+    render(
+      createElement(EditCard, {
+        row: editRow({
+          input: JSON.stringify({ file_path: "demo.ts", old_string: "same", new_string: "same" }),
+        }),
+        ctx: lazyCtx,
+      }),
+    );
+    expect(calls).toBe(0);
   });
 
   it("replacements > 1 不再上摘要（差异由 diff 本身表达）", () => {
