@@ -626,12 +626,16 @@ test("R176: zero list requests while streaming + cross-window push sync", async 
     expect(listHits.length).toBe(hitsBeforeStream); // 跨窗流式同样零请求
     await shot(page, "r176-02-cross-window.png");
 
-    // ④ 双窗口删除：页 A 跟随列表事实（会话消失）
+    // ④ 双窗口删除：页 A 跟随列表事实（会话消失）；页 B 正看着被删会话 → 跨窗口回落
+    await expect(page2.locator('.henira-sessions li button[data-active="true"]')).toHaveCount(1);
     const victim = (await srv.registry.list()).find((s) => s.id !== entry.id)?.id;
     expect(victim).toBeDefined();
     const del = await fetch(`${srv.url}/api/sessions/${victim as string}`, { method: "DELETE" });
     expect(del.status).toBe(200);
     await expect(page.locator(".henira-sessions li")).toHaveCount(before);
+    // R185 收尾：页 B 不再停在已删会话（先等列表刷新落定，再看回落选中恰好一行）
+    await expect(page2.locator(".henira-sessions li")).toHaveCount(1);
+    await expect(page2.locator('.henira-sessions li button[data-active="true"]')).toHaveCount(1);
   } finally {
     await page2?.close();
     await srv.stop();

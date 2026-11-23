@@ -6,7 +6,13 @@ import { DirectoryDialog } from "../directory-dialog.js";
 import { CaretGlyph } from "../icons.js";
 import { ContextMenu } from "./context-menu.js";
 import { DeleteConfirm } from "./delete-confirm.js";
-import { buildGroups, type MenuState, type PendingDelete, sameCwd } from "./groups.js";
+import {
+  buildGroups,
+  type MenuState,
+  type PendingDelete,
+  pickFallback,
+  sameCwd,
+} from "./groups.js";
 import { SessionRow } from "./row.js";
 
 export const SessionList: WebPart = (ctx: WebPartContext) => {
@@ -88,6 +94,21 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  // 跨窗口回落（R185 收尾）：列表刷新后校验选中——别的窗口删了本窗正在看的会话时，
+  // 本窗只收到 sessions.changed（帧不带载荷），靠这次列表对比补上动作。
+  // 守卫：只认「选中会话在上一版列表里、新版没了」——首次装载（上一版空）与拉取失败保旧
+  // 列表都不误清；busy 点就地翻新（R176）会让列表对象变但会话仍在，同样不动作。
+  const prevSessionsRef = useRef<readonly SessionSummary[]>([]);
+  useEffect(() => {
+    const prev = prevSessionsRef.current;
+    prevSessionsRef.current = sessions;
+    if (ctx.sessionId === null || prev === sessions) return;
+    const before = prev.find((s) => s.id === ctx.sessionId);
+    if (before === undefined) return;
+    if (sessions.some((s) => s.id === ctx.sessionId)) return;
+    ctx.selectSession(pickFallback(sessions, before.cwd ?? "")?.id ?? null);
+  }, [sessions, ctx.sessionId, ctx.selectSession]);
 
   // 列表信号订阅（先订阅再首载：装载窗口内的变化不丢）：
   // sessions.changed = 列表事实变 → 去抖重载；state.updated = busy 推送翻内存（零请求）；
@@ -390,9 +411,7 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
               if (removed.has(ctx.sessionId)) {
                 const remaining = sessions.filter((s) => !removed.has(s.id));
                 const cwd = pending.kind === "session" ? (pending.session.cwd ?? "") : null;
-                const sibling =
-                  cwd === null ? undefined : remaining.find((s) => sameCwd(s.cwd ?? "", cwd));
-                ctx.selectSession((sibling ?? remaining[0])?.id ?? null);
+                ctx.selectSession(pickFallback(remaining, cwd)?.id ?? null);
               }
             }
             setPending(null);

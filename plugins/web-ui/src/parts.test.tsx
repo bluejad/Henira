@@ -646,6 +646,64 @@ describe("SessionList", () => {
     });
   });
 
+  it("跨窗口：列表刷新后选中会话消失 → 本窗口回落（同目录下一条优先）", async () => {
+    let phase = 1;
+    const listSessions = vi.fn(async () =>
+      phase === 1
+        ? [
+            { id: "s-1", cwd: "C:\\demo", updatedAt: 3, busy: false },
+            { id: "s-3", cwd: "C:\\other", updatedAt: 2, busy: false },
+            { id: "s-2", cwd: "C:\\demo", updatedAt: 1, busy: false },
+          ]
+        : [
+            { id: "s-3", cwd: "C:\\other", updatedAt: 2, busy: false },
+            { id: "s-2", cwd: "C:\\demo", updatedAt: 1, busy: false },
+          ],
+    );
+    const { ctx, emit } = signalFixture({
+      client: { ...fixtureCtx().client, listSessions },
+    });
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(2); // demo 组展开
+    });
+    expect(ctx.selectSession).not.toHaveBeenCalled(); // 首次装载不误清
+    phase = 2;
+    emit({ kind: "sessions.changed" }); // 别的窗口删了选中会话 → 本窗收到列表信号
+    await waitFor(() => {
+      expect(listSessions).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(ctx.selectSession).toHaveBeenCalledWith("s-2"); // 同目录下一条（不是列表首个 s-3）
+    });
+  });
+
+  it("跨窗口：消失的不是选中会话 → 不动选中", async () => {
+    let phase = 1;
+    const listSessions = vi.fn(async () =>
+      phase === 1
+        ? [
+            { id: "s-1", cwd: "C:\\demo", updatedAt: 2, busy: false },
+            { id: "s-2", cwd: "C:\\other", updatedAt: 1, busy: false },
+          ]
+        : [{ id: "s-1", cwd: "C:\\demo", updatedAt: 2, busy: false }],
+    );
+    const { ctx, emit } = signalFixture({
+      client: { ...fixtureCtx().client, listSessions },
+    });
+    const { container } = render(<SessionList {...ctx} />);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".henira-sessions li")).toHaveLength(1);
+    });
+    phase = 2;
+    emit({ kind: "sessions.changed" });
+    await waitFor(() => {
+      expect(listSessions).toHaveBeenCalledTimes(2);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(ctx.selectSession).not.toHaveBeenCalled();
+  });
+
   it("新增目录弹窗：browseDirs 树渲染 + 确认走 addDir(路径)；Escape 关闭", async () => {
     const client: HeniraClientLike = {
       ...fixtureCtx().client,

@@ -64,6 +64,19 @@ function buildGroups(
   return groups;
 }
 
+/** 选中会话消失后的回落：同目录下一条优先 → 列表首个 → undefined（清空由调用方发 null）。
+ *  单窗口删除确认与跨窗口列表刷新校验共用同一规则，避免两处判断漂移（R185 收尾） */
+function pickFallback(
+  remaining: readonly SessionSummary[],
+  cwdHint: string | null,
+): SessionSummary | undefined {
+  if (cwdHint !== null) {
+    const sibling = remaining.find((s) => sameCwd(s.cwd ?? "", cwdHint));
+    if (sibling !== undefined) return sibling;
+  }
+  return remaining[0];
+}
+
 type PendingDelete =
   | { kind: "dir"; dir: RegisteredDir }
   | { kind: "session"; session: SessionSummary };
@@ -74,4 +87,4 @@ type MenuState =
   | null;
 
 export type { DirGroup, MenuState, PendingDelete };
-export { buildGroups, dirBasename, groupByCwd, sameCwd };
+export { buildGroups, dirBasename, groupByCwd, pickFallback, sameCwd };
