@@ -154,3 +154,64 @@ test("preview seam: plugin body takes over .txt, disable falls back to official"
     await fs.rm(path.join(process.cwd(), "e2e-preview.txt"), { force: true }).catch(() => {});
   }
 });
+
+// ── R196：右栏最大化几何归一——全屏预览仍可向下滚动（内联/类两套几何曾让 --max 丢 flex）──
+
+test("maximized right panel keeps the preview scrollable", async ({ page }) => {
+  const { server, stop } = await startServer();
+  const sessionDir = await fs.mkdtemp(path.join(tmpdir(), "henira-max-preview-"));
+  try {
+    const lines = Array.from({ length: 400 }, (_, i) => `line ${i} — 0123456789 abcdefghij`);
+    await fs.writeFile(path.join(sessionDir, "e2e-big.md"), lines.join("\n"), "utf8");
+    const session = await server.registry.create({ cwd: sessionDir });
+    const put = async (url: string, body: unknown): Promise<void> => {
+      const res = await fetch(`${server.url}${url}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(res.ok).toBe(true);
+    };
+    await put("/api/ui-state", { lastSessionId: session.id });
+    await put(`/api/sessions/${session.id}/ui-state`, {
+      rightPanel: {
+        open: true,
+        active: "p-big",
+        tabs: [{ id: "p-big", kind: "preview-file", path: "e2e-big.md", title: "e2e-big.md" }],
+      },
+    });
+
+    await page.goto(server.url);
+    const scroller = page.locator(".henira-right-preview");
+    await expect(scroller).toBeVisible({ timeout: 20_000 });
+    await expect(scroller.locator(".henira-preview-text")).toContainText("line 0");
+    // 普通态：预览体本身是滚动容器
+    await expect
+      .poll(async () => await scroller.evaluate((el) => el.scrollHeight > el.clientHeight))
+      .toBe(true);
+    await scroller.hover();
+    await page.mouse.wheel(0, 1_200);
+    await expect.poll(async () => await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
+    // 最大化：同一个滚动体仍受高度约束（R196 前此处 scrollHeight == clientHeight，滚不动）
+    await page.getByRole("button", { name: zh["rightPanel.maximize"] }).click();
+    await expect(page.locator(".henira-right-panel--max")).toBeVisible();
+    await expect
+      .poll(async () => await scroller.evaluate((el) => el.scrollHeight > el.clientHeight))
+      .toBe(true);
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await scroller.hover();
+    await page.mouse.wheel(0, 1_200);
+    await expect.poll(async () => await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await shot(page, "03-maximized-preview-scrollable.png");
+
+    // 还原 → 不再覆盖视口
+    await page.getByRole("button", { name: zh["rightPanel.restore"] }).click();
+    await expect(page.locator(".henira-right-panel--max")).toHaveCount(0);
+  } finally {
+    await stop();
+    await fs.rm(sessionDir, { recursive: true, force: true }).catch(() => {});
+  }
+});

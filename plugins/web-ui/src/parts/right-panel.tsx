@@ -116,13 +116,10 @@ function RightPanelView(props: {
   };
 
   return (
+    // 几何（flex 列 + 满高）在 .henira-right-panel 基类里；--max 只换定位（R196：内联/类
+    // 两套几何曾让最大化的 body 失去 flex 约束 → 全屏预览滚不动）
     <div
       className={maximized ? "henira-right-panel henira-right-panel--max" : "henira-right-panel"}
-      style={
-        maximized
-          ? undefined
-          : { display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }
-      }
     >
       <div className="henira-right-tabs">
         <span className="henira-right-tablist-wrap" ref={listRef}>
