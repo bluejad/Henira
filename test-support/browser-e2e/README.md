@@ -15,7 +15,7 @@ pnpm --filter @henira/e2e-browser exec playwright install chromium   # 首次
 pnpm test:e2e
 ```
 
-CI 同序（workflow 内 `--with-deps chromium` 装 OS 依赖），截图上传为 artifact（`artifacts/`，不入库）。
+CI 同序（workflow 内 `--with-deps chromium` 装 OS 依赖），截图上传为 artifact（`artifacts/`，不入库）；失败时另传 Playwright trace + error-context（`test-results/`，保留 7 天，排查慢机 flake 的现场）。
 
 真 key 采样（**不进 CI**）：`HENIRA_REAL=1 pnpm exec playwright test src/real.e2e.ts`——起真 `henira serve`（读用户真实 `~/.henira/config`），对 models.json 里每家 provider 逐形态真实 prompt（markdown/代码块/表格/长输出），截图 `artifacts/real/`。凭据纪律 D-030：key 只在 credentials.json，永不进代码/日志/CI。
 
