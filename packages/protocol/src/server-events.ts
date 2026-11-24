@@ -99,8 +99,8 @@ export interface ApprovalRow {
   /** "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交
    * （settle 端点 z.enum(DECISIONS) 不含它，尝试即 400） */
   decision?: Decision | "invalidated";
-  /** 会话级允许标记（decided{scope:'session'} 投影——settled 留痕「· 本会话」） */
-  scope?: "session";
+  /** 允许范围标记（decided{scope} 投影——settled 留痕「· 本会话/本项目」） */
+  scope?: "session" | "project";
 }
 
 export interface QuestionRow {

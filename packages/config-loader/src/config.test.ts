@@ -96,6 +96,77 @@ describe("ConfigService（D-013②）", () => {
     const svc = await service();
     expect(await svc.permissionRules()).toEqual([]);
     expect(await svc.get("x")).toBeUndefined();
+    expect(await svc.projectPermissionRules()).toEqual([]); // 缺 projectDir 同样空表
+  });
+
+  it("R198 projectPermissionRules()：项目文件读取 + 窄化；全局表不混入项目规则", async () => {
+    const projectDir = path.join(globalDir, "project");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "permissions.json"),
+      JSON.stringify({
+        version: 1,
+        rules: [
+          { match: { tool: "bash", commandExact: "git status" }, decision: "allow" },
+          { match: { tool: "bash", commandExact: "" }, decision: "allow" }, // 空命令非法
+          { match: { tool: "x" }, decision: "maybe" },
+        ],
+      }),
+      "utf8",
+    );
+    const svc = await service({ projectDir });
+    expect(await svc.projectPermissionRules()).toEqual([
+      { match: { tool: "bash", commandExact: "git status" }, decision: "allow" },
+    ]);
+    // 合并职责在 approval 链，配置层两表分开（语义可辨）
+    expect(await svc.permissionRules()).toEqual([]);
+  });
+
+  it("R198 addProjectPermissionRule()：建文件（version + 缩进）/同条幂等/保留顶层字段", async () => {
+    const projectDir = path.join(globalDir, "proj-add");
+    await fs.mkdir(projectDir, { recursive: true });
+    const file = path.join(projectDir, "permissions.json");
+    await fs.writeFile(file, JSON.stringify({ version: 1, note: "keep-me", rules: [] }), "utf8");
+    const svc = await service({ projectDir });
+    const rule = {
+      match: { tool: "bash", commandExact: "npm test" },
+      decision: "allow" as const,
+    };
+    await svc.addProjectPermissionRule(rule);
+    await svc.addProjectPermissionRule(rule); // 幂等
+    const raw = JSON.parse(await fs.readFile(file, "utf8")) as {
+      version: number;
+      note: string;
+      rules: unknown[];
+    };
+    expect(raw.version).toBe(1);
+    expect(raw.note).toBe("keep-me");
+    expect(raw.rules).toEqual([rule]);
+    expect(await fs.readFile(file, "utf8")).toContain('\n  "rules"'); // 2 空格格式化落盘
+    // 无项目目录 = 项目层不可写（嵌入式零配置）
+    await expect((await service()).addProjectPermissionRule(rule)).rejects.toThrow(
+      /project directory/,
+    );
+  });
+
+  it("R198 addProjectPermissionRule()：既有文件损坏/非对象 → 拒绝写入、原文件不动", async () => {
+    const projectDir = path.join(globalDir, "proj-broken");
+    await fs.mkdir(projectDir, { recursive: true });
+    const file = path.join(projectDir, "permissions.json");
+    const svc = await service({ projectDir });
+    const rule = {
+      match: { tool: "bash", commandExact: "npm test" },
+      decision: "allow" as const,
+    };
+    // 手改坏一处语法：整份重写会静默丢掉其他规则——必须拒绝且不碰文件
+    const broken = '{\n  "version": 1,\n  "rules": [\n';
+    await fs.writeFile(file, broken, "utf8");
+    await expect(svc.addProjectPermissionRule(rule)).rejects.toThrow();
+    expect(await fs.readFile(file, "utf8")).toBe(broken);
+    // 顶层不是对象（数组/null）同款：不覆盖
+    await fs.writeFile(file, "[]", "utf8");
+    await expect(svc.addProjectPermissionRule(rule)).rejects.toThrow();
+    expect(await fs.readFile(file, "utf8")).toBe("[]");
   });
 });
 

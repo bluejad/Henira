@@ -12,7 +12,7 @@ export {
 export { ForkCutOutOfRangeError, type ForkOptions, forkSession } from "./fork.js";
 export { acquireSessionLock, type SessionLock, SessionLockedError } from "./lock.js";
 export { type SessionPluginOptions, sessionPlugin } from "./plugin.js";
-export { projectKey } from "./project-key.js";
+export { isProjectKey, projectKey } from "./project-key.js";
 export {
   readSessionFile,
   readSessionHeader,

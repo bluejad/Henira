@@ -5,6 +5,11 @@
 import type {
   DirBrowse,
   GlobalUiState,
+  PermissionProjectsView,
+  PermissionProjectView,
+  PermissionRule,
+  PermissionRulesView,
+  PermissionSnapshot,
   PromptReceipt,
   RegisteredDir,
   RowsPage,
@@ -181,6 +186,56 @@ export function createClient(opts: ClientOptions): HeniraFacade {
         },
       );
       return res.applied;
+    },
+
+    async sessionPermissions(sessionId) {
+      return requestJson<PermissionSnapshot>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/permissions`,
+      );
+    },
+
+    async revokeSessionApprovals(sessionId, opts) {
+      await requestJson<{ ok: boolean }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/permissions/session/revoke`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...(opts?.tool !== undefined ? { tool: opts.tool } : {}),
+            ...(opts?.rule !== undefined ? { rule: opts.rule } : {}),
+          }),
+        },
+      );
+    },
+
+    async permissionProjects(sessionId) {
+      const query = sessionId === undefined ? "" : `?sessionId=${encodeURIComponent(sessionId)}`;
+      return requestJson<PermissionProjectsView>(`/api/permissions/projects${query}`);
+    },
+
+    async projectPermissions(id) {
+      return requestJson<PermissionProjectView>(
+        `/api/permissions/projects/${encodeURIComponent(id)}`,
+      );
+    },
+
+    async removeProjectPermissionRule(id, rule) {
+      const res = await requestJson<{ ok: boolean; removed: number }>(
+        `/api/permissions/projects/${encodeURIComponent(id)}/remove`,
+        { method: "POST", body: JSON.stringify({ rule }) },
+      );
+      return res.removed;
+    },
+
+    async globalPermissions() {
+      return requestJson<PermissionRulesView>("/api/permissions/global");
+    },
+
+    async removeGlobalPermissionRule(rule: PermissionRule) {
+      const res = await requestJson<{ ok: boolean; removed: number }>(
+        "/api/permissions/global/remove",
+        { method: "POST", body: JSON.stringify({ rule }) },
+      );
+      return res.removed;
     },
 
     async settleQuestion(sessionId, requestId, answer) {

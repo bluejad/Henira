@@ -11,6 +11,12 @@ import type {
   SessionAttachment,
 } from "@henira/protocol";
 import { Dictionary, type ModelsOverrideFile } from "./dictionary.js";
+import {
+  addPermissionRule,
+  globalPermissionsPath,
+  projectPermissionsPath,
+  readPermissionRules,
+} from "./permissions.js";
 
 export class CredentialMissingError extends Error {
   constructor(providerId: string) {
@@ -33,6 +39,9 @@ export interface ConfigLoaderOptions {
   cwd: string;
   /** 全局配置目录（缺省 ~/.henira/config；测试注入临时目录） */
   globalDir: string;
+  /** 项目数据目录（<dataDir>/projects/<projectKey>；R198 项目权限规则住这里的
+   *  permissions.json）。缺省 = 不启用项目层（嵌入式零配置） */
+  projectDir?: string;
   /** 测试注入 fetch（undefined = 不拉取，快照/缓存兜底） */
   fetchImpl?: typeof fetch;
 }
@@ -71,6 +80,8 @@ export interface HeniraConfigService extends ConfigService {
 export function createConfigService(opts: ConfigLoaderOptions): HeniraConfigService {
   const dictionary = new Dictionary(opts.globalDir, opts.fetchImpl);
   let loaded = false;
+  const projectRulesPath =
+    opts.projectDir === undefined ? undefined : projectPermissionsPath(opts.projectDir);
 
   async function readJson<T>(file: string): Promise<T | undefined> {
     try {
@@ -123,20 +134,20 @@ export function createConfigService(opts: ConfigLoaderOptions): HeniraConfigServ
     },
 
     async permissionRules(): Promise<readonly PermissionRule[]> {
-      const file = await readJson<{ rules?: unknown[] }>("permissions.json");
-      const rules = file?.rules ?? [];
-      const valid: PermissionRule[] = [];
-      for (const rule of rules) {
-        const r = rule as Partial<PermissionRule>;
-        if (
-          typeof r.match?.tool === "string" &&
-          (r.decision === "allow" || r.decision === "deny")
-        ) {
-          valid.push({ match: r.match, decision: r.decision });
-        }
-        // 非法条目静默跳过（可手改文件——坏行不该炸会话；规则错了补审计没有意义）
+      return (await readPermissionRules(globalPermissionsPath(opts.globalDir))).rules;
+    },
+
+    async projectPermissionRules(): Promise<readonly PermissionRule[]> {
+      if (projectRulesPath === undefined) return [];
+      return (await readPermissionRules(projectRulesPath)).rules;
+    },
+
+    async addProjectPermissionRule(rule: PermissionRule): Promise<void> {
+      if (projectRulesPath === undefined) {
+        throw new Error("no project directory configured for project permission rules");
       }
-      return valid;
+      // 保留顶层字段、canonical 幂等、坏文件拒绝覆盖——见 permissions.ts（R199 管理面共用）
+      await addPermissionRule(projectRulesPath, rule);
     },
 
     async refreshDictionary() {

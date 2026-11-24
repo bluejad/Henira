@@ -247,6 +247,8 @@ export class SessionStore {
     }
     if (
       (input.type.startsWith("approval/") || input.type.startsWith("question/")) &&
+      // 撤销是设置动作不是审批记录（R198）：UI 可在回合之外收回允许，闸不拦
+      input.type !== "approval/revoked" &&
       this.openTurn === null &&
       opts?.repair !== true
     ) {

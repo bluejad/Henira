@@ -22,10 +22,17 @@ type Decision = "allowed-once" | "rejected";
 /** 键盘直选的模块级互斥登记（审查 F8）：同屏多 Shell 时后挂者胜——Enter/Esc 只命中一张 */
 let activeKeyHandler: ((e: KeyboardEvent) => void) | undefined;
 
-/** 工具族 → 是否提供「本会话允许」（bash/powershell 不提供——四仓一致谨慎：CC/ZCode 对
- * bash 只给前缀级规则，工具级整会话放行过宽；前缀级随 permissions.json 写路径挂账） */
-function sessionAllowable(toolName: string): boolean {
-  return toolName !== "bash" && toolName !== "powershell";
+/** 命令类工具（R198）：本会话/本项目允许都落「精确命令」规则（同命令才免问）；
+ *  其余工具保留工具级本会话允许（旧形状）。工具级项目放行过宽，不提供。 */
+function shellTool(toolName: string): boolean {
+  return toolName === "bash" || toolName === "powershell";
+}
+
+/** args.command 窄化：非空字符串才算可落精确规则（否则退回工具级/一次） */
+function commandOf(args: unknown): string | undefined {
+  if (args === null || typeof args !== "object" || Array.isArray(args)) return undefined;
+  const command = (args as { command?: unknown }).command;
+  return typeof command === "string" && command.trim() !== "" ? command : undefined;
 }
 
 /** 审批卡外壳（导出——第三方 keyed 顶替件复用同一 chrome，D-057 观感协调）：warn 边框卡 +
@@ -49,7 +56,7 @@ export function ApprovalCardShell(props: {
   const [settling, setSettling] = useState(false);
   const pending = row.status === "pending" && !settling;
 
-  const decide = (decision: Decision, scope?: "session"): void => {
+  const decide = (decision: Decision, scope?: "session" | "project"): void => {
     if (ctx.sessionId === null) return;
     setSettling(true);
     props.onDecided?.(row.requestId); // 乐观摘卡（点击即走——失败走 onDecideFailed 回滚）
@@ -105,21 +112,43 @@ export function ApprovalCardShell(props: {
     };
   });
 
-  const allowSession = sessionAllowable(row.toolName);
+  // 精确命令范围（R198）：命令类工具且命令在场——会话允许落规则、并多给项目级选项；
+  // 命令类但命令缺失 = 无精度可用，会话级也不给（工具级 bash 放行过宽）
+  const shell = shellTool(row.toolName);
+  const preciseCommand = shell && commandOf(row.args) !== undefined;
   // 选项行（参照：编号 + 主文案 + 说明；点击即决定——保留本仓一键应答语义）
-  const options: { label: string; description: string; decision: Decision; scope?: "session" }[] = [
+  const options: {
+    label: string;
+    description: string;
+    decision: Decision;
+    scope?: "session" | "project";
+  }[] = [
     {
       label: ctx.t("approval.allow"),
       description: ctx.t("approval.allowDesc"),
       decision: "allowed-once",
     },
-    ...(allowSession
+    ...(!shell || preciseCommand
       ? [
           {
-            label: ctx.t("approval.sessionAllow"),
-            description: ctx.t("approval.sessionAllowDesc"),
+            label: preciseCommand
+              ? ctx.t("approval.sessionAllowCommand")
+              : ctx.t("approval.sessionAllow"),
+            description: preciseCommand
+              ? ctx.t("approval.sessionAllowCommandDesc")
+              : ctx.t("approval.sessionAllowDesc"),
             decision: "allowed-once" as const,
             scope: "session" as const,
+          },
+        ]
+      : []),
+    ...(preciseCommand
+      ? [
+          {
+            label: ctx.t("approval.projectAllowCommand"),
+            description: ctx.t("approval.projectAllowCommandDesc"),
+            decision: "allowed-once" as const,
+            scope: "project" as const,
           },
         ]
       : []),
@@ -270,9 +299,11 @@ export function ApprovalSettledRow({
       : row.decision === "invalidated"
         ? ctx.t("approval.decision.invalidated")
         : allowed
-          ? row.scope === "session"
-            ? ctx.t("approval.decision.session")
-            : ctx.t("approval.decision.allowed")
+          ? row.scope === "project"
+            ? ctx.t("approval.decision.project")
+            : row.scope === "session"
+              ? ctx.t("approval.decision.session")
+              : ctx.t("approval.decision.allowed")
           : ctx.t("approval.decision.rejected");
   const args =
     row.args !== null && typeof row.args === "object" && !Array.isArray(row.args)

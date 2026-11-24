@@ -35,7 +35,11 @@ function sessionStub(): ServiceDefinition & { service: never } {
     start() {
       return {
         async append(input: { type: string; data: unknown }) {
-          if (input.type.startsWith("approval/") && openTurn === undefined) {
+          if (
+            input.type.startsWith("approval/") &&
+            input.type !== "approval/revoked" &&
+            openTurn === undefined
+          ) {
             throw new Error("requires an open turn");
           }
           if (input.type === "turn/start") openTurn = (input.data as { turn: string }).turn;
@@ -88,24 +92,41 @@ function interactionStub(
   } as never;
 }
 
-function configStub(rules: PermissionRule[]): ServiceDefinition {
-  return {
+function configStub(
+  rules: PermissionRule[],
+  project: PermissionRule[] = [],
+): { def: ServiceDefinition; added: PermissionRule[] } {
+  const added: PermissionRule[] = [];
+  const def = {
     name: "config",
     start() {
-      return { permissionRules: async () => rules };
+      return {
+        permissionRules: async () => rules,
+        projectPermissionRules: async () => project,
+        addProjectPermissionRule: async (rule: PermissionRule) => {
+          added.push(rule);
+          project.push(rule);
+        },
+      };
     },
-  };
+  } as ServiceDefinition;
+  return { def, added };
 }
 
 const readTool = { read: true };
 const writeTool = { write: false };
 const bashTool = { bash: false };
 
-async function startedHarness(interaction: ServiceDefinition, rules: PermissionRule[] = []) {
+async function startedHarness(
+  interaction: ServiceDefinition,
+  rules: PermissionRule[] = [],
+  project: PermissionRule[] = [],
+) {
+  const config = configStub(rules, project);
   const harness = createHarness()
     .use(sessionStub())
     .use(toolsStub({ ...readTool, ...writeTool, ...bashTool }))
-    .use(configStub(rules))
+    .use(config.def)
     .use(interaction)
     .use(approvalPlugin());
   await harness.start();
@@ -117,7 +138,7 @@ async function startedHarness(interaction: ServiceDefinition, rules: PermissionR
   } as never);
   ctx.events.emit("turn/start", { turn: "t1" });
   ctx.events.emit("step/start", { turn: "t1", step: 1 });
-  return { harness, ctx, events: harness.context };
+  return { harness, ctx, events: harness.context, config };
 }
 
 const askOpts = (floor?: "ask", signal?: AbortSignal): ApprovalOptions => ({ floor, signal });
@@ -327,11 +348,146 @@ describe("判定链全序（tools-approval §3）", () => {
     await harness.dispose();
   });
 
+  it("R198 会话级命令规则：bash 点「本会话允许」落精确 rule；同命令免问、异命令再问", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "session",
+      }),
+      (req) => ({ kind: "approval", requestId: req.requestId, decision: "allowed-once" }),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    const approval = approvalOf(ctx);
+    expect(
+      await approval.requestPermission({ tool: "bash", args: { command: "git status" } }),
+    ).toBe("allowed-once");
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    expect(decided?.data).toMatchObject({
+      scope: "session",
+      rule: { match: { tool: "bash", commandExact: "git status" }, decision: "allow" },
+    });
+    // 同命令：折叠命中，不问
+    expect(
+      await approval.requestPermission({ tool: "bash", args: { command: "git status" } }),
+    ).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(1);
+    // 异命令：规则不覆盖，照问
+    expect(await approval.requestPermission({ tool: "bash", args: { command: "git log" } })).toBe(
+      "allowed-once",
+    );
+    expect(interaction.requests).toHaveLength(2);
+    await harness.dispose();
+  });
+
+  it("R198 撤销会话允许：清空规则后同命令恢复询问", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "session",
+      }),
+      (req) => ({ kind: "approval", requestId: req.requestId, decision: "allowed-once" }),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    const approval = approvalOf(ctx);
+    const session = sessionOf(ctx);
+    await approval.requestPermission({ tool: "bash", args: { command: "npm test" } });
+    await session.append({ type: "approval/revoked", data: { scope: "session" } });
+    expect(await approval.requestPermission({ tool: "bash", args: { command: "npm test" } })).toBe(
+      "allowed-once",
+    );
+    expect(interaction.requests).toHaveLength(2); // 撤销后重新问了
+    await harness.dispose();
+  });
+
+  it("R198 项目级命令规则：写项目配置 + decided{scope:'project',rule}；同命令免问", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "project",
+      }),
+      new Error("must not be asked again"),
+    ]);
+    const { harness, ctx, config } = await startedHarness(interaction);
+    const approval = approvalOf(ctx);
+    expect(
+      await approval.requestPermission({ tool: "bash", args: { command: "npm run build" } }),
+    ).toBe("allowed-once");
+    expect(config.added).toEqual([
+      { match: { tool: "bash", commandExact: "npm run build" }, decision: "allow" },
+    ]);
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    expect(decided?.data).toMatchObject({
+      scope: "project",
+      rule: { match: { tool: "bash", commandExact: "npm run build" }, decision: "allow" },
+    });
+    // 第二次同命令：规则层命中（项目文件里的规则），不问
+    expect(
+      await approval.requestPermission({ tool: "bash", args: { command: "npm run build" } }),
+    ).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(1);
+    await harness.dispose();
+  });
+
+  it("R198 非命令工具点项目级 → 不写项目规则，按一次放行", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "project",
+      }),
+    ]);
+    const { harness, ctx, config } = await startedHarness(interaction);
+    expect(
+      await approvalOf(ctx).requestPermission({ tool: "write", args: { file_path: "a.txt" } }),
+    ).toBe("allowed-once");
+    expect(config.added).toHaveLength(0);
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    const data = decided?.data as { scope?: string } | undefined;
+    expect(data?.scope).toBeUndefined();
+    await harness.dispose();
+  });
+
+  it("R198 项目级 deny 规则同样压倒会话允许（链首）", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "session",
+      }),
+    ]);
+    const { harness, ctx } = await startedHarness(
+      interaction,
+      [],
+      [{ match: { tool: "bash", commandExact: "npm run deploy" }, decision: "deny" }],
+    );
+    const approval = approvalOf(ctx);
+    // 会话规则先允许同命令，但项目 deny 在一切允许之前
+    await approval.requestPermission({ tool: "bash", args: { command: "npm test" } });
+    expect(
+      await approval.requestPermission({ tool: "bash", args: { command: "npm run deploy" } }),
+    ).toBe("rejected");
+    await harness.dispose();
+  });
+
   it("没有打开回合 → unavailable（无审计；store NoOpenTurnError 的上游双保险）", async () => {
     const harness = createHarness()
       .use(sessionStub())
       .use(toolsStub({ read: true }))
-      .use(configStub([]))
+      .use(configStub([]).def)
       .use(interactionStub([]))
       .use(approvalPlugin());
     await harness.start();
@@ -552,7 +708,7 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
             kind: "approval",
             requestId: req.requestId,
             decision: "allowed-once",
-            scope: "project",
+            scope: "forever",
           }) as unknown as InteractionAnswer,
       ]),
     );

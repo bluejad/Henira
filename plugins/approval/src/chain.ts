@@ -60,23 +60,40 @@ export function isDisasterCommand(req: PermissionRequest): boolean {
   return stringValues(req.args).some((s) => DISASTER_PATTERNS.some((pattern) => pattern.test(s)));
 }
 
-/** 规则匹配：tool 相等；commandPrefix / commandContains 对 args.command 字符串生效 */
+/** 规则匹配：tool 相等；命令约束（exact/prefix/contains）任一在场即须全部满足。
+ *  exact 是卡上「允许此命令」的落点——比 prefix/contains 窄，误放行面最小。 */
 export function matchesRule(req: PermissionRequest, rule: PermissionRule): boolean {
   if (rule.match.tool !== req.tool) return false;
   const command =
     typeof (req.args as { command?: unknown })?.command === "string"
       ? (req.args as { command: string }).command
       : undefined;
-  if (rule.match.commandPrefix !== undefined) {
-    // 严格 boolean（optional chain 会漏出 undefined——消费端按 === 判定，不可三态）
-    // biome-ignore lint/complexity/useOptionalChain: 三态会破坏 Decision 判定契约
-    return command !== undefined && command.startsWith(rule.match.commandPrefix);
+  if (rule.match.commandExact !== undefined && command !== rule.match.commandExact) return false;
+  if (
+    rule.match.commandPrefix !== undefined &&
+    (command === undefined || !command.startsWith(rule.match.commandPrefix))
+  ) {
+    return false;
   }
-  if (rule.match.commandContains !== undefined) {
-    // biome-ignore lint/complexity/useOptionalChain: 同上，保持严格 boolean
-    return command !== undefined && command.includes(rule.match.commandContains);
+  if (
+    rule.match.commandContains !== undefined &&
+    (command === undefined || !command.includes(rule.match.commandContains))
+  ) {
+    return false;
   }
   return true;
+}
+
+/** 卡上「本会话/本项目允许此命令」的规则推导（R198）：仅命令类工具 + 非空命令 →
+ *  精确命令规则；其余工具返回 undefined（由调用方决定是否退化为工具级/一次）。 */
+export function commandRule(req: PermissionRequest): PermissionRule | undefined {
+  if (req.tool !== "bash" && req.tool !== "powershell") return undefined;
+  const command =
+    typeof (req.args as { command?: unknown })?.command === "string"
+      ? (req.args as { command: string }).command
+      : undefined;
+  if (command === undefined || command.trim() === "") return undefined;
+  return { match: { tool: req.tool, commandExact: command }, decision: "allow" };
 }
 
 /** argsDigest：审计事件里的参数摘要（不落全文——全文在交互载荷里，D-046） */

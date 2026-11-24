@@ -50,6 +50,7 @@
 │       │       └─ ui-state.json      # 界面绑定态：草稿 / 面板宽度 / 右栏 tab 引用 / 模型·思考·权限会话级记忆（web 宿主所有；
 │       │                             #   整份原子重写，不进事件账本；折叠组不存，本地态；D-063，已落码·界面持久化批；
 │       │                             #   rightPanel/rightWidth/model/reasoningEffort 已随三栏骨架批接线 2026-11-18）
+│       ├─ permissions.json           # 本项目审批规则（R198：卡上「本项目允许此命令」写入；可手改；与全局同形）
 │       └─ memory/
 │           ├─ MEMORY.md              # 项目记忆
 │           └─ config.json            # 记忆开关
@@ -265,7 +266,8 @@
 - 密钥只经 `ConfigService` 读取；**不进事件、meta、日志、模型上下文、导出物**；
 - `models.json` 只放 provider / model 定义与能力字段，**不放 `apiKey`**（明文 key 是要避开的做法）；能力字段可由 models.dev 字典同步预填，手写覆盖字典（D-040）；模型管理面（✓ 2026-11-19）写同文件四样：厂商 `label` 显示名、模型 `hidden` 显隐清单（开关关=加入，选择器过滤）、自定义 OpenAI 兼容厂商的显式 `models` 记录（`user-` 前缀 id，无 key 也算连接态）、已知厂商缺 `baseUrl` 时连接自动从目录快照 `endpoint` 种（收敛批 2026-11-19——baseUrl 承重配置，断开永不碰）；连接/断开写 `credentials.json`（0600，只进明文 key，管理面响应永不回读——D-030）；
 - **插件目录不是凭据存储**：`plugins/<id>/<version>/` 与 `plugins-data/<id>/` 的任何文件都不得写 API key / token / 密码；`mcp/*.json` 只写引用名，密钥由宿主从 `credentials.json` 注入（D-030）；
-- 权限规则**两层**：全局 `config/permissions.json`（跨会话、可手改、可撤销）与会话级事件（`approval/decided{scope:'session'}` 存在会话日志里，**不是独立文件**）；详见 [tools-approval.md](./tools-approval.md) §3.1；
+- 权限规则**三层**：会话级事件（`approval/decided{scope:'session',rule?}` + `approval/revoked` 存在会话日志里，**不是独立文件**）、项目级 `projects/<key>/permissions.json`（R198，随项目删除）、全局 `config/permissions.json`（跨项目；后两者同形、可手改）；详见 [tools-approval.md](./tools-approval.md) §3.1；
+- **权限管理面（R199）**：设置 › 权限列出 `projects.json` 登记目录并逐项目读 `projects/<key>/permissions.json`；逐条删除直接改这些文件（不写会话账本事件）。坏文件只显示警示、绝不覆盖。项目身份 = `projects.json` 的 `id/key/cwd`（不新增项目元数据文件）；孤儿项目（只有 permissions.json、无目录条）不进选择器，规则仍生效、可手改；
 
 ## 9. 环境变量
 

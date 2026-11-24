@@ -77,8 +77,11 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
     });
     await shot(page, "01-ask-card.png");
 
-    // ② chip 切完全访问：确认卡未勾选禁用 → 勾选 → 启用
+    // ② chip 切完全访问：菜单两项各带档位图标（询问 = 手掌 / 完全访问 = 警示盾）→ 确认卡
     await chip.click();
+    await page.getByRole("menu").waitFor({ state: "visible" });
+    await expect(page.locator(".henira-permission-option-icon svg")).toHaveCount(2);
+    await shot(page, "02-menu-icons.png");
     await page
       .getByRole("menuitemradio", { name: new RegExp(zh["composer.permission.full"]) })
       .click();
@@ -129,7 +132,7 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
     await nav.getByRole("button", { name: zh["settings.section.permission"] }).click();
     const content = page.locator(".henira-settings-content");
     await expect(content.getByText(zh["settings.permission.default"])).toBeVisible();
-    await content.locator(".henira-select-trigger").click();
+    await content.getByRole("button", { name: zh["settings.permission.default"] }).click();
     await content.getByRole("option", { name: zh["composer.permission.full"] }).click();
     await expect
       .poll(async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   argsDigest,
+  commandRule,
   isCredentialAccess,
   isDisasterCommand,
   matchesRule,
@@ -66,6 +67,41 @@ describe("规则匹配（permissions.json 形状，tools-approval §3.1）", () 
     expect(
       matchesRule(req({ command: "ls" }), { match: { tool: "read" }, decision: "allow" }),
     ).toBe(false);
+  });
+
+  it("R198 commandExact：整串相等才命中（前缀/子串都不算）", () => {
+    const rule = {
+      match: { tool: "bash", commandExact: "git status" },
+      decision: "allow" as const,
+    };
+    expect(matchesRule(req({ command: "git status" }), rule)).toBe(true);
+    expect(matchesRule(req({ command: "git status --short" }), rule)).toBe(false);
+    expect(matchesRule(req({ command: "git status extra" }), rule)).toBe(false);
+    expect(matchesRule(req({}), rule)).toBe(false);
+  });
+
+  it("R198 多约束同时在场须全部满足", () => {
+    const rule = {
+      match: { tool: "bash", commandPrefix: "npm", commandContains: "test" },
+      decision: "allow" as const,
+    };
+    expect(matchesRule(req({ command: "npm test" }), rule)).toBe(true);
+    expect(matchesRule(req({ command: "npm run build" }), rule)).toBe(false);
+    expect(matchesRule(req({ command: "pnpm test" }), rule)).toBe(false);
+  });
+
+  it("R198 commandRule：仅命令类工具 + 非空命令出精确规则", () => {
+    expect(commandRule({ tool: "bash", args: { command: "ls -la" } })).toEqual({
+      match: { tool: "bash", commandExact: "ls -la" },
+      decision: "allow",
+    });
+    expect(commandRule({ tool: "powershell", args: { command: "Get-ChildItem" } })).toEqual({
+      match: { tool: "powershell", commandExact: "Get-ChildItem" },
+      decision: "allow",
+    });
+    expect(commandRule({ tool: "bash", args: { command: "   " } })).toBeUndefined();
+    expect(commandRule({ tool: "bash", args: {} })).toBeUndefined();
+    expect(commandRule({ tool: "write", args: { command: "x" } })).toBeUndefined();
   });
 
   it("无命令字段的 args 按 tool 单匹配", () => {

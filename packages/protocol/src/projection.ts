@@ -296,7 +296,11 @@ export class Projection {
           toolName: "",
           status: "settled",
           decision,
-          ...(data.scope === "session" ? { scope: "session" as const } : {}),
+          ...(data.scope === "session"
+            ? { scope: "session" as const }
+            : data.scope === "project"
+              ? { scope: "project" as const }
+              : {}),
         };
         const existing = this.byId.get(row.rowId);
         if (existing?.kind !== "approval") {

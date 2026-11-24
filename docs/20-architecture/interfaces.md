@@ -323,7 +323,7 @@ type InteractionRequest =
   | { kind: 'question'; requestId: string; toolName: string; questions: QuestionSpec[] };
 
 type InteractionAnswer =
-  | { kind: 'approval'; requestId: string; decision: Decision; scope?: 'session' }
+  | { kind: 'approval'; requestId: string; decision: Decision; scope?: 'session' | 'project' }
   | { kind: 'question'; requestId: string; answers: QuestionAnswer[] }
   | { kind: 'question'; requestId: string; cancelled: true };
 
@@ -335,10 +335,48 @@ interface InteractionService {
 }
 
 /** 跨会话权限规则（tools-approval §3.1 permissions.json；deny 压倒一切，链首） */
+interface PermissionRuleMatch {
+  tool: string;
+  commandExact?: string;   // 整串相等（R198：卡上「允许此命令」落点）
+  commandPrefix?: string;  // 手写规则能力
+  commandContains?: string; // 手写规则能力（多约束同时在场须全部满足）
+}
 interface PermissionRule {
-  match: { tool: string; commandPrefix?: string; commandContains?: string };
+  match: PermissionRuleMatch;
   decision: "allow" | "deny";
 }
+
+/** 权限规则快照（R198：权限菜单数据源；会话级 = 账本折叠，项目/全局 = 配置文件） */
+interface PermissionSnapshot {
+  session: { rules: PermissionRule[]; tools: string[] }; // tools = 工具级本会话允许
+  project: PermissionRule[];
+  global: PermissionRule[];
+}
+
+/** 规则文件状态（R199 管理面）：ok / 文件缺失 / 存在但读不了或不是合法 JSON 对象 */
+type PermissionFileStatus = "ok" | "missing" | "corrupt";
+interface PermissionRulesView {
+  path: string;
+  status: PermissionFileStatus;
+  rules: PermissionRule[];   // 窄化 + 去重后
+  invalidCount: number;      // 文件里有、形状非法被丢弃的条目数（管理提示，不进匹配）
+}
+interface PermissionProjectSummary {
+  id: string;                // projects.json 的稳定 id（不是目录名；路由身份）
+  key: string;               // --<slug60>-<hash8>--（路径拼接前过 isProjectKey）
+  cwd: string;
+  name: string;              // displayName（左栏同源）
+  allowCount: number;
+  denyCount: number;
+  status: PermissionFileStatus;
+}
+interface PermissionProjectsView { projects: PermissionProjectSummary[]; currentId?: string }
+interface PermissionProjectView extends PermissionRulesView { id: string; key: string; cwd: string; name: string }
+
+// R199：规则规范键（decision + tool + 三命令约束；键序/未知字段无关）——添加幂等、
+// 文件删除、账本撤销、UI key 共用。
+function permissionRuleKey(rule: PermissionRule): string;
+function samePermissionRule(a: PermissionRule, b: PermissionRule): boolean;
 
 // 配置面（D-013②）：宿主实现（config-loader）；llm / approval 不直接读 env 或文件
 interface ConfigService {
@@ -347,8 +385,13 @@ interface ConfigService {
   credential(providerId: string): Promise<string>; // 仅 llm 适配器调用
   get<T>(key: string): Promise<T | undefined>;     // 插件自有配置段（settings.json plugins.<id>.options
                                                    //  与项目 henira.config.ts options 合并，项目优先）
-  permissionRules(): Promise<readonly PermissionRule[]>; // permissions.json 规则（approval 经此读，§3.1）
+  permissionRules(): Promise<readonly PermissionRule[]>;        // 全局 permissions.json（approval 经此读，§3.1）
+  projectPermissionRules(): Promise<readonly PermissionRule[]>; // 项目 <projectDir>/permissions.json（R198；缺项目目录 = 空表）
+  addProjectPermissionRule(rule: PermissionRule): Promise<void>; // 追加项目规则（卡上「本项目允许此命令」；同条幂等，2 空格格式化落盘）
 }
+// R199 管理面的任意项目/全局规则读取与删除走 config-loader host helpers
+// （readPermissionRules / addPermissionRule / removePermissionRule + project/globalPermissionsPath），
+// 协议 ConfigService 不扩——approval 插件仍只有「读两表 + 追加项目规则」。
 
 /** 权限模式两值（D-080）：ask = 改动前询问（默认、fail-closed）；full = 完全访问
  *  （审批水瀑之后自动放行；硬拒清单 / deny 规则 / hook deny 不受影响） */
@@ -456,8 +499,9 @@ interface HeniraConfig {
 }
 
 // ── 全局 ~/.henira/config/settings.json（界面上点、程序写、不进 git，见 data-directory.md §2.3）──
-//   { version, model?, plugins?: { <id>: { enabled?, version?, options? } },
+//   { version, model?, permissionMode?: "ask"|"full", plugins?: { <id>: { enabled?, version?, options? } },
 //     ui?: { theme?, locale?, preview?: { file?: "panel"|"modal", image?: "panel"|"modal" } } }
+//   permissionMode = 新会话默认权限档（D-080；会话显式记忆优先——ui-state）
 //   ui.preview = 预览打开方式（R188）：缺省 file=panel（右侧）、image=modal（弹窗）；
 //   按内容类型各自可设，深合并（只改 image 不丢 file）——设置 → 外观页两行分段控件。
 //
@@ -652,7 +696,14 @@ POST /api/sessions/:id/queue/resume                     → { ok: boolean }     
 POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   // 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话并装配入册，返回子会话 id（parentSession 指源；半回合切点补写 turn/end{forked}）；atSeq 缺省 = 复制到最新；越界切点 400
-POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
+POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" | "project" } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；scope:'session' = 会话级允许（E6：decided{scope,rule} 落账 → 同命令/同工具后续调用免 ask）；scope:'project' = 写项目 permissions.json 的精确命令规则（R198）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
+GET  /api/sessions/:id/permissions                         → PermissionSnapshot  // 权限规则快照（R198）：会话级 = 账本折叠，项目/全局 = 配置文件；404 session not found
+POST /api/sessions/:id/permissions/session/revoke { tool?, rule? } → { ok: true }  // 撤销本会话允许（R198/R199）：缺省/{} = 清空；tool = 该工具（含其命令规则）；rule = 精确一条；二者互斥（400）；rule 只收 allow（400）；坏 JSON 400；回合之外也接受
+GET  /api/permissions/projects?sessionId=                  → PermissionProjectsView  // 项目清单（R199）：登记目录 + 规则计数/状态，当前会话项目置顶并回传 currentId
+GET  /api/permissions/projects/:id                         → PermissionProjectView    // 单项目规则文件视图（id = projects.json 稳定 id）；未知项目 404
+POST /api/permissions/projects/:id/remove { rule }         → { ok: true; removed: number }  // 删除 canonical 相同规则（全部命中）；坏文件 409；未知项目 404
+GET  /api/permissions/global                               → PermissionRulesView      // 全局规则文件视图（path/status/rules/invalidCount）
+POST /api/permissions/global/remove { rule }               → { ok: true; removed: number }  // 删除全局规则；坏文件 409
 POST /api/sessions/:id/questions/:requestId { answers: [{ id, selected: string[], custom? }] } | { cancelled: true } → { applied: boolean }  // 提问收答（R184）：answers 逐题（空 selected = 跳过）；cancelled = 取消整个请求（工具收 Error 结果、回合继续）；幂等先答者赢；body 不合规 400；custom 超 2000 字符（码点）400（R186）；requestId 从不存在 → 404 { error: "question not found" }（前端同款把 404 当已解决）
 GET  /api/sessions/:id/files?path=                      → DirEntry[]   // UI 门面 listDir；只限会话工作区，隐藏项不返
 GET  /api/sessions/:id/file?path=                       → WorkspaceFileContent  // 工作区文件读取（R190 预览缝）：相对 cwd 或 cwd 内绝对路径；cwd 围栏 + realpath 复核；文本 utf8（1 MiB 截断 truncated）、二进制 base64（超 1 MiB 400）；只读，正文不落盘
@@ -901,7 +952,7 @@ interface ApprovalRow {
   reason?: string; // 引擎判定链解释原样（围栏区外访问等；仅呈现）
   status: "pending" | "settled";
   decision?: Decision | "invalidated"; // "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交（settle 端点 z.enum(DECISIONS) 不含它）
-  scope?: "session"; // 会话级允许标记（decided{scope:'session'} 投影——settled「· 本会话」）
+  scope?: "session" | "project"; // 允许范围标记（decided{scope} 投影——settled「· 本会话/本项目」，R198）
 }
 interface QuestionRow {
   kind: "question"; // 提问（R184）：question/asked 投影 pending 行；settled 原位 upsert
@@ -1029,8 +1080,18 @@ interface HeniraFacade {
     sessionId: string,
     requestId: string,
     decision: Decision,
-    scope?: "session",
-  ): Promise<boolean>; // scope:'session' = 会话级允许（E6）
+    scope?: "session" | "project",
+  ): Promise<boolean>; // scope:'session' = 会话级允许（E6）；'project' = 项目精确命令规则（R198）
+  sessionPermissions(sessionId: string): Promise<PermissionSnapshot>; // 权限规则快照（R198；双形态同测锁）
+  revokeSessionApprovals(
+    sessionId: string,
+    opts?: { tool?: string; rule?: PermissionRule },
+  ): Promise<void>; // 撤销本会话允许（R198/R199；opts 缺省 = 清空；双形态同测锁）
+  permissionProjects(sessionId?: string): Promise<PermissionProjectsView>; // 项目清单（R199；currentId 来自 sessionId）
+  projectPermissions(id: string): Promise<PermissionProjectView>; // 单项目规则文件视图（R199）
+  removeProjectPermissionRule(id: string, rule: PermissionRule): Promise<number>; // 删除项目规则，返回删除条数（R199）
+  globalPermissions(): Promise<PermissionRulesView>; // 全局规则文件视图（R199）
+  removeGlobalPermissionRule(rule: PermissionRule): Promise<number>; // 删除全局规则，返回删除条数（R199）
   settleQuestion(
     sessionId: string,
     requestId: string,
@@ -1123,9 +1184,9 @@ interface WebPartContext {
   sessionCwd?: string | null; // 中列 header 目录名
   onTheme?(next: string, cssUrl?: string): void; // 设置弹窗主题页（D-059 <link> 注入在宿主）
   onLocale?(dict: Record<string, string> | undefined, localeId: string): void; // 设置弹窗语言页
-  openSettings?(section?: "theme" | "locale" | "models" | "plugins"): void; // 设置弹窗开（宿主持有开合状态）
+  openSettings?(section?: "theme" | "locale" | "permission" | "models" | "plugins"): void; // 设置弹窗开（宿主持有开合状态；弹窗跟随 section 变化——R199）
   closeSettings?(): void;
-  settingsSection?: "theme" | "locale" | "models" | "plugins" | null; // 当前开着的分区（null = 关闭）
+  settingsSection?: "theme" | "locale" | "permission" | "models" | "plugins" | null; // 当前开着的分区（null = 关闭）
 }
 type WebPart = (ctx: WebPartContext) => ReactNode;
 

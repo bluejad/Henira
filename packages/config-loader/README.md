@@ -25,15 +25,17 @@ const key = await config.credential(provider); // credentials.json；缺 → Cre
 
 ## 文件 ↔ 设计
 
-| 文件          | 职责                                                                                                                                                                                                                                          | 设计出处               |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| config.ts     | createConfigService：settings（默认模型 / 插件 options）/ permissions（非法行静默跳过）/ credentials（0600；CredentialMissingError；永不读 env）/ models.json 手写覆盖字典 / validateAttachments 入口校验（20MB / 5MB 图 / 50MB 总 / 100 个） | D-013② / D-030 / D-040 |
-| dictionary.ts | models.dev 字典：bundled 快照（构建时修剪入库）+ 运行时 refresh + 缓存文件兜底；刷新失败静默回退快照                                                                                                                                          | D-040                  |
-| preset.ts     | defaultPreset 出厂清单——M2 = 引擎 5 条 id-only（definition 由宿主 / examples 装配时注入运行参数）                                                                                                                                             | D-016                  |
+| 文件           | 职责                                                                                                                                                                                                                                                                    | 设计出处                       |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| config.ts      | createConfigService：settings（默认模型 / 插件 options）/ permissions（非法行静默跳过；R199 委托 permissions.ts）/ credentials（0600；CredentialMissingError；永不读 env）/ models.json 手写覆盖字典 / validateAttachments 入口校验（20MB / 5MB 图 / 50MB 总 / 100 个） | D-013② / D-030 / D-040 / D-082 |
+| permissions.ts | 权限规则文件：三态读取（ok/missing/corrupt + invalidCount、canonical 去重）/ 添加（canonical 幂等、坏文件拒绝）/ 删除（命中全部、未命中不写盘、保留原始条目与顶层字段）/ 唯一 tmp + EPERM 重试 / 项目与全局路径 helpers                                                 | D-081 / D-082                  |
+| dictionary.ts  | models.dev 字典：bundled 快照（构建时修剪入库）+ 运行时 refresh + 缓存文件兜底；刷新失败静默回退快照                                                                                                                                                                    | D-040                          |
+| preset.ts      | defaultPreset 出厂清单——M2 = 引擎 5 条 id-only（definition 由宿主 / examples 装配时注入运行参数）                                                                                                                                                                       | D-016                          |
 
 ## 测试 ↔ 判据
 
-| 测试           | 锁什么                                                             |
-| -------------- | ------------------------------------------------------------------ |
-| config.test.ts | 三文件装载 / 凭据缺失报错 / 规则行过滤 / 字典查找与覆盖 / 附件校验 |
-| preset.test.ts | 预设 5 条 id-only 形状                                             |
+| 测试                | 锁什么                                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| config.test.ts      | 三文件装载 / 凭据缺失报错 / 规则行过滤 / 字典查找与覆盖 / 附件校验                                                                                |
+| permissions.test.ts | R199 三态读取（ok/missing/corrupt + invalidCount）/ canonical 幂等 / 删除保留其余原始条目与顶层字段 / 未命中不写盘 / 坏文件拒绝（原文件字节不变） |
+| preset.test.ts      | 预设 5 条 id-only 形状                                                                                                                            |

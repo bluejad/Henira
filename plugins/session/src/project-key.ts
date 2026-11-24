@@ -18,3 +18,10 @@ export function projectKey(cwd: string): string {
   const hash8 = createHash("sha256").update(hashSource).digest("hex").slice(0, 8);
   return `--${slug}-${hash8}--`;
 }
+
+/** 项目目录名形状闸（R199）：供路径拼接前校验 projects.json 的 key（手改/损坏条目不信任）。
+ *  slug 可含 CJK/空格（Windows 路径派生），但绝不能含路径分隔符；hash 段固定 8 位 hex。 */
+export function isProjectKey(value: string): boolean {
+  if (!value.startsWith("--") || !/-[0-9a-f]{8}--$/.test(value)) return false;
+  return !value.includes("/") && !value.includes("\\") && !value.includes("\0");
+}

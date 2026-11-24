@@ -8,6 +8,11 @@ import type {
   DirBrowse,
   GlobalUiState,
   PermissionMode,
+  PermissionProjectsView,
+  PermissionProjectView,
+  PermissionRule,
+  PermissionRulesView,
+  PermissionSnapshot,
   PreviewOpenSettings,
   PromptOptions,
   PromptReceipt,
@@ -124,14 +129,32 @@ export interface HeniraFacade {
   /** 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话（parentSession 指源，
    *  半回合切点补写 turn/end{forked}），子会话装配入册；返回子会话 id。atSeq 缺省 = 复制到最新 */
   fork(sessionId: string, atSeq?: number): Promise<string>;
-  /** settle 幂等先答者赢；未知 requestId 返回 false。scope:'session' = 会话级允许（E6：
-   * decided{scope} 落账 → 同工具后续调用免 ask，tools-approval §3.1） */
+  /** settle 幂等先答者赢；未知 requestId 返回 false。scope:'session'/'project' = 允许范围
+   *  （E6/R198：decided{scope,rule} 落账 → 同命令后续调用免 ask，tools-approval §3.1） */
   settleApproval(
     sessionId: string,
     requestId: string,
     decision: Decision,
-    scope?: "session",
+    scope?: "session" | "project",
   ): Promise<boolean>;
+  /** 权限规则快照（R198：会话级 = 账本折叠；项目/全局 = 配置文件） */
+  sessionPermissions(sessionId: string): Promise<PermissionSnapshot>;
+  /** 撤销本会话允许（approval/revoked 落账；回合之外也可）。缺省 = 清空；
+   *  {tool} = 该工具（含其命令规则）；{rule} = 精确一条；二者互斥（R199） */
+  revokeSessionApprovals(
+    sessionId: string,
+    opts?: { tool?: string; rule?: PermissionRule },
+  ): Promise<void>;
+  /** 项目清单（R199 权限管理面：登记目录 + 规则文件状态/计数；sessionId 用于 currentId） */
+  permissionProjects(sessionId?: string): Promise<PermissionProjectsView>;
+  /** 单个项目的规则文件视图（含路径/状态） */
+  projectPermissions(id: string): Promise<PermissionProjectView>;
+  /** 删除项目里与给定规则 canonical 相同的一条（返回删除条数；坏文件拒绝） */
+  removeProjectPermissionRule(id: string, rule: PermissionRule): Promise<number>;
+  /** 全局规则文件视图（所有项目共享） */
+  globalPermissions(): Promise<PermissionRulesView>;
+  /** 删除全局规则（返回删除条数；坏文件拒绝） */
+  removeGlobalPermissionRule(rule: PermissionRule): Promise<number>;
   /** 提问收答（R184）：answers 逐题（空选择 = 跳过）或 {cancelled:true}（工具收 Error 结果、
    *  回合继续）。幂等先答者赢；未知 requestId 返回 false */
   settleQuestion(

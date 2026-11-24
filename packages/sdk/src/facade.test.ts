@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ServiceDefinition } from "@henira/kernel";
 import { mockFinish, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
+import { projectKey } from "@henira/plugin-session";
 import type {
   InteractionAnswer,
   InteractionRequest,
@@ -309,6 +310,110 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
       );
       return done && ended ? true : undefined;
     });
+  });
+
+  it("R198 会话权限快照/撤销（双形态）：本会话允许 → 快照可见 → 撤销清空", async () => {
+    const { facade, registerTool } = await form.make([
+      [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
+      [mockText("完成"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    const session = await facade.createSession();
+    await registerTool(session.id);
+    void (async () => {
+      try {
+        for await (const frame of facade.events()) sink.push(frame);
+      } catch {
+        // stop
+      }
+    })();
+    expect(await facade.sessionPermissions(session.id)).toEqual({
+      session: { rules: [], tools: [] },
+      project: [],
+      global: [],
+    });
+    await facade.prompt(session.id, "写文件");
+    const requestRow = await waitFor(() => {
+      for (const f of framesOf(sink, session.id)) {
+        if (
+          f.kind === "delta" &&
+          f.delta.op === "row.appended" &&
+          f.delta.row.kind === "approval"
+        ) {
+          return f.delta.row;
+        }
+      }
+      return undefined;
+    });
+    expect(
+      await facade.settleApproval(session.id, requestRow.requestId, "allowed-once", "session"),
+    ).toBe(true);
+    await waitFor(async () => {
+      const snap = await facade.snapshot(session.id);
+      return snap.state.busy === false &&
+        snap.rows.some((r) => r.kind === "approval" && r.status === "settled")
+        ? true
+        : undefined;
+    });
+    const allowed = await facade.sessionPermissions(session.id);
+    expect(allowed.session).toEqual({ rules: [], tools: ["demo-write"] });
+    await facade.revokeSessionApprovals(session.id);
+    const after = await facade.sessionPermissions(session.id);
+    expect(after.session).toEqual({ rules: [], tools: [] });
+  });
+
+  it("R199 权限管理面（双形态）：项目清单/规则视图/删除 + 全局删除 + 会话撤销 body", async () => {
+    const { facade, dataDir } = await form.make([]);
+    const workspace = path.join(dataDir, "workspace");
+    await fs.mkdir(workspace, { recursive: true });
+    const session = await facade.createSession({ cwd: workspace });
+    const key = projectKey(workspace);
+    const projectFile = path.join(dataDir, "projects", key, "permissions.json");
+    await fs.mkdir(path.dirname(projectFile), { recursive: true });
+    const allow = {
+      match: { tool: "bash", commandExact: "echo r199" },
+      decision: "allow" as const,
+    };
+    const deny = {
+      match: { tool: "bash", commandContains: "rm -rf" },
+      decision: "deny" as const,
+    };
+    await fs.writeFile(projectFile, JSON.stringify({ version: 1, rules: [allow, deny] }), "utf8");
+
+    const list = await facade.permissionProjects(session.id);
+    expect(list.currentId).toBeDefined();
+    expect(list.projects[0]?.id).toBe(list.currentId); // 当前项目置顶
+    expect(list.projects.find((p) => p.id === list.currentId)).toMatchObject({
+      key,
+      cwd: workspace,
+      allowCount: 1,
+      denyCount: 1,
+      status: "ok",
+    });
+    const currentId = list.currentId;
+    if (currentId === undefined) throw new Error("current project missing");
+    const detail = await facade.projectPermissions(currentId);
+    expect(detail).toMatchObject({ path: projectFile, status: "ok", rules: [allow, deny] });
+
+    expect(await facade.removeProjectPermissionRule(currentId, allow)).toBe(1);
+    expect((await facade.projectPermissions(currentId)).rules).toEqual([deny]);
+
+    const globalFile = path.join(dataDir, "config", "permissions.json");
+    const globalAllow = { match: { tool: "read" }, decision: "allow" as const };
+    await fs.writeFile(globalFile, JSON.stringify({ version: 1, rules: [globalAllow] }), "utf8");
+    expect(await facade.globalPermissions()).toMatchObject({
+      path: globalFile,
+      status: "ok",
+      rules: [globalAllow],
+    });
+    expect(await facade.removeGlobalPermissionRule(globalAllow)).toBe(1);
+    expect((await facade.globalPermissions()).rules).toEqual([]);
+
+    // 会话撤销：tool 与 rule 两种 body 都接受（无挂起审批也可落账——设置动作）
+    await facade.revokeSessionApprovals(session.id, { tool: "demo-write" });
+    await facade.revokeSessionApprovals(session.id, { rule: allow });
+    // 未知项目：双形态都拒绝
+    await expect(facade.projectPermissions("no-such")).rejects.toThrow();
   });
 
   it("权限模式全链（D-080 双形态）：prompt 携带 full → 写工具免审批直接执行；不带 → 审批卡挂起", async () => {

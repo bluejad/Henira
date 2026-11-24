@@ -5,7 +5,13 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
-import { Dictionary, SNAPSHOT, scanUiAssets } from "@henira/config-loader";
+import {
+  Dictionary,
+  PermissionRulesFileError,
+  SNAPSHOT,
+  scanUiAssets,
+} from "@henira/config-loader";
+import { sessionAllowance } from "@henira/plugin-approval";
 import {
   browseDirectories,
   type DirRegistry,
@@ -17,6 +23,8 @@ import {
   decodeUtf8Prefix,
   looksBinary,
   PERMISSION_MODES,
+  type PermissionRule,
+  type PermissionSnapshot,
   QUESTION_CUSTOM_MAX,
   REASONING_EFFORTS,
   type ReasoningCapability,
@@ -32,6 +40,13 @@ import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { Fanout } from "./fanout.js";
+import {
+  globalPermissionView,
+  listPermissionProjects,
+  projectPermissionView,
+  removeGlobalPermissionRule,
+  removeProjectPermissionRule,
+} from "./permission-projects.js";
 import type { SessionRegistry } from "./session-registry.js";
 import {
   listCredentialProviders,
@@ -59,6 +74,31 @@ const HEARTBEAT_MS = 15_000;
 const SNAPSHOT_TAIL_ROWS = 60;
 /** rows 翻页单页上限（服务端钳制；ZCode rowsRangeMaxLimit 同档） */
 const ROWS_PAGE_MAX = 200;
+
+/** 规则 body 校验（R199 管理面）：与账本/config 窄化同口径——命令约束只收非空字符串。
+ *  session 撤销只接受 allow（账本 validator 同界）；项目/全局删除 allow/deny 都收。 */
+const permissionRuleMatchSchema = z.object({
+  tool: z.string().min(1),
+  commandExact: z.string().min(1).optional(),
+  commandPrefix: z.string().min(1).optional(),
+  commandContains: z.string().min(1).optional(),
+});
+const permissionRuleSchema = z.object({
+  match: permissionRuleMatchSchema,
+  decision: z.enum(["allow", "deny"]),
+});
+const sessionRevokeRuleSchema = z.object({
+  match: permissionRuleMatchSchema,
+  decision: z.literal("allow"),
+});
+
+/** 规则文件 corrupt（手改语法错等）→ 409；写盘错误继续抛（500 + 终端日志） */
+function corruptRulesResponse(c: Context, err: unknown): Response | undefined {
+  if (err instanceof PermissionRulesFileError && err.reason === "corrupt") {
+    return c.json({ error: "permissions file is corrupt" }, 409);
+  }
+  return undefined;
+}
 
 export interface AppDeps {
   registry: SessionRegistry;
@@ -300,13 +340,13 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(result.body, result.status as 200);
   });
 
-  // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动。scope:'session' = 会话级允许，
-  // E6：decided{scope} 落账 → 同工具后续调用免 ask——tools-approval §3.1）──
+  // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动。scope:'session'/'project' = 允许范围，
+  // E6/R198：decided{scope,rule} 落账 → 同命令后续调用免 ask——tools-approval §3.1）──
   app.post("/api/sessions/:id/approvals/:requestId", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
-      .object({ decision: z.enum(DECISIONS), scope: z.enum(["session"]).optional() })
+      .object({ decision: z.enum(DECISIONS), scope: z.enum(["session", "project"]).optional() })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: `decision must be one of ${DECISIONS.join("/")}` }, 400);
@@ -324,6 +364,99 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: "approval not found" }, 404);
     }
     return c.json({ applied });
+  });
+
+  // ── 权限规则视图（R198）：会话级 = 账本折叠，项目/全局 = 配置文件——权限菜单撤销入口的
+  // 数据源（无独立可变状态，P1 对偶）──
+  app.get("/api/sessions/:id/permissions", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const allowance = sessionAllowance(entry.ctx.get("session").events());
+    const config = entry.ctx.get("config");
+    const snapshot: PermissionSnapshot = {
+      session: { rules: allowance.rules, tools: [...allowance.tools] },
+      project: [...(await config.projectPermissionRules())],
+      global: [...(await config.permissionRules())],
+    };
+    return c.json(snapshot);
+  });
+
+  // ── 撤销本会话允许（R198/R199）：撤销是设置动作不是审批记录——可发生在回合之外（store 闸豁免）。
+  // body 缺省/{} = 清空；{tool} = 该工具（含其命令规则）；{rule} = 精确一条；二者互斥。──
+  app.post("/api/sessions/:id/permissions/session/revoke", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const text = await c.req.text().catch(() => "");
+    let body: unknown = {};
+    if (text.trim() !== "") {
+      try {
+        body = JSON.parse(text) as unknown;
+      } catch {
+        return c.json({ error: "invalid JSON body" }, 400);
+      }
+    }
+    const parsed = z
+      .object({
+        tool: z.string().min(1).optional(),
+        rule: sessionRevokeRuleSchema.optional(),
+      })
+      .safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid revoke body (tool or rule)" }, 400);
+    if (parsed.data.tool !== undefined && parsed.data.rule !== undefined) {
+      return c.json({ error: "tool and rule are mutually exclusive" }, 400);
+    }
+    const data: { scope: "session"; tool?: string; rule?: PermissionRule } = { scope: "session" };
+    if (parsed.data.tool !== undefined) data.tool = parsed.data.tool;
+    if (parsed.data.rule !== undefined) data.rule = parsed.data.rule;
+    await entry.ctx.get("session").append({ type: "approval/revoked", data });
+    return c.json({ ok: true });
+  });
+
+  // ── 持久规则管理（R199）：项目清单/详情/删除 + 全局规则/删除。项目身份只认
+  //    projects.json 的 id；规则文件读写住 config-loader（坏文件 409，绝不覆盖）──
+  app.get("/api/permissions/projects", async (c) => {
+    return c.json(await listPermissionProjects(deps, c.req.query("sessionId") || undefined));
+  });
+
+  app.get("/api/permissions/projects/:id", async (c) => {
+    const view = await projectPermissionView(deps, c.req.param("id"));
+    if (view === undefined) return c.json({ error: "project not found" }, 404);
+    return c.json(view);
+  });
+
+  app.post("/api/permissions/projects/:id/remove", async (c) => {
+    const parsed = z
+      .object({ rule: permissionRuleSchema })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "rule is required" }, 400);
+    try {
+      const result = await removeProjectPermissionRule(deps, c.req.param("id"), parsed.data.rule);
+      if (result === undefined) return c.json({ error: "project not found" }, 404);
+      return c.json({ ok: true, removed: result.removed });
+    } catch (err) {
+      const mapped = corruptRulesResponse(c, err);
+      if (mapped !== undefined) return mapped;
+      throw err;
+    }
+  });
+
+  app.get("/api/permissions/global", async (c) => {
+    return c.json(await globalPermissionView(deps));
+  });
+
+  app.post("/api/permissions/global/remove", async (c) => {
+    const parsed = z
+      .object({ rule: permissionRuleSchema })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "rule is required" }, 400);
+    try {
+      const result = await removeGlobalPermissionRule(deps, parsed.data.rule);
+      return c.json({ ok: true, removed: result.removed });
+    } catch (err) {
+      const mapped = corruptRulesResponse(c, err);
+      if (mapped !== undefined) return mapped;
+      throw err;
+    }
   });
 
   // ── 提问收答（R184；与审批同款幂等先答者赢语义）。body = {answers:[{id,selected[],custom?}]}

@@ -5,13 +5,26 @@
 // 显式会话记忆 → settings 新会话默认 → ask 的生效值由 composer-state 运行时归一。
 // full 态 chip 警示色（danger 对），恢复会话时 chip 即是提醒（v1 不做横幅，D-080）。
 
-import type { PermissionMode } from "@henira/protocol";
+import {
+  type PermissionMode,
+  type PermissionRule,
+  type PermissionSnapshot,
+  permissionRuleKey,
+  uniquePermissionRules,
+} from "@henira/protocol";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { WebPart, WebPartContext } from "../types.js";
 import { useDismiss } from "./dropdown.js";
-import { CaretDownGlyph, ShieldGlyph, WarnGlyph } from "./icons.js";
+import { CaretDownGlyph, HandGlyph, ShieldWarnGlyph, WarnGlyph } from "./icons.js";
+import { PermissionRuleLine } from "./permission-rule.js";
 
 const MODES: PermissionMode[] = ["ask", "full"];
+
+/** 每档一个图标（菜单项与芯片触发钮共用）：询问 = 手掌止步，完全访问 = 警示盾 */
+const MODE_GLYPHS: Record<PermissionMode, (props: { size?: number }) => ReactNode> = {
+  ask: HandGlyph,
+  full: ShieldWarnGlyph,
+};
 
 function ConfirmDialog(props: {
   ctx: WebPartContext;
@@ -77,7 +90,8 @@ function ConfirmDialog(props: {
   );
 }
 
-/** 两值菜单（触点相对定位由外层 wrap 承担；open 期间才挂载——useDismiss 常真即对） */
+/** 两值菜单 + 本会话规则面板（同一 wrapper 内视图切换；open 期间才挂载——useDismiss 常真即对）。
+ *  外点/Esc 收起整个弹层（不换档）；规则面板的返回键回模式菜单。 */
 function PermissionMenu(props: {
   ctx: WebPartContext;
   current: PermissionMode;
@@ -86,28 +100,236 @@ function PermissionMenu(props: {
   const { ctx } = props;
   const wrapRef = useRef<HTMLSpanElement>(null);
   useDismiss(true, wrapRef, () => props.onPick(props.current)); // 外点/Esc = 收起不换档
+  // 允许区（R198/R199）：打开菜单时拉一次快照；撤销是设置动作（账本落 approval/revoked）
+  const [snapshot, setSnapshot] = useState<PermissionSnapshot | null>(null);
+  const [view, setView] = useState<"menu" | "rules">("menu");
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const client = ctx.client;
+  const sessionId = ctx.sessionId;
+  useEffect(() => {
+    if (sessionId === null || client.sessionPermissions === undefined) return;
+    let alive = true;
+    void client
+      .sessionPermissions(sessionId)
+      .then((next) => {
+        if (alive) setSnapshot(next);
+      })
+      .catch(() => {
+        // 旧宿主 / 网络失败：不显示允许区（模式选择不受影响）
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, client]);
+  const sessionRules = snapshot === null ? [] : uniquePermissionRules(snapshot.session.rules);
+  const sessionTools = snapshot?.session.tools ?? [];
+  const sessionCount = sessionRules.length + sessionTools.length;
+  // 只数 allow：项目文件可手写 deny（deny 也是策略，但不是「本项目允许」）
+  const projectCount =
+    snapshot === null ? 0 : snapshot.project.filter((rule) => rule.decision === "allow").length;
+  const canRevoke = client.revokeSessionApprovals !== undefined;
+  const busy = revoking !== null;
+  const refresh = async (): Promise<void> => {
+    const read = client.sessionPermissions;
+    if (read === undefined || sessionId === null) return;
+    try {
+      setSnapshot(await read(sessionId));
+    } catch {
+      setError(ctx.t("composer.permission.revokeFailed"));
+    }
+  };
+  const revoke = (opts?: { tool?: string; rule?: PermissionRule }): void => {
+    const run = client.revokeSessionApprovals;
+    if (run === undefined || sessionId === null) return;
+    const key =
+      opts === undefined
+        ? "all"
+        : opts.rule !== undefined
+          ? `rule:${permissionRuleKey(opts.rule)}`
+          : `tool:${opts.tool ?? ""}`;
+    setRevoking(key);
+    setError(null);
+    const result = opts === undefined ? run(sessionId) : run(sessionId, opts);
+    void result
+      .then(refresh)
+      .catch(() => {
+        setError(ctx.t("composer.permission.revokeFailed"));
+      })
+      .finally(() => {
+        setRevoking(null);
+      });
+  };
   return (
-    <span ref={wrapRef} className="henira-permission-pop" role="menu">
-      {MODES.map((mode) => (
-        <button
-          key={mode}
-          type="button"
-          role="menuitemradio"
-          aria-checked={props.current === mode}
-          className="henira-permission-option"
-          data-active={props.current === mode ? "true" : undefined}
-          onClick={() => {
-            props.onPick(mode);
-          }}
+    <span ref={wrapRef} className="henira-permission-pop" data-view={view}>
+      {view === "menu" ? (
+        <div className="henira-permission-view" role="menu">
+          {MODES.map((mode) => {
+            const Glyph = MODE_GLYPHS[mode];
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="menuitemradio"
+                aria-checked={props.current === mode}
+                className="henira-permission-option"
+                data-mode={mode}
+                data-active={props.current === mode ? "true" : undefined}
+                onClick={() => {
+                  props.onPick(mode);
+                }}
+              >
+                <span className="henira-permission-option-icon" aria-hidden="true">
+                  <Glyph size={16} />
+                </span>
+                <span className="henira-permission-option-text">
+                  <span className="henira-permission-option-label">
+                    {ctx.t(`composer.permission.${mode}`)}
+                  </span>
+                  <span className="henira-permission-option-desc">
+                    {ctx.t(`composer.permission.${mode}Desc`)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {sessionCount > 0 || projectCount > 0 ? (
+            <div className="henira-permission-extra">
+              {sessionCount > 0 ? (
+                <button
+                  type="button"
+                  className="henira-permission-extra-row henira-permission-extra-entry"
+                  onClick={() => {
+                    setView("rules");
+                  }}
+                >
+                  <span>{ctx.t("composer.permission.sessionAllowed")}</span>
+                  <span className="henira-permission-extra-count">
+                    {sessionCount} {ctx.t("composer.permission.unit")}
+                  </span>
+                  <span className="henira-permission-extra-link">
+                    {ctx.t("composer.permission.viewRules")} ›
+                  </span>
+                </button>
+              ) : null}
+              {projectCount > 0 ? (
+                ctx.openSettings !== undefined ? (
+                  <button
+                    type="button"
+                    className="henira-permission-extra-row henira-permission-extra-entry"
+                    onClick={() => {
+                      props.onPick(props.current);
+                      ctx.openSettings?.("permission");
+                    }}
+                  >
+                    <span>{ctx.t("composer.permission.projectAllowed")}</span>
+                    <span className="henira-permission-extra-count">
+                      {projectCount} {ctx.t("composer.permission.unit")}
+                    </span>
+                    <span className="henira-permission-extra-link">
+                      {ctx.t("composer.permission.manageInSettings")} ›
+                    </span>
+                  </button>
+                ) : (
+                  <div className="henira-permission-extra-row">
+                    <span>{ctx.t("composer.permission.projectAllowed")}</span>
+                    <span className="henira-permission-extra-count">
+                      {projectCount} {ctx.t("composer.permission.unit")}
+                    </span>
+                  </div>
+                )
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div
+          className="henira-permission-view"
+          role="dialog"
+          aria-label={ctx.t("composer.permission.sessionRulesTitle")}
         >
-          <span className="henira-permission-option-label">
-            {ctx.t(`composer.permission.${mode}`)}
-          </span>
-          <span className="henira-permission-option-desc">
-            {ctx.t(`composer.permission.${mode}Desc`)}
-          </span>
-        </button>
-      ))}
+          <div className="henira-permission-rules-head">
+            <button
+              type="button"
+              className="henira-permission-rules-back"
+              aria-label={ctx.t("composer.permission.back")}
+              onClick={() => {
+                setView("menu");
+              }}
+            >
+              ‹
+            </button>
+            <strong>{ctx.t("composer.permission.sessionRulesTitle")}</strong>
+            <span className="henira-permission-extra-count">
+              {sessionCount} {ctx.t("composer.permission.unit")}
+            </span>
+          </div>
+          <div className="henira-permission-rules-body">
+            {sessionCount === 0 ? (
+              <div className="henira-permission-rules-empty">
+                {ctx.t("composer.permission.sessionRulesEmpty")}
+              </div>
+            ) : (
+              <div className="henira-permission-rules-list">
+                {sessionRules.map((rule) => (
+                  <PermissionRuleLine
+                    key={permissionRuleKey(rule)}
+                    ctx={ctx}
+                    rule={rule}
+                    action={
+                      <button
+                        type="button"
+                        className="henira-permission-rule-revoke"
+                        disabled={!canRevoke || busy}
+                        onClick={() => {
+                          revoke({ rule });
+                        }}
+                      >
+                        {ctx.t("permission.rule.revoke")}
+                      </button>
+                    }
+                  />
+                ))}
+                {sessionTools.map((tool) => (
+                  <PermissionRuleLine
+                    key={`tool:${tool}`}
+                    ctx={ctx}
+                    tool={tool}
+                    action={
+                      <button
+                        type="button"
+                        className="henira-permission-rule-revoke"
+                        disabled={!canRevoke || busy}
+                        onClick={() => {
+                          revoke({ tool });
+                        }}
+                      >
+                        {ctx.t("permission.rule.revoke")}
+                      </button>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+            <p className="henira-permission-rules-hint">
+              {ctx.t("composer.permission.revokeHint")}
+            </p>
+            {error !== null ? <p className="henira-permission-rules-error">{error}</p> : null}
+          </div>
+          <div className="henira-permission-rules-foot">
+            <button
+              type="button"
+              className="henira-permission-revoke"
+              disabled={!canRevoke || busy || sessionCount === 0}
+              onClick={() => {
+                revoke();
+              }}
+            >
+              {ctx.t("composer.permission.revokeAll")}
+            </button>
+          </div>
+        </div>
+      )}
     </span>
   );
 }
@@ -118,6 +340,7 @@ export const PermissionChip: WebPart = (ctx) => {
   const [confirming, setConfirming] = useState(false);
   if (api === undefined) return null;
   const full = api.permission === "full";
+  const ModeGlyph = MODE_GLYPHS[api.permission];
 
   const pick = (mode: PermissionMode): void => {
     setMenuOpen(false);
@@ -143,7 +366,7 @@ export const PermissionChip: WebPart = (ctx) => {
           setMenuOpen((v) => !v);
         }}
       >
-        <ShieldGlyph size={14} />
+        <ModeGlyph size={14} />
         <span className="henira-permission-trigger-label">
           {ctx.t(full ? "composer.permission.full" : "composer.permission.ask")}
         </span>

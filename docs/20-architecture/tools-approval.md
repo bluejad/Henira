@@ -74,6 +74,7 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 
 - **fail-closed**：answerer（= `InteractionService`）缺失 / 抛错 / 返回不合规值 → 一律 `unavailable` → 必须拒 `[dsh]`；
 - **默认放行层（D-039，2026-11-13）**：无任何规则命中时，`isConcurrencySafe: true`（只读标记）**自动放行**并照常落 `approval/decided` 审计；其余照旧走缝与 answerer。`deny` 规则压倒一切（链首），显式 allow 规则也在默认层之前。web_fetch 类只读工具因此免问（Claude Code 默认放行抓取）。headless（`henira run`）开箱即可跑只读任务，写类靠 `permissions.json` 规则（§3.1）；
+- **规则层（R198）**：全局表与项目表合并后**先扫全表 deny 再扫 allow**；项目表随会话 cwd 定位（`projects/<projectKey>/permissions.json`），跨项目互不可见；
 - **灾难操作硬拒（D-039）**：灾难性命令（`rm -rf /`、格式化、`dd`、shutdown 等）与凭据同列链外，**任何规则、任何标记都放不了行**；清单由官方 approval 插件承担，官方 shell 工具执行前内置检查；
 - **路径围栏跟着能力走（D-039 立、D-049 修订；✓ 落码 2026-11-20 D-065）**：默认放行层只看工具标记；"这条路径能不能碰"的判定住进 fs 能力服务（D-049）——官方 fs / shell 工具件与任何注入该服务的第三方件同样受围栏；工作区内直接执行、区外调 `requestPermission`（`ToolContext` 已注入）、凭据与灾难仍硬拒。落形（interfaces.md §fs）：围栏强制点唯一住 fs 服务层——区内直行（链照常）、区外服务层 `requestPermission(req, {floor:"ask"})` 弹卡；区外写类因此见两张卡（链卡 + 区外卡），有意为之（fail-closed 显式二次确认）；
 - **钩子缝（D-027）**：`approval/request`（waterfall）位于规则链（含默认放行层）全未命中、交给宿主 answerer **之前**；监听者可返回 allow / deny / ask / undefined（ask = 照常弹卡）。凭据硬拒、灾难硬拒与 deny 规则仍在它之前，**钩子不能放行凭据与灾难操作**；
@@ -82,30 +83,36 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 - **审计**：每次 ask / decided 落 `approval/asked` + `approval/decided` 事件对；**没有打开的回合不接受审批记录**，且**先落 `decided` 再执行工具**（write-ahead，见 [session.md](./session.md) §1.1）；
 - "会话级记住允许"提供，存储分两层 → §3.1。
 
-### 3.1 权限的两层存储（已定 · 2026-11-12）
+### 3.1 权限的存储分层（2026-11-12 立；R198 修订为三层）
 
 判断标准一句话：**日志记"发生了什么"，规则记"以后怎么办"**。
 
-| 作用范围                            | 存哪                                | 形态                                                                                                                                                             | 理由                                                                              |
-| ----------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| **本会话内**（点"本会话允许 bash"） | 会话日志                            | `approval/decided{decision:'allowed-once', scope:'session'}` 事件（Decision 仍是四值，会话范围由 `scope` 表达）；撤销 = 追加 `approval/revoked{scope:'session'}` | 它是一次**发生过的决定**；随会话消亡；顺序由 `seq` 保证；不需要额外的可变文件     |
-| **跨会话**（"以后都别问 read"）     | `~/.henira/config/permissions.json` | 可手改的 JSON 规则                                                                                                                                               | 它是**策略**；用户要能编辑、随时撤销、所有会话共享；没人会去手改 7MB 的只追加日志 |
+| 作用范围     | 存哪                                               | 形态                                                                                                                                                                                | 理由                                                                              |
+| ------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **本会话内** | 会话日志                                           | `approval/decided{scope:'session', rule?}`（命令类工具落 `commandExact` 规则，其余工具级）；撤销 = 追加 `approval/revoked{scope:'session'}`（回合之外也接受——设置动作不是审批记录） | 它是一次**发生过的决定**；随会话消亡；顺序由 `seq` 保证；不需要额外的可变文件     |
+| **本项目**   | `<dataDir>/projects/<projectKey>/permissions.json` | 可手改的 JSON 规则（与全局同形；卡上「本项目允许此命令」写入精确命令规则）                                                                                                          | 它是**策略**；项目间隔离；与全局同形，复制/手改都简单                             |
+| **全局**     | `~/.henira/config/permissions.json`                | 可手改的 JSON 规则                                                                                                                                                                  | 它是**策略**；所有项目共享；用户要能编辑、随时撤销、没人会去手改 7MB 的只追加日志 |
 
-跨会话规则形状（示例）：
+规则形状（全局/项目同形；`commandExact` 整串相等，`commandPrefix`/`commandContains` 是手写能力，多约束同时在场须全部满足）：
 
 ```json
 {
+  "version": 1,
   "rules": [
     { "match": { "tool": "read" }, "decision": "allow" },
+    { "match": { "tool": "bash", "commandExact": "git status" }, "decision": "allow" },
     { "match": { "tool": "bash", "commandPrefix": "npm test" }, "decision": "allow" },
     { "match": { "tool": "bash", "commandContains": "rm -rf" }, "decision": "deny" }
   ]
 }
 ```
 
-- approval 插件**经 `ConfigService` 读规则**，不直接读文件（D-013②）；
+- approval 插件**经 `ConfigService` 读规则**，不直接读文件（D-013②）：`permissionRules()` = 全局表、`projectPermissionRules()` = 项目表，判定链把两表合并（**deny 跨表压倒一切**）；写项目规则经 `addProjectPermissionRule()`（2 空格格式化落盘、同条幂等）；
 - **凭据硬拒永远优先于这里的任何 `allow`**，且不在规则链内；
-- 会话内允许集从日志折叠得出（可缓存）——approve 前本来就要读日志判 pending，不增加成本。
+- 会话内允许集从日志折叠得出（可缓存）——approve 前本来就要读日志判 pending，不增加成本；`rule` 在场只进规则表、不升级成工具级，撤销按精确规则/按工具/清空三档（折叠层语义；R198 UI/REST 只开清空，R199 起逐条可撤——见 §3.5）；
+- 规则文件里**写了命令约束但值非法**（空串/非字符串）→ 整条丢弃：静默降级成 tool 级会把「一条命令的 deny」放大成「整个工具的 deny」；
+- 项目规则文件**存在但读不了 / 不是 JSON 对象**（手改语法错）→ 写盘拒绝、原文件不动，本次审批降级为一次放行——整份重写会把用户其他规则静默丢掉；只有文件缺失才新建；
+- 规则身份（R199）= protocol canonical key（decision + tool + 三命令约束；键序/未知字段无关）：添加幂等、文件删除、账本撤销、UI key 共用；管理面删除命中全部相同条目、未命中不写盘、保留其余原始条目与顶层字段。
 
 ### 3.2 子代理的审批（定稿 · 2026-11-13，D-039）
 
@@ -126,13 +133,26 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 ### 3.4 审批卡呈现（定稿 · 2026-11-21，E6）
 
 - **per-tool 预览体**（四仓对照：CC 每工具一个权限对话框且复用工具卡 diff 组件、ZCode 权限弹窗复用聊天 renderer；dsh 零参数反例已被 D-046 否决）：edit/write → diff 预览（E5 `buildDiffRows` 同机器——CC「同组件复用」行为层）、bash/powershell → 全命令行、read/glob/grep → 路径 / 模式摘要、未知工具（含 MCP）→ JSON 预览；**字段窄化校验不过一律回落 JSON 预览**（E5「宁缺毋滥」纪律），绝不渲染坏预览。
-- **选项集三钮**：允许（once）/ **本会话允许**（`scope:'session'`——§3.1 两层存储的会话层自此有 UI 生产者；decided{scope} 落账 → 折叠集生效，同工具后续调用免 ask）/ 拒绝。**bash / powershell 卡不提供本会话允许**——工具级整会话放行过宽（CC/ZCode 对 bash 只给前缀级；前缀级规则随 permissions.json 写路径挂账）。
+- **选项集（R198）**：命令类工具（bash/powershell）且命令在场 → 四钮：允许（once）/ **本会话允许此命令**（`scope:'session'` + 精确命令规则）/ **本项目允许此命令**（`scope:'project'`，写项目 `permissions.json`）/ 拒绝；其余工具 → 三钮：允许 / **本会话允许**（工具级）/ 拒绝。**命令类工具但命令缺失 → 不给会话/项目选项**（工具级 bash 放行过宽；CC/ZCode 对 bash 只给命令级）。撤销入口在 chip 菜单（R199）：本会话允许 → 同弹层规则面板逐条撤销/全部撤销；本项目允许 → 设置 › 权限按项目逐条查看/删除（见 §3.5）。
+- **范围落账**：`decided{scope, rule}` 与 `revoked` 全部进账本——会话允许是审计事实、项目允许在文件里是策略；项目写盘失败或命令缺失时降级为一次（用户已点下的这次允许不被配置写失败挡住）。
 - **队列**：并发挂起只渲染**队首一张** + 「待审批 N」计数（CC/ZCode FIFO 同款；多卡各挂键盘监听器导致一次 Enter 全中——E6 前真 bug，随单卡化消除）。Enter=允许 / Esc=拒绝（拒绝通道非中断，CC/ZCode 同款）。
 - **keyed 缝 `approval.view.<工具名>`**（词表 10→11，D-057 延伸）：官方 per-tool 审批卡八键注册进缝（edit/write/bash/powershell/read/glob/grep/mcp），插件 `replaceSlot` 顶替、卸载回落通用卡；未知工具回落通用卡（非代码级 fallback）。
-- **挂账**：跨会话「始终允许」写 permissions.json（新端点 + 配置写入）；审批撤销 UI（`approval/revoked` 无生产者）；bash 前缀级规则与 always 固化预览文案（opencode 样板：save[] 预计算 + 二段确认）。
+- **挂账**：bash 前缀级规则（卡上仍只落精确命令；前缀靠手写 rules）与 always 固化预览文案（opencode 样板：save[] 预计算 + 二段确认）。
+
+### 3.5 权限管理面（定稿 · 2026-11-24，R199 / D-082）
+
+- **面划分**：设置 › 权限 = 持久策略（项目 + 全局），任何情况下**不含「本会话」**；会话临时允许只在输入框 chip 的规则面板（同一弹层视图切换：模式菜单 ⇄ 本会话允许列表）。直接点设置与从会话进设置同义——设置不接收会话入参。
+- **项目清单** = `projects.json` 登记目录（左栏同源、含自愈）；设置选择器用 `DirRegistry.peek()`（只读不自愈），`list()` 仍负责扫账本复活。只有 `permissions.json`、没有目录条的孤儿项目不进选择器（规则仍生效，可手改）。默认选中当前会话项目，无会话选第一个；**选择只影响查看，不切会话、不改审批归属**。
+- **逐条操作**：会话行「撤销」→ `approval/revoked{scope:'session', rule|tool}`（无确认，下一次重问）；项目/全局行「删除」→ 直接改规则文件（确认框；deny 额外警示；全局标注影响所有项目），**不写会话账本事件**——文件是策略源，手改本来也无审计。
+- **规则同一性**：protocol canonical key（decision + tool + `commandExact`/`Prefix`/`Contains`；键序、未知字段无关）。添加幂等、文件删除、账本撤销、UI key 共用；删除命中全部相同条目，未命中不写盘，保留其余原始条目与顶层字段。
+- **文件三态**：`ok | missing | corrupt`。管理面把 corrupt 显示为警示 + 路径、禁用删除；写盘（添加/删除）对 corrupt 一律拒绝，绝不覆盖（§3.1 纪律延伸）。`invalidCount` 提示文件里有、形状非法被丢弃的条目数。
+- **拒绝语义**：审批卡「拒绝」仍是一次性裁决——不生成规则，下一次相同调用继续询问（参照行为层一致）；持久 deny 只住规则文件（本批可见/可删，不提供新增/编辑）。卡上不加第五钮。
+- **深链**：`SettingsModal` 跟随 `props.section` 变化；chip「本项目允许 N 条 › 设置中管理」调 `ctx.openSettings("permission")`。
+- **降级**：旧宿主缺 client 方法 → 设置页只显示新会话默认档并提示不支持；chip 无 `sessionPermissions` 时不显示允许区。
 
 _已定稿：凭据硬拒清单 → 官方 approval 插件承担（D-012④，2026-11-11）。_
 _已定稿：审批事件对在回合内 + 先落 decided 再执行；权限两层存储（2026-11-12）。_
 _已定稿：判定链补默认放行层与灾难硬拒；子代理审批 = 前台问 / 后台拒 / 继承规则（D-039，2026-11-13）。_
 _已定稿：工具结果统一出口截断 + 超限落盘留路径（2026-11-13）。_
 _已定稿：PermissionRequest 载荷 = {tool, args 全文, reason?}，显示折叠归界面 UI（D-046，2026-11-14）。_
+_已定稿：权限管理面 = 设置管持久规则 / chip 管本会话、逐条撤销与删除、坏文件不覆盖（D-082，2026-11-24）。

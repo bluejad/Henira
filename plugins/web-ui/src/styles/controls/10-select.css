@@ -97,13 +97,20 @@
   position: absolute;
   z-index: 65;
   min-width: 140px;
+  /* R199：长标签（项目名 + cwd）不得把弹层撑出设置内容区——溢出会变成内容区的
+     横向滚动溢出（页面被滚右、标题/行首被裁）。宽度封顶，条目省略号截断 + title 看全文。 */
+  max-width: min(420px, calc(100vw - 96px));
   max-height: 260px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
+/* 表单字段形态在设置行右缘：弹层改为向左生长，右缘钉在触发钮——绝不越过内容区右界 */
 .henira-select--input .henira-select-pop {
   min-width: 100%;
+  left: auto;
+  right: 0;
+  width: max-content;
 }
 .henira-select-pop[data-direction="up"] {
   bottom: calc(100% + 4px);
@@ -113,6 +120,7 @@
 }
 .henira-app button.henira-pop-item {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   border: none;
   background: none;
@@ -124,6 +132,8 @@
   color: var(--henira-text);
   cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .henira-app button.henira-pop-item:hover:not(:disabled):not([data-active="true"]) {
   background: var(--henira-surface-hover);

@@ -1022,3 +1022,34 @@
 - **理由**：dsh 证明「持久化 + 每次绑定」不冲突——durable 事件是审计、请求携带是权威；照抄到我们的词表 = ui-state 记忆（回填）+ PromptOptions 权威 + turn/start 落账（审计）。CC 证明完全访问的安全边界必须比审批链更靠前——硬拒/deny/hook deny 在任何模式都活着。确认卡学 ZCode yolo 首次切换的显式风险确认；「降格不确认」让退出路径零摩擦（安全方向永远好走）。
 - **非目标**：只读/沙箱档（等 fs 沙箱件）；plan 模式并权（不属权限维度）；「always allow」写 permissions.json（会话允许集已覆盖本轮诉求）；斜杠命令；CLI 形态默认档；解锁锁死会话的权限变更。
 - **备注**：落点 = protocol（PERMISSION_MODES/PromptOptions/QueuedPrompt/SessionUiState）、plugin-session（turn/start + approval/decided 校验器）、plugin-loop（turn/start 落账广播 + 队列三出口携带）、plugin-approval（full 层 + 审计标记）、server（prompt 路由 + settings 路由/store）、sdk（client/runtime prompt + settings 三处 + SettingsData）、config-loader 不动（引擎不消费默认档——默认属 UI 层）、web-ui（ComposerApi.permission/setPermission + composer-state 生效值归一 + permission-menu + composer 接线 + 设置第五页 + 60-permission.css + 词条）、web 宿主零改动（ui-state 通道复用）；测试 = approval full 五例（免问放行/硬拒不动/deny 不动/缺省走 answerer/换回合兜底回 ask）、loop 落账+队列持久化、server settings+prompt 路由、sdk 双形态 full 全链、web-ui chip 五例、e2e 真浏览器七步（ask 卡→full 免卡→刷新保持→切回出卡）。
+
+## D-081 命令级权限规则：会话事件级 + 项目文件级 + 撤销入口（R198）
+
+- **状态**：已定 · 2026-11-24 · R197 权限模式批后的对话拍板（用户三问：本会话允许要有精度 / 本项目允许写进项目里 / 撤销入口要有）；✓ 同日落码
+- **背景**：D-080 把「always allow 写 permissions.json」列为非目标（会话允许集已覆盖），但实际使用露出三处缺口：①会话允许是**工具级**——bash 不提供、write/edit 一旦允许就是整工具放开；②跨会话规则只有全局一份，用户不知道规则属于哪个项目，也没有「本项目」这层；③`approval/revoked` 只有测试生产者，会话允许无法收回。参照行为层：ZCode 的 `allow_session` 是工具级内存规则、`allow_project` 用 ruleContent（command/url/file_path）持久化；dsh 只有 sandbox + 审批策略、无 per-command 规则；我们的账本天然能把会话规则做成**可回放、可撤销的事实**，比两家都精确。
+- **决定**：
+  1. **存储三层**：会话级 = `approval/decided{scope:'session', rule?}` + `approval/revoked{scope:'session'}` 事件（append-only，随会话）；项目级 = `<dataDir>/projects/<projectKey>/permissions.json`（卡上「本项目允许此命令」写入）；全局 = `config/permissions.json`（既有）。后两者同形、可手改（D-030）。
+  2. **命令类工具落精确命令**：`PermissionRule.match.commandExact`（整串相等）；bash/powershell 的卡提供「本会话允许此命令 / 本项目允许此命令」，命令缺失则不提供（工具级 bash 放行过宽）；非命令工具保留工具级本会话允许。前缀/包含仍是手写规则能力，多约束同时在场须全部满足。
+  3. **撤销是设置动作**：`approval/revoked` 的 `turn/step` 可缺省，store 的「审批事件须在回合内」闸对它豁免（审批记录 ≠ 收回允许）；权限菜单显示本会话允许条数 + 「撤销」，本项目只读计数（文件可手改）。
+  4. **规则读取**：approval 经 `ConfigService` 读全局 + 项目两张表并合并，**deny 跨表压倒一切**；规则文件里写了命令约束但值非法（空串/非字符串）→ 整条丢弃——静默降级成 tool 级会把「一条命令的 deny」放大成「整个工具的 deny」。
+  5. **审计与降级**：`decided` 带 `scope`/`rule`；项目写盘失败或命令缺失时降级为一次放行（不拿配置写失败挡住用户已点下的允许）；审计行仍在账本。
+- **理由**：日志记事实、文件记策略的分界不变，只是把「项目」补成文件层的自然分界（与会话 cwd / 项目数据目录同生命周期）；精确命令比工具级安全，又不需要 batch 2 的路径级规则就能覆盖「同一条命令反复跑」的高频场景；事件级撤销可回放、可审计，ZCode 的内存 sessionRules 做不到。
+- **非目标**：路径级规则（write/edit 的中间档，batch 2）；卡上一键前缀规则（保留手写）；拒绝附反馈；项目规则管理面板；撤销单条规则的 UI（折叠层已支持按 tool/rule 精确撤销；本批 REST/SDK 只开清空档，UI 先给清空）。
+- **备注**：落点 = protocol（`PermissionRuleMatch.commandExact`、`PermissionSnapshot`、`InteractionAnswer.scope`、`ApprovalRow.scope`）、plugin-session（`decided.rule` / `revoked` 校验器与回合闸豁免）、plugin-approval（`commandRule` / `matchesRule` AND 语义 / 会话折叠 rules+tools / 项目写盘）、config-loader（`projectPermissionRules` / `addProjectPermissionRule` / 窄化）、server（配置装配 projectDir、settle scope `project`、`GET /permissions`、`POST /permissions/session/revoke`）、sdk（双形态 `sessionPermissions` / `revokeSessionApprovals`）、web-ui（卡四/三钮、权限菜单允许区、词条）、web 宿主零改动（client 直通）；测试 = 引擎精确规则/折叠/项目写盘/降级、账本 rule+revoked 免闸、config 项目文件、server 端点、sdk 双形态、web-ui 卡与撤销区、e2e 真浏览器（允许此命令→同命令免卡→撤销→再出卡）；活体真 key 验收另跑。
+
+## D-082 权限管理面：设置管持久规则、会话管临时允许（R199）
+
+- **状态**：已定 · 2026-11-24 · R198 后续管理面缺口（用户拍板：设置页不显示任何会话段；项目选择器；项目/全局逐条删除含全局；会话逐条撤销；拒绝仍一次性）；✓ 同日落码
+- **背景**：R198 把规则三层落全，但 UI 只有计数与清空：项目/全局规则不可见、不能逐条删；会话撤销只能全清；设置页与 chip 的职责也没定清——若把每个会话的允许都塞进设置，列表会失控且作用域混淆。
+- **决定**：
+  1. **面划分**：设置 › 权限 = 持久策略（项目 + 全局），任何情况下不含「本会话」段；会话临时允许只在输入框 chip 的规则面板里（同一弹层内视图切换，返回键回模式菜单）。直接点设置与从会话进设置同义——设置不接收会话入参。
+  2. **项目清单** = `projects.json` 登记目录（左栏同源，含自愈）；`DirRegistry.peek()` 只读列表供设置选择器（`list()` 仍负责扫账本自愈）。只有 `permissions.json`、没有目录条的孤儿项目不进选择器（规则仍生效，可手改）。默认选中当前会话所属项目；无会话选第一个。
+  3. **逐条删除**：项目/全局在设置页逐条删（确认框；deny 额外警示；全局标注影响所有项目），直接改规则文件、不写会话账本事件；会话在 chip 规则面板逐条撤销（`approval/revoked` 带 rule/tool，缺省清空），无确认（下一次重问是低风险动作）。
+  4. **规则同一性** = protocol canonical key（decision + tool + 三命令约束；键序/未知字段无关）。添加幂等、文件删除、账本撤销、UI key 共用。删除命中全部相同条目；未命中不写盘；保留其余原始条目与顶层字段。
+  5. **文件三态**：`ok | missing | corrupt`。管理视图显示 corrupt 警示与路径、禁用删除；写盘（添加/删除）对 corrupt 一律拒绝，绝不覆盖（R198 P2 纪律延伸）。
+  6. **拒绝仍一次性**：审批卡的「拒绝」不生成规则；下一次相同调用继续询问。持久 deny 只存在于规则文件（本批只读/可删，不提供新增/编辑）。
+  7. **深链**：`SettingsModal` 跟随 `props.section` 变化（原先只在首次挂载生效）；chip「本项目允许 N 条 › 设置中管理」调 `ctx.openSettings("permission")`。
+- **理由**：会话允许是随会话消亡的事实，塞进全局设置会逼用户枚举每个会话且作用域不清；项目/全局是策略，管理面应能看到每一条（尤其 deny），否则「手改文件」是唯一可见路径。逐条删除让策略可收回；canonical 身份让手改文件的键序/附加字段不产生幽灵重复。拒绝一次性与参照行为层一致：拒绝是本次裁决，持久拒绝是策略，应走规则编辑而非审批热键。
+- **非目标**：设置内新增/编辑规则（只查看/删除；卡仍是 allow 的新增路径）；卡上「持久拒绝」第五钮；路径级规则；孤儿项目进选择器；项目重命名/可搜索选择器；文件删除的审计事件；设置弹窗 600px 高度修正；forked UUID 会话删除 id bug。
+- **备注**：落点 = protocol（canonical helpers + 管理视图类型）、config-loader（`permissions.ts` 三态读取/添加/删除、唯一 tmp、config.ts 委托）、plugin-approval（折叠 canonical + 去重）、plugin-session（`isProjectKey`、`DirRegistry.peek`）、server（`permission-projects.ts` + 5 端点 + 会话撤销可选 body）、sdk（5 新方法 + `revokeSessionApprovals` opts）、web-ui（设置权限页/规则行/删除确认、chip 规则面板、深链修复、词条/CSS）、web 宿主零改动（`openSettings` 已有）；测试 = protocol/config/approval/session/server/sdk 双形态/web-ui + e2e 三用例（会话逐条撤销/项目删/全局删）；活体真 key 验收另跑。
+- **审查补正（同日）**：① 项目选择器弹层原先无宽度上限且条目 `nowrap`，长 `name — cwd` 标签把弹层撑到 900px+，被设置内容区 `overflow:auto` 计成横向滚动溢出（页面可被滚右、标题/行首被裁，用户实拍）；改为弹层限宽 `min(420px, 100vw - 96px)`、`--input` 形态右缘钉触发钮向左生长、条目省略号 + `title` 看全文；e2e 预置长名项目锁 `scrollWidth == clientWidth` 与弹层不出弹窗。② `useDismiss` 的 Esc 改 capture 并止住冒泡：下拉打开时 Esc 只收弹层，不再连关设置弹窗。③ 选择器可访问名改「选择项目」（原与分区标题撞名）；SDK runtime 项目清单补 `id/cwd/displayName` 窄化，与 server 的 `usableDir` 同口径。

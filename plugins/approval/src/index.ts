@@ -1,6 +1,7 @@
 export {
   argsDigest,
   CREDENTIAL_PATTERNS,
+  commandRule,
   DISASTER_PATTERNS,
   isCredentialAccess,
   isDisasterCommand,
@@ -8,4 +9,4 @@ export {
   stringValues,
 } from "./chain.js";
 export { approvalPlugin } from "./service.js";
-export { sessionAllowedTools } from "./session-allow.js";
+export { sessionAllowance, sessionAllowedTools } from "./session-allow.js";

@@ -40,14 +40,18 @@ export function useDismiss(
     const onDown = (e: MouseEvent): void => {
       if (ref.current !== null && !ref.current.contains(e.target as Node)) closeRef.current();
     };
+    // capture：Esc 只收最上层浮层——设置弹窗/全屏预览等外层也监听 document，
+    // 冒泡阶段会被一并触发（R199 项目选择器实测：Esc 连设置弹窗一起关）。
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") closeRef.current();
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      closeRef.current();
     };
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open, ref]);
 }
@@ -160,6 +164,7 @@ export function HeniraSelect(props: {
         ref={triggerRef}
         className="henira-select-trigger"
         aria-label={ariaLabel}
+        title={selected?.label}
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={disabled}
@@ -191,6 +196,7 @@ export function HeniraSelect(props: {
               aria-selected={option.value === value}
               disabled={option.disabled === true}
               className="henira-pop-item"
+              title={option.label}
               data-active={option.value === value ? "true" : undefined}
               data-kbd={i === activeIndex ? "true" : undefined}
               onMouseDown={(e) => {

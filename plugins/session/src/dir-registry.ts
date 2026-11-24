@@ -101,6 +101,13 @@ export class DirRegistry {
     return file.projects.find((p) => p.id === id);
   }
 
+  /** 轻量列表（R199 设置页项目选择器）：只读 projects.json，不扫账本自愈。
+   *  左栏 list() 仍是唯一自愈路径；排序与 list 一致（最近打开在前）。 */
+  async peek(): Promise<RegisteredDir[]> {
+    const file = await this.#read();
+    return [...file.projects].sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+  }
+
   /** upsert：已有条目刷 lastOpenedAt/openCount/lastSessionId/key 校正；新条目置顶。
    *  读改写全程在写互斥内（与 remove/list 并发时丢更新防护） */
   upsert(cwd: string, sessionId?: string): Promise<RegisteredDir> {

@@ -1876,11 +1876,39 @@ describe("ApprovalCard", () => {
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
   });
 
-  it("bash 族不提供本会话允许（工具级整会话放行过宽——E6 四仓对照裁定）", () => {
+  it("R198 bash 带命令：本会话/本项目都落精确命令（scope 分别 session/project）", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    expect(screen.queryByText(t("approval.sessionAllow"))).toBeNull(); // 工具级文案不出现
+    fireEvent.click(screen.getByText(t("approval.sessionAllowCommand")));
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
+
+    cleanup(); // 点击即进入 settling（选项退场）——项目级选项重挂一张卡验证
+    const projectCtx = fixtureCtx();
+    const projectSettle = vi.spyOn(projectCtx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={projectCtx}
+      />,
+    );
+    fireEvent.click(screen.getByText(t("approval.projectAllowCommand")));
+    expect(projectSettle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "project");
+  });
+
+  it("R198 bash 无命令：不提供会话/项目选项（工具级 bash 放行过宽）", () => {
     const ctx = fixtureCtx();
     render(<ApprovalCard row={{ ...pendingRow, toolName: "bash" } as ApprovalRow} ctx={ctx} />);
     expect(screen.getByText(t("approval.allow"))).toBeDefined();
     expect(screen.queryByText(t("approval.sessionAllow"))).toBeNull();
+    expect(screen.queryByText(t("approval.sessionAllowCommand"))).toBeNull();
+    expect(screen.queryByText(t("approval.projectAllowCommand"))).toBeNull();
   });
 
   it("per-tool 预览体（E6）：edit 显示 diff 行；bash 显示命令行；args 缺 → 通用回落", () => {
@@ -2534,9 +2562,19 @@ describe("权限模式 chip（D-080）", () => {
     expect(chip.getAttribute("data-full")).toBeNull();
 
     fireEvent.click(chip); // 开菜单
-    fireEvent.click(
-      screen.getByRole("menuitemradio", { name: new RegExp(t("composer.permission.full")) }),
-    );
+    // 菜单项带档位图标（询问 = 手掌、完全访问 = 警示盾；参照 ZCode 模式菜单的图标列）
+    const askOption = screen.getByRole("menuitemradio", {
+      name: new RegExp(t("composer.permission.ask")),
+    });
+    const fullOption = screen.getByRole("menuitemradio", {
+      name: new RegExp(t("composer.permission.full")),
+    });
+    expect(askOption.getAttribute("data-mode")).toBe("ask");
+    expect(fullOption.getAttribute("data-mode")).toBe("full");
+    expect(askOption.querySelector(".henira-permission-option-icon svg")).not.toBeNull();
+    expect(fullOption.querySelector(".henira-permission-option-icon svg")).not.toBeNull();
+    expect(chip.querySelector("svg")).not.toBeNull(); // 触发钮也有当前档图标
+    fireEvent.click(fullOption);
     // 确认卡在场；确认钮未勾选时禁用
     const dialog = screen.getByRole("dialog", { name: t("composer.permission.confirmTitle") });
     const confirm = screen.getByRole("button", { name: t("composer.permission.confirm") });
@@ -2553,6 +2591,72 @@ describe("权限模式 chip（D-080）", () => {
     expect(chip2.textContent).toContain(t("composer.permission.full"));
     expect(chip2.getAttribute("data-full")).toBe("true");
     void container;
+  });
+
+  it("R198/R199 允许区：菜单计数 → 规则面板逐条撤销/全部撤销；本项目跳设置", async () => {
+    const sessionPermissions = vi.fn(async () => ({
+      session: {
+        rules: [
+          { match: { tool: "bash", commandExact: "git status" }, decision: "allow" as const },
+        ],
+        tools: ["demo-write"],
+      },
+      project: [
+        { match: { tool: "bash", commandExact: "npm test" }, decision: "allow" as const },
+        // deny 是策略不是「允许」——计数只数 allow（文件可手写 deny）
+        { match: { tool: "bash", commandContains: "rm -rf" }, decision: "deny" as const },
+      ],
+      global: [],
+    }));
+    const revokeSessionApprovals = vi.fn(async () => {});
+    const openSettings = vi.fn();
+    const base = fixtureCtx();
+    const ctx = fixtureCtx({
+      openSettings,
+      client: { ...base.client, sessionPermissions, revokeSessionApprovals },
+    });
+    renderComposer(ctx);
+    fireEvent.click(screen.getByRole("button", { name: t("composer.permission") }));
+    await waitFor(() => {
+      expect(sessionPermissions).toHaveBeenCalledWith("s-1");
+    });
+    const counts = [...document.querySelectorAll(".henira-permission-extra-count")].map(
+      (el) => el.textContent,
+    );
+    expect(counts).toEqual([
+      `2 ${t("composer.permission.unit")}`,
+      `1 ${t("composer.permission.unit")}`,
+    ]);
+
+    // 本会话 → 规则面板：逐条撤销（rule 进 body）→ 全部撤销（缺省 = 清空）
+    fireEvent.click(
+      screen.getByRole("button", { name: new RegExp(t("composer.permission.viewRules")) }),
+    );
+    expect(screen.getByText(t("composer.permission.sessionRulesTitle"))).toBeDefined();
+    const rowRevokes = screen.getAllByRole("button", { name: t("permission.rule.revoke") });
+    expect(rowRevokes).toHaveLength(2);
+    fireEvent.click(rowRevokes[0] as HTMLElement);
+    await waitFor(() => {
+      expect(revokeSessionApprovals).toHaveBeenCalledWith("s-1", {
+        rule: { match: { tool: "bash", commandExact: "git status" }, decision: "allow" },
+      });
+    });
+    await waitFor(() => {
+      expect(sessionPermissions.mock.calls.length).toBeGreaterThan(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("composer.permission.revokeAll") }));
+    await waitFor(() => {
+      expect(revokeSessionApprovals).toHaveBeenCalledWith("s-1");
+    });
+
+    // 返回菜单 → 本项目「设置中管理」深链到权限页
+    fireEvent.click(screen.getByRole("button", { name: t("composer.permission.back") }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: new RegExp(t("composer.permission.manageInSettings")),
+      }),
+    );
+    expect(openSettings).toHaveBeenCalledWith("permission");
   });
 
   it("确认卡取消 / 外点 / Esc：档位不变（写零次）", async () => {
@@ -2684,6 +2788,160 @@ describe("权限模式 chip（D-080）", () => {
     fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole("option", { name: t("composer.permission.full") }));
     expect(putSettings).toHaveBeenCalledWith({ permissionMode: "full" });
+  });
+
+  it("R199 设置·权限页：项目选择器 + 项目/全局规则逐条删除（确认/deny 警示）", async () => {
+    const projectId = "pid1";
+    const allow = {
+      match: { tool: "bash", commandExact: "npm test" },
+      decision: "allow" as const,
+    };
+    const deny = {
+      match: { tool: "bash", commandContains: "rm -rf" },
+      decision: "deny" as const,
+    };
+    const globalRule = { match: { tool: "read" }, decision: "allow" as const };
+    const permissionProjects = vi.fn(async () => ({
+      projects: [
+        {
+          id: projectId,
+          key: "--demo-de960ff4--",
+          cwd: "D:\\Work\\Demo",
+          name: "Demo",
+          allowCount: 1,
+          denyCount: 1,
+          status: "ok" as const,
+        },
+      ],
+      currentId: projectId,
+    }));
+    const projectPermissions = vi.fn(async () => ({
+      id: projectId,
+      key: "--demo-de960ff4--",
+      cwd: "D:\\Work\\Demo",
+      name: "Demo",
+      path: "D:\\data\\projects\\--demo-de960ff4--\\permissions.json",
+      status: "ok" as const,
+      rules: [allow, deny],
+      invalidCount: 0,
+    }));
+    const globalPermissions = vi.fn(async () => ({
+      path: "D:\\data\\config\\permissions.json",
+      status: "ok" as const,
+      rules: [globalRule],
+      invalidCount: 0,
+    }));
+    const removeProjectPermissionRule = vi.fn(async () => 1);
+    const removeGlobalPermissionRule = vi.fn(async () => 1);
+    const ctx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, permissionMode: "ask" as const }),
+        permissionProjects,
+        projectPermissions,
+        globalPermissions,
+        removeProjectPermissionRule,
+        removeGlobalPermissionRule,
+      },
+    });
+    render(<SettingsModal ctx={ctx} section="permission" onClose={() => {}} />);
+    await waitFor(() => {
+      expect(projectPermissions).toHaveBeenCalledWith(projectId);
+    });
+    await waitFor(() => {
+      expect(document.querySelectorAll(".henira-permission-rule-row").length).toBe(3);
+    });
+    const dialog = screen.getByRole("dialog", { name: t("settings.title") });
+    const selects = dialog.querySelectorAll(".henira-select-trigger");
+    expect(selects[1]?.textContent).toContain("Demo");
+    expect(selects[1]?.textContent).toContain("D:\\Work\\Demo");
+
+    // 项目 deny 删除：确认框带拒绝警示 → 调 removeProjectPermissionRule(id, rule)
+    const deleteButtons = screen.getAllByRole("button", { name: t("permission.rule.delete") });
+    expect(deleteButtons).toHaveLength(3);
+    fireEvent.click(deleteButtons[1] as HTMLElement);
+    const confirm = screen.getByRole("dialog", { name: t("settings.permission.deleteTitle") });
+    expect(screen.getByText(t("settings.permission.deleteDenyHint"))).toBeDefined();
+    fireEvent.click(confirm.querySelector("button.henira-danger") as HTMLButtonElement);
+    await waitFor(() => {
+      expect(removeProjectPermissionRule).toHaveBeenCalledWith(projectId, deny);
+    });
+    await waitFor(() => {
+      expect(projectPermissions.mock.calls.length).toBeGreaterThan(1); // 删除后重拉详情
+    });
+
+    // 全局 allow 删除：影响所有项目提示 → removeGlobalPermissionRule(rule)
+    const after = screen.getAllByRole("button", { name: t("permission.rule.delete") });
+    fireEvent.click(after[2] as HTMLElement);
+    expect(screen.getByText(t("settings.permission.deleteGlobalAllow"))).toBeDefined();
+    const globalConfirm = screen.getByRole("dialog", {
+      name: t("settings.permission.deleteTitle"),
+    });
+    fireEvent.click(globalConfirm.querySelector("button.henira-danger") as HTMLButtonElement);
+    await waitFor(() => {
+      expect(removeGlobalPermissionRule).toHaveBeenCalledWith(globalRule);
+    });
+  });
+
+  it("R199 设置·权限页：坏规则文件显示警示、不给删除按钮", async () => {
+    const ctx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, permissionMode: "ask" as const }),
+        permissionProjects: async () => ({
+          projects: [
+            {
+              id: "pid1",
+              key: "--demo-de960ff4--",
+              cwd: "D:\\Work\\Demo",
+              name: "Demo",
+              allowCount: 0,
+              denyCount: 0,
+              status: "corrupt" as const,
+            },
+          ],
+          currentId: "pid1",
+        }),
+        projectPermissions: async () => ({
+          id: "pid1",
+          key: "--demo-de960ff4--",
+          cwd: "D:\\Work\\Demo",
+          name: "Demo",
+          path: "D:\\data\\permissions.json",
+          status: "corrupt" as const,
+          rules: [],
+          invalidCount: 0,
+        }),
+        globalPermissions: async () => ({
+          path: "D:\\data\\config\\permissions.json",
+          status: "corrupt" as const,
+          rules: [],
+          invalidCount: 0,
+        }),
+        removeProjectPermissionRule: async () => 0,
+        removeGlobalPermissionRule: async () => 0,
+      },
+    });
+    render(<SettingsModal ctx={ctx} section="permission" onClose={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getAllByText(t("settings.permission.fileCorrupt")).length).toBe(2);
+    });
+    expect(screen.queryAllByRole("button", { name: t("permission.rule.delete") })).toHaveLength(0);
+  });
+
+  it("R199 设置深链：已挂载弹窗跟随 props.section 切页", async () => {
+    const ctx = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, permissionMode: "ask" as const }),
+      },
+    });
+    const { rerender } = render(<SettingsModal ctx={ctx} section="theme" onClose={() => {}} />);
+    expect(screen.getByRole("heading", { name: t("settings.appearance.title") })).toBeDefined();
+    rerender(<SettingsModal ctx={ctx} section="permission" onClose={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: t("settings.permission.title") })).toBeDefined();
+    });
   });
 });
 
@@ -3922,11 +4180,27 @@ describe("统一下拉基础件（基础件批 2026-11-20）", () => {
     const trigger = screen.getByRole("button", { name: "档位" });
     fireEvent.click(trigger);
     expect(screen.getByRole("listbox", { name: "档位" })).not.toBeNull();
-    fireEvent.keyDown(trigger, { key: "Escape" }); // 冒泡到 document 监听
+    fireEvent.keyDown(trigger, { key: "Escape" }); // capture 到 document 监听
     expect(screen.queryByRole("listbox", { name: "档位" })).toBeNull();
     fireEvent.click(trigger);
     fireEvent.mouseDown(document.body); // 面板外按下
     expect(screen.queryByRole("listbox", { name: "档位" })).toBeNull();
+  });
+
+  it("Esc 只收最上层：弹层在 capture 止住，外层 document 监听不触发（设置弹窗不连关）", () => {
+    const outer = vi.fn();
+    document.addEventListener("keydown", outer);
+    try {
+      render(<HeniraSelect value="off" options={opts} onChange={vi.fn()} ariaLabel="档位" />);
+      const trigger = screen.getByRole("button", { name: "档位" });
+      fireEvent.click(trigger);
+      expect(screen.getByRole("listbox", { name: "档位" })).not.toBeNull();
+      fireEvent.keyDown(trigger, { key: "Escape" });
+      expect(screen.queryByRole("listbox", { name: "档位" })).toBeNull();
+      expect(outer).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", outer);
+    }
   });
 
   it("弹向：auto 在 jsdom（rect 全 0）判向下；direction=up 钉死向上", () => {

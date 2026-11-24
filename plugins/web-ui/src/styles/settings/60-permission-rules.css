@@ -1,0 +1,121 @@
+/* 权限管理面（R199）：规则行（设置页项目/全局 + 会话 chip 规则面板共用）与设置页
+   路径/状态版式。行式排版跟随 settings/50-page.css 的卡片/行结构。 */
+
+.henira-permission-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 0;
+  font-size: var(--henira-fs-sm);
+}
+.henira-permission-rule-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font-size: var(--henira-fs-sm);
+  line-height: 1.5;
+}
+.henira-app .henira-permission-rule-badge.is-allow {
+  color: var(--henira-ok-text);
+  background: var(--henira-ok-bg);
+}
+.henira-app .henira-permission-rule-badge.is-deny {
+  color: var(--henira-danger-text);
+  background: var(--henira-danger-bg);
+}
+.henira-permission-rule-tool {
+  flex: 0 0 auto;
+  font-family: var(--henira-mono);
+  color: var(--henira-text-strong);
+}
+.henira-permission-rule-constraint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--henira-text-muted);
+}
+.henira-permission-rule-action {
+  flex: 0 0 auto;
+}
+.henira-app button.henira-permission-rule-delete {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-danger-text);
+  cursor: pointer;
+}
+.henira-app button.henira-permission-rule-delete:hover {
+  background: var(--henira-danger-bg);
+}
+
+/* 设置页：项目/全局规则卡 */
+.henira-permission-rules-body {
+  padding: 6px 0 2px;
+}
+.henira-permission-project-cwd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.henira-permission-rules-list {
+  display: flex;
+  flex-direction: column;
+}
+.henira-permission-rules-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-app .henira-permission-rules-state.is-error {
+  color: var(--henira-danger-text);
+}
+.henira-app .henira-permission-rules-state button {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-app .henira-permission-rules-state button:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-strong);
+}
+.henira-permission-rules-note {
+  margin: 4px 0 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-warn-text);
+}
+.henira-permission-rules-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 0 10px;
+}
+.henira-permission-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+.henira-permission-session-hint {
+  margin: 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}

@@ -701,7 +701,13 @@ export class SessionRegistry {
     harness.use({ name: "interaction", start: () => interaction });
     harness.use({
       name: "config",
-      start: () => createConfigService({ cwd, globalDir: this.#opts.globalDir }),
+      start: () =>
+        createConfigService({
+          cwd,
+          globalDir: this.#opts.globalDir,
+          // R198：项目级权限规则住项目数据目录（data-directory §2.1）
+          projectDir: path.join(this.#opts.dataDir, "projects", projectKey(cwd)),
+        }),
     });
     for (const item of prepared.definitions) {
       const definition = item.definition as { name?: string; start?: unknown };

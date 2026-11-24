@@ -15,9 +15,16 @@ import {
   type GateVerdict,
   type PermissionMode,
   type PermissionRequest,
+  type PermissionRule,
 } from "@henira/protocol";
-import { argsDigest, isCredentialAccess, isDisasterCommand, matchesRule } from "./chain.js";
-import { sessionAllowedTools } from "./session-allow.js";
+import {
+  argsDigest,
+  commandRule,
+  isCredentialAccess,
+  isDisasterCommand,
+  matchesRule,
+} from "./chain.js";
+import { sessionAllowance } from "./session-allow.js";
 
 /** args 全文的尺寸闸（审查 F4，对照 __meta 256KB 同款）：超限/不可序列化 = 丢 args 只留
  * digest（UI 有 digest-only 回落形状；args 全文仍在 tool/call.arguments 可查） */
@@ -90,8 +97,8 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           };
           const decided = async (
             decision: Decision,
-            scope?: string,
-            mode?: "full",
+            scope?: "session" | "project",
+            extra?: { mode?: "full"; rule?: PermissionRule },
           ): Promise<void> => {
             await session.append({
               type: "approval/decided",
@@ -101,7 +108,8 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
                 requestId,
                 decision,
                 ...(scope ? { scope } : {}),
-                ...(mode !== undefined ? { mode } : {}),
+                ...(extra?.mode !== undefined ? { mode: extra.mode } : {}),
+                ...(extra?.rule !== undefined ? { rule: extra.rule } : {}),
               },
             });
           };
@@ -110,8 +118,13 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           if (isCredentialAccess(req)) return "rejected";
           if (isDisasterCommand(req)) return "rejected";
 
-          // ── 规则层（经 config 读 permissions.json；deny 压倒一切——先扫全表 deny 再扫 allow）──
-          const rules = await cx.get("config").permissionRules();
+          // ── 规则层（经 config 读全局 + 项目 permissions.json；deny 压倒一切——先扫全表
+          //    deny 再扫 allow）──
+          const config = cx.get("config");
+          const rules = [
+            ...(await config.permissionRules()),
+            ...(await config.projectPermissionRules()),
+          ];
           const matching = rules.filter((rule) => matchesRule(req, rule));
           if (matching.some((rule) => rule.decision === "deny")) return "rejected";
           if (matching.some((rule) => rule.decision === "allow")) {
@@ -120,7 +133,13 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           }
 
           // ── 会话内允许集（日志折叠，§3.1——已有原始 decided 在案，不重复审计）──
-          if (sessionAllowedTools(session.events()).has(req.tool)) return "allowed-once";
+          const allowance = sessionAllowance(session.events());
+          if (
+            allowance.tools.has(req.tool) ||
+            allowance.rules.some((rule) => matchesRule(req, rule))
+          ) {
+            return "allowed-once";
+          }
 
           // ── 默认放行层（D-039：只读标记自动放行 + 落 decided 审计；floor=ask 抬高下限）──
           if (tools.isConcurrencySafe(req.tool) === true && opts?.floor !== "ask") {
@@ -144,14 +163,14 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           //    hook deny 均在本层之前裁决——full 不是「关掉审批」，settled 行带 mode:"full"
           //    审计标记（事后可辨「非用户逐次放行」）
           if (permissionMode === "full") {
-            await decided("allowed-once", undefined, "full");
+            await decided("allowed-once", undefined, { mode: "full" });
             return "allowed-once";
           }
 
           // ── answerer（InteractionService）────────────────────────
           await asked();
           let answer: Decision;
-          let answerScope: "session" | undefined;
+          let answerScope: "session" | "project" | undefined;
           try {
             const interaction = cx.get("interaction");
             const result = await interaction.ask(
@@ -168,7 +187,9 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
               result.kind === "approval" &&
               result.requestId === requestId &&
               (DECISIONS as readonly string[]).includes(result.decision) &&
-              (result.scope === undefined || result.scope === "session"); // 不合规 scope = 形状不合规
+              (result.scope === undefined ||
+                result.scope === "session" ||
+                result.scope === "project"); // 不合规 scope = 形状不合规
             if (valid) {
               answer = result.decision;
               answerScope = result.scope;
@@ -181,7 +202,35 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           }
           // scope 仅在真放行时落账（审查 F5）：rejected/cancelled 带 scope 是语义噪音
           // ——settled 行不该出现「rejected · 本会话」
-          await decided(answer, answer === "allowed-once" ? answerScope : undefined);
+          if (answer !== "allowed-once" || answerScope === undefined) {
+            await decided(answer);
+            return answer;
+          }
+          // R198：允许范围落规则——命令类工具 = 精确命令规则（同命令才免问）；其余工具
+          // 保持工具级（仅会话级；项目级工具放行过宽，不提供）。命令类但命令缺失 =
+          // 无精度可用，降级为一次（工具级 bash 放行过宽，宁可不落）。项目级写盘失败
+          // 不挡用户已点下的这次允许——同样降级为一次，规则不落。
+          const rule = commandRule(req);
+          const shell = req.tool === "bash" || req.tool === "powershell";
+          if (shell && rule === undefined) {
+            await decided(answer);
+            return answer;
+          }
+          if (answerScope === "project") {
+            if (rule === undefined) {
+              await decided(answer);
+              return answer;
+            }
+            try {
+              await config.addProjectPermissionRule(rule);
+            } catch {
+              await decided(answer);
+              return answer;
+            }
+            await decided(answer, "project", { rule });
+            return answer;
+          }
+          await decided(answer, "session", rule !== undefined ? { rule } : undefined);
           return answer;
         },
       };

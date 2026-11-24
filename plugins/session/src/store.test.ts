@@ -210,6 +210,46 @@ describe("审批写入规则（session.md §1.1：没有打开的回合不接受
     await s.append(turnEnd("t1"));
     await expect(s.append(asked("t1"))).rejects.toBeInstanceOf(NoOpenTurnError);
   });
+
+  it("R198 撤销免回合闸：无打开回合也接受（设置动作不是审批记录）", async () => {
+    const s = await openSession("appr-revoked");
+    await s.append({ type: "approval/revoked", data: { scope: "session" } });
+    // 带 turn 的旧形状同样接受
+    await s.append({ type: "approval/revoked", data: { turn: "t9", step: 1, scope: "session" } });
+    expect(s.events().map((e) => e.type)).toEqual(["approval/revoked", "approval/revoked"]);
+    // 回合内 decided 带 rule 过闸
+    await s.append(turnStart("t1"));
+    const decided = await s.append({
+      type: "approval/decided",
+      data: {
+        turn: "t1",
+        step: 0,
+        requestId: "r1",
+        decision: "allowed-once",
+        scope: "session",
+        rule: { match: { tool: "bash", commandExact: "ls" }, decision: "allow" },
+      },
+    });
+    expect(decided.type).toBe("approval/decided");
+  });
+
+  it("R198 非法 rule 形状被拒（空命令 / 非 allow 决策）", async () => {
+    const s = await openSession("appr-rule-bad");
+    await s.append(turnStart("t1"));
+    await expect(
+      s.append({
+        type: "approval/decided",
+        data: {
+          turn: "t1",
+          step: 0,
+          requestId: "r1",
+          decision: "allowed-once",
+          scope: "session",
+          rule: { match: { tool: "bash", commandExact: "" }, decision: "allow" },
+        },
+      }),
+    ).rejects.toBeInstanceOf(EventDataInvalidError);
+  });
 });
 
 describe("surfaceOp 重叠裁决（session.md §4：先写生效，后到的整条忽略并补非致命 error）", () => {

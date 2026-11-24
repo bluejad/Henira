@@ -21,17 +21,20 @@ CI 同序（workflow 内 `--with-deps chromium` 装 OS 依赖），截图上传�
 
 ## 文件 ↔ 设计
 
-| 文件                 | 职责                                                                                                                                                             | 设计出处                                                     |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| playwright.config.ts | testMatch 只认 `*.e2e.ts`（vitest 不扫——`pnpm test` 与浏览器 e2e 双轨互不干扰）；失败 trace 留档                                                                 | CI 纪律（AGENTS.md）                                         |
-| src/serve.e2e.ts     | 两个用例：①serve 链路回合（busy 停止钮 / 审批卡收答 / 流式中断言 + 截图 / 新会话 + 会话切换 / 明暗双主题截图）②安全模式双通道（`?ui=safe` + 双击 Alt）           | roadmap M4 浏览器 e2e 判据 / 判据④ / interfaces.md server 段 |
-| src/forms.e2e.ts     | mock 逐形态验收（M4 批 A 判据③ mock 半边）：推理块+usage / 错误回合 / 审批拒绝 / 中断收尾 / 多工具并行 / 插话 steer / 输出截断（每用例独立 server + 截图 10-16） | roadmap M4 判据③ / D-057 / D-059                             |
-| src/real.e2e.ts      | 真 key 采样（env 门控不进 CI）：真 serve + 切 provider 逐形态真实 prompt + 截图 real/                                                                            | roadmap M4 判据③（真 key 半边）                              |
-| tools/probe.md       | probe 工具档案（非只读审批样本）                                                                                                                                 | AGENTS.md 一工具一 md                                        |
-| tools/echo-a.md      | echo-a 工具档案（多工具并行样本之一）                                                                                                                            | AGENTS.md 一工具一 md                                        |
-| tools/echo-b.md      | echo-b 工具档案（多工具并行样本之二）                                                                                                                            | AGENTS.md 一工具一 md                                        |
-| tools/slow-probe.md  | slow-probe 工具档案（插话 steer 样本：150ms 执行窗）                                                                                                             | AGENTS.md 一工具一 md                                        |
-| tools/big-output.md  | big-output 工具档案（输出截断样本：60KB 必然触发出口限量）                                                                                                       | AGENTS.md 一工具一 md                                        |
+| 文件                             | 职责                                                                                                                                                             | 设计出处                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| playwright.config.ts             | testMatch 只认 `*.e2e.ts`（vitest 不扫——`pnpm test` 与浏览器 e2e 双轨互不干扰）；失败 trace 留档                                                                 | CI 纪律（AGENTS.md）                                         |
+| src/serve.e2e.ts                 | 两个用例：①serve 链路回合（busy 停止钮 / 审批卡收答 / 流式中断言 + 截图 / 新会话 + 会话切换 / 明暗双主题截图）②安全模式双通道（`?ui=safe` + 双击 Alt）           | roadmap M4 浏览器 e2e 判据 / 判据④ / interfaces.md server 段 |
+| src/forms.e2e.ts                 | mock 逐形态验收（M4 批 A 判据③ mock 半边）：推理块+usage / 错误回合 / 审批拒绝 / 中断收尾 / 多工具并行 / 插话 steer / 输出截断（每用例独立 server + 截图 10-16） | roadmap M4 判据③ / D-057 / D-059                             |
+| src/real.e2e.ts                  | 真 key 采样（env 门控不进 CI）：真 serve + 切 provider 逐形态真实 prompt + 截图 real/                                                                            | roadmap M4 判据③（真 key 半边）                              |
+| src/permission.e2e.ts            | 权限模式（D-080）：ask 出卡 → full 免卡 → 刷新保持 → 切回出卡                                                                                                    | D-080                                                        |
+| src/permission-rules.e2e.ts      | 命令级规则（R198/R199）：卡四钮 → 本会话允许精确命令 → 同命令免卡 → 菜单撤销 → 再出卡；项目允许写 permissions.json → 菜单计数 → 同命令免卡                       | D-081 / D-082                                                |
+| src/permission-management.e2e.ts | 权限管理面（R199）：会话规则面板逐条撤销（另一条仍免卡）· 项目规则设置删除后同命令再出卡 · 预置全局 allow 删除后再出卡（文件断言在 stop 前）                     | D-082 / tools-approval §3.5                                  |
+| tools/probe.md                   | probe 工具档案（非只读审批样本）                                                                                                                                 | AGENTS.md 一工具一 md                                        |
+| tools/echo-a.md                  | echo-a 工具档案（多工具并行样本之一）                                                                                                                            | AGENTS.md 一工具一 md                                        |
+| tools/echo-b.md                  | echo-b 工具档案（多工具并行样本之二）                                                                                                                            | AGENTS.md 一工具一 md                                        |
+| tools/slow-probe.md              | slow-probe 工具档案（插话 steer 样本：150ms 执行窗）                                                                                                             | AGENTS.md 一工具一 md                                        |
+| tools/big-output.md              | big-output 工具档案（输出截断样本：60KB 必然触发出口限量）                                                                                                       | AGENTS.md 一工具一 md                                        |
 
 ## 测试 ↔ 判据
 
@@ -39,5 +42,6 @@ CI 同序（workflow 内 `--with-deps chromium` 装 OS 依赖），截图上传�
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | serve 链路回合（5 张截图） | 静态页出货 + 自动选会话；busy 停止钮可见；审批卡 pending → 点允许 → 工具执行 → 流式（`.henira-streaming`）→ 完成；`+ 新会话`（POST /api/sessions）+ 列表切换；主题 light→dark 落 `[data-theme]`；截图：审批卡 / 流式中 / 完成·浅色 / 完成·深色 |
 | 安全模式双通道             | `?ui=safe` 直达安全模式（徽标可见）；双击 Alt 运行时切换来回（判据④两条通道都活）                                                                                                                                                              |
+| 权限管理面（R199，3 用例） | 会话两条允许 → chip 面板撤一条 → 被撤命令再出卡、另一条免卡；项目允许 → 设置 › 权限删除 → permissions.json 规则空 → 同命令再出卡；预置全局 allow → 设置删除 → 再出卡；每用例独立 temp dataDir/globalDir + 截图                                 |
 
 选择器全部取自 locale 字典（`import { zh } from "@henira/plugin-web-ui"`）——文案改词表这里跟着改，选择器不硬编码中文；用例内字符串一律 ASCII（判据⑥机械闸同纪律）。

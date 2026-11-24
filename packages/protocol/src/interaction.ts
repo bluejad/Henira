@@ -60,9 +60,10 @@ export type ApprovalInteractionAnswer = {
   kind: "approval";
   requestId: string;
   decision: Decision;
-  /** 会话级允许（E6）：settle 携带 → decided{scope:'session'} 落账 → 同工具后续调用免 ask
-   * （tools-approval §3.1 折叠）。缺省不带键——once 语义与既有字节面等价 */
-  scope?: "session";
+  /** 允许范围（E6/R198）：settle 携带 → decided{scope} 落账。session = 本会话免问（命令类
+   * 工具落精确规则、其余工具级）；project = 写项目 permissions.json 的精确命令规则。
+   * 缺省不带键——once 语义与既有字节面等价 */
+  scope?: "session" | "project";
 };
 
 /** 问答应答：answers 在场 = 已答（逐题，含空选跳过）；cancelled:true = 用户取消整个请求

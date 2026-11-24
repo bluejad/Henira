@@ -12,6 +12,10 @@ export interface ConfigService {
   credential(providerId: string): Promise<string>;
   /** 插件自有配置段（settings.json plugins.<id>.options 与项目合并，项目优先） */
   get<T>(key: string): Promise<T | undefined>;
-  /** permissions.json 规则（approval 经此读，tools-approval §3.1） */
+  /** 全局 permissions.json 规则（approval 经此读，tools-approval §3.1） */
   permissionRules(): Promise<readonly PermissionRule[]>;
+  /** 项目级 permissions.json 规则（R198：<projectDir>/permissions.json；缺项目目录 = 空表） */
+  projectPermissionRules(): Promise<readonly PermissionRule[]>;
+  /** 追加一条项目级规则（卡上「本项目允许此命令」；完全相同的条目幂等不重复） */
+  addProjectPermissionRule(rule: PermissionRule): Promise<void>;
 }

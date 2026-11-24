@@ -8,6 +8,11 @@ import type {
   Decision,
   DirBrowse,
   PermissionMode,
+  PermissionProjectsView,
+  PermissionProjectView,
+  PermissionRule,
+  PermissionRulesView,
+  PermissionSnapshot,
   PreviewKind,
   PreviewOpenMode,
   PreviewOpenSettings,
@@ -54,13 +59,30 @@ export interface HeniraClientLike {
   interrupt(sessionId: string): Promise<void>;
   /** 轮尾分叉（可选，E4）：按账本 seq 前缀复制出新会话，返回子会话 id；宿主缺方法 = 轮尾 fork 钮不渲染 */
   fork?(sessionId: string, atSeq?: number): Promise<string>;
-  /** scope:'session' = 会话级允许（E6：decided{scope} 落账 → 同工具后续调用免 ask） */
+  /** scope:'session'/'project' = 允许范围（E6/R198：decided{scope,rule} 落账 → 同命令免 ask） */
   settleApproval(
     sessionId: string,
     requestId: string,
     decision: Decision,
-    scope?: "session",
+    scope?: "session" | "project",
   ): Promise<boolean>;
+  /** 权限规则快照（可选，R198——旧宿主缺省时权限菜单不显示允许区） */
+  sessionPermissions?(sessionId: string): Promise<PermissionSnapshot>;
+  /** 撤销本会话允许（可选，R198/R199；回合之外也可；opts 缺省 = 清空） */
+  revokeSessionApprovals?(
+    sessionId: string,
+    opts?: { tool?: string; rule?: PermissionRule },
+  ): Promise<void>;
+  /** 项目清单（可选，R199——旧宿主缺省时设置页隐藏规则管理区） */
+  permissionProjects?(sessionId?: string): Promise<PermissionProjectsView>;
+  /** 单项目规则文件视图（可选，R199） */
+  projectPermissions?(id: string): Promise<PermissionProjectView>;
+  /** 删除项目规则（可选，R199；返回删除条数） */
+  removeProjectPermissionRule?(id: string, rule: PermissionRule): Promise<number>;
+  /** 全局规则文件视图（可选，R199） */
+  globalPermissions?(): Promise<PermissionRulesView>;
+  /** 删除全局规则（可选，R199；返回删除条数） */
+  removeGlobalPermissionRule?(rule: PermissionRule): Promise<number>;
   /** 提问收答（可选，R184）：answers 逐题或 {cancelled:true}；宿主缺方法 = 提问卡提交禁用
    *  （旧嵌入方） */
   settleQuestion?(

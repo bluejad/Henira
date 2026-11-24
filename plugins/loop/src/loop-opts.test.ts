@@ -68,6 +68,8 @@ function configStub(): ServiceDefinition<ConfigService> {
         credential: async () => "k",
         get: async () => undefined,
         permissionRules: async () => [],
+        projectPermissionRules: async () => [],
+        addProjectPermissionRule: async () => {},
       } satisfies ConfigService;
     },
   };

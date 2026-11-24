@@ -20,6 +20,7 @@ import { FileCodeIcon } from "@phosphor-icons/react/dist/csr/FileCode";
 import { FileTextIcon } from "@phosphor-icons/react/dist/csr/FileText";
 import { FolderIcon } from "@phosphor-icons/react/dist/csr/Folder";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
+import { HandIcon } from "@phosphor-icons/react/dist/csr/Hand";
 import { HorseIcon } from "@phosphor-icons/react/dist/csr/Horse";
 import { ImageIcon } from "@phosphor-icons/react/dist/csr/Image";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
@@ -28,6 +29,7 @@ import { PlugIcon } from "@phosphor-icons/react/dist/csr/Plug";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { QuestionIcon } from "@phosphor-icons/react/dist/csr/Question";
 import { ShieldCheckIcon } from "@phosphor-icons/react/dist/csr/ShieldCheck";
+import { ShieldWarningIcon } from "@phosphor-icons/react/dist/csr/ShieldWarning";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/dist/csr/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 import { TerminalIcon } from "@phosphor-icons/react/dist/csr/Terminal";
@@ -121,6 +123,16 @@ export function WarnGlyph(props: Props) {
 /** 权限 chip（D-080）：输入卡工具排左端的模式入口 */
 export function ShieldGlyph(props: Props) {
   return <ShieldCheckIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 权限档「改前询问」：伸手止步 = 先问我（与完全访问的警示盾成对） */
+export function HandGlyph(props: Props) {
+  return <HandIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 权限档「完全访问」：警示盾——与 chip 的 danger 语义同源 */
+export function ShieldWarnGlyph(props: Props) {
+  return <ShieldWarningIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function XGlyph(props: Props) {

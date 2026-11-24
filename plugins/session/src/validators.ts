@@ -22,6 +22,18 @@ const attachmentSchema = z.object({
   name: z.string().optional(),
 });
 
+/** 账本里的允许规则（R198）：只记命令级允许（deny 规则住配置文件，不进决策行）。
+ *  形状与 protocol PermissionRule 一致，decision 收窄为 allow。 */
+const permissionRuleSchema = z.object({
+  match: z.object({
+    tool: z.string().min(1),
+    commandExact: z.string().min(1).optional(),
+    commandPrefix: z.string().min(1).optional(),
+    commandContains: z.string().min(1).optional(),
+  }),
+  decision: z.literal("allow"),
+});
+
 const turnReasonSchema = z.enum([
   "completed",
   "aborted",
@@ -138,12 +150,18 @@ const schemas: Record<string, z.ZodType> = {
     scope: z.string().optional(),
     /** 审计标记（D-080）：mode:"full" = 由完全访问模式自动放行（非用户逐次点允许） */
     mode: z.literal("full").optional(),
+    /** 允许时落下的精确规则（R198）：scope:"session" 由折叠消费；scope:"project" 已写
+     *  permissions.json，本字段只作审计对照 */
+    rule: permissionRuleSchema.optional(),
   }),
   "approval/revoked": z.object({
-    turn: z.string().min(1),
-    step: z.number().int().nonnegative(),
+    // 撤销是设置动作不是审批记录（R198）：可发生在回合之外，turn/step 因此可缺省
+    turn: z.string().min(1).optional(),
+    step: z.number().int().nonnegative().optional(),
     scope: z.string().min(1),
+    /** 缺 tool/rule = 清空该 scope 全部允许 */
     tool: z.string().optional(),
+    rule: permissionRuleSchema.optional(),
   }),
   // 修理专用（R175 重启收口）：只由 session 开档/启动扫描补写产生，loop 与客户端都不发
   // （turn/end reason "interrupted"/"forked" 的修理词汇同模式）。事件自带 ignorable——

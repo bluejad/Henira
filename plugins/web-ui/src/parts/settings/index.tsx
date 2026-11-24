@@ -20,6 +20,12 @@ export function SettingsModal(props: {
   const [themes, setThemes] = useState<UiAssetTheme[]>([]);
   const [locales, setLocales] = useState<UiAssetLocale[]>([]);
 
+  // 深链（R199）：弹窗已开时 props.section 变化（chip「设置中管理」）也要切页；
+  // 左菜单点击只改本地 state，不会触发这里。
+  useEffect(() => {
+    setSection(props.section);
+  }, [props.section]);
+
   // 挂载拉一次已装资产清单（弹窗每次打开重挂载，恰跑一次）
   useEffect(() => {
     let alive = true;

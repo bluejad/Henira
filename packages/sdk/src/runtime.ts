@@ -13,19 +13,23 @@ import {
   Dictionary,
   defaultPreset,
   expandMcpServers,
+  globalPermissionsPath,
   type PluginEntry,
   type PluginSettingsEntry,
   type PluginState,
   type PrepareResult,
   parseResourceAddress,
   preparePlugins,
+  projectPermissionsPath,
+  readPermissionRules,
+  removePermissionRule,
   SNAPSHOT,
   scanUiAssets,
   scrubSpawnEnv,
 } from "@henira/config-loader";
 import type { ServiceDefinition } from "@henira/kernel";
 import { createHarness } from "@henira/kernel";
-import { approvalPlugin } from "@henira/plugin-approval";
+import { approvalPlugin, sessionAllowance } from "@henira/plugin-approval";
 import { askUserPlugin } from "@henira/plugin-ask-user";
 import { breakerPlugin } from "@henira/plugin-breaker";
 import { fsPlugin } from "@henira/plugin-fs";
@@ -39,6 +43,7 @@ import {
   browseDirectories,
   DirRegistry,
   forkSession,
+  isProjectKey,
   projectKey,
   type SessionHandle,
   sameCwd,
@@ -59,6 +64,11 @@ import {
   type LlmService,
   type LoopEvent,
   looksBinary,
+  type PermissionProjectSummary,
+  type PermissionProjectView,
+  type PermissionRule,
+  type PermissionRulesView,
+  type PermissionSnapshot,
   Projection,
   type QueuedPrompt,
   type ResourceReply,
@@ -92,6 +102,23 @@ import {
   writeModelsFile,
   writeSettings,
 } from "./settings.js";
+
+/** projects.json 条目是手可改文件：与 server 的 usableDir 同口径窄化（坏条目不进视图） */
+function usableProjectDir(dir: {
+  id: string;
+  key: string;
+  cwd: string;
+  displayName: string;
+}): boolean {
+  return (
+    typeof dir.id === "string" &&
+    dir.id !== "" &&
+    isProjectKey(dir.key) &&
+    typeof dir.cwd === "string" &&
+    dir.cwd !== "" &&
+    typeof dir.displayName === "string"
+  );
+}
 
 export interface RuntimeOptions {
   /** 运行数据目录（默认 ~/.henira；测试 / 多实例隔离用 HENIRA_HOME 语义） */
@@ -487,7 +514,16 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       harness.use(definition);
     }
     harness.use(opts.interaction ?? autoRejectInteraction());
-    harness.use({ name: "config", start: () => createConfigService({ cwd, globalDir }) });
+    harness.use({
+      name: "config",
+      start: () =>
+        createConfigService({
+          cwd,
+          globalDir,
+          // R198：项目级权限规则住项目数据目录（与 server 同路径规则）
+          projectDir: path.join(dataDir, "projects", projectKey(cwd)),
+        }),
+    });
     for (const item of preparedNow.definitions) {
       const definition = item.definition as { name?: string; start?: unknown };
       if (typeof definition.start !== "function") {
@@ -626,6 +662,95 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         decision,
         ...(scope !== undefined ? { scope } : {}),
       });
+    },
+
+    async sessionPermissions(sessionId) {
+      const session = requireSession(sessions, sessionId);
+      const allowance = sessionAllowance(session.ctx.get("session").events());
+      const config = session.ctx.get("config");
+      const snapshot: PermissionSnapshot = {
+        session: { rules: allowance.rules, tools: [...allowance.tools] },
+        project: [...(await config.projectPermissionRules())],
+        global: [...(await config.permissionRules())],
+      };
+      return snapshot;
+    },
+
+    async revokeSessionApprovals(sessionId, opts) {
+      const session = requireSession(sessions, sessionId);
+      await session.ctx.get("session").append({
+        type: "approval/revoked",
+        data: {
+          scope: "session",
+          ...(opts?.tool !== undefined ? { tool: opts.tool } : {}),
+          ...(opts?.rule !== undefined ? { rule: opts.rule } : {}),
+        },
+      });
+    },
+
+    async permissionProjects(sessionId) {
+      const entries = await dirs.peek();
+      const all = entries.length > 0 ? entries : await dirs.list();
+      const valid = all.filter(usableProjectDir);
+      const projects: PermissionProjectSummary[] = [];
+      for (const dir of valid) {
+        const view = await readPermissionRules(
+          projectPermissionsPath(path.join(dataDir, "projects", dir.key)),
+        );
+        const allowCount = view.rules.filter((rule) => rule.decision === "allow").length;
+        projects.push({
+          id: dir.id,
+          key: dir.key,
+          cwd: dir.cwd,
+          name: dir.displayName || path.basename(dir.cwd) || dir.cwd,
+          allowCount,
+          denyCount: view.rules.length - allowCount,
+          status: view.status,
+        });
+      }
+      let currentId: string | undefined;
+      if (sessionId !== undefined) {
+        const cwd = sessions.get(sessionId)?.cwd;
+        if (cwd !== undefined) currentId = valid.find((dir) => sameCwd(dir.cwd, cwd))?.id;
+      }
+      if (currentId !== undefined) {
+        const index = projects.findIndex((project) => project.id === currentId);
+        if (index > 0) projects.unshift(...projects.splice(index, 1));
+      }
+      return { projects, ...(currentId !== undefined ? { currentId } : {}) };
+    },
+
+    async projectPermissions(id): Promise<PermissionProjectView> {
+      const dir = await dirs.get(id);
+      if (dir === undefined || !usableProjectDir(dir)) throw new Error("project not found");
+      const view = await readPermissionRules(
+        projectPermissionsPath(path.join(dataDir, "projects", dir.key)),
+      );
+      return {
+        id: dir.id,
+        key: dir.key,
+        cwd: dir.cwd,
+        name: dir.displayName || path.basename(dir.cwd) || dir.cwd,
+        ...view,
+      };
+    },
+
+    async removeProjectPermissionRule(id, rule: PermissionRule) {
+      const dir = await dirs.get(id);
+      if (dir === undefined || !usableProjectDir(dir)) throw new Error("project not found");
+      const result = await removePermissionRule(
+        projectPermissionsPath(path.join(dataDir, "projects", dir.key)),
+        rule,
+      );
+      return result.removed;
+    },
+
+    async globalPermissions(): Promise<PermissionRulesView> {
+      return readPermissionRules(globalPermissionsPath(globalDir));
+    },
+
+    async removeGlobalPermissionRule(rule: PermissionRule) {
+      return (await removePermissionRule(globalPermissionsPath(globalDir), rule)).removed;
     },
 
     async settleQuestion(sessionId, requestId, answer) {

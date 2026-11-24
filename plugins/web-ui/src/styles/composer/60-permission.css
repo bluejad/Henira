@@ -52,8 +52,9 @@
 }
 .henira-app button.henira-permission-option {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
   width: 100%;
   border: none;
   background: none;
@@ -72,6 +73,22 @@
   background: var(--henira-selected);
   color: var(--henira-text-strong);
 }
+.henira-permission-option-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--henira-text-muted);
+}
+/* 完全访问：菜单里就把风险色亮出来（与 chip 的 danger 态同源） */
+.henira-app button.henira-permission-option[data-mode="full"] .henira-permission-option-icon {
+  color: var(--henira-danger-text);
+}
+.henira-permission-option-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
 .henira-permission-option-label {
   font-size: var(--henira-fs-sm);
   font-weight: 600;
@@ -80,6 +97,150 @@
   font-size: var(--henira-fs-sm);
   color: var(--henira-text-muted);
   font-weight: 400;
+}
+/* 允许区（R198）：本会话允许可撤销、本项目允许只读计数——设置动作与模式选择同层分组 */
+.henira-permission-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--henira-border);
+}
+.henira-permission-extra-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-permission-extra-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.henira-permission-extra-count {
+  font-variant-numeric: tabular-nums;
+}
+.henira-app button.henira-permission-revoke {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-danger-text);
+  cursor: pointer;
+}
+.henira-app button.henira-permission-revoke:hover:not(:disabled) {
+  background: var(--henira-danger-bg);
+}
+.henira-app button.henira-permission-revoke:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 允许区行可点（R199）：本会话 → 规则面板；本项目 → 设置中管理 */
+.henira-app button.henira-permission-extra-entry {
+  border: none;
+  background: none;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.henira-app button.henira-permission-extra-entry:hover {
+  background: var(--henira-surface-hover);
+  color: var(--henira-text-strong);
+}
+.henira-permission-extra-link {
+  flex: 0 0 auto;
+  color: var(--henira-text-subtle);
+  white-space: nowrap;
+}
+/* 规则面板（R199）：同一 pop 内的视图切换；更宽 + 列表滚动 */
+.henira-permission-pop[data-view="rules"] {
+  width: 360px;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 6px;
+}
+.henira-permission-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.henira-permission-rules-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--henira-border);
+}
+.henira-permission-rules-head strong {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text-strong);
+}
+.henira-app button.henira-permission-rules-back {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: var(--henira-fs-lg);
+  line-height: 1;
+  color: var(--henira-text-muted);
+  cursor: pointer;
+}
+.henira-app button.henira-permission-rules-back:hover {
+  color: var(--henira-text-strong);
+}
+.henira-permission-rules-body {
+  padding: 4px;
+}
+.henira-permission-rules-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.henira-permission-rules-empty {
+  padding: 12px 4px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+  text-align: center;
+}
+.henira-permission-rules-hint {
+  margin: 6px 0 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+.henira-permission-rules-error {
+  margin: 6px 0 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-danger-text);
+}
+.henira-permission-rules-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 4px 0;
+  border-top: 1px solid var(--henira-border);
+}
+.henira-app button.henira-permission-rule-revoke {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  border-radius: calc(var(--henira-radius) - 2px);
+  font: inherit;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-danger-text);
+  cursor: pointer;
+}
+.henira-app button.henira-permission-rule-revoke:hover:not(:disabled) {
+  background: var(--henira-danger-bg);
+}
+.henira-app button.henira-permission-rule-revoke:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 /* 确认卡：标题带警示图标；确认行 = 复选框 + 文案 */
 .henira-permission-confirm-title {

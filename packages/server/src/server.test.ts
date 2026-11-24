@@ -3277,6 +3277,230 @@ describe("重启收口（R175）：settle 分型 + 启动账本修理", () => {
     }
   });
 
+  it("R198 权限快照/撤销端点：会话允许 → GET 可见 → 撤销清空（回合之外也落账）", async () => {
+    const { server, base, cleanup } = await makeServer([
+      [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
+      [mockText("已处理"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    try {
+      const id = await createSession(base);
+      const empty = (await (
+        await fetch(`${base}/api/sessions/${id}/permissions`)
+      ).json()) as unknown;
+      expect(empty).toEqual({ session: { rules: [], tools: [] }, project: [], global: [] });
+
+      server.registry
+        .get(id)
+        ?.ctx.get("tools")
+        .register({
+          name: "demo-write",
+          description: "demo write tool (requires approval)",
+          inputSchema: { type: "object", properties: {} },
+          execute: async () => ({ content: "written" }),
+        });
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "写文件" }),
+      });
+      const requestId = await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: { kind: string; status?: string; requestId?: string }[];
+        };
+        return snap.rows.find((r) => r.kind === "approval" && r.status === "pending")?.requestId;
+      });
+      const settle = await fetch(`${base}/api/sessions/${id}/approvals/${requestId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "allowed-once", scope: "session" }),
+      });
+      expect(((await settle.json()) as { applied: boolean }).applied).toBe(true);
+      await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          state: { busy: boolean };
+        };
+        return snap.state.busy === false ? true : undefined;
+      });
+
+      const allowed = (await (await fetch(`${base}/api/sessions/${id}/permissions`)).json()) as {
+        session: { rules: unknown[]; tools: string[] };
+      };
+      expect(allowed.session).toEqual({ rules: [], tools: ["demo-write"] });
+
+      // 回合已结束（无 open turn）：撤销仍可落账（store 闸对 revoked 豁免）
+      const revoke = await fetch(`${base}/api/sessions/${id}/permissions/session/revoke`, {
+        method: "POST",
+      });
+      expect(revoke.status).toBe(200);
+      const after = (await (await fetch(`${base}/api/sessions/${id}/permissions`)).json()) as {
+        session: unknown;
+      };
+      expect(after.session).toEqual({ rules: [], tools: [] });
+      expect(
+        server.registry
+          .get(id)
+          ?.ctx.get("session")
+          .events()
+          .some((e) => e.type === "approval/revoked"),
+      ).toBe(true);
+      // 未知会话 404
+      expect((await fetch(`${base}/api/sessions/no-such/permissions`)).status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("R199 权限管理端点：项目清单/详情/全局删除 + 会话撤销 body + 路径闸", async () => {
+    const { base, cleanup, dataDir, globalDir } = await makeServer([]);
+    try {
+      const workspace = path.join(root, `perm-ws-${Math.random().toString(36).slice(2, 8)}`);
+      await fs.mkdir(workspace, { recursive: true });
+      const id = await createSession(base, workspace);
+      const key = projectKey(workspace);
+      const projectFile = path.join(dataDir, "projects", key, "permissions.json");
+      await fs.mkdir(path.dirname(projectFile), { recursive: true });
+      const allow = {
+        match: { tool: "bash", commandExact: "echo r199" },
+        decision: "allow" as const,
+      };
+      const deny = {
+        match: { tool: "bash", commandContains: "rm -rf" },
+        decision: "deny" as const,
+      };
+      await fs.writeFile(projectFile, JSON.stringify({ version: 1, rules: [allow, deny] }), "utf8");
+
+      const list = (await (
+        await fetch(`${base}/api/permissions/projects?sessionId=${id}`)
+      ).json()) as {
+        projects: {
+          id: string;
+          key: string;
+          cwd: string;
+          allowCount: number;
+          denyCount: number;
+          status: string;
+        }[];
+        currentId?: string;
+      };
+      expect(list.currentId).toBeDefined();
+      expect(list.projects[0]?.id).toBe(list.currentId); // 当前项目置顶
+      expect(list.projects.find((p) => p.id === list.currentId)).toMatchObject({
+        key,
+        cwd: workspace,
+        allowCount: 1,
+        denyCount: 1,
+        status: "ok",
+      });
+
+      const detail = (await (
+        await fetch(`${base}/api/permissions/projects/${list.currentId}`)
+      ).json()) as { path: string; status: string; rules: unknown[] };
+      expect(detail).toMatchObject({ status: "ok", rules: [allow, deny] });
+      expect(detail.path).toBe(projectFile);
+
+      // 删除一条 allow：deny 保留、文件格式仍 2 空格
+      const removed = await fetch(`${base}/api/permissions/projects/${list.currentId}/remove`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rule: allow }),
+      });
+      expect(removed.status).toBe(200);
+      expect(((await removed.json()) as { removed: number }).removed).toBe(1);
+      expect(JSON.parse(await fs.readFile(projectFile, "utf8"))).toMatchObject({ rules: [deny] });
+
+      // 全局规则视图 + 删除
+      const globalFile = path.join(globalDir, "permissions.json");
+      const globalAllow = { match: { tool: "read" }, decision: "allow" as const };
+      await fs.writeFile(globalFile, JSON.stringify({ version: 1, rules: [globalAllow] }), "utf8");
+      const globalView = (await (await fetch(`${base}/api/permissions/global`)).json()) as {
+        path: string;
+        status: string;
+        rules: unknown[];
+      };
+      expect(globalView).toMatchObject({ path: globalFile, status: "ok", rules: [globalAllow] });
+      const globalRemoved = await fetch(`${base}/api/permissions/global/remove`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rule: globalAllow }),
+      });
+      expect(((await globalRemoved.json()) as { removed: number }).removed).toBe(1);
+      expect(JSON.parse(await fs.readFile(globalFile, "utf8"))).toMatchObject({ rules: [] });
+
+      // 会话撤销 body：缺省 = 清空；tool/rule 互斥；rule 只收 allow；坏 JSON 400
+      const post = (body?: string): Promise<Response> =>
+        fetch(`${base}/api/sessions/${id}/permissions/session/revoke`, {
+          method: "POST",
+          ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body }),
+        });
+      expect((await post()).status).toBe(200);
+      expect((await post(JSON.stringify({ tool: "demo-write" }))).status).toBe(200);
+      expect((await post(JSON.stringify({ tool: "demo-write", rule: allow }))).status).toBe(400);
+      expect(
+        (
+          await post(
+            JSON.stringify({
+              rule: { match: { tool: "bash", commandExact: "x" }, decision: "deny" },
+            }),
+          )
+        ).status,
+      ).toBe(400);
+      expect((await post("{ nope")).status).toBe(400);
+      expect(
+        (
+          await post(
+            JSON.stringify({
+              rule: { match: { tool: "bash", commandExact: "echo r199" }, decision: "allow" },
+            }),
+          )
+        ).status,
+      ).toBe(200);
+
+      // 路径闸：projects.json 里手改出的坏 key 不进清单，按 id 取详情 404
+      const registryFile = path.join(dataDir, "projects.json");
+      const registryRaw = JSON.parse(await fs.readFile(registryFile, "utf8")) as {
+        projects: Record<string, unknown>[];
+      };
+      registryRaw.projects.push({
+        id: "badbadbadbadbad0",
+        cwd: workspace,
+        key: "../escape",
+        displayName: "bad",
+        createdAt: 1,
+        lastOpenedAt: 1,
+        openCount: 1,
+        lastSessionId: null,
+      });
+      await fs.writeFile(registryFile, JSON.stringify(registryRaw), "utf8");
+      const guarded = (await (await fetch(`${base}/api/permissions/projects`)).json()) as {
+        projects: { id: string }[];
+      };
+      expect(guarded.projects.some((p) => p.id === "badbadbadbadbad0")).toBe(false);
+      expect((await fetch(`${base}/api/permissions/projects/badbadbadbadbad0`)).status).toBe(404);
+
+      // 坏项目文件：详情 status corrupt；删除 409 且原文件不动
+      const broken = '{\n  "rules": [\n';
+      await fs.writeFile(projectFile, broken, "utf8");
+      const corrupt = (await (
+        await fetch(`${base}/api/permissions/projects/${list.currentId}`)
+      ).json()) as { status: string };
+      expect(corrupt.status).toBe("corrupt");
+      const corruptRemove = await fetch(
+        `${base}/api/permissions/projects/${list.currentId}/remove`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rule: deny }),
+        },
+      );
+      expect(corruptRemove.status).toBe(409);
+      expect(await fs.readFile(projectFile, "utf8")).toBe(broken);
+      // 未知项目 404
+      expect((await fetch(`${base}/api/permissions/projects/no-such`)).status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("启动账本修理：seq 重排 + 孤儿收口在监听前完成（幽灵卡与假在跑工具行不可能重放出来）", async () => {
     const dataDir = path.join(root, `repair-${Math.random().toString(36).slice(2, 8)}`);
     const globalDir = path.join(dataDir, "config");

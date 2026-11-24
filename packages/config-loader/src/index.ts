@@ -35,6 +35,16 @@ export {
   parseResourceAddress,
   scrubSpawnEnv,
 } from "./mcp-expand.js";
+export {
+  addPermissionRule,
+  globalPermissionsPath,
+  PermissionRulesFileError,
+  projectPermissionsPath,
+  type RemovePermissionRuleResult,
+  readPermissionRules,
+  removePermissionRule,
+  sanitizePermissionRules,
+} from "./permissions.js";
 export { bundledSkillDirs, defaultPreset, type PluginEntry } from "./preset.js";
 export {
   scanUiAssets,
