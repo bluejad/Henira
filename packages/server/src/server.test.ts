@@ -697,8 +697,14 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
 
 describe("排队卡全链（E1：queue 上投影态）", () => {
   it("忙时 prompt 入队 → SSE state.updated 携带 queue（键级整体替换语义锁）→ snapshot 带队列 → steer 直插入队 → DELETE 摘除（不存在 404）→ 冲刷清空", async () => {
+    // 首回合挂住到断言完再放行（确定性：固定 150ms 在慢机上可能先冲刷完 → snapshot 队列已空，
+    // CI 实锤过一次；队列语义断言必须在回合未结束时做）
+    let releaseSlow: () => void = () => {};
+    const slowHeld = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
     const slow = async function* () {
-      await new Promise((r) => setTimeout(r, 150));
+      await slowHeld;
       yield mockText("慢回合");
       yield mockUsage({ inputTokens: 1, outputTokens: 1 });
       yield mockFinish("stop");
@@ -774,6 +780,7 @@ describe("排队卡全链（E1：queue 上投影态）", () => {
       expect(
         (await fetch(`${base}/api/sessions/${id}/queue/q-none`, { method: "DELETE" })).status,
       ).toBe(404);
+      releaseSlow(); // 首回合放行 → 队列逐条冲刷
       // 冲刷收尾：队列条目跑完后最终 state busy=false 且 queue 空
       await waitFor(() => {
         const states = framesFor(sink, id).flatMap((f) =>
