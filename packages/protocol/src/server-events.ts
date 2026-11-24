@@ -8,7 +8,7 @@
 import type { Decision } from "./approval.js";
 import type { QuestionAnswer, QuestionSpec } from "./interaction.js";
 import type { ReasoningEffort, TokenUsage } from "./llm.js";
-import type { QueuedPrompt } from "./loop.js";
+import type { PermissionMode, QueuedPrompt } from "./loop.js";
 
 /** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` /
  *  `q:{requestId}` / `e:{seq}` */
@@ -253,6 +253,9 @@ export interface SessionUiState {
   model?: string;
   /** 会话级思考档记忆（同上；我们靠每次请求携带更薄） */
   reasoningEffort?: ReasoningEffort;
+  /** 会话级权限模式记忆（D-080：composer 回填用；权威在每次请求携带，
+   *  与模型/思考档同一条——不是「最近会话」全局值） */
+  permissionMode?: PermissionMode;
   [key: string]: unknown;
 }
 

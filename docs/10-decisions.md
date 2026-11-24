@@ -1007,3 +1007,18 @@
 - **理由**：参照实现的回底钮就是圆形图标钮、水平居中悬浮于输入卡上方（无输入 dock 才落面板底部），可见性判据与我们一致（`!following && rowCount>0`），差的只是形状/位置与「漂移不可见」；「跟随中但几何漂移」是意图状态与几何事实脱节——几何变化必须作为贴底信号之一，只看行数据在虚拟化 + 行内展开的组合下必然漏。
 - **非目标**：FOLLOWING/DETACHED 状态机重构；滚动位置按会话记忆与点击后同步保存；smooth 滚动（瞬时写 scrollTop 是既有语义）。
 - **备注**：落点 = `parts/icons.tsx`（ArrowDownGlyph）、`parts/conversation/index.tsx`（`pinToBottom` + 内容层 + ResizeObserver + 按钮 JSX）、`styles/conversation/40-turn.css`（圆钮定位/尺寸）；测试 = parts.test（图标钮无可见文字 / RO 重贴底 / 上滚不抢 / 点击回底）。参照行为只读、不抄代码。
+
+## D-080 输入框权限模式：ask / full 按次绑定 + 会话级记忆 + 设置默认（R197）
+
+- **状态**：已定 · 2026-11-24 · 对照四家取证（ZCode / dsh / opencode / CC）后用户拍 A（per-session 完全访问，无全局 yolo 默认）+ 两轮纠偏（持久化必做——「像模型选择一样」；per-session 最新值 + 每次提问携带 + 每轮落账）；三小项用户拍「按你说的」（第五页 / chip 即提醒 / 审计标记）；✓ 同日落码
+- **背景**：非只读工具的放行方式只有逐次审批卡，没有「本会话放开」的档位。四家参照：ZCode = composer 左下模式 chip（含独立 plan 勾选），模式随提交冻结、yolo 有警示色；dsh = 输入栏权限席（预设 = sandbox + 审批行为打包），`never` = 询问自动拒（fail-closed），**durable 事件 `permission/preset` 落账** + 设置可设新会话默认 + `/permission` 斜杠命令，死会话才锁；opencode = 无 chip，审批 dock 里「always」写 per-project 规则；CC = Shift+Tab 循环模式，bypass 跳过询问但 deny 规则、凭据、危险 rm、跨会话护栏在**任何模式**都活着。共同点：①模式是会话内的事实、随回合走；②持久化（dsh durable 事件 / CC settings.local.json）；③完全放行从不压过硬护栏。
+- **决定**：
+  1. **两值词表** `PermissionMode = "ask" | "full"`（不引只读档——等 fs 沙箱；plan 属思考流程不属权限）。生效值 = 显式会话记忆 → settings 新会话默认 → `ask`（fail-closed：任何缺数据都落「要问」）。
+  2. **权威在每次提问携带**（与模型/思考档同构）：`PromptOptions.permissionMode` 随请求走；忙时入队随 `queue.json` 条目持久化、冲刷按原选择开新回合；**`turn/start` 落账**（可选字段，旧账本无字段 = ask，回滚兼容）并广播——approval 据此跟踪本回合模式，回合内恒定，换回合没见权威 → 兜底回 ask。
+  3. **会话级记忆**：`SessionUiState.permissionMode`（composer 回填，同 draft/model/effort 一条）；`settings.json` `permissionMode` = 新会话默认（设置·权限页写）；**每会话各记各的，不是「最新会话」全局值**。
+  4. **审批链位置**：full 只在水瀑（`approval/request`）之后、answerer 之前自动放行——链外硬拒（凭据/灾难命令）、deny 规则、hook deny、allow 规则、会话允许集、只读默认全部**先于**本层，full 不是「关掉审批」。放行落 `approval/decided{decision:"allowed-once", mode:"full"}`（审计标记——事后可辨「非用户逐次放行」；decided 校验器加可选 `mode: z.literal("full")`）。
+  5. **界面**：输入卡工具排左端权限 chip（盾图标 + 当前档文案 + 箭头；full 态 danger 警示色常驻——恢复 full 会话时 chip 即提醒，v1 不做横幅）。两值菜单各带一行说明；**升格 full 必过风险确认卡**（勾选确认才可提交；降格 ask 无确认）。chip 是引擎安全语义的直通控件（同发送/停止），不开槽。设置弹窗第五页「权限」：新会话默认档一行 + 「始终拦截」说明行；改后无显式记忆的会话即时跟随（设置关闭重拉）。
+  6. **边界（明示）**：full 层同样吞掉 fs 沙箱闸的区外询问（`requestPermission(floor:"ask")`——区外写/读不再弹卡、逐次落 `decided{mode:"full"}` 审计），与 CC bypassPermissions / ZCode yolo 同界；这正是「完全访问」的语义（否则确认卡文案「不再逐一询问」失真）。不满意的用户走 deny 规则或切回 ask。
+- **理由**：dsh 证明「持久化 + 每次绑定」不冲突——durable 事件是审计、请求携带是权威；照抄到我们的词表 = ui-state 记忆（回填）+ PromptOptions 权威 + turn/start 落账（审计）。CC 证明完全访问的安全边界必须比审批链更靠前——硬拒/deny/hook deny 在任何模式都活着。确认卡学 ZCode yolo 首次切换的显式风险确认；「降格不确认」让退出路径零摩擦（安全方向永远好走）。
+- **非目标**：只读/沙箱档（等 fs 沙箱件）；plan 模式并权（不属权限维度）；「always allow」写 permissions.json（会话允许集已覆盖本轮诉求）；斜杠命令；CLI 形态默认档；解锁锁死会话的权限变更。
+- **备注**：落点 = protocol（PERMISSION_MODES/PromptOptions/QueuedPrompt/SessionUiState）、plugin-session（turn/start + approval/decided 校验器）、plugin-loop（turn/start 落账广播 + 队列三出口携带）、plugin-approval（full 层 + 审计标记）、server（prompt 路由 + settings 路由/store）、sdk（client/runtime prompt + settings 三处 + SettingsData）、config-loader 不动（引擎不消费默认档——默认属 UI 层）、web-ui（ComposerApi.permission/setPermission + composer-state 生效值归一 + permission-menu + composer 接线 + 设置第五页 + 60-permission.css + 词条）、web 宿主零改动（ui-state 通道复用）；测试 = approval full 五例（免问放行/硬拒不动/deny 不动/缺省走 answerer/换回合兜底回 ask）、loop 落账+队列持久化、server settings+prompt 路由、sdk 双形态 full 全链、web-ui chip 五例、e2e 真浏览器七步（ask 卡→full 免卡→刷新保持→切回出卡）。

@@ -784,6 +784,7 @@ describe("Composer", () => {
     expect(prompt).toHaveBeenCalledWith("s-1", "你好", {
       modelId: undefined,
       reasoningEffort: undefined,
+      permissionMode: "ask",
     });
     // busy 形态（store 契约=rows 引用稳定：快照提出闭包，getSnapshot 每次新对象会让 useSyncExternalStore 死循环）
     const busyRows: Row[] = [];
@@ -886,6 +887,7 @@ describe("Composer", () => {
         steer: undefined,
         modelId: undefined,
         reasoningEffort: undefined,
+        permissionMode: "ask",
       }),
     );
   });
@@ -902,6 +904,7 @@ describe("Composer", () => {
         steer: true,
         modelId: undefined,
         reasoningEffort: undefined,
+        permissionMode: "ask",
       }),
     );
     fireEvent.change(area, { target: { value: "普通的话" } });
@@ -911,6 +914,7 @@ describe("Composer", () => {
         steer: undefined,
         modelId: undefined,
         reasoningEffort: undefined,
+        permissionMode: "ask",
       }),
     );
   });
@@ -1152,11 +1156,12 @@ describe("输入座位四席 + Composer API（R183）", () => {
         steer: undefined,
         modelId: undefined,
         reasoningEffort: undefined,
+        permissionMode: "ask",
       }),
     );
   });
 
-  it("工具排 DOM 顺序：模型席 → 左追加位 → 右追加位 → 发送钮（审查 P3⑦）", () => {
+  it("工具排 DOM 顺序：权限 chip → 模型席 → 左追加位 → 右追加位 → 发送钮（审查 P3⑦ + D-080）", () => {
     const ctx = dockCtx({ client: readyClient() });
     const slots = new Map(ctx.slots);
     slots.set("composer.left", [LeftSeatProbe]);
@@ -1164,6 +1169,8 @@ describe("输入座位四席 + Composer API（R183）", () => {
     const { container } = render(<ComposerDock {...ctx} slots={slots} />);
     const bar = container.querySelector(".henira-composer-bar") as HTMLElement;
     const children = [...bar.children];
+    // 权限 chip（D-080）恒为工具排第一件（引擎安全语义直通控件，非槽）
+    expect(children[0]?.classList.contains("henira-permission")).toBe(true);
     const seats = children.filter((el) => el.classList.contains("henira-composer-seat"));
     expect(seats.length).toBe(3); // 模型/左/右（各一件；官方 bar 不再另开座位）
     expect(seats[0]?.querySelector(`button[aria-label="${t("composer.model")}"]`)).not.toBeNull();
@@ -1272,6 +1279,7 @@ describe("输入座位四席 + Composer API（R183）", () => {
         steer: undefined,
         modelId: undefined,
         reasoningEffort: undefined,
+        permissionMode: "ask",
       }),
     );
   });
@@ -2516,6 +2524,169 @@ describe("Conversation 长会话渲染（批 A'——虚拟化降级路径 / bot
   });
 });
 
+describe("权限模式 chip（D-080）", () => {
+  it("默认「改前询问」；切完全访问需确认卡（未勾选禁用提交），勾选确认后落会话记忆且 chip 警示", async () => {
+    const updateUiState = vi.fn();
+    const ctx = fixtureCtx({ updateUiState });
+    const { container } = renderComposer(ctx);
+    const chip = screen.getByRole("button", { name: t("composer.permission") });
+    expect(chip.textContent).toContain(t("composer.permission.ask"));
+    expect(chip.getAttribute("data-full")).toBeNull();
+
+    fireEvent.click(chip); // 开菜单
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: new RegExp(t("composer.permission.full")) }),
+    );
+    // 确认卡在场；确认钮未勾选时禁用
+    const dialog = screen.getByRole("dialog", { name: t("composer.permission.confirmTitle") });
+    const confirm = screen.getByRole("button", { name: t("composer.permission.confirm") });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(confirm); // 未勾选点击无效
+    expect(updateUiState).not.toHaveBeenCalledWith({ permissionMode: "full" });
+    fireEvent.click(dialog.querySelector("input[type='checkbox']") as HTMLInputElement);
+    fireEvent.click(confirm);
+    expect(updateUiState).toHaveBeenCalledWith({ permissionMode: "full" });
+    expect(
+      screen.queryByRole("dialog", { name: t("composer.permission.confirmTitle") }),
+    ).toBeNull();
+    const chip2 = screen.getByRole("button", { name: t("composer.permission") });
+    expect(chip2.textContent).toContain(t("composer.permission.full"));
+    expect(chip2.getAttribute("data-full")).toBe("true");
+    void container;
+  });
+
+  it("确认卡取消 / 外点 / Esc：档位不变（写零次）", async () => {
+    const updateUiState = vi.fn();
+    const ctx = fixtureCtx({ updateUiState });
+    renderComposer(ctx);
+    fireEvent.click(screen.getByRole("button", { name: t("composer.permission") }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: new RegExp(t("composer.permission.full")) }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: t("common.cancel") }));
+    expect(
+      screen.queryByRole("dialog", { name: t("composer.permission.confirmTitle") }),
+    ).toBeNull();
+    expect(updateUiState).not.toHaveBeenCalledWith({ permissionMode: "full" });
+    // Esc 同款取消（与设置弹窗同一惯例）
+    fireEvent.click(screen.getByRole("button", { name: t("composer.permission") }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: new RegExp(t("composer.permission.full")) }),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: t("composer.permission.confirmTitle") }),
+    ).toBeNull();
+    expect(updateUiState).not.toHaveBeenCalledWith({ permissionMode: "full" });
+    const chip = screen.getByRole("button", { name: t("composer.permission") });
+    expect(chip.getAttribute("data-full")).toBeNull();
+  });
+
+  it("uiState.permissionMode=full 回填：chip 即警示（v1 不做横幅，D-080）；发送携带 full", async () => {
+    const updateUiState = vi.fn();
+    const prompt = vi.fn(async () => ({ queued: false, id: null }));
+    const ctx = fixtureCtx({ uiState: { permissionMode: "full" }, updateUiState });
+    ctx.client.prompt = prompt;
+    const { container } = renderComposer(ctx);
+    const chip = await waitFor(() => {
+      const el = screen.getByRole("button", { name: t("composer.permission") });
+      if (el.getAttribute("data-full") !== "true") throw new Error("chip not full yet");
+      return el;
+    });
+    expect(chip.textContent).toContain(t("composer.permission.full"));
+    const area = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "放开做" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith("s-1", "放开做", {
+        modelId: undefined,
+        reasoningEffort: undefined,
+        permissionMode: "full",
+      }),
+    );
+    void container;
+  });
+
+  it("settings 新会话默认兜底：无显式记忆时跟随 settings；显式记忆压过默认", async () => {
+    const prompt = vi.fn(async () => ({ queued: false, id: null }));
+    const settings = { version: 1 as const, permissionMode: "full" as const };
+    // 无显式记忆 + settings full → 发送带 full
+    const ctxFull = fixtureCtx({
+      client: {
+        ...fixtureCtx().client,
+        prompt,
+        getSettings: async () => settings,
+        listModels: async () => ({ providers: {} }),
+      },
+    });
+    const a = renderComposer(ctxFull);
+    let area = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    // 等 settings 默认生效（chip 文案随生效档切换）再发送
+    await waitFor(() => {
+      if (
+        !screen
+          .getByRole("button", { name: t("composer.permission") })
+          .textContent?.includes(t("composer.permission.full"))
+      ) {
+        throw new Error("default not loaded yet");
+      }
+    });
+    fireEvent.change(area, { target: { value: "甲" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith("s-1", "甲", {
+        modelId: undefined,
+        reasoningEffort: undefined,
+        permissionMode: "full",
+      }),
+    );
+    a.unmount();
+    // 显式记忆 ask 压过 settings full（会话级记忆优先）
+    const prompt2 = vi.fn(async () => ({ queued: false, id: null }));
+    const ctxAsk = fixtureCtx({
+      uiState: { permissionMode: "ask" },
+      client: {
+        ...fixtureCtx().client,
+        prompt: prompt2,
+        getSettings: async () => settings,
+        listModels: async () => ({ providers: {} }),
+      },
+    });
+    renderComposer(ctxAsk);
+    area = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "乙" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() =>
+      expect(prompt2).toHaveBeenCalledWith("s-1", "乙", {
+        modelId: undefined,
+        reasoningEffort: undefined,
+        permissionMode: "ask",
+      }),
+    );
+  });
+
+  it("设置·权限页：读新会话默认值回显；改档写 putSettings({permissionMode})", async () => {
+    const putSettings = vi.fn().mockResolvedValue({ version: 1 });
+    const ctx = fixtureCtx({
+      closeSettings: vi.fn(),
+      client: {
+        ...fixtureCtx().client,
+        getSettings: async () => ({ version: 1, permissionMode: "ask" }),
+        putSettings,
+      },
+    });
+    render(<SettingsModal ctx={ctx} section="permission" onClose={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: t("settings.title") });
+    // 左导航含权限分区（第五页，D-080）
+    expect(screen.getByRole("button", { name: t("settings.section.permission") })).not.toBeNull();
+    const trigger = dialog.querySelector(".henira-select-trigger") as HTMLButtonElement;
+    expect(trigger.textContent).toContain(t("composer.permission.ask"));
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("option", { name: t("composer.permission.full") }));
+    expect(putSettings).toHaveBeenCalledWith({ permissionMode: "full" });
+  });
+});
+
 describe("界面绑定状态（D-063）", () => {
   it("Composer：uiState 回填草稿 + 输入上报 updateUiState + 发送成功清持久层", async () => {
     const updateUiState = vi.fn();
@@ -2532,6 +2703,7 @@ describe("界面绑定状态（D-063）", () => {
       expect(prompt).toHaveBeenCalledWith("s-1", "新输入", {
         modelId: undefined,
         reasoningEffort: undefined,
+        permissionMode: "ask",
       }),
     );
     expect(updateUiState).toHaveBeenCalledWith({ draft: "" }); // 持久层同步清空
@@ -2795,7 +2967,7 @@ describe("预览缝（R190 sidebar.right.preview.<后缀>）", () => {
   });
 });
 
-describe("设置弹窗（左菜单右内容——只列现有三项）", () => {
+describe("设置弹窗（左菜单右内容——D-080 起五页：外观/语言/权限/模型管理/插件）", () => {
   it("默认分区渲染主题页（下拉列官方双主题——原生 select 退场，HeniraSelect 自制弹层）；模型管理页无全局默认模型入口（用户裁定 2026-11-19）+ 行带视觉徽章", async () => {
     const putSettings = vi.fn().mockResolvedValue({ version: 1 });
     const onTheme = vi.fn();
@@ -3449,6 +3621,7 @@ describe("思考档按次绑定（骨架批）", () => {
       expect(promptSpy).toHaveBeenCalledWith("s-1", "问一句", {
         modelId: "zhipuai-coding-plan/glm-5.3-flash",
         reasoningEffort: "high",
+        permissionMode: "ask",
       }),
     );
     void container;

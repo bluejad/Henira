@@ -2,7 +2,7 @@
 // zod 是本包的实现细节，不进协议词汇（D-051）；注册进 protocol 的开放注册表，
 // 插件经 registerPluginEvent 追加自有事件（前缀 = 包名，session.md §2.3）。
 
-import { QUESTION_CUSTOM_MAX, SessionEventRegistry } from "@henira/protocol";
+import { PERMISSION_MODES, QUESTION_CUSTOM_MAX, SessionEventRegistry } from "@henira/protocol";
 import { z } from "zod";
 
 const surfaceOpSchema = z.union([
@@ -33,7 +33,11 @@ const turnReasonSchema = z.enum([
 ]);
 
 const schemas: Record<string, z.ZodType> = {
-  "turn/start": z.object({ turn: z.string().min(1) }),
+  // 权限模式随回合开场落账（D-080：按每次提问绑定；缺省 = ask，旧账本无此字段同义）
+  "turn/start": z.object({
+    turn: z.string().min(1),
+    permissionMode: z.enum(PERMISSION_MODES).optional(),
+  }),
   "turn/end": z
     .object({
       turn: z.string().min(1),
@@ -132,6 +136,8 @@ const schemas: Record<string, z.ZodType> = {
     requestId: z.string().min(1),
     decision: z.enum(["allowed-once", "rejected", "cancelled", "unavailable"]),
     scope: z.string().optional(),
+    /** 审计标记（D-080）：mode:"full" = 由完全访问模式自动放行（非用户逐次点允许） */
+    mode: z.literal("full").optional(),
   }),
   "approval/revoked": z.object({
     turn: z.string().min(1),

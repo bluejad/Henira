@@ -16,6 +16,7 @@ import {
   DECISIONS,
   decodeUtf8Prefix,
   looksBinary,
+  PERMISSION_MODES,
   QUESTION_CUSTOM_MAX,
   REASONING_EFFORTS,
   type ReasoningCapability,
@@ -206,6 +207,8 @@ export function createApp(deps: AppDeps): Hono {
         steer: z.boolean().optional(),
         modelId: z.string().min(1).optional(),
         reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
+        // 权限模式（D-080：按每次提问绑定；缺省 = ask——fail-closed）
+        permissionMode: z.enum(PERMISSION_MODES).optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "text required" }, 400);
@@ -213,6 +216,7 @@ export function createApp(deps: AppDeps): Hono {
       steer: parsed.data.steer,
       modelId: parsed.data.modelId,
       reasoningEffort: parsed.data.reasoningEffort,
+      permissionMode: parsed.data.permissionMode,
     });
     return c.json({ queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id });
   });
@@ -561,6 +565,8 @@ export function createApp(deps: AppDeps): Hono {
     const parsed = z
       .object({
         model: z.string().min(1).optional(),
+        // 新会话默认权限模式（D-080：会话内可单独切换并随会话记忆）
+        permissionMode: z.enum(PERMISSION_MODES).optional(),
         ui: z
           .object({
             theme: z.string().optional(),

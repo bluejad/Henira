@@ -5,7 +5,7 @@
 // （D-063：宿主加载好的 uiState 到位后按会话回填一次，此后本地态直跑，输入经 updateUiState
 // 交宿主合并防抖落盘）。模型目录重拉三触发：mount / 设置关闭 / 设置内写操作广播。
 
-import type { ReasoningEffort, Row } from "@henira/protocol";
+import type { PermissionMode, ReasoningEffort, Row } from "@henira/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ComposerApi, ModelCatalog, SettingsSection, WebPartContext } from "../types.js";
 
@@ -36,6 +36,9 @@ export function useComposerRuntime(
   const [sendFailed, setSendFailed] = useState(false);
   const [model, setModelState] = useState("");
   const [effort, setEffortState] = useState<ReasoningEffort | null>(null);
+  // 权限模式（D-080）：显式会话记忆（null = 本会话未设）+ settings 新会话默认，兜底 ask
+  const [permission, setPermissionState] = useState<PermissionMode | null>(null);
+  const [defaultPermission, setDefaultPermission] = useState<PermissionMode>("ask");
   const [catalog, setCatalog] = useState<ModelCatalog>(EMPTY_CATALOG);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -50,6 +53,19 @@ export function useComposerRuntime(
     // 模型/思考会话级记忆（权威在每次请求携带）
     if (ctx.uiState.model !== undefined) setModelState(ctx.uiState.model);
     setEffortState(ctx.uiState.reasoningEffort ?? null);
+  }, [ctx.sessionId, ctx.uiState]);
+
+  // 权限模式随会话走（D-080，与草稿/模型同一条）：显式记忆优先；uiState 未到 = 先按默认
+  //（fail-closed，绝不把上一会话的 full 带进新会话）
+  const permissionSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (ctx.sessionId === permissionSyncedFor.current) return;
+    if (ctx.uiState === undefined) {
+      setPermissionState(null);
+      return; // 不标记已同步——uiState 到位后这条还会再跑一次
+    }
+    permissionSyncedFor.current = ctx.sessionId;
+    setPermissionState(ctx.uiState.permissionMode ?? null);
   }, [ctx.sessionId, ctx.uiState]);
 
   // 两个稳定维度分开订阅（busy 布尔 / rows 数组引用）——不取整个快照对象
@@ -77,6 +93,8 @@ export function useComposerRuntime(
         if (s.model !== undefined) {
           setModelState((prev) => (prev === "" ? (s.model as string) : prev));
         }
+        // 新会话默认权限（D-080）：settings 是兜底默认，显式会话记忆仍压过它
+        if (s.permissionMode !== undefined) setDefaultPermission(s.permissionMode);
       })
       .catch(() => {});
   }, [ctx.client, settingsReady, ctx.sessionId]);
@@ -107,6 +125,13 @@ export function useComposerRuntime(
       .listModels?.()
       .then((modelCatalog) => {
         setCatalog(modelCatalog.providers);
+      })
+      .catch(() => {});
+    // 设置关闭：权限默认值同样重拉（权限页改默认 → 无显式记忆的会话即时跟随）
+    void ctx.client
+      .getSettings?.()
+      .then((s) => {
+        if (s.permissionMode !== undefined) setDefaultPermission(s.permissionMode);
       })
       .catch(() => {});
   }, [ctx.client, settingsReady, ctx.settingsSection]);
@@ -143,6 +168,14 @@ export function useComposerRuntime(
     [ctx],
   );
 
+  const setPermission = useCallback(
+    (next: PermissionMode): void => {
+      setPermissionState(next);
+      ctx.updateUiState?.({ permissionMode: next }); // 会话级记忆（D-080，同模型/思考档）
+    },
+    [ctx],
+  );
+
   const submit = useCallback(
     (text?: string, opts?: { steer?: boolean }): void => {
       const submitted = (text ?? draft).trim();
@@ -159,6 +192,8 @@ export function useComposerRuntime(
           steer: opts?.steer || undefined, // E1：忙时 Ctrl+Enter = 插话入队（下一 step 边界进场）
           modelId: model !== "" ? model : undefined,
           reasoningEffort: effort ?? undefined,
+          // 权限模式按次携带（D-080）：显式记忆 → 设置默认 → ask（fail-closed）
+          permissionMode: permission ?? defaultPermission,
         })
         .catch(() => {
           // 发送失败回填草稿（用户不丢输入）+ 行内可见提示（不静默，R125）
@@ -167,7 +202,7 @@ export function useComposerRuntime(
           setSendFailed(true);
         });
     },
-    [ctx, draft, model, effort, interactionPending],
+    [ctx, draft, model, effort, permission, defaultPermission, interactionPending],
   );
 
   const stop = useCallback((): void => {
@@ -187,6 +222,8 @@ export function useComposerRuntime(
       setModel,
       effort,
       setEffort,
+      permission: permission ?? defaultPermission,
+      setPermission,
       catalog,
       settingsReady,
       submit,
@@ -205,6 +242,9 @@ export function useComposerRuntime(
       setModel,
       effort,
       setEffort,
+      permission,
+      defaultPermission,
+      setPermission,
       catalog,
       settingsReady,
       submit,

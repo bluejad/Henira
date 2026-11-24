@@ -311,6 +311,39 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     });
   });
 
+  it("权限模式全链（D-080 双形态）：prompt 携带 full → 写工具免审批直接执行；不带 → 审批卡挂起", async () => {
+    const write = [
+      mockToolCall("w1", "demo-write", "{}"),
+      mockUsage({ inputTokens: 1, outputTokens: 1 }),
+      mockFinish("tool-calls"),
+    ];
+    const wrap = [
+      mockText("完"),
+      mockUsage({ inputTokens: 1, outputTokens: 1 }),
+      mockFinish("stop"),
+    ];
+    const { facade, registerTool } = await form.make([write, wrap, write, wrap]);
+    const session = await facade.createSession();
+    await registerTool(session.id);
+    // full：无审批行，工具直接执行到位
+    await facade.prompt(session.id, "写", { permissionMode: "full" });
+    const snapFull = await waitFor(async () => {
+      const s = await facade.snapshot(session.id);
+      const toolDone = s.rows.some((r) => r.kind === "tool" && r.status === "done");
+      const ended = s.state.busy === false;
+      return toolDone && ended ? s : undefined;
+    });
+    expect(snapFull.rows.filter((r) => r.kind === "approval")).toHaveLength(0);
+    // 第二回合不带模式 → ask 语义，审批挂起（fail-closed 未被 full 灼穿）
+    await facade.prompt(session.id, "再写");
+    const pending = await waitFor(async () => {
+      const s = await facade.snapshot(session.id);
+      const row = s.rows.find((r) => r.kind === "approval");
+      return row !== undefined && row.status === "pending" ? row : undefined;
+    });
+    expect(pending.kind).toBe("approval");
+  });
+
   it("settleQuestion（R184 双形态）：未知 id 分型；挂起提问 → 逐题答案收回、settled 行落地", async () => {
     const { facade } = await form.make([
       [

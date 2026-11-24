@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import type { ComposerApi, WebPart, WebPartContext } from "../types.js";
 import { SendGlyph, StopGlyph } from "./icons.js";
+import { PermissionChip } from "./permission-menu.js";
 import { SlotBoundary } from "./slot-boundary.js";
 
 const TEXTAREA_MAX_HEIGHT = 160; // ZCode max-h-40（CSS 同值；autoGrow 上限）
@@ -102,6 +103,8 @@ function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): R
           }}
         />
         <div className="henira-composer-bar">
+          {/* 权限 chip（D-080）：模型席左侧；不是槽——引擎安全语义的直通控件（同发送/停止） */}
+          <PermissionChip {...ctx} />
           {/* 模型席（单槽）：官方默认件 = ModelSeat（模型 + 思考档）；第三方 replaceSlot 顶替 */}
           <ComposerSeats ctx={ctx} name="composer.model" />
           {/* 工具排左追加位（官方空；插件 registerSlot 追加） */}

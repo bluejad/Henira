@@ -7,6 +7,7 @@ import type {
   ApprovalRow,
   Decision,
   DirBrowse,
+  PermissionMode,
   PreviewKind,
   PreviewOpenMode,
   PreviewOpenSettings,
@@ -32,11 +33,16 @@ import type { ReactNode } from "react";
 export interface HeniraClientLike {
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  /** opts = 模型/思考按次覆盖（每次提问绑定；缺省回落全局默认）+ steer=true 忙时插话入队 */
+  /** opts = 模型/思考/权限按次覆盖（每次提问绑定；缺省回落全局默认）+ steer=true 忙时插话入队 */
   prompt(
     sessionId: string,
     text: string,
-    opts?: { steer?: boolean; modelId?: string; reasoningEffort?: ReasoningEffort },
+    opts?: {
+      steer?: boolean;
+      modelId?: string;
+      reasoningEffort?: ReasoningEffort;
+      permissionMode?: PermissionMode;
+    },
   ): Promise<PromptReceipt>;
   steer(sessionId: string, entryId: string): Promise<boolean>;
   /** 立即发送（抢占式：停止当前回合并以该条开新回合；可选——旧嵌入方缺省时面板立即发送钮禁用） */
@@ -69,11 +75,14 @@ export interface HeniraClientLike {
   getSettings?(): Promise<{
     version: 1;
     model?: string;
+    /** 新会话默认权限模式（D-080） */
+    permissionMode?: PermissionMode;
     ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
   }>;
-  /** 设置写（可选——输入卡模型选择器/外观页消费；程序写面） */
+  /** 设置写（可选——输入卡模型选择器/外观页/权限页消费；程序写面） */
   putSettings?(patch: {
     model?: string;
+    permissionMode?: PermissionMode;
     ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
   }): Promise<{ version: 1 }>;
   /** 模型目录（可选——key+baseUrl 齐备的厂商才出现；条目带显示名/徽章位，模型目录收敛批） */
@@ -234,6 +243,11 @@ export interface ComposerApi {
   setModel(next: string): void;
   readonly effort: ReasoningEffort | null;
   setEffort(next: ReasoningEffort): void;
+  /** 生效的权限模式（D-080：显式会话记忆优先，缺省 = settings 新会话默认，兜底 ask）。
+   *  权限 chip 显示与发送携带都用它 */
+  readonly permission: PermissionMode;
+  /** 切换权限模式：本地态 + 会话级 uiState 记忆（D-080；完全访问确认卡由 chip 件负责） */
+  setPermission(next: PermissionMode): void;
   /** 目录快照（composer.model 席消费；设置内写操作广播后由运行时重拉） */
   readonly catalog: ModelCatalog;
   /** 宿主模型/设置方法齐备（缺 = 模型席不渲染控件） */
@@ -403,8 +417,8 @@ export interface ChainEntry<Owner = unknown, Matched = unknown> {
  * 追加位与行级槽走开放 string 名，不在此联合里）；未装件的槽位收起 */
 export type WebSlotName = "layout" | "sidebar" | "conversation" | "composer" | "sidebar.right";
 
-/** 设置弹窗分区（弹窗只列现有三项——用户裁定 2026-11-18：主题/语言/模型管理） */
-export type SettingsSection = "theme" | "locale" | "models" | "plugins";
+/** 设置弹窗分区（用户裁定 2026-11-18 四页；D-080 追加权限页） */
+export type SettingsSection = "theme" | "locale" | "permission" | "models" | "plugins";
 
 /** 整页布局选项（D-043 挑件语义，宿主 createWebApp opts.layout 同形）：
  * 预置三态（full=三栏 / center=对话+输入 / composer=只输入）或显式零件表 */

@@ -27,6 +27,7 @@ import { PencilIcon } from "@phosphor-icons/react/dist/csr/Pencil";
 import { PlugIcon } from "@phosphor-icons/react/dist/csr/Plug";
 import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { QuestionIcon } from "@phosphor-icons/react/dist/csr/Question";
+import { ShieldCheckIcon } from "@phosphor-icons/react/dist/csr/ShieldCheck";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/dist/csr/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 import { TerminalIcon } from "@phosphor-icons/react/dist/csr/Terminal";
@@ -115,6 +116,11 @@ export function CodeGlyph(props: Props) {
 
 export function WarnGlyph(props: Props) {
   return <WarningIcon size={props.size ?? 14} color={props.color} weight="bold" />;
+}
+
+/** 权限 chip（D-080）：输入卡工具排左端的模式入口 */
+export function ShieldGlyph(props: Props) {
+  return <ShieldCheckIcon size={props.size ?? 14} color={props.color} weight="bold" />;
 }
 
 export function XGlyph(props: Props) {

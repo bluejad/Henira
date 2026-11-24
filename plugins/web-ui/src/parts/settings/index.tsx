@@ -5,9 +5,10 @@ import { XGlyph } from "../icons.js";
 import { AppearancePage } from "./appearance.js";
 import { LocalePage } from "./locale.js";
 import { ModelsPage } from "./models.js";
+import { PermissionPage } from "./permission.js";
 import { PluginsPage } from "./plugins.js";
 
-const SECTIONS: SettingsSection[] = ["theme", "locale", "models", "plugins"];
+const SECTIONS: SettingsSection[] = ["theme", "locale", "permission", "models", "plugins"];
 
 export function SettingsModal(props: {
   ctx: WebPartContext;
@@ -80,6 +81,7 @@ export function SettingsModal(props: {
           <div className="henira-settings-content">
             {section === "theme" ? <AppearancePage ctx={ctx} themes={themes} /> : null}
             {section === "locale" ? <LocalePage ctx={ctx} locales={locales} /> : null}
+            {section === "permission" ? <PermissionPage ctx={ctx} /> : null}
             {section === "models" ? <ModelsPage ctx={ctx} /> : null}
             {section === "plugins" ? <PluginsPage ctx={ctx} /> : null}
           </div>

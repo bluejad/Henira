@@ -51,7 +51,7 @@ interface SessionHeader {
 
 | 事件                | `data` 载荷                                                                     | 进派生       |
 | ------------------- | ------------------------------------------------------------------------------- | ------------ |
-| `turn/start`        | `turn`                                                                          | —            |
+| `turn/start`        | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）        | —            |
 | `turn/end`          | `turn`, `reason`, `usage?`, `error?`                                            | —            |
 | `step/start`        | `turn`, `step`                                                                  | —            |
 | `step/end`          | `turn`, `step`, `usage`, `interrupted?`                                         | —            |
@@ -63,7 +63,7 @@ interface SessionHeader {
 | `tool/call`         | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                        | ✅（配对后） |
 | `tool/result`       | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?` | ✅（配对后） |
 | `approval/asked`    | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                     | 跳过         |
-| `approval/decided`  | `turn`, `step`, `requestId`, `decision`, `scope?`                               | 跳过         |
+| `approval/decided`  | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080） | 跳过         |
 | `approval/revoked`  | `turn`, `step`, `scope`, `tool?`                                                | 跳过         |
 | `error`             | `turn?`, `step?`, `code`, `message`, `fatal?`                                   | 跳过         |
 

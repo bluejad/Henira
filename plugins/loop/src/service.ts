@@ -172,6 +172,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           yield* executeAndDrain(next.text, signal, {
             modelId: next.modelId,
             reasoningEffort: next.reasoningEffort,
+            permissionMode: next.permissionMode,
           });
           next = await queue.drainNext();
           broadcastQueue();
@@ -226,6 +227,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
             const entry = await queue.enqueue(prompt, opts?.steer === true, {
               modelId: opts?.modelId,
               reasoningEffort: opts?.reasoningEffort,
+              permissionMode: opts?.permissionMode,
             });
             broadcastQueue();
             return entry;
@@ -235,6 +237,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           startChain(prompt, {
             modelId: opts?.modelId,
             reasoningEffort: opts?.reasoningEffort,
+            permissionMode: opts?.permissionMode,
           });
           return { id: "", text: prompt, steer: false }; // id 空 = 未排队（直接开跑）
         },
@@ -280,6 +283,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           startChain(entry.text, {
             modelId: entry.modelId,
             reasoningEffort: entry.reasoningEffort,
+            permissionMode: entry.permissionMode,
           });
           return true;
         },
@@ -310,6 +314,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           startChain(next.text, {
             modelId: next.modelId,
             reasoningEffort: next.reasoningEffort,
+            permissionMode: next.permissionMode,
           });
           return true;
         },

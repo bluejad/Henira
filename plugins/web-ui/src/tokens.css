@@ -20,6 +20,7 @@
 @import "./styles/composer/30-approval.css";
 @import "./styles/composer/40-question.css";
 @import "./styles/composer/50-trace.css";
+@import "./styles/composer/60-permission.css";
 @import "./styles/sidebar/10-session-row.css";
 @import "./styles/sidebar/20-dirs.css";
 @import "./styles/sidebar/30-menu.css";

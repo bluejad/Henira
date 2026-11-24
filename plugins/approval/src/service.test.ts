@@ -342,6 +342,117 @@ describe("判定链全序（tools-approval §3）", () => {
   });
 });
 
+describe("完全访问模式（D-080）", () => {
+  /** 在 t1 打开 full 回合（loop 广播同款载荷：turn/start 携带 permissionMode） */
+  async function startedFullHarness(interaction: ServiceDefinition, rules: PermissionRule[] = []) {
+    const started = await startedHarness(interaction, rules);
+    started.ctx.events.emit("turn/start", { turn: "t1", permissionMode: "full" });
+    started.ctx.events.emit("step/start", { turn: "t1", step: 2 });
+    return started;
+  }
+
+  it('full：非只读工具免问自动放行，decided 带 mode:"full" 审计标记', async () => {
+    const interaction = interactionStub([new Error("must not be asked")]);
+    const { harness, ctx } = await startedFullHarness(interaction);
+    expect(
+      await approvalOf(ctx).requestPermission({ tool: "write", args: { path: "a.txt" } }),
+    ).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(0); // 不问
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    expect(decided?.data).toMatchObject({ decision: "allowed-once", mode: "full" });
+    await harness.dispose();
+  });
+
+  it("full：硬拒清单不动——凭据路径 / 灾难命令照 rejected（无审计）", async () => {
+    const { harness, ctx } = await startedFullHarness(interactionStub([]));
+    const before = sessionOf(ctx).events().length;
+    expect(
+      await approvalOf(ctx).requestPermission({
+        tool: "read",
+        args: { path: "config/credentials.json" },
+      }),
+    ).toBe("rejected");
+    expect(
+      await approvalOf(ctx).requestPermission({ tool: "bash", args: { command: "rm -rf /" } }),
+    ).toBe("rejected");
+    expect(sessionOf(ctx).events().length).toBe(before);
+    await harness.dispose();
+  });
+
+  it("full：deny 规则与 hook deny 不动——规则层 rejected；waterfall deny 同样拦", async () => {
+    const h1 = await startedFullHarness(interactionStub([]), [
+      { match: { tool: "bash", commandContains: "rm" }, decision: "deny" },
+    ]);
+    expect(
+      await approvalOf(h1.ctx).requestPermission({ tool: "bash", args: { command: "npm rm x" } }),
+    ).toBe("rejected");
+    await h1.harness.dispose();
+
+    const h2 = await startedFullHarness(interactionStub([]));
+    h2.ctx.events.onWaterfall("approval/request", (value: unknown) => ({
+      ...(value as object),
+      verdict: "deny",
+      by: "guard",
+    }));
+    expect(await approvalOf(h2.ctx).requestPermission({ tool: "write", args: {} })).toBe(
+      "rejected",
+    );
+    await h2.harness.dispose();
+  });
+
+  it('full：floor:"ask" 的区外沙箱闸询问同样自动放行（bypass 同界——本层在水瀑之后）', async () => {
+    const interaction = interactionStub([new Error("must not be asked")]);
+    const { harness, ctx } = await startedFullHarness(interaction);
+    expect(
+      await approvalOf(ctx).requestPermission(
+        { tool: "write", args: { path: "../outside/workspace" }, reason: "outside workspace" },
+        askOpts("ask"),
+      ),
+    ).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(0);
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    expect(decided?.data).toMatchObject({ decision: "allowed-once", mode: "full" });
+    await harness.dispose();
+  });
+
+  it("缺省（无 permissionMode）= ask：write 照走 answerer（decided 无 mode 标记）", async () => {
+    const interaction = interactionStub([
+      (req) => ({ kind: "approval", requestId: req.requestId, decision: "allowed-once" }),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    expect(await approvalOf(ctx).requestPermission({ tool: "write", args: {} })).toBe(
+      "allowed-once",
+    );
+    expect(interaction.requests).toHaveLength(1); // 被问了
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    expect(decided?.data).not.toHaveProperty("mode");
+    await harness.dispose();
+  });
+
+  it("换回合未带权威 → 兜底回 ask（fail-closed：step/start 不得延续上一回合的 full）", async () => {
+    const interaction = interactionStub([new Error("must not be asked")]);
+    const { harness, ctx } = await startedFullHarness(interaction);
+    // 同回合 step 推进：full 保持
+    ctx.events.emit("step/start", { turn: "t1", step: 3 });
+    expect(await approvalOf(ctx).requestPermission({ tool: "write", args: {} })).toBe(
+      "allowed-once",
+    );
+    // 新回合只广播 turn/start（无 mode）+ step/start → 权威丢失，按 ask → 走 answerer
+    ctx.events.emit("turn/start", { turn: "t9" });
+    ctx.events.emit("step/start", { turn: "t9", step: 1 });
+    expect(await approvalOf(ctx).requestPermission({ tool: "write", args: {} })).toBe(
+      "unavailable", // 脚本已耗尽 → unavailable = 确实问过
+    );
+    await harness.dispose();
+  });
+});
+
 describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", () => {
   it("settle 带 scope:'session' → decided{scope} 落账 → 同工具第二次免问（真实链路）", async () => {
     const interaction = interactionStub([

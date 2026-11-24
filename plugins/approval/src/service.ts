@@ -13,6 +13,7 @@ import {
   DECISIONS,
   type Decision,
   type GateVerdict,
+  type PermissionMode,
   type PermissionRequest,
 } from "@henira/protocol";
 import { argsDigest, isCredentialAccess, isDisasterCommand, matchesRule } from "./chain.js";
@@ -36,13 +37,26 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
     inject: ["session", "tools", "interaction", "config"],
     start(ctx) {
       const cx = asHeniraContext(ctx);
-      let current: { turn: string; step: number } | undefined;
+      // 已开回合 + 其权限模式（D-080：mode 随 turn/start 广播，回合内恒定制；缺省 = ask）
+      let current: { turn: string; step: number; permissionMode?: PermissionMode } | undefined;
       ctx.events.on("turn/start", (payload: unknown) => {
-        current = { turn: (payload as { turn: string }).turn, step: 0 };
+        const p = payload as { turn: string; permissionMode?: PermissionMode };
+        current = {
+          turn: p.turn,
+          step: 0,
+          ...(p.permissionMode !== undefined ? { permissionMode: p.permissionMode } : {}),
+        };
       });
       ctx.events.on("step/start", (payload: unknown) => {
         const p = payload as { turn: string; step: number };
-        current = { turn: p.turn, step: p.step };
+        current = {
+          turn: p.turn,
+          step: p.step,
+          // 模式只跟本回合——换回合却没见 turn/start = 丢权威，按 ask 兜底（fail-closed）
+          ...(current?.turn === p.turn && current.permissionMode !== undefined
+            ? { permissionMode: current.permissionMode }
+            : {}),
+        };
       });
 
       const service: ApprovalService = {
@@ -52,6 +66,7 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           if (signal?.aborted) return "cancelled";
           if (current === undefined) return "unavailable"; // 没有打开的回合不接受审批记录（session.md §1.1）
           const { turn, step } = current;
+          const permissionMode = current.permissionMode; // 回合内恒定（turn/start 定档）
           const session = cx.get("session");
           const tools = cx.get("tools");
           const requestId = randomUUID();
@@ -73,10 +88,21 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
               },
             });
           };
-          const decided = async (decision: Decision, scope?: string): Promise<void> => {
+          const decided = async (
+            decision: Decision,
+            scope?: string,
+            mode?: "full",
+          ): Promise<void> => {
             await session.append({
               type: "approval/decided",
-              data: { turn, step, requestId, decision, ...(scope ? { scope } : {}) },
+              data: {
+                turn,
+                step,
+                requestId,
+                decision,
+                ...(scope ? { scope } : {}),
+                ...(mode !== undefined ? { mode } : {}),
+              },
             });
           };
 
@@ -111,6 +137,14 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
           }
           if (seam.verdict === "allow") {
             await decided("allowed-once");
+            return "allowed-once";
+          }
+
+          // ── 完全访问模式（D-080）：水瀑之后自动放行，只跳过 answerer。硬拒清单 / deny 规则 /
+          //    hook deny 均在本层之前裁决——full 不是「关掉审批」，settled 行带 mode:"full"
+          //    审计标记（事后可辨「非用户逐次放行」）
+          if (permissionMode === "full") {
+            await decided("allowed-once", undefined, "full");
             return "allowed-once";
           }
 

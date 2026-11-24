@@ -576,6 +576,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         steer: (opts as { steer?: boolean } | undefined)?.steer,
         modelId: opts?.modelId,
         reasoningEffort: opts?.reasoningEffort,
+        permissionMode: opts?.permissionMode,
       });
       return { queued: receipt.id !== "", id: receipt.id === "" ? null : receipt.id };
     },
@@ -641,12 +642,12 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async getSettings() {
       const s = await readSettings(globalDir);
-      return { version: 1, model: s?.model, ui: s?.ui };
+      return { version: 1, model: s?.model, permissionMode: s?.permissionMode, ui: s?.ui };
     },
 
     async putSettings(patch) {
       const next = await writeSettings(globalDir, patch);
-      return { version: 1, model: next.model, ui: next.ui };
+      return { version: 1, model: next.model, permissionMode: next.permissionMode, ui: next.ui };
     },
 
     async listModels() {

@@ -124,6 +124,7 @@ export function createClient(opts: ClientOptions): HeniraFacade {
           steer: (opts as { steer?: boolean } | undefined)?.steer,
           modelId: opts?.modelId,
           reasoningEffort: opts?.reasoningEffort,
+          permissionMode: opts?.permissionMode,
         }),
       });
     },

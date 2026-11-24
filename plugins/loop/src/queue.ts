@@ -58,6 +58,7 @@ export class PromptQueue {
       steer,
       modelId: opts?.modelId,
       reasoningEffort: opts?.reasoningEffort,
+      permissionMode: opts?.permissionMode,
       queuedAt: Date.now(),
     };
     this.#entries.push(entry);

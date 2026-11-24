@@ -1047,17 +1047,28 @@ describe("REST 面与设置", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           model: "mock/mock-1",
+          permissionMode: "full",
           ui: { theme: "dark", preview: { file: "modal" } },
         }),
       });
       expect(put.status).toBe(200);
       const settings = (await (await fetch(`${base}/api/settings`)).json()) as {
         model?: string;
+        permissionMode?: string;
         ui?: { theme?: string; preview?: { file?: string; image?: string } };
       };
       expect(settings.model).toBe("mock/mock-1");
+      expect(settings.permissionMode).toBe("full");
       expect(settings.ui?.theme).toBe("dark");
       expect(settings.ui?.preview?.file).toBe("modal");
+
+      // 非法权限模式值 400（fail-closed：词表外不入盘，D-080）
+      const badMode = await fetch(`${base}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ permissionMode: "yolo" }),
+      });
+      expect(badMode.status).toBe(400);
 
       // 预览设置深合并：只改 image 不丢 file（R188）
       await fetch(`${base}/api/settings`, {
@@ -1080,6 +1091,56 @@ describe("REST 面与设置", () => {
       expect((await fetch(`${base}/api/credentials/deepseek`)).status).toBe(404); // 无 GET 端点
     } finally {
       await cleanup();
+    }
+  });
+
+  it("prompt 权限模式透传（D-080）：full 落 turn/start 账本；非法值 400", async () => {
+    const { base, cleanup, dataDir } = await makeServer([
+      [mockText("好"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const cwd = path.join(root, "perm-cwd");
+    await fs.mkdir(cwd, { recursive: true });
+    try {
+      const id = await createSession(base, cwd);
+      const res = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "放开做", permissionMode: "full" }),
+      });
+      expect(res.status).toBe(200);
+      // 回合落定后读账本（turn/start 不投影为行——直接读 session.v1.jsonl）
+      const ledgerPath = path.join(
+        dataDir,
+        "projects",
+        projectKey(cwd),
+        "sessions",
+        id,
+        SESSION_LOG_FILE,
+      );
+      await waitFor(async () => {
+        try {
+          const raw = await fs.readFile(ledgerPath, "utf8");
+          return raw.includes('"turn/start"') ? true : undefined;
+        } catch {
+          return undefined;
+        }
+      });
+      const events = (await fs.readFile(ledgerPath, "utf8"))
+        .trimEnd()
+        .split("\n")
+        .map((l) => JSON.parse(l) as { type: string; data: { permissionMode?: string } });
+      const start = events.find((e) => e.type === "turn/start");
+      expect(start?.data.permissionMode).toBe("full");
+      // 非法值 400（词表外不入引擎，D-080 fail-closed）
+      const bad = await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "x", permissionMode: "yolo" }),
+      });
+      expect(bad.status).toBe(400);
+    } finally {
+      await cleanup();
+      await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
     }
   });
 

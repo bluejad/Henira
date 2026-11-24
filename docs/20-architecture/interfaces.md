@@ -350,6 +350,17 @@ interface ConfigService {
   permissionRules(): Promise<readonly PermissionRule[]>; // permissions.json 规则（approval 经此读，§3.1）
 }
 
+/** 权限模式两值（D-080）：ask = 改动前询问（默认、fail-closed）；full = 完全访问
+ *  （审批水瀑之后自动放行；硬拒清单 / deny 规则 / hook deny 不受影响） */
+type PermissionMode = "ask" | "full";
+
+/** 每次提问携带的覆盖（模型/思考/权限按次绑定；会话级记忆只做 composer 回填——权威在请求） */
+interface PromptOptions {
+  modelId?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode?: PermissionMode; // 缺省 = ask；随 turn/start 落账（旧账本无字段同义）
+}
+
 /** turn/end.reason 7 值（session.md §2.4 同源）；interrupted / forked 只由 session 补写产生，loop 不发 */
 type TurnEndReason =
   | "completed"
@@ -364,6 +375,9 @@ interface QueuedPrompt {
   id: string;
   text: string;
   steer: boolean; // true = "立即发送"插话条目（下一 step 边界进场，D-045）
+  modelId?: string; // 覆盖随条目持久化（queue.json；冲刷按原选择开新回合）
+  reasoningEffort?: ReasoningEffort;
+  permissionMode?: PermissionMode; // D-080 同上
 }
 
 // run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——[opencode]
@@ -631,7 +645,7 @@ GET  /api/sessions                                      → SessionSummary[] // 
 DELETE /api/sessions/:id                                → { ok: true }     // busy → 409 { code: "session_busy" }；删账本目录整棵（data-directory §7）
 GET  /api/sessions/:id/snapshot                         → SessionSnapshot（初始渲染与断档重拉共用一出口；长会话 = 尾窗 60——ZCode snapshotTailWindowRows 同档；title 随快照下发——R188）
 GET  /api/sessions/:id/rows?before=&limit=              → RowsPage        // 行翻页（长会话历史：before = rowSeq 排他游标、页首补齐到轮边界、limit 钳 200——D-061）
-POST /api/sessions/:id/prompt               { text, steer?, modelId?, reasoningEffort? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；steer=true 忙时直插（E1 发送模式 Ctrl+Enter）；模型/思考按次覆盖（每次提问绑定，骨架批）
+POST /api/sessions/:id/prompt               { text, steer?, modelId?, reasoningEffort?, permissionMode? }  → { queued: boolean; id: string | null }  // D-045 单口：闲直跑 / 忙入队（id = 排队条目）；steer=true 忙时直插（E1 发送模式 Ctrl+Enter）；模型/思考/权限按次覆盖（每次提问绑定，骨架批 + D-080；permissionMode 词表外 400）
 POST /api/sessions/:id/steer                { entryId } → { ok: boolean }                         // 排队条目"立即发送"升格
 DELETE /api/sessions/:id/queue/:entryId     → { ok } | 404                                        // 排队条目删除（E1 排队卡行级操作）
 POST /api/sessions/:id/queue/resume                     → { ok: boolean }                         // 恢复中断冻结的队列冲刷（取队头开新回合；无事可做 ok:false）
@@ -689,6 +703,7 @@ interface SettingsData {
   // GET/PUT /api/settings；凭据永不出现（D-030）
   version: 1;
   model?: string;
+  permissionMode?: PermissionMode; // 新会话默认权限档（D-080；会话内可单独切换并随会话记忆）
   ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
 }
 interface CatalogModel {
@@ -775,6 +790,7 @@ interface SessionUiState {
   };
   model?: string; // 会话级模型记忆（composer 回填；权威在每次请求携带，引擎无会话态——骨架批）
   reasoningEffort?: ReasoningEffort; // 会话级思考档记忆（同上）
+  permissionMode?: PermissionMode; // 会话级权限模式记忆（D-080，同一条；显式记忆压过 settings 默认）
   [key: string]: unknown;
 }
 interface UiAssetLocale {
@@ -1005,7 +1021,7 @@ interface HeniraFacade {
   // 链路状态订阅（仅远端 client 实现；runtime 缺省 undefined）；只在变化时通知，返回退订函数
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考按次覆盖（每次提问绑定，骨架批）
+  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考/权限按次覆盖（每次提问绑定，骨架批 + D-080）
   steer(sessionId: string, entryId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
   fork(sessionId: string, atSeq?: number): Promise<string>; // 轮尾分叉（E4）：seq 前缀复制出新会话并装配入册，返回子会话 id；双形态同测锁
@@ -1025,6 +1041,7 @@ interface HeniraFacade {
   getSettings(): Promise<SettingsData>; // 设置读（settings.json；凭据永不出现，D-030）
   putSettings(patch: {
     model?: string;
+    permissionMode?: PermissionMode;
     ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
   }): Promise<SettingsData>; // 设置写（程序写，data-directory §2.3）
   listModels(): Promise<ModelCatalog>; // 选择器清单（闸门分档——已知厂商 key+baseUrl、自定义 baseUrl；条目化 CatalogModel；无密钥）
@@ -1157,6 +1174,8 @@ interface ComposerApi {
   setModel(next: string): void;
   effort: ReasoningEffort | null;
   setEffort(next: ReasoningEffort): void;
+  permission: PermissionMode; // 生效权限档（D-080：显式记忆 → settings 默认 → ask）
+  setPermission(next: PermissionMode): void; // 切换：本地态 + 会话 uiState 记忆（升格 full 的确认卡归 chip 件）
   catalog: ModelCatalog; // 目录快照（composer.model 席消费）
   settingsReady: boolean; // 宿主 getSettings/listModels 齐备
   submit(text?: string, opts?: { steer?: boolean }): void; // 缺省用草稿；steer=忙时插话

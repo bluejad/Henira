@@ -74,6 +74,7 @@
 - [ ] 界面优化一轮落地：视觉打磨 + markdown 渲染，优化前后截图对照、人眼拍板（界面 = v0.1.0 门面）
 - [x] 界面收口批（R188 / D-075）：左栏标题/相对时间 + 空会话草稿态 + 中列 header + 设置四页行卡重排 + 预览打开方式（弹窗/右侧按文件/图片各自可设，`ui.preview`）+ 右栏预览 tab + diff 高亮 + 工具开合 300ms + CSS/组件二次拆分（明细与测试见 D-075；「界面优化一轮」整体判据的优化前后截图人眼拍板仍随真 key 验收）
 - [x] 预览缝批（R190 / D-076）：`sidebar.right.preview.<后缀>` 渲染挂点接线——官方兜底体显式占通配 `*`、插件按后缀（复合后缀最长匹配）注册/顶替、卸载与崩溃回落；预览键全族 single 占用；工作区文件读取 `GET /api/sessions/:id/file` + SDK `readWorkspaceFile`（cwd 围栏 + realpath；文本 1 MiB 截断 / 二进制 base64）；行出窗按当前磁盘文本回落；e2e 插件接管→停用回落 + 真 key 活体
+- [x] 输入框权限模式（R197 / D-080）：`PermissionMode = ask | full` 按次绑定（与模型/思考档同构；`turn/start` 落账审计 + 队列条目持久化）；会话级 ui-state 记忆 + settings 新会话默认（设置第五页「权限」）；审批链水瀑后自动放行（`decided{mode:"full"}` 审计标记；硬拒/deny/hook deny 不动）；工具排左端权限 chip（full 警示色 + 升格风险确认卡）+ e2e 七步全链
 - [x] 卡死治理批（R193 / D-077）：删前端 3s「响应停滞」判据（忙碌行恒走秒；≥60s 中性「仍在等待模型响应」）；plugin-llm per-part 空闲看门狗（默认 180s，settings 覆盖）→ `LlmError(LLM_STREAM_IDLE_TIMEOUT)` → ErrorRow + 可行动中文；SSE 客户端字节看门狗（30s 含心跳）→ 自动重连 + `onLinkState` 5s 抗闪横幅 + 重连边沿补拉当前会话（服务重启后不卡 busy）；`stop()` 收口事件泵；帧消费监督重启；e2e 静默 provider + 活体杀 serve 重连
 - [ ] 三家真 provider 经 serve 链路（REST + SSE）各跑通带工具回合（真 key，env 门控不进 CI；M2 真跑是 examples/real 直连引擎，本条补宿主链路），并**逐形态验收截图点开看**。**真 key 采样先行（2026-11-17 改拍板）**：markdown 渲染的开发素材直接用三家真 key 跑真实样本（标题 / 代码块 / 表格 / 列表的真实分布），照样本做渲染、做完立刻真 key 复看显示效果（markdown / 代码块 / 截断 / 用量）——不拿 mock 编样本；**mock 只留稀有形态清单**（推理块 / 错误回合 / 拒绝 / 中断 / 多工具 / 插话——真 key 难以稳定触发，mock 确定性重放，兼 CI 离线回归）
 - [ ] `changeset version && publish` 干跑通过；README 英文版就位

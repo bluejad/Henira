@@ -192,4 +192,55 @@ describe("模型/思考按次覆盖（每次提问绑定）", () => {
       reasoningEffort: "high",
     });
   });
+
+  it("权限模式随回合开场落账（turn/start 带 permissionMode）+ 队列条目持久化、冲刷按原选择开新回合（D-080）", async () => {
+    // 门控式 Llm 桩（同上）：第一回合挂起占 busy，第二 send 确定性入队
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const held: LlmService = {
+      async *stream(req, signal) {
+        void req;
+        yield { type: "text-delta", text: "一" };
+        await gate;
+        yield { type: "usage", usage: USAGE };
+        yield { type: "finish", reason: "stop" };
+        void signal;
+      },
+    };
+    const sessionDir = path.join(root, "sess");
+    const harness = createHarness()
+      .use(sessionPlugin({ directory: sessionDir, cwd: root }))
+      .use(toolsPlugin({}))
+      .use(llmStub(held))
+      .use(approvalStub())
+      .use(interactionStub())
+      .use(configStub())
+      .use((await import("./service.js")).loopPlugin({}));
+    await harness.start();
+    const ctx = asHeniraContext(harness.context);
+    const loop = ctx.get("loop");
+    const session = ctx.get("session");
+    await loop.send("默认档"); // 无模式 = turn/start 无字段（缺省 ask，旧读者兼容）
+    await loop.send("full 档", { permissionMode: "full" }); // 忙时入队
+    const queuedRaw = await fs.readFile(path.join(sessionDir, "queue.json"), "utf8");
+    expect(queuedRaw).toContain('"permissionMode": "full"');
+    release();
+    await vi.waitFor(
+      () => {
+        const starts = session.events().filter((e) => e.type === "turn/start");
+        if (starts.length < 2) throw new Error(`starts=${starts.length}`);
+      },
+      { timeout: 4000 },
+    );
+    const starts = session.events().filter((e) => e.type === "turn/start");
+    const modeOf = (i: number): string | undefined => {
+      const s = starts[i];
+      if (s === undefined) throw new Error(`start ${i} missing`);
+      return (s.data as { permissionMode?: string }).permissionMode;
+    };
+    expect(modeOf(0)).toBeUndefined();
+    expect(modeOf(1)).toBe("full");
+  });
 });

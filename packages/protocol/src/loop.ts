@@ -3,6 +3,11 @@
 
 import type { ReasoningEffort } from "./llm.js";
 
+/** 权限模式两值（D-080）：ask = 改动前询问（默认、fail-closed）；full = 完全访问
+ * （审批水瀑之后自动放行；硬拒清单 / deny 规则 / hook deny 不受影响） */
+export const PERMISSION_MODES = ["ask", "full"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
 /** turn/end.reason 7 值（session.md §2.4 同源）；interrupted / forked 只由 session 补写产生，loop 不发 */
 export const TURN_END_REASONS = [
   "completed",
@@ -22,6 +27,9 @@ export interface PromptOptions {
   modelId?: string;
   /** 思考档（适配器按厂商能力映射，none 厂商忽略——llm.ts ReasoningEffort） */
   reasoningEffort?: ReasoningEffort;
+  /** 权限模式（D-080：按每次提问绑定，与模型/思考档同权威；缺省 = ask）。
+   * 会话级记忆只做 composer 回填——权威在每次请求携带 */
+  permissionMode?: PermissionMode;
 }
 
 /** 排队条目（queue.json 持久化，重启恢复）；steer = "立即发送"插话条目（下一 step 边界进场，
@@ -32,6 +40,8 @@ export interface QueuedPrompt {
   steer: boolean;
   modelId?: string;
   reasoningEffort?: ReasoningEffort;
+  /** 权限模式随条目持久化（重启恢复后按原选择开新回合） */
+  permissionMode?: PermissionMode;
 }
 
 // run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——[opencode]

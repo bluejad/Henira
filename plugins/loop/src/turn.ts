@@ -89,8 +89,17 @@ export async function runTurnCore(
     type: "user/message",
     data: { turn, step: 0, content: prompt, source: "send" },
   });
-  await session.append({ type: "turn/start", data: { turn } });
-  ctx.events.emit("turn/start", { turn });
+  // 权限模式随回合开场落账 + 广播（D-080：approval 靠 turn/start 跟踪本回合模式；
+  // 缺省 = ask——旧账本无字段同义）
+  const permissionMode = opts?.permissionMode;
+  await session.append({
+    type: "turn/start",
+    data: { turn, ...(permissionMode !== undefined ? { permissionMode } : {}) },
+  });
+  ctx.events.emit("turn/start", {
+    turn,
+    ...(permissionMode !== undefined ? { permissionMode } : {}),
+  });
 
   let step = 0;
   let endReason: TurnEndReason = "completed";

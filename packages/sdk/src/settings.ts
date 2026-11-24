@@ -3,11 +3,13 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { PreviewOpenSettings } from "@henira/protocol";
+import type { PermissionMode, PreviewOpenSettings } from "@henira/protocol";
 
 export interface SettingsFile {
   version: 1;
   model?: string;
+  /** 新会话默认权限模式（D-080） */
+  permissionMode?: PermissionMode;
   plugins?: Record<
     string,
     {
@@ -42,6 +44,7 @@ export async function writeSettings(
   globalDir: string,
   patch: {
     model?: string;
+    permissionMode?: PermissionMode;
     ui?: { theme?: string; locale?: string; preview?: PreviewOpenSettings };
     plugins?: SettingsFile["plugins"];
   },
