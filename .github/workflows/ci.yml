@@ -47,3 +47,11 @@ jobs:
           name: browser-e2e-screenshots
           path: test-support/browser-e2e/artifacts
           retention-days: 30
+
+      # 失败留证：Playwright trace + error-context（排查慢机 flake 的现场）
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-e2e-traces
+          path: test-support/browser-e2e/test-results
+          retention-days: 7
