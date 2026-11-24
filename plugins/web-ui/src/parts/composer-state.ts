@@ -48,12 +48,20 @@ export function useComposerRuntime(
   useEffect(() => {
     if (ctx.uiState === undefined) return; // 未加载 / 宿主未实装——保持现状
     if (ctx.sessionId === draftSyncedFor.current) return;
-    draftSyncedFor.current = ctx.sessionId;
-    setDraftState(ctx.uiState.draft ?? "");
+    // 首会话回填保护：boot 往返（建会话 + 拉 uiState）未完时用户可能已打字——空草稿回填
+    // 会把它抹掉（真浏览器 e2e 慢机抓出：fill 后发送钮永久置灰）。保住输入并立即归属
+    // 当前会话；此后按会话切换照旧整份回填（切换窗内输入仍按新会话处理）。
+    if (draftSyncedFor.current === null && draft !== "") {
+      draftSyncedFor.current = ctx.sessionId;
+      ctx.updateUiState?.({ draft });
+    } else {
+      draftSyncedFor.current = ctx.sessionId;
+      setDraftState(ctx.uiState.draft ?? "");
+    }
     // 模型/思考会话级记忆（权威在每次请求携带）
     if (ctx.uiState.model !== undefined) setModelState(ctx.uiState.model);
     setEffortState(ctx.uiState.reasoningEffort ?? null);
-  }, [ctx.sessionId, ctx.uiState]);
+  }, [ctx.sessionId, ctx.uiState, draft, ctx.updateUiState]);
 
   // 权限模式随会话走（D-080，与草稿/模型同一条）：显式记忆优先；uiState 未到 = 先按默认
   //（fail-closed，绝不把上一会话的 full 带进新会话）

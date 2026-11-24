@@ -108,7 +108,20 @@ test("layout: scrollbar hugs the center pane; user bubble and composer share the
 
     for (const width of [1024, 1280, 1920]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(200); // 视口档位切换后等一帧布局
+      // 视口切换 → resize 监听重测槽宽（慢机可能晚一两帧才落 CSS 变量）；轮询到三线对齐
+      await expect
+        .poll(
+          async () => {
+            const m = await readMetrics(page);
+            return Math.max(
+              Math.abs(m.convRight - m.wrapRight),
+              Math.abs(m.bubbleRight - m.cardRight),
+              Math.abs(m.assistantLeft - m.cardLeft),
+            );
+          },
+          { timeout: 5_000, message: `layout not settled at ${width}px` },
+        )
+        .toBeLessThanOrEqual(1);
       const m = await readMetrics(page);
       // 滚动视口铺满中列 → 滚动条（视口右缘）贴中列最右
       expect(Math.abs(m.convRight - m.wrapRight)).toBeLessThanOrEqual(1);
@@ -133,9 +146,20 @@ test("layout: scrollbar hugs the center pane; user bubble and composer share the
 
     // 右栏开合也成立（中列变窄 → 内层列铺满扣槽后的盒子）
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.waitForTimeout(200);
     await page.getByRole("button", { name: zh["rightPanel.open"] }).click();
-    await page.waitForTimeout(300);
+    await expect
+      .poll(
+        async () => {
+          const m = await readMetrics(page);
+          return Math.max(
+            Math.abs(m.convRight - m.wrapRight),
+            Math.abs(m.bubbleRight - m.cardRight),
+            Math.abs(m.assistantLeft - m.cardLeft),
+          );
+        },
+        { timeout: 5_000, message: "layout not settled with right panel open" },
+      )
+      .toBeLessThanOrEqual(1);
     const open = await readMetrics(page);
     expect(Math.abs(open.convRight - open.wrapRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.bubbleRight - open.cardRight)).toBeLessThanOrEqual(1);

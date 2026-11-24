@@ -213,9 +213,9 @@ function dockCtx(overrides?: Partial<WebPartContext>): WebPartContext {
   };
 }
 
-/** 整座渲染（保留调用方 spy 的 ctx 对象）：<Composer/> 不再接受单独装配 */
-function renderComposer(ctx: WebPartContext) {
-  return render(
+/** 输入座位整座树（rerender 用：同构造两帧，只换 ctx） */
+function composerTree(ctx: WebPartContext) {
+  return (
     <ComposerDock
       {...ctx}
       slots={
@@ -226,8 +226,13 @@ function renderComposer(ctx: WebPartContext) {
           ["composer.dock", [QueueDock]],
         ])
       }
-    />,
+    />
   );
+}
+
+/** 整座渲染（保留调用方 spy 的 ctx 对象）：<Composer/> 不再接受单独装配 */
+function renderComposer(ctx: WebPartContext) {
+  return render(composerTree(ctx));
 }
 
 /** R176：可控帧流宿主——fixtureCtx 的 host.subscribe 换成可推帧的发射器 */
@@ -2965,6 +2970,18 @@ describe("界面绑定状态（D-063）", () => {
       }),
     );
     expect(updateUiState).toHaveBeenCalledWith({ draft: "" }); // 持久层同步清空
+  });
+
+  it("Composer：启动窗内已输入不被首份 uiState 回填抹掉（R200 慢机 e2e 抓出）", () => {
+    const updateUiState = vi.fn();
+    const ctx = fixtureCtx({ updateUiState }); // fixture 缺省 uiState = boot 未回
+    const { rerender } = renderComposer(ctx);
+    const area = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "启动窗输入" } });
+    expect(updateUiState).toHaveBeenCalledWith({ draft: "启动窗输入" });
+    // boot 的 uiState 晚到（空草稿）——首会话回填不得覆盖已输入内容
+    rerender(composerTree({ ...ctx, uiState: {} }));
+    expect(area.value).toBe("启动窗输入");
   });
 
   it("SessionList：折叠纯本地——初值非活跃组收起、toggle 不上报持久层", async () => {
