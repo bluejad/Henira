@@ -14,6 +14,9 @@ const EXPECTED_SLOTS: readonly (keyof SlotMap)[] = [
   "loop",
   "interaction",
   "config",
+  "mcp",
+  "fs",
+  "shell",
 ];
 
 describe("protocol 契约", () => {
@@ -37,8 +40,8 @@ describe("protocol 契约", () => {
     ]);
   });
 
-  it("SlotMap = 7 槽（commands 随 M6 进入）", () => {
-    expect(EXPECTED_SLOTS).toHaveLength(7);
+  it("SlotMap = 10 槽（commands 随 M6 进入）", () => {
+    expect(EXPECTED_SLOTS).toHaveLength(10);
     expect(EXPECTED_SLOTS).not.toContain("commands");
   });
 

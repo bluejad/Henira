@@ -18,4 +18,4 @@ read / write / edit 工具件（D-049 / D-065）：**纯适配器**——能力�
 | -------- | ------------------------------------------------------- | ------------------------- |
 | index.ts | 三个 ToolDefinition 适配器 + read 格式化（行号 / 尾注） | D-065 / interfaces.md §fs |
 
-判据 ↔ 测试：examples/mock e2e「fs+shell 工具流」（write → read → edit 全链，roadmap M4 判据②）+ server.test「read 工具全链」。
+判据 ↔ 测试：本包 `index.test.ts`（3 例：read 分页事实 / write created / edit replacements 进 `__meta`）+ examples/mock e2e「fs+shell 工具流」（write → read → edit 全链，roadmap M4 判据②）+ server.test「read 工具全链」。

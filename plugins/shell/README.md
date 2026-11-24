@@ -36,4 +36,4 @@ const r = await ctx
 | exec.ts   | spawn / 每流尾 20KB / timeout 竞速 / 进程树杀 / env 净化覆盖     | D-065 决定 4                 |
 | shells.ts | bash / powershell 可执行探测（pwsh 7 → 5.1）+ UTF-8 包装         | D-065 决定 5                 |
 
-判据 ↔ 测试：`shell.test.ts`（真实 spawn 11 例：非零退出 / stderr 分流 / 超时杀树 / abort 两式——含吞 SIGTERM 的 posix KILL 升级 / env / cwd / 非法 shell 值拒绝 / powershell win32 门控）。
+判据 ↔ 测试：`shell.test.ts`（真实 spawn 6 例：跑通 / 非零退出与 stderr 分流 / 超时杀树 / env / cwd / abort 杀树；另 3 例时长钳位与非法命令/shell 值校验）。

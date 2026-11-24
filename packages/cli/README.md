@@ -9,7 +9,7 @@
 
 ```sh
 henira serve [--port N] [--host H] [--cwd DIR]   # 起 HTTP + SSE 宿主（①）；握手文件 ~/.henira/state/server.json
-henira run "prompt" [--cwd DIR]                  # headless 一次性任务（③进程内，经 @henira/sdk）；busy=false 即退出
+henira run "prompt" [--cwd DIR] [--mock]        # headless 一次性任务（③进程内，经 @henira/sdk）；busy=false 即退出；--mock = 内置桩离线 demo
 ```
 
 - 项目 `henira.config.ts`（可选，进 git）经 jiti 装载（CJS/ESM 通吃零构建）：`plugins` 清单的 definition 作为**额外引擎插件**追加装配（D-016① 加法）；`model` / `options` 听全局 settings 语义（data-directory §2.3）

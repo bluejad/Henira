@@ -789,6 +789,7 @@ interface ProviderCatalogEntry {
     contextWindow?: number;
     vision?: boolean; // 模型级徽章（管理行 meta；收敛批透传）
     reasoning?: boolean;
+    reasoningOptions?: ReasoningOption[]; // 档位集合真源（思考档批；管理面与选择器同源）
     enabled: boolean; // models.json hidden 清单——开 = 不在清单
   }>;
 }
@@ -884,7 +885,7 @@ interface DirBrowse {
 
 ```ts
 type RowId = string; // 会话内单调唯一；账本事实的确定性函数（回放重建 rowId 不变）
-//   rowId 形态：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `e:{seq}`
+//   rowId 形态：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` / `q:{requestId}` / `e:{seq}`
 
 interface UserRow {
   kind: "user";
@@ -936,7 +937,7 @@ interface ToolRow {
 //   退出码徽章与流截断徽章，plugins/shell-tools）
 // "read"（path/startLine/endLine/totalLines/truncatedByBytes——读取卡行窗与窗口注，plugins/fs-tools）
 // "write"（path/created——新建卡徽章与全文预览）/ "edit"（path/replacements——diff 卡计数，同上）
-// "glob"（files/total）/ "grep"（mode/matches/files/counts/totalSeen/totalFiles——搜索卡分组，plugins/fs-search）
+// "glob"（files/total）/ "grep"（mode/matches/files/counts/totalSeen/totalFiles/headLimit——搜索卡分组，plugins/fs-search）
 // "mcp"（server/tool 原始名——MCP 卡拆名，plugins/mcp）
 // "ask_user"（questions/answers/cancelled——提问痕迹卡问答对，plugins/ask-user，R184）
 interface ApprovalRow {
@@ -948,7 +949,7 @@ interface ApprovalRow {
   requestId: string;
   toolName: string;
   argsSummary?: string; // argsDigest（关联指纹——同参同摘要；chain.test 锁定）
-  args?: unknown; // 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染，per-tool 预览体唯一数据源；凭据经架构保证不进 args，approval/* 不进 derive）
+  args?: unknown; // 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染，per-tool 预览体唯一数据源；**>256KB 或不可序列化时整体丢弃只留 argsDigest**（approval 服务侧闸，挂起卡此时不自足）；凭据经架构保证不进 args，approval/* 不进 derive）
   reason?: string; // 引擎判定链解释原样（围栏区外访问等；仅呈现）
   status: "pending" | "settled";
   decision?: Decision | "invalidated"; // "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交（settle 端点 z.enum(DECISIONS) 不含它）
@@ -963,7 +964,7 @@ interface QuestionRow {
   requestId: string;
   questions: QuestionSpec[]; // 题面全文自足（挂起卡与痕迹行共数据源；断线/多窗口重放同一张卡）
   status: "pending" | "settled";
-  answers?: QuestionAnswer[]; // outcome = answered 时在场（逐题；空 selected = 跳过）
+  answers?: QuestionAnswer[]; // answers 数组在场即保留（官方生产方仅在 outcome=answered 时发；投影器不按 outcome 过滤）
   outcome?: "answered" | "cancelled" | "invalidated"; // invalidated 仅由修理事件投影（重启收口）
 }
 interface ErrorRow {
@@ -982,11 +983,11 @@ interface SessionState {
   queue?: QueuedPrompt[]; // 排队条目快照（E1 排队卡数据源；投影态非账本——loop 活态经发布口并线，queue/changed → state.updated；快照同带。loop 不在册 = 键缺省）
   queuePaused?: boolean; // 中断冻结（队列非空时中断不冲刷等 resume；投影态非账本事实，与 queue 键同批并线）
   busySince?: number; // 当前 busy 段真实起点（R173：turn/start 事件 time；turn/end 清除；重放重建自愈——刷新/重连计时续表，前端无此字段兜底本地起表）
-  turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>; // 回合耗时（E3 回合头：turn/start·turn/end 事件 time 差）+ endedAt = turn/end 时刻（E4 轮尾时间戳）+ forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive；事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
+  turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>; // 回合耗时（E3 回合头：`Math.max(1000, turn/end.time - turn/start.time)`——亚秒回合抬到 1s）+ endedAt = turn/end 时刻（E4 轮尾时间戳）+ forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive；事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
-  title?: string; // 会话标题（R188：首条非 breaker 用户消息；缺省 = 尚无用户消息）
+  title?: string; // 会话标题（R188：首条非 breaker 用户消息；缺省 = 尚无用户消息）。**已装配会话**由快照派生；重启后磁盘会话的 GET snapshot / SDK snapshot 不派生 title——前端需从 rows 兜底
   seq: number; // 该会话当前水位（此后增量帧 seq 单调 +1）——增量帧只动尾部窗口内的行
   rows: Row[]; // 尾部窗口（长会话只含最近段——历史经 /rows 翻页拉取，D-061）
   state: SessionState;
@@ -1019,9 +1020,9 @@ type ServerFrame =
 - 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
 - 行构造纯函数共享：快照 = 从空投影顺序 apply 全部账本事件；增量 = 逐追加 apply；两路同一套行构造逻辑（一个词表，无第二 reducer）；
 - **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` / `question/settled` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；**孤儿 `approval/decided`（无 asked 配对——默认放行层 / 规则层 / 会话折叠的审计）不投影行**：自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行（E3 实锤——幽灵行既污染流又切断相邻聚合组），审计住账本不丢；**孤儿 `approval/invalidated` 与 `question/settled`（无 asked 配对）同款抑制**；
-- **重启收口**（R175；R184 扩提问）：serve 启动扫描全部账本（registry.repairLedgers，监听前）+ 开档（SessionStore.create）双路径执行同一修理——①seq 外科重排（append 串行化之前写者竞态留下的共享 seq 伤——保事件保行序只修 seq，删行会丢 decided 事实）②孤儿挂起审批补写 `approval/invalidated`、孤儿挂起提问补写 `question/settled{outcome:"invalidated"}`（修理专用，loop 与客户端都不发；事件自带 ignorable——旧读者透明跳过）③开回合补写 `turn/end{interrupted}`（time = 账本最后真实事件时间——轮耗时定格死亡时刻）。投影侧：invalidated → settled 痕迹行「已失效（服务重启）」；reason:"interrupted" 与 aborted 同享中断徽章 + interruptedKind:"restart" 分型 + 死亡步悬挂工具行（tool/call 无 result）收口为 error——幽灵审批卡 / 幽灵提问卡 / 假在跑工具卡 / 跨重启 busy 计时四族幽灵在结构上不可能从账本重放出来；
+- **重启收口**（R175；R184 扩提问）：serve 启动扫描全部账本（registry.repairLedgers，监听前）+ 开档（SessionStore.create）双路径执行同一修理——①seq 外科重排（append 串行化之前写者竞态留下的共享 seq 伤——保事件保行序只修 seq，删行会丢 decided 事实）②孤儿挂起审批补写 `approval/invalidated`、孤儿挂起提问补写 `question/settled{outcome:"invalidated"}`（修理专用，loop 与客户端都不发；事件自带 ignorable——旧读者透明跳过）③开回合补写 `turn/end{interrupted}`（time = 账本最后真实事件时间——轮耗时定格死亡时刻）。投影侧：invalidated → settled 痕迹行「已失效（服务重启）」；reason:"interrupted" 与 aborted 同享中断徽章 + interruptedKind:"restart" 分型 + 死亡步悬挂工具行（tool/call 无 result）收口为 error——幽灵审批卡 / 幽灵提问卡 / 假在跑工具卡 / 跨重启 busy 计时四族幽灵在结构上不可能从账本重放出来。**例外（挂账）**：任意 atSeq 半回合 fork 产生的 `turn/end{forked}` 重放后，悬挂工具行仍为 `status:"running"`（收口只覆盖 aborted/interrupted）；
 - **回合耗时**（E3 回合头）：`turn/start` 记账本 time、`turn/end` 结算 `durationMs` 入 `state.turnTimings`，E4 扩 `endedAt`（轮尾时间戳）与 `forkSeq`（turn/end 事件 seq——轮尾 fork 的账本切点）（事件时间戳取数——重放重建/重载后仍在；保留最近 50 轮）；**busy 段计时起点**（R173）：`state.busySince` 同取 turn/start time、turn/end 清除，前端「思考中」秒数优先此值——刷新/重连/换窗口续同一块表；
-- **行时间**（E4 轮尾/用户行操作行时间戳）：`user/message` / `assistant/message` 落账投影带 `time`（事件 time，epoch ms）——流式行与中止冻结行无权威落定故缺字段；
+- **行时间**（E4 轮尾/用户行操作行时间戳）：`user/message` / `assistant/message` 落账投影带 `time`（事件 time，epoch ms）——流式行与中止冻结行无权威落定故缺字段；**例外**：零文本中止/中断的合成行取 `turn/end` 事件 time（来源不是 assistant/message）；
 - seq 在扇出层按会话编发（快照帧携带当前水位，增量帧 +1 单调）；
 - 队列状态不投影（D-045：队列不是对话事实，不进账本）；busy/lastTurnId 由账本 turn/start…turn/end 派生；
 - rowId + seq 游标为将来留口：per-session 订阅与 rowsRange 分页是加法不是重构（见文末备考）。
@@ -1072,8 +1073,15 @@ interface HeniraFacade {
   // 链路状态订阅（仅远端 client 实现；runtime 缺省 undefined）；只在变化时通知，返回退订函数
   createSession(opts?: { cwd?: string }): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
-  prompt(sessionId: string, text: string, opts?: PromptOptions): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考/权限按次覆盖（每次提问绑定，骨架批 + D-080）
-  steer(sessionId: string, entryId: string): Promise<boolean>;
+  prompt(
+    sessionId: string,
+    text: string,
+    opts?: PromptOptions & { steer?: boolean },
+  ): Promise<PromptReceipt>; // D-045 单口；opts = 模型/思考/权限按次覆盖（每次提问绑定，骨架批 + D-080）+ steer=true 忙时插话入队
+  steer(sessionId: string, entryId: string): Promise<boolean>; // 排队条目插话（下一 step 边界进场）
+  promoteQueueEntry(sessionId: string, entryId: string): Promise<boolean>; // 立即发送（抢占式）：停当前回合并以该条开新回合（排队卡行级操作）
+  removeQueueEntry(sessionId: string, entryId: string): Promise<boolean>; // 删除排队条目（排队卡行级操作）
+  resumeQueue(sessionId: string): Promise<boolean>; // 恢复中断冻结的队列冲刷（取队头开新回合；无冻结/无条目/忙 → false）
   interrupt(sessionId: string): Promise<void>;
   fork(sessionId: string, atSeq?: number): Promise<string>; // 轮尾分叉（E4）：seq 前缀复制出新会话并装配入册，返回子会话 id；双形态同测锁
   settleApproval(
@@ -1116,6 +1124,14 @@ interface HeniraFacade {
   setModelEnabled(providerId: string, model: string, enabled: boolean): Promise<void>; // 开关显隐（models.json hidden 清单——开 = 移出，关 = 加入）
   putCustomProvider(input: CustomProviderInput): Promise<{ id: string }>; // 自定义 OpenAI 兼容厂商（显式清单；返回生成的 user- 前缀 id）
   listUiAssets(): Promise<UiAssets>; // 界面资产清单（D-059 语言包/主题包）
+  // ── 插件体系六方法（批 C：装载/确认/启停/版本/卸载；REST 同名端点同语义，双形态同测锁）──
+  listPlugins(): Promise<{ plugins: PluginState[]; fingerprint: string }>; // 插件清单（enabled≠loaded + 指纹；UI 宿主轮询重装）
+  confirmPlugin(id: string, version: string): Promise<void>; // 确认卡放行（engine 件首次生效 / 版本升级；写 confirmedVersion）
+  setPluginEnabled(id: string, enabled: boolean): Promise<void>; // 启停（settings.plugins.<id>.enabled；官方件拒绝）
+  setPluginVersion(id: string, version: string): Promise<void>; // 版本钉（新会话生效；官方件拒绝）
+  removePlugin(id: string): Promise<void>; // 卸载（删 plugins/<id> 整目录；plugins-data 保留；官方件拒绝）
+  confirmPluginMcp(id: string): Promise<void>; // MCP 变更确认放行（写 mcpFingerprint，新会话 spawn）
+  executeResource(sessionId: string, pluginId: string, address: string): Promise<ResourceReply>; // useResource 数据泵单跳（henira-data:// 地址；所有权闸 403 / 30s 超时 / 200×1024 截断）
   listDir(sessionId: string, dirPath?: string): Promise<DirEntry[]>; // 会话工作区文件列表（只限会话 cwd；隐藏项不返）
   readWorkspaceFile(sessionId: string, path: string): Promise<WorkspaceFileContent>; // 工作区文件读取（R190；cwd 围栏 + realpath；文本 1 MiB 截断 / 二进制 base64；双形态同语义）
   listDirs(): Promise<RegisteredDir[]>; // 登记工作目录（data-directory §4 projects.json；D-060）
@@ -1256,7 +1272,7 @@ interface ComposerApi {
 - **plugin-web-ui = 真插件**（D-043）：id-only 条目进 defaultPreset（无引擎 definition），web 宿主经**公共注册路径**装载其 UI 模块，件经 `UiModuleContext.registerSlot / replaceSlot` 挂载；可整只替换；安全模式（双击 Alt / `?ui=safe`）= 不激活任何 UI 模块、只渲染官方默认组合（web 宿主实现，web-ui 供默认组合）；未装件的槽位**收起**（不渲染不占宽）；
 - **编译期出口**（D-043 第 7 条定稿）：`@henira/plugin-web-ui` 同时导出布局 + 官方件（会话列表 / 对话面板 / 输入框 / 审批卡）+ `locales/zh` 字典——web 宿主 import 同版本件，官方件与插件用件同一零件库；**不 eval 插件源码（模块加载，D-021）**；
 - **组织约束（D-043 第 8 条，首发生效）**：web 界面自第一行代码起按"可拆组件 + 槽位组合"组织，默认组合只是一种排列；
-- **挂载点词表 v1 十七个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18 ＋ E6 审批卡缝 2026-11-21 ＋ R182 输入座位 / chain 2026-11-22 ＋ R183 输入座位四席 2026-11-22）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用并在占槽的同一注册里声明子槽——槽套槽，声明 = 独占渲染权；`replaceSlot("layout")` = 整页重排，风险标注同 dsh root 槽：影子化官方 UI，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（**输入座位**——官方默认件 ComposerDock，chain 接管路由）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ **输入座位子槽六个（R182 两名 ＋ R183 四席）**：`composer.bar`（**常驻输入栏**，single；官方默认件 = Composer，chain fallback——接管时保持挂载、`display:none`，草稿 / DOM 态不丢）· `composer.takeover`（**接管 chain**：条目 = `id + priority + select(owner) + Component`；priority 升序、select 首个非 null 当选；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10）——提问压过审批；消费件负责 fallback 挂载与 overlay 隐藏；官方条目同走公共注册路径，第三方 `replaceChainSlot` 顶替、卸载按登记回落）· `composer.model`（**模型席**，single——模型 + 思考档同一席，官方默认件 = ModelSeat；第三方 `replaceSlot` 顶替）· `composer.left` / `composer.right`（**工具排左 / 右追加位**，list——官方空，只给插件加按钮）· `composer.dock`（**输入卡外通栏条目**，list——官方默认件 = QueueDock 排队面板，审批接管时仍可见）＋ 行级六个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——八键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep,ask_user}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（渲染总缝槽内件本身；官方 MCP 卡默认注册在此，插件可整类顶替）→ 通用卡兜底；`tool.call.view.mcp` 为总缝保留键——字面名 `mcp` 的工具不进总缝、直接落通用卡）· `approval.view.<工具名>`（**审批卡 keyed**，E6：官方 per-tool 审批卡注册进缝——edit/write diff 预览、bash/powershell 命令行、read/glob/grep 路径摘要、未知工具 JSON 预览；数据源 = ApprovalRow.args 完整原样（D-046「挂起自足可渲染」）；插件 `replaceSlot` 顶替、卸载回落通用卡）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<后缀>`（文件预览 tab 的 body 实现缝，keyed；官方兜底体注册在通配 `*`——插件按后缀（含 `tar.gz` 复合）注册或 `replaceSlot` 顶替、卸载与渲染崩溃回落官方；预览键全族 single 占用；件形状 `PreviewView`，R190）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例；R190 已补）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；**R182 输入座位 / chain 已生效（2026-11-22）**：`composer` = ComposerDock（消费 `composer.takeover` chain）· `composer.bar` = 常驻输入栏（fallback，接管时 display:none 保持挂载）· 宿主 chain 登记簿与 `WebPartContext.chains`；**R183 输入座位四席已生效（2026-11-22）**：`composer.model`（single，官方 ModelSeat）· `composer.left` / `composer.right`（list，官方空）· `composer.dock`（list，官方 QueueDock——排队面板移出 bar，接管时仍可见）· single 语义（`registerSlot` 认领/顶替、卸载回落）· `WebPartContext.composer`（ComposerApi）；**R184 提问已生效（2026-11-23）**：`ask_user` 专用工具（插件 `plugin-ask-user`——与审批分离，答案即工具结果）· `composer.takeover` 第二条官方条目 `question`（priority 5 压过审批）· `question/*` 账本对 + `QuestionRow` 投影 + `POST /questions/:requestId` · `tool.call.view.ask_user` 痕迹卡 · ComposerApi 提问面；**R190 预览缝已生效（2026-11-23）**：`sidebar.right.preview.<后缀>` 渲染挂点接线——官方兜底体注册通配 `*`、插件按后缀顶替、预览键 single 占用、`PreviewView` props `{ctx,target,ext,row?,read()}`、工作区文件读取 `GET /api/sessions/:id/file`（文本截断/二进制 base64）；
+- **挂载点词表 v1 十七个（D-057 行级四缝 2026-11-17 ＋ D-062 结构性 / 右栏 tab / 词表正名 2026-11-18 ＋ E6 审批卡缝 2026-11-21 ＋ R182 输入座位 / chain 2026-11-22 ＋ R183 输入座位四席 2026-11-22）**：结构性一个 `layout`——**整页框架槽**（官方框架件默认占用；区域件各自独立注册，框架渲染时读登记簿——**无「同一注册声明子槽」机制**；`replaceSlot("layout")` = 整页重排，官方区域件仍在登记簿可继续读取，安全模式回落官方框架）＋ 区域级四个 `sidebar`（左栏）/ `conversation`（中柱）/ `composer`（**输入座位**——官方默认件 ComposerDock，chain 接管路由）/ `sidebar.right`（右栏，官方默认件 = tab 框架——ZCode 式 tab 条 + 加号 / 下拉列已注册面板；`sidebar.right.tab` 追加位一件 = 一个插件 tab 面板，多件共存 order 排序）＋ **输入座位子槽六个（R182 两名 ＋ R183 四席）**：`composer.bar`（**常驻输入栏**，single；官方默认件 = Composer，chain fallback——接管时保持挂载、`display:none`，草稿 / DOM 态不丢）· `composer.takeover`（**接管 chain**：条目 = `id + priority + select(owner) + Component`；priority 升序、select 首个非 null 当选；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10）——提问压过审批；消费件负责 fallback 挂载与 overlay 隐藏；官方条目同走公共注册路径，第三方 `replaceChainSlot` 顶替、卸载按登记回落）· `composer.model`（**模型席**，single——模型 + 思考档同一席，官方默认件 = ModelSeat；第三方 `replaceSlot` 顶替）· `composer.left` / `composer.right`（**工具排左 / 右追加位**，list——官方空，只给插件加按钮）· `composer.dock`（**输入卡外通栏条目**，list——官方默认件 = QueueDock 排队面板，审批接管时仍可见）＋ 行级五个 `tool.call.view.<工具名>`（工具卡 keyed；官方默认占用、插件顶替、卸载回落。E5 起**官方自己也走 keyed 注册**——八键 `tool.call.view.{bash,powershell,edit,write,read,glob,grep,ask_user}` 官方 per-tool 卡经 `webUiModule` 注册进缝（安全模式同灌），插件 `replaceSlot` 顶替、卸载回落官方；MCP 工具是动态 wire 名无法逐个注册，ToolRowView 前缀路由：精确 key 缺 → 查 `tool.call.view.mcp` **总缝**（渲染总缝槽内件本身；官方 MCP 卡默认注册在此，插件可整类顶替）→ 通用卡兜底；`tool.call.view.mcp` 为总缝保留键——字面名 `mcp` 的工具不进总缝、直接落通用卡）· `approval.view.<工具名>`（**审批卡 keyed**，E6：官方 per-tool 审批卡注册进缝——edit/write diff 预览、bash/powershell 命令行、read/glob/grep 路径摘要、未知工具 JSON 预览；数据源 = ApprovalRow.args 完整原样（D-046「挂起自足可渲染」）；插件 `replaceSlot` 顶替、卸载回落通用卡）· `conversation.images`（图片画廊单槽）· `turn.tail`（回合尾追加位，registerSlot 多件共存按 order——最终回复富结果呈现挂此处，追加不改写回复正文）· `sidebar.right.preview.<后缀>`（文件预览 tab 的 body 实现缝，keyed；官方兜底体注册在通配 `*`——插件按后缀（含 `tar.gz` 复合）注册或 `replaceSlot` 顶替、卸载与渲染崩溃回落官方；预览键全族 single 占用；件形状 `PreviewView`，R190）。词表名以宿主代码三名正名（原 D-033 名 session.top / composer.above 作废，D-062——按文档写插件从"静默忽略"变"直接生效"）。**markdown 正文本体不可插**：`renderMarkdown` 保持宿主门面方法，正文渲染永远是官方实现——可插的是容器（框架 / 区域 / 工具卡 / 画廊 / 回合尾 / 右栏）不是内容；`chat.node` 式整行替换不进 v1（绕过宿主渲染管线，与界面统一视觉系统冲突，有真需求再议）。**落码随批 C**（第三方 UI 装载通道同批，D-062）：`layout` / `sidebar.right` 区域槽 / `sidebar.right.tab` 此前不被宿主读取、`sidebar.right.preview.` 前缀已接受但渲染挂点缺（D-059 先例；R190 已补）；行级三缝已生效（M4 批 A）；**三栏骨架批已生效（2026-11-18，先行于批 C）**：`layout` 槽（官方框架件 = plugin-web-ui `LayoutFrame`，宿主 root 只挂 layout——宿主零界面 JSX）· `sidebar.right` 槽（官方默认件 `RightPanel` tab 框架；`rightPanel{open,active,tabs}` + `layout.rightWidth` 进 ui-state 按会话持久化）· `sidebar.right.tab` 追加位（注册件各成一 tab）；**R182 输入座位 / chain 已生效（2026-11-22）**：`composer` = ComposerDock（消费 `composer.takeover` chain）· `composer.bar` = 常驻输入栏（fallback，接管时 display:none 保持挂载）· 宿主 chain 登记簿与 `WebPartContext.chains`；**R183 输入座位四席已生效（2026-11-22）**：`composer.model`（single，官方 ModelSeat）· `composer.left` / `composer.right`（list，官方空）· `composer.dock`（list，官方 QueueDock——排队面板移出 bar，接管时仍可见）· single 语义（`registerSlot` 认领/顶替、卸载回落）· `WebPartContext.composer`（ComposerApi）；**R184 提问已生效（2026-11-23）**：`ask_user` 专用工具（插件 `plugin-ask-user`——与审批分离，答案即工具结果）· `composer.takeover` 第二条官方条目 `question`（priority 5 压过审批）· `question/*` 账本对 + `QuestionRow` 投影 + `POST /questions/:requestId` · `tool.call.view.ask_user` 痕迹卡 · ComposerApi 提问面；**R190 预览缝已生效（2026-11-23）**：`sidebar.right.preview.<后缀>` 渲染挂点接线——官方兜底体注册通配 `*`、插件按后缀顶替、预览键 single 占用、`PreviewView` props `{ctx,target,ext,row?,read()}`、工作区文件读取 `GET /api/sessions/:id/file`（文本截断/二进制 base64）；
 - **视觉语言（设计基线）**：
   - 过程纪律 = 项目内 skill `.agents/skills/frontend-design/`（设计计划先行 + 俗套自查 + 截图自审，Anthropic 官方，Apache 2.0）；质量闸 = `.agents/skills/no-ai-design-slop/`（紧凑闸门 + 移除测试，MIT）——web 步开工先 load，写码期间照办；
   - 配色 = CSS 变量 token（暖单色基底 + 语义粉彩点缀思路自 minimalist-ui 蒸馏），**明暗双主题**（theme 切换 = 换变量组，判据③）；嵌入方零样式依赖（token 随组件注入）；M4 批 A 视觉二轮起层次机制 = **前景色派生透明度档**（surface 5% / hover 8% / selected 10% / border 10-16%，color-mix 自 --henira-text——ZCode 行为层参照 2026-11-17），行内淡面用派生档、浮层面板用实色 `--henira-panel`（透明档不作浮层）；运行态 = 文字扫光（`.henira-sweep`）不用转圈 spinner；
@@ -1280,10 +1296,19 @@ interface ComposerApi {
 ```ts
 interface UiModuleContext {
   registerSlot(name: string, component: unknown, opts?: { order?: number }): Disposable; // 追挂（append）；name 按当前宿主词表校验（D-033）；
-  //   keyed 词表按前缀识别（tool.call.view. / sidebar.right.preview. 前缀合法、后缀自由，D-057）；
+  //   keyed 词表按前缀识别（tool.call.view. / approval.view. / sidebar.right.preview. 前缀合法、后缀自由，D-057 / E6）；
   //   single 槽（composer.bar / composer.model / sidebar.right.preview.* 全族）registerSlot 也走认领/顶替
   replaceSlot(name: string, component: unknown): Disposable; // 替换该区域 / keyed 槽的官方默认件（D-043 / D-057）；同 key 冲突报错（D-022 同款）；
-  //   卸载 / 停用自动回落官方（D-048 同语义）；安全模式下行级缝全部收起回落默认渲染
+  //   卸载 / 停用自动回落官方（D-048 同语义）；安全模式不装载第三方件、官方默认件同形注册
+  registerChainSlot(
+    name: string,
+    entry: { id: string; priority?: number; select(owner: unknown): unknown; Component: unknown },
+  ): Disposable; // chain 槽（R182）
+  replaceChainSlot(
+    name: string,
+    id: string,
+    entry: { id: string; priority?: number; select(owner: unknown): unknown; Component: unknown },
+  ): Disposable;
   host: PluginUiHost;
 }
 
@@ -1291,10 +1316,10 @@ interface PluginUiHost {
   // 对话：发起仍单口 sendPrompt；接收 = 双向事件流（D-042：订阅 opt-in、增量可并、终局必达）
   sendPrompt(text: string): Promise<TurnReceipt>; // ✓ M3
   subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable; // ✓ M3
-  //   EventFilter = { sessionId?: string; types?: string[] } —— 行词表帧流（ServerFrame）；
-  //   M3 实装 = sessionId 过滤（帧级客户端过滤，无背压队列）；types 过滤随插件批补；
+  //   EventFilter = { sessionId?: string } —— 行词表帧流（ServerFrame）；
+  //   M3 实装 = 仅 sessionId 过滤（同步直发，无背压队列）；types / turnId 过滤与终局必达队列随插件批补；
   //   R176：全局列表信号 sessions.changed 只投给不带 sessionId 过滤的订阅者（不属于任何会话）
-  onTurnFinished(receipt: TurnReceipt, cb: (result: TurnResult) => void): Disposable; // ✓ M3（终局便捷回调）
+  onTurnFinished(cb: (result: TurnResult) => void): Disposable; // ✓ M3（终局便捷回调；M3 无 receipt 参数，任意会话 busy→false 回调）
   //   M3 实装 = 简版：会话 busy 沿（true→false）即通知、恒 {ok:true}、无 own-receipt 过滤——
   //   receipt 形（恰一次/终局映射 interrupted|error|submit_failed）随插件批升级（现无消费者）
   prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送（web 宿主现空实现——官方输入框自管草稿，接线随命令进输入框批）
@@ -1309,17 +1334,17 @@ interface PluginUiHost {
   listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // ✓ 批 C（GET /api/plugins；管理面数据源；category 过滤预留）
   listDir(path: string): Promise<DirEntry[]>; // ✓ M3（经 server files 端点）；只限会话工作区；隐藏项不返
   readWorkspaceFile(path: string): Promise<WorkspaceFileContent>; // ✓ R190（预览缝 read() 的宿主实现；经 GET /api/sessions/:id/file；旧宿主缺 = 预览仅行快照）
-  listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3（经 GET /api/sessions）
+  listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3（经 GET /api/sessions；M3 只做 cwd 过滤，不排序、不派生 title）
 
   // 宿主
   getSession(): { sessionId: string; cwd: string } | null; // ✓ M3
   openInExplorer(path: string): Promise<boolean>; // ✓ M3 仅桌面宿主；其他宿主返回 false
-  openPlugin(id: string, view?: unknown): void; // ✓ M3 最小实现（聚焦 / 无视图时提示）
-  getInitialView(): unknown; // ✓ M3 读后即焚、按插件隔离
+  openPlugin(id: string, view?: unknown): void; // M3 空实现（打开另一插件挂载面未落码）
+  getInitialView(): unknown; // M3 恒 undefined（view 暂存 / 读后即焚 / 按插件隔离未落码）
 }
 
 interface TurnReceipt {
-  messageId: string | null; // null = 发送失败
+  messageId: string | null; // null = 未排队、直接开跑（发送失败走 Promise reject）
   sessionId: string;
 }
 

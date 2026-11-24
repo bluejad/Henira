@@ -37,4 +37,4 @@ await fs.read("src/a.ts", gate, { offset: 1, limit: 100 });
 | capabilities.ts | read / write / edit + 会话读态（三类守卫）        | D-065 决定 2 / tools-approval §3 |
 | search.ts       | glob / grep（JS 引擎）+ 目录行走共享器            | D-065 决定 3                     |
 
-判据 ↔ 测试：`fs.test.ts`（围栏 5 + 读写改守卫 9 = 14 例）与 `search.test.ts`（glob/grep 7 例）——停用本服务 → fs 工具全体缺席（server.test「能力服务装载强制」，M4 判据③）。
+判据 ↔ 测试：`fs.test.ts`（围栏 4 + 读写改守卫 9 = 13 例）与 `search.test.ts`（glob/grep 7 例）——停用本服务 → fs 工具全体缺席（server.test「能力服务装载强制」，M4 判据③）。

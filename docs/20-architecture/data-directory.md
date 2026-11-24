@@ -3,6 +3,8 @@
 > 依据 **D-014**。状态：**已定稿**（2026-11-11；2026-11-12 补会话目录规则与计划 / 任务文件）。
 > 回答一个问题：Henira 跑起来以后，数据放哪、谁写、能不能删。
 > 设计输入：公开实现的存储层对照——Claude Code 的 per-cwd 项目目录、dsh 会话存储、OpenCode 全局 + 项目分家（D-004 / D-047）。
+>
+> **落码现状（2026-11-24 反向核对）**：已落码 = `projects.json`、`config/*`（settings / models / model-presets / credentials / permissions）、`projects/<key>/permissions.json`、会话目录的 `session.v1.jsonl` / `queue.json` / `ui-state.json` / `artifacts/` / `session.lock`、`state/ui.json`、`state/server.json`、`plugins/<id>/<version>/`。**计划未落码** = `meta.json`（预留）、`attachments/`、`subagents/`、`sidechats/`、`plans/`、`tasks/`、`memory/`、`checkpoints/`（只读删不写）、`plugins-data/`、`agents/`、`logs/`、`cache/`、项目内 `.henira/`——树中保留为设计目标，§5 写者表按「计划件」口径读；当前无生产写者。
 
 ---
 
@@ -36,53 +38,55 @@
 │       │   └─ <sessionId>/
 │       │       ├─ session.v1.jsonl   # 只追加：会话头 + 事件
 │       │       ├─ meta.json          # （预留）标题等可改元数据——当前标题由账本首条 user/message 派生（R188），未落 meta
-│       │       ├─ attachments/       # 本会话附件
-│       │       ├─ subagents/         # 本会话子代理记录
+│       │       ├─ attachments/       # 本会话附件（计划，未落码）
+│       │       ├─ subagents/         # 本会话子代理记录（计划，M5）
 │       │       │   └─ <runId>.jsonl
-│       │       ├─ sidechats/         # 本会话的侧问
+│       │       ├─ sidechats/         # 本会话的侧问（计划，M5）
 │       │       │   └─ <sideChatId>/  #   嵌套小会话，结构与会话目录相同
-│       │       ├─ plans/             # 本会话的计划
+│       │       ├─ plans/             # 本会话的计划（计划，M5）
 │       │       │   ├─ index.json     #   计划清单：slug / active / createdAt
 │       │       │   └─ <slug>.md      #   计划正文（纯 markdown）
-│       │       ├─ tasks/             # 本会话的任务
+│       │       ├─ tasks/             # 本会话的任务（计划，M5）
 │       │       │   └─ <id>.json      #   一个任务一个文件
 │       │       ├─ queue.json         # 忙时排队条目（D-045；tmp+rename 原子重写，进场/直发时移除并落账）
+│       │       ├─ artifacts/         # 工具输出 spill（>`<callId>.txt`；E4 输出截断落盘）
+│       │       ├─ session.lock       # 单写者锁（O_EXCL + PID 存活；session 插件持有）
 │       │       └─ ui-state.json      # 界面绑定态：草稿 / 面板宽度 / 右栏 tab 引用 / 模型·思考·权限会话级记忆（web 宿主所有；
 │       │                             #   整份原子重写，不进事件账本；折叠组不存，本地态；D-063，已落码·界面持久化批；
 │       │                             #   rightPanel/rightWidth/model/reasoningEffort 已随三栏骨架批接线 2026-11-18）
 │       ├─ permissions.json           # 本项目审批规则（R198：卡上「本项目允许此命令」写入；可手改；与全局同形）
-│       └─ memory/
+│       └─ memory/                    # （计划，未落码）
 │           ├─ MEMORY.md              # 项目记忆
 │           └─ config.json            # 记忆开关
-├─ checkpoints/
+├─ checkpoints/                       # （计划：当前只随项目删除清理，无写入/GC）
 │   └─ --<slug60>-<hash8>--/
 │       ├─ objects/<2hex>/<sha256>    # 内容寻址 blob
 │       ├─ sessions/<sessionId>/<stepId>.json
 │       └─ scan-cache.json
 ├─ plugins/<id>/<version>/          # 插件（AI 创建；版本级不可变；不得存凭据，D-030；
 │                                   #   engine/ 槽可带 package.json + node_modules + lockfile，D-048）
-├─ plugins-data/<id>/               # 插件可变数据（与版本目录解耦；卸载默认保留，D-029）
-├─ agents/<name>.md                   # 用户级子代理定义
-├─ memory/MEMORY.md                   # 全局记忆
+├─ plugins-data/<id>/               # 插件可变数据（计划：卸载默认保留语义未落码，D-029）
+├─ agents/<name>.md                   # 用户级子代理定义（计划）
+├─ memory/MEMORY.md                   # 全局记忆（计划）
 ├─ state/                             # 运行时状态（server.json、ui.json 全局界面态——上次选中，D-063）
-├─ logs/                              # 运行日志（可轮转）
-└─ cache/                             # 可随时删除
+├─ logs/                              # 运行日志（计划，可轮转）
+└─ cache/                             # 可随时删除（计划；模型目录缓存实际住 config/model-presets.json）
 ```
 
 ### 2.1 会话目录规则（2026-11-12）
 
 会话目录里住四类东西，**全部跟会话同生共死**：
 
-| 类别         | 内容                                                        | 形态                                                                                   |
-| ------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 对话本身     | `session.v1.jsonl`、`meta.json`                             | 只追加日志 + 可改元数据                                                                |
-| 附件         | `attachments/`                                              | 文件，被日志用相对路径引用                                                             |
-| 工具输出溢出 | `artifacts/<callId>.txt`                                    | 截断 spill（头部预览进 content 尾注、完整输出落盘；ToolContext.artifactsDir，M4 批 A） |
-| 另一条对话   | `subagents/<runId>.jsonl`、`sidechats/<sideChatId>/`        | 各自一份日志                                                                           |
-| 当前状态文件 | `plans/`、`tasks/`、`queue.json`                            | `plans/` `tasks/` 唯一写者 = 任务服务（D-049）；`queue.json` = loop 插件（D-045）      |
-| 界面绑定状态 | `ui-state.json`（本会话）＋ `state/ui.json`（全局上次选中） | 整份原子重写、不进事件账本；写者 = web 宿主经 server（D-063，已落码）                  |
+| 类别         | 内容                                                         | 形态                                                                                   |
+| ------------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| 对话本身     | `session.v1.jsonl`；`meta.json`（预留，未落）                | 只追加日志 + 可改元数据                                                                |
+| 附件         | `attachments/`（计划，未落码）                               | 文件，被日志用相对路径引用                                                             |
+| 工具输出溢出 | `artifacts/<callId>.txt`                                     | 截断 spill（头部预览进 content 尾注、完整输出落盘；ToolContext.artifactsDir，M4 批 A） |
+| 另一条对话   | `subagents/<runId>.jsonl`、`sidechats/<sideChatId>/`（计划） | 各自一份日志                                                                           |
+| 当前状态文件 | `plans/`、`tasks/`（计划）、`queue.json`（已落码）           | `plans/` `tasks/` 计划写者 = 任务服务（D-049）；`queue.json` = loop 插件（D-045）      |
+| 界面绑定状态 | `ui-state.json`（本会话）＋ `state/ui.json`（全局上次选中）  | 整份原子重写、不进事件账本；写者 = web 宿主经 server（D-063，已落码）                  |
 
-- **路径一律相对会话目录**（禁止绝对路径、禁止嵌 `sessionId`）——删除会话 = 删一个目录，fork = 复制一个目录，零路径改写；
+- **路径一律相对会话目录**（禁止绝对路径、禁止嵌 `sessionId`）——删除会话 = 删一个目录，fork = 复制一个目录，零路径改写；**现存例外（挂账）**：工具输出截断的 `truncated.path` 当前写绝对路径（`plugins/tools/src/limits.ts`），与本节规则不符，收口前排期；
 - **侧问就是一个挂在主问上的主问**：`sidechats/<sideChatId>/` 是嵌套的小会话目录，结构与会话目录完全相同（自己的日志、`meta.json`、附件、计划、任务），header 的 `parentSession` 指向父会话。它不能并进主日志——侧问有独立的消息历史与独立的循环，常与主对话同时进行；混写会让主日志不再是一条直线，回合成对、压缩区间、崩溃补收尾全部要按线程重做；
 - **子代理记录**是父会话派出的分身留下的日志，同一 JSONL 格式，一个 run 一个文件；
 - **设计依据**：附件、子代理记录、侧问、任务、计划全部是**会话级数据**，跟着会话目录走——删除 / fork 只动一个目录、相对路径零改写；把它们放项目级目录则每个消费者都要按 `sessionId` 过滤。侧问做成嵌套小会话后，"没有父目录就没有侧问"，孤儿残渣结构上不可能出现。
@@ -149,12 +153,14 @@
 ```json
 {
   "version": 1,
-  "model": "deepseek-chat",                                // 默认模型
+  "model": "deepseek/deepseek-chat",                       // 默认模型（provider/model，splitModelId 强制带斜杠）
   "permissionMode": "ask",                                 // 新会话默认权限档（D-080：ask | full；会话内可单独切换并随会话记忆）
   "plugins": {
     "plugin-shell": { "enabled": false },                  // 关掉一个官方插件
     "番茄钟":        { "enabled": false },                  // 关掉一个 AI 创建的插件
-    "office-tools": { "version": "1.2.0" },                // 钉住版本
+    "office-tools": { "version": "1.2.0",                  // 钉住版本
+                      "confirmedVersion": "1.2.0",         // engine 件确认卡放行（D-048）
+                      "mcpFingerprint": "…" },             // MCP 声明确认指纹（D-064）
     "plugin-fetch": { "options": { "timeoutMs": 30000 } }  // 插件参数
   },
   "ui": { "theme": "sea", "locale": "ja",                  // 界面偏好（官方 light/dark/zh 或已装资产包 id，D-059）
@@ -218,6 +224,8 @@
 
 ## 5. 每类数据的写者与生命周期
 
+> **落码状态**：`meta.json` / `attachments/` / `subagents/` / `sidechats/` / `plans/` / `tasks/` / `memory/` / `checkpoints/` / `plugins-data/` / `logs/` / `cache/` 当前无生产写者（计划件，随 M5/M6 或发布后落地）；已落码行见 §1 顶部注。
+
 | 数据                | 写者                                                       | 变不变                      | 删除影响                                      |
 | ------------------- | ---------------------------------------------------------- | --------------------------- | --------------------------------------------- |
 | `session.v1.jsonl`  | session 插件                                               | **只追加**                  | 丢该会话                                      |
@@ -253,16 +261,16 @@
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | 删除项目         | `projects/<key>/` + `checkpoints/<key>/` + `projects.json` 条目                                                              | 插件、全局配置、全局记忆             |
 | 删除会话         | `projects/<key>/sessions/<sessionId>/` 整个目录（含 meta、attachments、subagents、sidechats、plans、tasks、queue、ui-state） | 其他会话、项目记忆                   |
-| 卸载插件         | `plugins/<id>/`（用户级或项目级）；`plugins-data/<id>/` 仅显式勾选时删（D-029）                                              | 其他插件、配置、插件数据（默认保留） |
-| 清空缓存         | `cache/`                                                                                                                     | 一切用户数据                         |
-| 回收检查点       | `checkpoints/<key>/objects/` 中无引用的 blob                                                                                 | 会话、manifest 引用的 blob           |
+| 卸载插件         | `plugins/<id>/`（用户级或项目级）；`plugins-data/<id>/` 仅显式勾选时删（D-029；**数据区删除未落码**）                        | 其他插件、配置、插件数据（默认保留） |
+| 清空缓存         | `cache/`（**未落码**；无该目录与操作）                                                                                       | 一切用户数据                         |
+| 回收检查点       | `checkpoints/<key>/objects/` 中无引用的 blob（**未落码**；当前只随项目删除清理）                                             | 会话、manifest 引用的 blob           |
 
 - 任何删除前**先列清单再执行**（不可逆操作的双确认是删除安全的硬规矩）；
 - `logs/` 与 `cache/` 的删除永远安全；`state/` 删除等于重启后重建。
 
 ## 8. 凭据与权限
 
-- 密钥只放 `config/credentials.json`，文件权限 **0600**（Windows 用用户目录 ACL）；
+- 密钥只放 `config/credentials.json`，文件权限 **0600**（实现为 `chmod(0o600)` 尽力而为；Windows 用户目录 ACL 未落码）；
 - 密钥只经 `ConfigService` 读取；**不进事件、meta、日志、模型上下文、导出物**；
 - `models.json` 只放 provider / model 定义与能力字段，**不放 `apiKey`**（明文 key 是要避开的做法）；能力字段可由 models.dev 字典同步预填，手写覆盖字典（D-040）；模型管理面（✓ 2026-11-19）写同文件四样：厂商 `label` 显示名、模型 `hidden` 显隐清单（开关关=加入，选择器过滤）、自定义 OpenAI 兼容厂商的显式 `models` 记录（`user-` 前缀 id，无 key 也算连接态）、已知厂商缺 `baseUrl` 时连接自动从目录快照 `endpoint` 种（收敛批 2026-11-19——baseUrl 承重配置，断开永不碰）；连接/断开写 `credentials.json`（0600，只进明文 key，管理面响应永不回读——D-030）；
 - **插件目录不是凭据存储**：`plugins/<id>/<version>/` 与 `plugins-data/<id>/` 的任何文件都不得写 API key / token / 密码；`mcp/*.json` 只写引用名，密钥由宿主从 `credentials.json` 注入（D-030）；
@@ -272,5 +280,6 @@
 ## 9. 环境变量
 
 - `HENIRA_HOME`：覆盖全局家目录，用于多实例 / 测试隔离（家目录可覆盖是同类工具的通行设计）；
+- `HENIRA_CONFIG_DIR`：单独覆盖 config 目录（缺省 `<HENIRA_HOME>/config`）；
 - 项目内 `.henira/` 不受 `HENIRA_HOME` 影响，永远在仓库根；
-- 所有路径解析统一走一个 `paths` 模块，禁止各处手拼（防止两套规则漂移）。
+- 所有路径解析统一走一个 `paths` 模块，禁止各处手拼（防止两套规则漂移）——**计划，未落码**：当前路径分散在 server / sdk / config-loader / 各插件。

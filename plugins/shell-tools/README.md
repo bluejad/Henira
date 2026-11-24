@@ -19,4 +19,4 @@ bash / powershell 工具件（D-049 / D-065）：**纯适配器**（inject `["to
 | -------- | -------------------------------------------------- | ---------------------------- |
 | index.ts | bash / powershell 适配器 + formatShellRun 分节渲染 | D-065 / interfaces.md §shell |
 
-判据 ↔ 测试：server.test「bash 工具全链」（42 / exit 7 / .env 链前拒）+ facade.test 双形态（审批卡收答 → bash 照常）。
+判据 ↔ 测试：本包 `index.test.ts`（3 例：stdout/stderr/exitCode 分字段进 `__meta` / 截断标记透传 / powershell 同构）+ server.test「bash 工具全链」（42 / exit 7 / .env 链前拒）+ facade.test 双形态（审批卡收答 → bash 照常）。

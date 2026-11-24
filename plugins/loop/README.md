@@ -37,3 +37,4 @@ ctx.get("loop").interrupt(); // 掐当前回合
 | loop-interrupt.test.ts | 纪律①–⑤五个具名测试，一行一测试（roadmap M2 判据②）                                                                  |
 | loop-turn.test.ts      | 忙时投递 / 插话 step 边界进场不打断工具 / 队列重启恢复 / maxStepsPerTurn 可选上限默认不设（roadmap M2 判据③，D-045） |
 | batcher.test.ts        | 首包立即 + 窗口攒批 + 结构事件透传 + flushNow 兜底                                                                   |
+| loop-opts.test.ts      | 按次模型/思考档覆盖、队列条目携带覆盖、D-080 权限模式落账（5 例）                                                    |

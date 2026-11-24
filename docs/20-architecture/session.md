@@ -47,25 +47,28 @@ interface SessionHeader {
 - `turn` / `step` 放在 `data` 里、**每条事件都带**：一行即一个自足的事实，派生不必维护游标；`error` 可以不带（会话级错误）。
 - `user`：云端部署写入的归属字段（D-036），本地会话缺省；属会话级身份，放 header 不放事件（归属不变，事件不必每条背）。
 
-### 2.2 事件表（15 个）
+### 2.2 事件表（18 个）
 
-| 事件                | `data` 载荷                                                                                                                | 进派生       |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `turn/start`        | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）                                                   | —            |
-| `turn/end`          | `turn`, `reason`, `usage?`, `error?`                                                                                       | —            |
-| `step/start`        | `turn`, `step`                                                                                                             | —            |
-| `step/end`          | `turn`, `step`, `usage`, `interrupted?`                                                                                    | —            |
-| `request/header`    | `turn`, `step`, `model`, `params`, `toolNames[]`, `systemPromptHash`                                                       | 跳过         |
-| `user/message`      | `turn`, `step`, `content`, `attachments?`, `source`, `surfaceOp?`                                                          | ✅           |
-| `system/message`    | `turn`, `step`, `content`, `key?`, `surfaceOp?`                                                                            | ✅           |
-| `assistant/message` | `turn`, `step`, `content`, `reasoning?`, `model`, `finishReason`, `surfaceOp?`                                             | ✅           |
-| `assistant/attempt` | `turn`, `step`, `content?`, `error`                                                                                        | 跳过         |
-| `tool/call`         | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                                                                   | ✅（配对后） |
-| `tool/result`       | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?`                                            | ✅（配对后） |
-| `approval/asked`    | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                                                                | 跳过         |
-| `approval/decided`  | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080）, `rule?`（R198 命令级允许） | 跳过         |
-| `approval/revoked`  | `turn?`, `step?`, `scope`, `tool?`, `rule?`（R198 设置动作：可发生在回合之外）                                             | 跳过         |
-| `error`             | `turn?`, `step?`, `code`, `message`, `fatal?`                                                                              | 跳过         |
+| 事件                   | `data` 载荷                                                                                                                           | 进派生       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `turn/start`           | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）                                                              | —            |
+| `turn/end`             | `turn`, `reason`, `usage?`, `error?`                                                                                                  | —            |
+| `step/start`           | `turn`, `step`                                                                                                                        | —            |
+| `step/end`             | `turn`, `step`, `usage`, `interrupted?`                                                                                               | —            |
+| `request/header`       | `turn`, `step`, `model`, `params`, `toolNames[]`, `systemPromptHash`                                                                  | 跳过         |
+| `user/message`         | `turn`, `step`, `content`, `attachments?`, `source`, `surfaceOp?`                                                                     | ✅           |
+| `system/message`       | `turn`, `step`, `content`, `key?`, `surfaceOp?`                                                                                       | ✅           |
+| `assistant/message`    | `turn`, `step`, `content`, `reasoning?`, `model`, `finishReason`, `surfaceOp?`                                                        | ✅           |
+| `assistant/attempt`    | `turn`, `step`, `content?`, `error`                                                                                                   | 跳过         |
+| `tool/call`            | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                                                                              | ✅（配对后） |
+| `tool/result`          | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?`                                                       | ✅（配对后） |
+| `approval/asked`       | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                                                                           | 跳过         |
+| `approval/decided`     | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080）, `rule?`（R198 命令级允许）            | 跳过         |
+| `approval/revoked`     | `turn?`, `step?`, `scope`, `tool?`, `rule?`（R198 设置动作：可发生在回合之外）                                                        | 跳过         |
+| `approval/invalidated` | `turn`, `step`, `requestId`（R175 修理专用：重启收口补写，loop/客户端不发）                                                           | 跳过         |
+| `question/asked`       | `turn`, `step`, `requestId`, `callId`, `questions[]`（id / question / header? / options?[{label,description?}] / multiSelect?；R184） | 跳过         |
+| `question/settled`     | `turn`, `step`, `requestId`, `outcome`（answered / cancelled / invalidated）, `answers?[]`（id / selected[] / custom?）               | 跳过         |
+| `error`                | `turn?`, `step?`, `code`, `message`, `fatal?`                                                                                         | 跳过         |
 
 - **`request/header`** 是**每次模型请求**的快照：`model`（实际能力字段取值）、`params`（温度 / maxTokens 等）、`toolNames`（这次投影给模型的工具名）、`systemPromptHash`（系统消息内容的哈希）。它让 P1 的"任何请求都可重建"成为字面事实；**不含任何凭据**；
 - `assistant/attempt` 记**每次失败 / 中断的流残余**（`content` 是已收到的部分），重试各留一条；永不进模型历史；
@@ -103,7 +106,7 @@ interface SessionHeader {
 
 ## 3. 注册表与派生清单（已定）
 
-- 开放注册表：`SessionEventRegistry = Map<type, EventValidator>`（protocol 导出；校验器 = 最小 duck 接口，D-051——protocol 零依赖、不认 schema 库牌子，官方 15 个变体由 session 包用 zod 实现并注册）；官方 session 插件注册基础 15 个变体，插件可追加；
+- 开放注册表：`SessionEventRegistry = Map<type, EventValidator>`（protocol 导出；校验器 = 最小 duck 接口，D-051——protocol 零依赖、不认 schema 库牌子，官方 18 个变体由 session 包用 zod 实现并注册）；官方 session 插件注册基础 18 个变体，插件可追加；
 - 消费端封闭处用 `assertNever` 收尾；
 - `KNOWN_EVENT_TYPES`、schema 反查表、客户端事件清单**全部从注册表派生**，禁止手抄（P9 红线 5）；
 - 未知类型只有两条路：`ignorable: true` → 跳过；否则抛 `UnknownEventTypeError` 并**拒绝重建会话**。

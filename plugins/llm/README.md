@@ -23,6 +23,7 @@ createHarness().use(llmPlugin()); // 无 options；inject: ["config"]——装�
 | messages.ts     | 引擎消息 → AI SDK 消息（适配器是唯一翻译点，D-040；P1 不变量保证此处可从日志重建）                                                                                                                                                                       | D-040 / P1                                                      |
 | provider.ts     | provider 解析——形状由配置驱动，无 `if (provider === …)` 厂商表；baseUrl 必填于 ModelConfig                                                                                                                                                               | D-040 / P9-4                                                    |
 | service.ts      | llmPlugin（占 'llm' 槽，inject: ["config"]）——凭据只经 ConfigService 取，不读 env / 文件；maxRetries: 0（重试政策机随 M5 压缩批）                                                                                                                        | D-013② / D-030                                                  |
+| idle-stream.ts  | 流空闲看门狗（R193）：按 part 计时，静默超时（默认 180s，settings 可覆盖）→ `LlmError(LLM_STREAM_IDLE_TIMEOUT)`                                                                                                                                          | D-077                                                           |
 
 ## 测试 ↔ 判据
 
@@ -30,3 +31,4 @@ createHarness().use(llmPlugin()); // 无 options；inject: ["config"]——装�
 | -------------------- | -------------------------------------------------------------- |
 | stream-parts.test.ts | P3 三不变量映射侧（roadmap M2 判据⑥）+ 截断 tool-call 不产事件 |
 | messages.test.ts     | 消息翻译各 role / 工具结果回灌                                 |
+| idle-stream.test.ts  | 静默超时掐流 / 活动重置 / 关流清理（R193，4 例）               |

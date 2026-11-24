@@ -248,7 +248,6 @@ export const SessionList: WebPart = (ctx: WebPartContext) => {
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        borderRight: "1px solid var(--henira-border)",
         background: "var(--henira-surface)",
         padding: "var(--henira-space-3)",
         boxSizing: "border-box",
