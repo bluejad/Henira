@@ -5,10 +5,10 @@
   flex-direction: column;
   flex-shrink: 0;
   min-width: 0;
-  border-left: 1px solid var(--henira-border);
   background: var(--henira-surface);
   box-sizing: border-box;
   overflow: hidden;
+  /* R201：左边框改由 .henira-pane-card 的 1px 描边承担（D-084） */
 }
 /* R196 几何归一：flex 列 + 满高进基类（最大化只换定位）——两套几何曾让 --max 丢 flex
    约束，body/preview 的 overflow 全部失效（全屏预览滚不动） */

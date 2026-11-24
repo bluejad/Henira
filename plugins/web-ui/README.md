@@ -21,7 +21,8 @@
 | types.ts                         | 承重缝类型：WebPartContext（client + sessionId + selectSession + t + theme + store + host）/ PluginUiHost / UiModuleContext  | interfaces.md web 段 / D-028 |
 | module.ts                        | UI 模块入口：官方件注册进宿主槽位（公共注册路径）；defaultParts 映射                                                         | D-043 / 判据④                |
 | parts/session-list.tsx           | 会话列表件（槽 sidebar）：busy 点 / 新会话 / 切会话                                                                          | 判据①③                       |
-| parts/layout-frame.tsx           | 三栏骨架（layout 槽）：列宽/拖宽/持久化 + 中列 header + 滚动条槽探针（`--henira-scroll-gutter` 实测）                        | D-062 / D-083                |
+| parts/layout-frame.tsx           | 三栏骨架（layout 槽）：列宽/拖宽/持久化 + 中列 header + 滚动条槽探针（`--henira-scroll-gutter` 实测）+ R201 卡片根内缩/类名  | D-062 / D-083 / D-084        |
+| styles/layout/05-pane-card.css   | 中列/右栏卡片：1px 描边 + 12px 圆角 + overflow 裁切（左栏平面贴边；底色/阴影零改动）                                         | D-084                        |
 | parts/conversation.tsx           | 对话面板件（槽 conversation）：哑渲染器——行→呈现（user / assistant 流式 / tool / approval / error 五行）                     | ServerEvent 词表             |
 | styles/07-conversation-shell.css | 对话滚动视口铺满中列（滚动条贴最右）+ 内层限宽列 + 槽宽探针；输入区 `.henira-composer-gutter` 同宽内缩（气泡/卡片右缘同线）  | D-083                        |
 | parts/composer.tsx               | 输入框件（槽 composer）：Enter 发送（D-045 单口）/ busy 停止 + 排队/插话模式提示（Ctrl+Enter 插话，E1）/ 忙时钮文案=排队发送 | D-045 / E1                   |

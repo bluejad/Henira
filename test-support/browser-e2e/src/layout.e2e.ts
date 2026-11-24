@@ -156,23 +156,40 @@ test("layout: scrollbar hugs the center pane; user bubble and composer share the
     expect(Math.abs(open.convRight - open.wrapRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.bubbleRight - open.cardRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.assistantLeft - open.cardLeft)).toBeLessThanOrEqual(1);
-    // 栏缝零宽（R200 收口）：拖宽把手不占布局，顶栏灰带连续（左右两缝都量）
-    const seams = await page.evaluate(() => {
+    // R201 卡片化：中列/右栏 = 圆角卡片（8px 缝 / 12px 圆角 / 1px 描边）；左栏平面贴左
+    const card = await page.evaluate(() => {
+      const pane = document
+        .querySelector(".henira-conversation")
+        ?.closest(".henira-pane-card") as HTMLElement | null;
       const rect = (sel: string): DOMRect | null => {
         const el = document.querySelector(sel);
         return el === null ? null : el.getBoundingClientRect();
       };
       const left = rect(".henira-left-col");
-      const conv = rect(".henira-conversation");
-      const right = rect(".henira-right-col");
+      const rightCol = rect(".henira-right-col");
+      const paneRect = pane === null ? null : pane.getBoundingClientRect();
+      const cs = pane === null ? null : getComputedStyle(pane);
       return {
-        leftGap: left === null || conv === null ? null : conv.left - left.right,
-        rightGap: conv === null || right === null ? null : right.left - conv.right,
+        leftGap: left === null || paneRect === null ? null : paneRect.left - left.right,
+        rightGap: rightCol === null || paneRect === null ? null : rightCol.left - paneRect.right,
+        rightEdge: rightCol === null ? null : window.innerWidth - rightCol.right,
+        top: paneRect === null ? null : paneRect.top,
+        bottom: paneRect === null ? null : window.innerHeight - paneRect.bottom,
+        radius: cs?.borderTopLeftRadius ?? null,
+        border: cs?.borderTopWidth ?? null,
       };
     });
-    if (seams.leftGap !== null) expect(Math.abs(seams.leftGap)).toBeLessThanOrEqual(1);
-    expect(seams.rightGap).not.toBeNull();
-    expect(Math.abs(seams.rightGap ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    expect(card.top).not.toBeNull();
+    expect(Math.abs((card.top ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    expect(card.bottom).not.toBeNull();
+    expect(Math.abs((card.bottom ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    if (card.leftGap !== null) expect(Math.abs(card.leftGap - 8)).toBeLessThanOrEqual(1);
+    expect(card.rightGap).not.toBeNull();
+    expect(Math.abs((card.rightGap ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    expect(card.rightEdge).not.toBeNull();
+    expect(Math.abs((card.rightEdge ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    expect(card.radius).toBe("12px");
+    expect(card.border).toBe("1px");
     await shot(page, "layout-1280-right-panel.png");
   } finally {
     await stop();

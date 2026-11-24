@@ -179,7 +179,16 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
     rightWidth === undefined ? "var(--henira-right-width)" : `${rightWidth}px`;
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+    // R201 卡片化：根内缩 8px（左 0 让侧栏贴窗口）——中列/右栏卡片四周有缝、四角可见
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        overflow: "hidden",
+        boxSizing: "border-box",
+        padding: "8px 8px 8px 0",
+      }}
+    >
       {showSidebar && sidebarHas ? (
         <div
           className="henira-left-col"
@@ -311,6 +320,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
       ) : null}
       <div
         ref={centerColumnRef}
+        className="henira-pane-card"
         style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}
       >
         {/* R200 槽宽探针：fixed 离屏，只量滚动条宽度，不参与布局 */}
@@ -392,7 +402,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
               ctx.updateUiState?.({ layout: { rightWidth: RIGHT_DEFAULT } });
             }}
           />
-          <div className="henira-right-col" style={{ width: rightWidthStyle }}>
+          <div className="henira-right-col henira-pane-card" style={{ width: rightWidthStyle }}>
             {renderParts("sidebar.right")}
           </div>
         </>

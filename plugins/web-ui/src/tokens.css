@@ -28,6 +28,7 @@
 @import "./styles/dialogs/10-dir-tree.css";
 @import "./styles/dialogs/20-actions.css";
 @import "./styles/layout/00-header.css";
+@import "./styles/layout/05-pane-card.css";
 @import "./styles/layout/10-right-panel.css";
 @import "./styles/layout/20-settings-shell.css";
 @import "./styles/layout/30-new-session.css";
