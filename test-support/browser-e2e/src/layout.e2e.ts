@@ -156,6 +156,23 @@ test("layout: scrollbar hugs the center pane; user bubble and composer share the
     expect(Math.abs(open.convRight - open.wrapRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.bubbleRight - open.cardRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.assistantLeft - open.cardLeft)).toBeLessThanOrEqual(1);
+    // 栏缝零宽（R200 收口）：拖宽把手不占布局，顶栏灰带连续（左右两缝都量）
+    const seams = await page.evaluate(() => {
+      const rect = (sel: string): DOMRect | null => {
+        const el = document.querySelector(sel);
+        return el === null ? null : el.getBoundingClientRect();
+      };
+      const left = rect(".henira-left-col");
+      const conv = rect(".henira-conversation");
+      const right = rect(".henira-right-col");
+      return {
+        leftGap: left === null || conv === null ? null : conv.left - left.right,
+        rightGap: conv === null || right === null ? null : right.left - conv.right,
+      };
+    });
+    if (seams.leftGap !== null) expect(Math.abs(seams.leftGap)).toBeLessThanOrEqual(1);
+    expect(seams.rightGap).not.toBeNull();
+    expect(Math.abs(seams.rightGap ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
     await shot(page, "layout-1280-right-panel.png");
   } finally {
     await stop();

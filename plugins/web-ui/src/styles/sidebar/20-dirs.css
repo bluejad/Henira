@@ -1,7 +1,12 @@
 /* R187 拆分：原 09-sidebar.css 15-95（拖宽把手/目录组/设置钮） */
-/* 侧栏拖宽把手（D-063）：贴侧栏右缘 5px 竖条（button 过 a11y 闸），hover/拖动中显线 */
+/* 侧栏拖宽把手（D-063）：贴栏缝 5px 竖条（button 过 a11y 闸），hover/拖动中显线。
+   负外边距抵消自身宽度 = 不占布局：两栏直接相接，顶栏灰带不再被 5px 透明缝切断；
+   把手叠在缝上（z-index），左右各 2.5px 仍算拖动热区。 */
 .henira-app button.henira-drag-handle {
   width: 5px;
+  margin: 0 -2.5px;
+  position: relative;
+  z-index: 5;
   flex-shrink: 0;
   padding: 0;
   border: none;
