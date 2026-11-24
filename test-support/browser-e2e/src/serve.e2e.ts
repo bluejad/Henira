@@ -202,6 +202,11 @@ async function shot(page: Page, name: string): Promise<void> {
 test("serve chain: approval settle, streaming render, sessions, themes", async ({ page }) => {
   await page.goto(server.url);
 
+  // 站点图标：静态托管按扩展名出图（文件缺失会落 SPA fallback 返回 HTML——MIME 断言锁真身）
+  const icon = await page.request.get(new URL("/favicon.svg", page.url()).toString());
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()["content-type"]).toBe("image/svg+xml");
+
   // 静态页出货 + 自动选中预建会话 → 输入框可编辑
   const textarea = page.getByTestId("composer-input");
   await expect(textarea).toBeVisible();

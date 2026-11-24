@@ -23,6 +23,7 @@ await app.dispose();
 
 - `dist/` = 库面（tsc；createWebApp / RowStore / Shell）
 - `dist-web/` = 自托管 SPA 产物（vite build，`pnpm --filter @henira/web bundle`）：同源 client 连本机 server，server 静态托管（`henira serve` 自动发现 dist-web 并托管 `/`）
+- `public/favicon.svg` = 标签页图标（Horse 品牌标，墨底暖纸色取 token）；vite 原样拷进 dist-web，server 静态托管按扩展名出 `image/svg+xml`
 
 ## 文件 ↔ 设计
 
