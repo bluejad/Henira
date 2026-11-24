@@ -276,7 +276,7 @@ test("permission management: long project labels stay inside the settings dialog
     },
     {
       id: "seed-gamma",
-      cwd: "D:\\BlueCode\\Reins\\artifacts\\r199-long-project-name-for-picker",
+      cwd: "C:\\Users\\Think\\AppData\\Local\\Temp\\henira-permission-management-e2e-long-project-name",
       key: "--r199-long-project-name-for-picker-c1b2c3d4--",
       displayName: "r199-long-project-name-for-picker",
       createdAt: 0,

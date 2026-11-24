@@ -39,7 +39,7 @@ describe("DirRegistry.peek（R199）", () => {
 
   it("isProjectKey：CJK slug 合法；路径分隔符/短 hash 拒绝", () => {
     expect(isProjectKey(projectKey("E:\\测试功能\\新建文件夹"))).toBe(true);
-    expect(isProjectKey("--reins-de960ff4--")).toBe(true);
+    expect(isProjectKey("--henira-de960ff4--")).toBe(true);
     expect(isProjectKey("../x")).toBe(false);
     expect(isProjectKey("--x-de960ff4--/..")).toBe(false);
     expect(isProjectKey("--x-de960ff--")).toBe(false);
