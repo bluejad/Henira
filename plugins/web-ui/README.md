@@ -16,21 +16,23 @@
 
 ## 文件 ↔ 设计
 
-| 文件                          | 职责                                                                                                                         | 设计出处                     |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| types.ts                      | 承重缝类型：WebPartContext（client + sessionId + selectSession + t + theme + store + host）/ PluginUiHost / UiModuleContext  | interfaces.md web 段 / D-028 |
-| module.ts                     | UI 模块入口：官方件注册进宿主槽位（公共注册路径）；defaultParts 映射                                                         | D-043 / 判据④                |
-| parts/session-list.tsx        | 会话列表件（槽 sidebar）：busy 点 / 新会话 / 切会话                                                                          | 判据①③                       |
-| parts/conversation.tsx        | 对话面板件（槽 conversation）：哑渲染器——行→呈现（user / assistant 流式 / tool / approval / error 五行）                     | ServerEvent 词表             |
-| parts/composer.tsx            | 输入框件（槽 composer）：Enter 发送（D-045 单口）/ busy 停止 + 排队/插话模式提示（Ctrl+Enter 插话，E1）/ 忙时钮文案=排队发送 | D-045 / E1                   |
-| parts/queue-panel.tsx         | 排队卡件（composer 内部件）：store `state.queue` 订阅；行=文本+插话徽章+立即发送/编辑/删除（E1）                             | D-045 / E1                   |
-| parts/approval-card.tsx       | 审批卡件（内联）：允许 / 拒绝走 settleApproval（幂等先答者赢，多客户端经行流同步 settled）                                   | 判据② / packages.md 槽位归属 |
-| parts/permission-menu.tsx     | 权限 chip：模式菜单（ask/full）+ 本会话允许面板（逐条撤销/全部撤销；本项目 → 设置深链）                                      | D-080 / D-082                |
-| parts/permission-rule.tsx     | 权限规则行摘要（设置页/会话面板共用：允许/拒绝徽章 + 工具 + 约束截断）                                                       | D-082                        |
-| parts/settings/permission.tsx | 设置 › 权限：新会话默认档 + 项目选择器 + 项目/全局规则逐条查看/删除（确认/deny・全局警示/坏文件警示/复制路径）               | D-080 / D-082                |
-| parts/icons.tsx               | 图标收口（Phosphor 子路径导入；换集只动此文件）                                                                              | 视觉语言节                   |
-| locales/zh.ts                 | zh 字典（唯一 CJK 允许地；fail-loud）                                                                                        | D-050 / 判据⑥                |
-| tokens.css                    | CSS 变量 token（明暗双主题 / 零 webfont / 流式浮现动画）                                                                     | 视觉语言节                   |
+| 文件                             | 职责                                                                                                                         | 设计出处                     |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| types.ts                         | 承重缝类型：WebPartContext（client + sessionId + selectSession + t + theme + store + host）/ PluginUiHost / UiModuleContext  | interfaces.md web 段 / D-028 |
+| module.ts                        | UI 模块入口：官方件注册进宿主槽位（公共注册路径）；defaultParts 映射                                                         | D-043 / 判据④                |
+| parts/session-list.tsx           | 会话列表件（槽 sidebar）：busy 点 / 新会话 / 切会话                                                                          | 判据①③                       |
+| parts/layout-frame.tsx           | 三栏骨架（layout 槽）：列宽/拖宽/持久化 + 中列 header + 滚动条槽探针（`--henira-scroll-gutter` 实测）                        | D-062 / D-083                |
+| parts/conversation.tsx           | 对话面板件（槽 conversation）：哑渲染器——行→呈现（user / assistant 流式 / tool / approval / error 五行）                     | ServerEvent 词表             |
+| styles/07-conversation-shell.css | 对话滚动视口铺满中列（滚动条贴最右）+ 内层限宽列 + 槽宽探针；输入区 `.henira-composer-gutter` 同宽内缩（气泡/卡片右缘同线）  | D-083                        |
+| parts/composer.tsx               | 输入框件（槽 composer）：Enter 发送（D-045 单口）/ busy 停止 + 排队/插话模式提示（Ctrl+Enter 插话，E1）/ 忙时钮文案=排队发送 | D-045 / E1                   |
+| parts/queue-panel.tsx            | 排队卡件（composer 内部件）：store `state.queue` 订阅；行=文本+插话徽章+立即发送/编辑/删除（E1）                             | D-045 / E1                   |
+| parts/approval-card.tsx          | 审批卡件（内联）：允许 / 拒绝走 settleApproval（幂等先答者赢，多客户端经行流同步 settled）                                   | 判据② / packages.md 槽位归属 |
+| parts/permission-menu.tsx        | 权限 chip：模式菜单（ask/full）+ 本会话允许面板（逐条撤销/全部撤销；本项目 → 设置深链）                                      | D-080 / D-082                |
+| parts/permission-rule.tsx        | 权限规则行摘要（设置页/会话面板共用：允许/拒绝徽章 + 工具 + 约束截断）                                                       | D-082                        |
+| parts/settings/permission.tsx    | 设置 › 权限：新会话默认档 + 项目选择器 + 项目/全局规则逐条查看/删除（确认/deny・全局警示/坏文件警示/复制路径）               | D-080 / D-082                |
+| parts/icons.tsx                  | 图标收口（Phosphor 子路径导入；换集只动此文件）                                                                              | 视觉语言节                   |
+| locales/zh.ts                    | zh 字典（唯一 CJK 允许地；fail-loud）                                                                                        | D-050 / 判据⑥                |
+| tokens.css                       | CSS 变量 token（明暗双主题 / 零 webfont / 流式浮现动画）                                                                     | 视觉语言节                   |
 
 ## 测试 ↔ 判据
 

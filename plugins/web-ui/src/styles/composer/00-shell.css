@@ -3,6 +3,11 @@
 /* ── 输入座位（R182）：dock 持列宽/轴/内衬；bar 与接管卡共享同一座位 ───────────────
    composer = 座位（chain 接管路由，ComposerDock），composer.bar = 常驻输入栏（fallback）。
    接管时 bar display:none 但保持挂载（草稿/DOM 态不丢——dsh overlay 语义）。 */
+/* R200：输入区外层与对话滚动视口同槽宽内缩——正文列/输入卡共用「扣掉两侧滚动条槽」的盒子 */
+.henira-composer-gutter {
+  box-sizing: border-box;
+  padding: 0 var(--henira-scroll-gutter, 0px);
+}
 .henira-composer-dock {
   box-sizing: border-box;
   width: 100%;

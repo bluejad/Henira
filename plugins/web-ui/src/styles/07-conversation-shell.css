@@ -1,13 +1,32 @@
 /* R177 拆分：原 tokens.css 第 590-601 行（顺序保持，级联零变化） */
 /* ── 对话面板（结构样式集中处，组件零内联状态样式）────────────────── */
-/* 限宽保可读（三档随视口，见 --henira-column-max）+ 居中；行距给呼吸 */
+/* R200：滚动视口铺满中列（滚动条贴中列最右）；正文列 = 视口内的内层限宽列。
+   两侧 gutter 与输入区外层同宽内缩 → 用户气泡右缘 = 输入卡右缘。 */
 .henira-conversation {
   flex: 1;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
+  box-sizing: border-box;
+  width: 100%;
+}
+/* 内层限宽列：三档随视口（--henira-column-max）+ 24px 内衬；行距给呼吸 */
+.henira-conversation-content {
   box-sizing: border-box;
   width: 100%;
   max-width: var(--henira-column-max);
   margin: 0 auto;
   padding: var(--henira-space-5) var(--henira-space-5) var(--henira-space-6);
+}
+/* R200 槽宽探针：与真实滚动条同一套全局样式；both-edges 下量两侧槽宽（overlay = 0）。
+   布局框架把结果写进中列 --henira-scroll-gutter，输入区外层按同宽内缩。 */
+.henira-scroll-probe {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 100px;
+  height: 100px;
+  overflow-y: scroll;
+  scrollbar-gutter: stable both-edges;
+  visibility: hidden;
+  pointer-events: none;
 }

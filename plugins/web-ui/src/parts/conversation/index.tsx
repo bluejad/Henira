@@ -216,7 +216,8 @@ export const Conversation: WebPart = (ctx: WebPartContext) => {
         </>
       ) : (
         <div className="henira-conversation" ref={scrollRef}>
-          {/* 内容层（R195）：只做高度观察锚点，无样式；行内几何变化经 ResizeObserver 触发贴底 */}
+          {/* 内容层（R195 高度观察锚点 + R200 内层限宽列）：行内几何变化经 ResizeObserver 触发贴底；
+              列宽/内衬在这里，滚动视口铺满中列（滚动条贴最右） */}
           <div className="henira-conversation-content" ref={contentRef}>
             {/* 内层以 sessionId 为 React key：会话切换重挂 → 虚拟器测高缓存换代（turnId 跨会话可重复） */}
             <ConversationTimeline

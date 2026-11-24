@@ -1053,3 +1053,17 @@
 - **非目标**：设置内新增/编辑规则（只查看/删除；卡仍是 allow 的新增路径）；卡上「持久拒绝」第五钮；路径级规则；孤儿项目进选择器；项目重命名/可搜索选择器；文件删除的审计事件；设置弹窗 600px 高度修正；forked UUID 会话删除 id bug。
 - **备注**：落点 = protocol（canonical helpers + 管理视图类型）、config-loader（`permissions.ts` 三态读取/添加/删除、唯一 tmp、config.ts 委托）、plugin-approval（折叠 canonical + 去重）、plugin-session（`isProjectKey`、`DirRegistry.peek`）、server（`permission-projects.ts` + 5 端点 + 会话撤销可选 body）、sdk（5 新方法 + `revokeSessionApprovals` opts）、web-ui（设置权限页/规则行/删除确认、chip 规则面板、深链修复、词条/CSS）、web 宿主零改动（`openSettings` 已有）；测试 = protocol/config/approval/session/server/sdk 双形态/web-ui + e2e 三用例（会话逐条撤销/项目删/全局删）；活体真 key 验收另跑。
 - **审查补正（同日）**：① 项目选择器弹层原先无宽度上限且条目 `nowrap`，长 `name — cwd` 标签把弹层撑到 900px+，被设置内容区 `overflow:auto` 计成横向滚动溢出（页面可被滚右、标题/行首被裁，用户实拍）；改为弹层限宽 `min(420px, 100vw - 96px)`、`--input` 形态右缘钉触发钮向左生长、条目省略号 + `title` 看全文；e2e 预置长名项目锁 `scrollWidth == clientWidth` 与弹层不出弹窗。② `useDismiss` 的 Esc 改 capture 并止住冒泡：下拉打开时 Esc 只收弹层，不再连关设置弹窗。③ 选择器可访问名改「选择项目」（原与分区标题撞名）；SDK runtime 项目清单补 `id/cwd/displayName` 窄化，与 server 的 `usableDir` 同口径。
+
+## D-083 对话滚动视口归中列：滚动条贴最右 + 用户气泡/输入卡右缘同线（R200）
+
+- **状态**：已定 · 2026-11-24 · 用户拍板（滚动条要在最右侧；自己发出的消息气泡右缘要和输入框右缘对齐；先给真实对话示例图确认）；✓ 同日落码
+- **背景**：R125 曾把「固定 808 列 + 页面滚动条远在角落」当缺点；R200 用户看参照实现后要求反过来——滚动视口属于中列（滚动条贴面板最右），同时正文列与输入卡必须共用一条右缘线。原实现把限宽/内衬都放在滚动容器上，滚动条骑在正文列右缘，且右侧 14–15px gutter 只扣正文不扣输入卡 → 气泡右缘比卡片右缘左一个槽宽。
+- **决定**：
+  1. **滚动视口 = 中列铺满**：`.henira-conversation` 不再自身限宽/居中/内衬；`width:100%` + `flex:1` + `scrollbar-gutter: stable both-edges`。滚动条（原生/overlay）贴中列最右缘；纵向仍止于输入区上缘（composer 仍是视口的兄弟，不搬进视口——全高轨道是结构批，另议）。
+  2. **正文列 = 视口内层限宽列**：`.henira-conversation-content` 承担 808/896/1152 + 24px 内衬 + `margin:0 auto`；滚动视口两侧各留一条 gutter，内容盒 = 「扣掉两侧槽」的横向盒子。
+  3. **输入区同一横向盒子**：布局框架给 composer 外层加 `.henira-composer-gutter`，左右内缩同一槽宽；内层仍是原限宽 dock（同档 + 24px 内衬）。→ 用户气泡右缘 = 输入卡右缘；助手正文左缘 = 输入卡左缘；宽窗/窄窗/右栏开合一致。
+  4. **槽宽不写死**：布局框架渲染一个与全局滚动条同样式、`overflow-y:scroll` + `stable both-edges` 的离屏探针，`useLayoutEffect` 量 `(offsetWidth - clientWidth)/2` 写中列 `--henira-scroll-gutter`；overlay 滚动条 = 0 自动成立，不赌平台常量。
+- **理由**：滚动条是滚动视口的家具，不属于正文列或输入卡；把视口与列拆开后，断点切换列宽/右栏开合都不会让滚动条横跳，正文列与输入列也能共享同一条横向盒子。槽宽由浏览器实测而非写死，是因为 webkit / Firefox / overlay 三种滚动条宽度不同（本机 headless 实测槽宽 15、overlay 0）。
+- **代价**：默认窄中列（<列宽）下正文/输入卡左右各收一槽宽（约 15px，卡片总宽 -30）；宽窗到列宽档后正文比旧实现多 15px；滚动条纵向不跟到输入框右侧（结构批另议）。
+- **非目标**：把 composer 搬进滚动视口做 sticky（全高轨道）；自定义 overlay 滚动条/自绘 thumb；改列宽三档数值；右栏宽度联动。
+- **备注**：落点 = web-ui（`07-conversation-shell.css` 视口/内层列/探针；`composer/00-shell.css` `.henira-composer-gutter`；`layout-frame.tsx` 探针 + 变量 + 定型复测；conversation 注释）；e2e `layout.e2e.ts`（1024 窄窗/1280/1920/右栏开合四组量数：视口右缘 = 中列右缘、气泡右缘 = 卡片右缘、正文左缘 = 卡片左缘、零横向溢出；红测 = 去掉槽内缩差 15px，绿测 = 恢复）；截图 `artifacts/layout-*.png`。活体 18923（应用内浏览器 1280×720）：conv 右缘 = wrap 右缘 = 1280，`--henira-scroll-gutter` = 15px（探针 30/2，与 conv 的 offset-client 30 一致）；气泡右缘 = dock 内容盒右缘 = 接管卡右缘 = 1196.5（当前会话有审批接管时输入卡隐藏，用 dock 内容盒验证）。

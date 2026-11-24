@@ -4,7 +4,15 @@
 // 从 ctx.slots 渲染 sidebar / conversation / composer / sidebar.right；几何（列宽/拖宽/
 // 持久化）是框架的职责，区域件不自管列宽。宿主零界面 JSX——一切可见物都在本件与子件。
 
-import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { LayoutOption, WebPart, WebPartContext, WebSlotName } from "../types.js";
 import { FolderGlyph, GearGlyph, HorseGlyph, SidebarGlyph } from "./icons.js";
 import { PreviewModal } from "./preview.js";
@@ -46,6 +54,35 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
   // 左栏收起（R194，纯本地态——这是窗口布局偏好，不跨刷新/不写 ui-state）
   const [leftHidden, setLeftHidden] = useState(false);
   const sessionTitle = useSessionTitle(ctx);
+  // R200：对话滚动视口两侧的滚动条槽宽由浏览器决定（webkit / Firefox / overlay 各不同）——
+  // 探针与真实滚动条共用同一套全局样式；both-edges 下 (offsetWidth - clientWidth)/2 = 单侧槽宽。
+  // 输入区外层按同宽内缩，正文列与输入卡才共用「扣掉两侧槽」的横向盒子。
+  const centerColumnRef = useRef<HTMLDivElement>(null);
+  const scrollProbeRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const probe = scrollProbeRef.current;
+    const column = centerColumnRef.current;
+    if (probe === null || column === null) return;
+    const apply = (): void => {
+      const gutter = (probe.offsetWidth - probe.clientWidth) / 2;
+      column.style.setProperty("--henira-scroll-gutter", `${gutter}px`);
+    };
+    apply();
+    // 槽宽会随平台/缩放/滚动条首次出现而变（活体：挂载时 12.5 → 稳定后 15）——
+    // RO 在后台/IAB 页可能被暂停，补一次定型后复测 + 窗口缩放复测；RO 只作常驻兜底。
+    const settle = window.setTimeout(apply, 600);
+    window.addEventListener("resize", apply);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(apply);
+      observer.observe(probe);
+    }
+    return () => {
+      window.clearTimeout(settle);
+      window.removeEventListener("resize", apply);
+      observer?.disconnect();
+    };
+  }, []);
 
   // 区域件取用：挑件表（object form）优先，否则槽位表（官方默认件经公共注册路径在表内）
   const partsOf = (slot: WebSlotName): WebPart[] => {
@@ -272,7 +309,12 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
           }}
         />
       ) : null}
-      <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+      <div
+        ref={centerColumnRef}
+        style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}
+      >
+        {/* R200 槽宽探针：fixed 离屏，只量滚动条宽度，不参与布局 */}
+        <div ref={scrollProbeRef} className="henira-scroll-probe" aria-hidden="true" />
         {showConversation ? (
           <header className="henira-header">
             {leftHidden ? (
@@ -334,7 +376,9 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
             {renderParts("conversation")}
           </div>
         ) : null}
-        {showComposer ? <div>{renderParts("composer")}</div> : null}
+        {showComposer ? (
+          <div className="henira-composer-gutter">{renderParts("composer")}</div>
+        ) : null}
       </div>
       {showRight && rightOpen ? (
         <>

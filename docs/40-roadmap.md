@@ -77,6 +77,7 @@
 - [x] 输入框权限模式（R197 / D-080）：`PermissionMode = ask | full` 按次绑定（与模型/思考档同构；`turn/start` 落账审计 + 队列条目持久化）；会话级 ui-state 记忆 + settings 新会话默认（设置第五页「权限」）；审批链水瀑后自动放行（`decided{mode:"full"}` 审计标记；硬拒/deny/hook deny 不动）；工具排左端权限 chip（full 警示色 + 升格风险确认卡）+ e2e 七步全链
 - [x] 命令级权限规则（R198 / D-081）：三层存储（会话事件 `decided{scope,rule}` / 项目 `projects/<key>/permissions.json` / 全局 `config/permissions.json`）+ `commandExact` 精确命令 + 卡四钮/三钮 + deny 跨表压倒一切 + 项目写盘失败降级一次 + 权限菜单计数/清空 + e2e 真浏览器
 - [x] 权限管理面（R199 / D-082）：设置 › 权限只含持久策略（项目选择器 + 项目/全局规则逐条查看/删除，确认框、deny/全局警示、坏文件 409 不覆盖）；本会话允许只在 chip 规则面板逐条撤销；deny 仍一次性；`SettingsModal` section 深链修复；SDK/双形态 + e2e 三用例（会话逐条撤销/项目删/全局删）
+- [x] 对话滚动视口/输入卡右缘对齐（R200 / D-083）：滚动视口铺满中列（滚动条贴最右，`stable both-edges`）+ 正文列改内层限宽列 + composer 外层按实测槽宽同宽内缩 → 用户气泡右缘 = 输入卡右缘、正文左缘 = 卡片左缘；e2e 1024/1280/1920/右栏开合四组量数（红测缺槽内缩差 15px）；纵向全高轨道留结构批
 - [x] 卡死治理批（R193 / D-077）：删前端 3s「响应停滞」判据（忙碌行恒走秒；≥60s 中性「仍在等待模型响应」）；plugin-llm per-part 空闲看门狗（默认 180s，settings 覆盖）→ `LlmError(LLM_STREAM_IDLE_TIMEOUT)` → ErrorRow + 可行动中文；SSE 客户端字节看门狗（30s 含心跳）→ 自动重连 + `onLinkState` 5s 抗闪横幅 + 重连边沿补拉当前会话（服务重启后不卡 busy）；`stop()` 收口事件泵；帧消费监督重启；e2e 静默 provider + 活体杀 serve 重连
 - [ ] 三家真 provider 经 serve 链路（REST + SSE）各跑通带工具回合（真 key，env 门控不进 CI；M2 真跑是 examples/real 直连引擎，本条补宿主链路），并**逐形态验收截图点开看**。**真 key 采样先行（2026-11-17 改拍板）**：markdown 渲染的开发素材直接用三家真 key 跑真实样本（标题 / 代码块 / 表格 / 列表的真实分布），照样本做渲染、做完立刻真 key 复看显示效果（markdown / 代码块 / 截断 / 用量）——不拿 mock 编样本；**mock 只留稀有形态清单**（推理块 / 错误回合 / 拒绝 / 中断 / 多工具 / 插话——真 key 难以稳定触发，mock 确定性重放，兼 CI 离线回归）
 - [ ] `changeset version && publish` 干跑通过；README 英文版就位
