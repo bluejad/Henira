@@ -1,8 +1,8 @@
 /* R187 拆分：原 09-sidebar.css 15-95（拖宽把手/目录组/设置钮） */
-/* 侧栏拖宽把手（D-063 / R201 卡片化）：把手本身即 8px 栏缝（透明；hover/拖动显色）。
-   卡片（中列/右栏）四周有 8px 缝，缝与卡片同底，靠卡片 1px 描边勾轮廓（D-084）。 */
+/* 侧栏拖宽把手（D-063 / R201 卡片化）：把手本身即 4px 栏缝（透明；hover/拖动显色）。
+   三栏都是卡片，缝只留在栏与栏之间；四周贴窗口，靠 1px 描边勾轮廓（D-084）。 */
 .henira-app button.henira-drag-handle {
-  width: 8px;
+  width: 4px;
   flex-shrink: 0;
   padding: 0;
   border: none;

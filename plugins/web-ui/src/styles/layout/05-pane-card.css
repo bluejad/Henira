@@ -1,5 +1,6 @@
-/* R201 卡片化（D-084）：中列与右栏 = 1px 描边 + 12px 圆角的卡片；左栏保持平面贴边。
-   底色不动（中列透出 --henira-bg，右栏沿用自身 surface），不引入阴影/新色——
+/* R201 卡片化（D-084）：左/中/右三栏 = 1px 描边 + 12px 圆角的卡片；
+   缝只留在栏与栏之间（拖宽把手 = 4px 栏缝），四周贴窗口（落码后同日修订）。
+   底色不动（左/中列透出 --henira-bg，右栏沿用自身 surface），不引入阴影/新色——
    轮廓只靠描边勾出。overflow 让 header / 右栏 tab 条的直角顶边被圆角裁掉。 */
 .henira-app .henira-pane-card {
   border: 1px solid var(--henira-border);

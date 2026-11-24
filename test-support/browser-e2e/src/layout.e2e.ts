@@ -156,41 +156,69 @@ test("layout: scrollbar hugs the center pane; user bubble and composer share the
     expect(Math.abs(open.convRight - open.wrapRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.bubbleRight - open.cardRight)).toBeLessThanOrEqual(1);
     expect(Math.abs(open.assistantLeft - open.cardLeft)).toBeLessThanOrEqual(1);
-    // R201 卡片化：中列/右栏 = 圆角卡片（8px 缝 / 12px 圆角 / 1px 描边）；左栏平面贴左
+    // R201 卡片化（同日修订）：三栏都是卡片；缝只留在栏与栏之间（4px），四周贴窗口
     const card = await page.evaluate(() => {
-      const pane = document
-        .querySelector(".henira-conversation")
-        ?.closest(".henira-pane-card") as HTMLElement | null;
-      const rect = (sel: string): DOMRect | null => {
-        const el = document.querySelector(sel);
-        return el === null ? null : el.getBoundingClientRect();
-      };
-      const left = rect(".henira-left-col");
-      const rightCol = rect(".henira-right-col");
-      const paneRect = pane === null ? null : pane.getBoundingClientRect();
-      const cs = pane === null ? null : getComputedStyle(pane);
+      const rect = (el: Element | null): DOMRect | null =>
+        el === null ? null : el.getBoundingClientRect();
+      const leftCol = document.querySelector(".henira-left-col");
+      const leftCard = leftCol?.classList.contains("henira-pane-card") ? leftCol : null;
+      const centerCard =
+        document.querySelector(".henira-conversation")?.closest(".henira-pane-card") ?? null;
+      const rightCard =
+        document.querySelector(".henira-right-col")?.closest(".henira-pane-card") ?? null;
+      const l = rect(leftCard);
+      const c = rect(centerCard);
+      const r = rect(rightCard);
+      const cs = centerCard === null ? null : getComputedStyle(centerCard);
       return {
-        leftGap: left === null || paneRect === null ? null : paneRect.left - left.right,
-        rightGap: rightCol === null || paneRect === null ? null : rightCol.left - paneRect.right,
-        rightEdge: rightCol === null ? null : window.innerWidth - rightCol.right,
-        top: paneRect === null ? null : paneRect.top,
-        bottom: paneRect === null ? null : window.innerHeight - paneRect.bottom,
+        leftGap: l === null || c === null ? null : c.left - l.right,
+        rightGap: c === null || r === null ? null : r.left - c.right,
+        leftEdge: l === null ? null : l.left,
+        rightEdge: r === null ? null : window.innerWidth - r.right,
+        top: c === null ? null : c.top,
+        bottom: c === null ? null : window.innerHeight - c.bottom,
         radius: cs?.borderTopLeftRadius ?? null,
         border: cs?.borderTopWidth ?? null,
+        leftRadius: leftCard === null ? null : getComputedStyle(leftCard).borderTopLeftRadius,
       };
     });
     expect(card.top).not.toBeNull();
-    expect(Math.abs((card.top ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(card.top ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
     expect(card.bottom).not.toBeNull();
-    expect(Math.abs((card.bottom ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
-    if (card.leftGap !== null) expect(Math.abs(card.leftGap - 8)).toBeLessThanOrEqual(1);
-    expect(card.rightGap).not.toBeNull();
-    expect(Math.abs((card.rightGap ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(card.bottom ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    expect(card.leftEdge).not.toBeNull();
+    expect(Math.abs(card.leftEdge ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
     expect(card.rightEdge).not.toBeNull();
-    expect(Math.abs((card.rightEdge ?? Number.POSITIVE_INFINITY) - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(card.rightEdge ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    if (card.leftGap !== null) expect(Math.abs(card.leftGap - 4)).toBeLessThanOrEqual(1);
+    expect(card.rightGap).not.toBeNull();
+    expect(Math.abs((card.rightGap ?? Number.POSITIVE_INFINITY) - 4)).toBeLessThanOrEqual(1);
     expect(card.radius).toBe("12px");
     expect(card.border).toBe("1px");
+    expect(card.leftRadius).toBe("12px");
     await shot(page, "layout-1280-right-panel.png");
+
+    // 最大化 = 全屏卡片，四角同样圆（D-084 同日修订）
+    await page.getByRole("button", { name: zh["rightPanel.maximize"] }).click();
+    const max = await page.evaluate(() => {
+      const el = document.querySelector(".henira-right-panel--max");
+      if (el === null) return null;
+      const b = el.getBoundingClientRect();
+      return {
+        left: b.left,
+        top: b.top,
+        right: window.innerWidth - b.right,
+        bottom: window.innerHeight - b.bottom,
+        radius: getComputedStyle(el).borderTopLeftRadius,
+      };
+    });
+    expect(max).not.toBeNull();
+    expect(Math.abs(max?.left ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    expect(Math.abs(max?.top ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    expect(Math.abs(max?.right ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    expect(Math.abs(max?.bottom ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(1);
+    expect(max?.radius).toBe("12px");
+    await shot(page, "layout-1280-maximized.png");
   } finally {
     await stop();
   }

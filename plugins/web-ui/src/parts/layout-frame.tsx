@@ -179,19 +179,11 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
     rightWidth === undefined ? "var(--henira-right-width)" : `${rightWidth}px`;
 
   return (
-    // R201 卡片化：根内缩 8px（左 0 让侧栏贴窗口）——中列/右栏卡片四周有缝、四角可见
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        overflow: "hidden",
-        boxSizing: "border-box",
-        padding: "8px 8px 8px 0",
-      }}
-    >
+    // R201 卡片化：三栏 = 卡片，缝只留在栏与栏之间（拖宽把手），四周贴窗口
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       {showSidebar && sidebarHas ? (
         <div
-          className="henira-left-col"
+          className={leftHidden ? "henira-left-col" : "henira-left-col henira-pane-card"}
           data-collapsed={leftHidden ? "true" : undefined}
           aria-hidden={leftHidden || undefined}
           inert={leftHidden ? true : undefined}
@@ -206,7 +198,7 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
             pointerEvents: leftHidden ? "none" : undefined,
           }}
         >
-          {/* 品牌行（ZCode 左栏顶部行行为层：logo 住栏顶，48px 与中右两栏顶连成一条线） */}
+          {/* 品牌行（ZCode 左栏顶部行行为层：logo 住栏顶；R201 起右边框归卡片描边） */}
           <div
             className="henira-brand"
             style={{
@@ -217,7 +209,6 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
               gap: "var(--henira-space-2)",
               padding: "0 var(--henira-space-4)",
               borderBottom: "1px solid var(--henira-border)",
-              borderRight: "1px solid var(--henira-border)",
               background: "var(--henira-surface)",
               boxSizing: "border-box",
             }}
@@ -257,7 +248,6 @@ export const LayoutFrame: WebPart = (ctx: WebPartContext): ReactNode => {
               gap: "var(--henira-space-2)",
               padding: "var(--henira-space-2) var(--henira-space-3) var(--henira-space-4)",
               background: "var(--henira-surface)",
-              borderRight: "1px solid var(--henira-border)",
               boxSizing: "border-box",
               width: sidebarWidth,
             }}

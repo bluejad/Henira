@@ -1081,4 +1081,9 @@
 - **理由**：内容区做卡片、导航区保持平面，视觉层级是「轨道 + 纸」；同底 + 描边方案零色值改动，明暗主题自动成立。overflow 裁切让 header/右栏 tab 的直角顶边被圆角吃掉，无需逐件改圆角。
 - **代价**：内容区横向少 16px（两侧各 8px 缝）、纵向少 16px；滚动条贴卡片右缘而非窗口右缘（被卡片边框包住）；三栏顶带不再连续。
 - **非目标**：换 `--henira-panel` 白底、加卡片阴影；左栏卡片化/留缝；输入区/滚动视口/列宽档位改动；顶栏高度重设计。
-- **备注**：落点 = `plugins/web-ui/src/styles/layout/05-pane-card.css`（新）、`tokens.css`（import）、`styles/layout/10-right-panel.css`（去 `border-left`）、`styles/sidebar/20-dirs.css`（把手 8px）、`parts/layout-frame.tsx`（根内缩 + 中列/右栏两类名）；e2e `layout.e2e.ts` 栏缝断言改为卡片几何（缝宽 8、卡顶/底 8、右缘 8、radius 12px、border 1px）；活体 1280/1920 明暗截图，含权限菜单/模型弹层不被 `overflow: hidden` 裁切的核对。
+- **备注**：落点 = `plugins/web-ui/src/styles/layout/05-pane-card.css`（新）、`tokens.css`（import）、`styles/layout/10-right-panel.css`（去 `border-left`）、`styles/sidebar/20-dirs.css`（把手成缝）、`parts/layout-frame.tsx`（卡片类名）；e2e `layout.e2e.ts` 栏缝断言改为卡片几何（缝宽、卡顶/底、右缘、radius、border）；活体明暗截图，含权限菜单/模型弹层不被 `overflow: hidden` 裁切的核对。
+- **同日修订（用户看效果后拍板）**：
+  1. **左栏也卡片化**：品牌行/底栏的 `borderRight` 撤掉（右边框归卡片描边）；收起态（宽 0）不挂卡片类，避免 0 宽残线。
+  2. **缝只在栏与栏之间**：撤掉根部的 8px 内缩，四周贴窗口；栏缝 8px → **4px**（拖宽把手宽 = 缝宽）。
+  3. **最大化右栏 = 全屏卡片**：`.henira-right-panel--max` 同样 12px 圆角（fixed inset 0，四角贴窗口也圆）。
+  4. 落点补：`10-right-panel.css` 的 `--max` 圆角；e2e 增最大化全屏矩形/圆角断言。

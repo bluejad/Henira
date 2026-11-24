@@ -24,6 +24,10 @@
   z-index: 40;
   overflow: hidden;
   background: var(--henira-bg);
+  /* R201：最大化 = 全屏卡片，四角同样圆（D-084）——同底的圆角靠描边勾出来 */
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius-lg);
+  box-sizing: border-box;
 }
 /* R194：收起态不再渲染窄轨（整列不占位）；重开入口 = 中列 header 的侧栏开关 */
 .henira-right-tabs {
