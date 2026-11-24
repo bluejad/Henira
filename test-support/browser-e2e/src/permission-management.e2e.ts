@@ -28,6 +28,16 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: path.join(ARTIFACTS, name) });
 }
 
+/** 填草稿 → 等发送钮可用（草稿已进 React + 会话 id 就绪）→ Enter → 等草稿清空（真发出）。
+ *  CI 慢机实测：fill 后立刻 Enter 偶发空提交（R166 同族），后面等卡/回复只会白等到超时。 */
+async function sendPrompt(page: Page, text: string): Promise<void> {
+  const area = page.getByTestId("composer-input");
+  await area.fill(text);
+  await expect(page.locator(".henira-composer-card button.henira-primary")).toBeEnabled();
+  await area.press("Enter");
+  await expect(area).toHaveValue("", { timeout: 5_000 });
+}
+
 const bashRound = (id: string, command: string): readonly StreamEvent[] => [
   mockToolCall(id, "bash", JSON.stringify({ command })),
   mockUsage({ inputTokens: 1, outputTokens: 1 }),
@@ -133,20 +143,17 @@ test("permission management: session rules list → revoke one → that command 
     await page.goto(server.url);
     const chip = page.getByRole("button", { name: zh["composer.permission"] });
     await chip.waitFor({ state: "visible", timeout: 20_000 });
-    const area = page.getByTestId("composer-input");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
 
     // ① 两条命令各自「本会话允许此命令」
-    await area.fill("run A");
-    await area.press("Enter");
+    await sendPrompt(page, "run A");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card
       .getByRole("button", { name: zh["approval.sessionAllowCommand"], exact: true })
       .click();
     await expect(page.getByText("done A1").first()).toBeVisible({ timeout: 20_000 });
 
-    await area.fill("run B");
-    await area.press("Enter");
+    await sendPrompt(page, "run B");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card
       .getByRole("button", { name: zh["approval.sessionAllowCommand"], exact: true })
@@ -170,14 +177,12 @@ test("permission management: session rules list → revoke one → that command 
     await page.keyboard.press("Escape");
 
     // ③ 被撤的 A 重新出卡（拒绝收尾）；B 仍免卡
-    await area.fill("run A again");
-    await area.press("Enter");
+    await sendPrompt(page, "run A again");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card.getByRole("button", { name: zh["approval.deny"], exact: true }).click();
     await expect(page.getByText("done A2").first()).toBeVisible({ timeout: 20_000 });
 
-    await area.fill("run B again");
-    await area.press("Enter");
+    await sendPrompt(page, "run B again");
     await expect(page.getByText("done B2").first()).toBeVisible({ timeout: 20_000 });
     await expect(card).toHaveCount(0);
     await shot(page, "03-session-other-still-allowed.png");
@@ -199,12 +204,10 @@ test("permission management: project rule in settings → delete → same comman
     await page.goto(server.url);
     const chip = page.getByRole("button", { name: zh["composer.permission"] });
     await chip.waitFor({ state: "visible", timeout: 20_000 });
-    const area = page.getByTestId("composer-input");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
 
     // ① 卡上「本项目允许此命令」→ 文件落规则
-    await area.fill("run project");
-    await area.press("Enter");
+    await sendPrompt(page, "run project");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card
       .getByRole("button", { name: zh["approval.projectAllowCommand"], exact: true })
@@ -236,8 +239,7 @@ test("permission management: project rule in settings → delete → same comman
     await closeSettings(page);
 
     // ③ 同命令重新出卡
-    await area.fill("run project again");
-    await area.press("Enter");
+    await sendPrompt(page, "run project again");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card.getByRole("button", { name: zh["approval.deny"], exact: true }).click();
     await expect(page.getByText("project done 2").first()).toBeVisible({ timeout: 20_000 });
@@ -357,12 +359,10 @@ test("permission management: global rule in settings → delete → same command
     await page.goto(server.url);
     const chip = page.getByRole("button", { name: zh["composer.permission"] });
     await chip.waitFor({ state: "visible", timeout: 20_000 });
-    const area = page.getByTestId("composer-input");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
 
     // ① 全局 allow：首次免卡
-    await area.fill("run global");
-    await area.press("Enter");
+    await sendPrompt(page, "run global");
     await expect(page.getByText("global done 1").first()).toBeVisible({ timeout: 20_000 });
     await expect(card).toHaveCount(0);
 
@@ -385,8 +385,7 @@ test("permission management: global rule in settings → delete → same command
     await closeSettings(page);
 
     // ③ 同命令重新出卡
-    await area.fill("run global again");
-    await area.press("Enter");
+    await sendPrompt(page, "run global again");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card.getByRole("button", { name: zh["approval.deny"], exact: true }).click();
     await expect(page.getByText("global done 2").first()).toBeVisible({ timeout: 20_000 });

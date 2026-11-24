@@ -18,6 +18,16 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: path.join(ARTIFACTS, name) });
 }
 
+/** 填草稿 → 等发送钮可用（草稿已进 React + 会话 id 就绪）→ Enter → 等草稿清空（真发出）。
+ *  CI 慢机实测：fill 后立刻 Enter 偶发空提交（R166 同族），后面等卡/回复只会白等到超时。 */
+async function sendPrompt(page: Page, text: string): Promise<void> {
+  const area = page.getByTestId("composer-input");
+  await area.fill(text);
+  await expect(page.locator(".henira-composer-card button.henira-primary")).toBeEnabled();
+  await area.press("Enter");
+  await expect(area).toHaveValue("", { timeout: 5_000 });
+}
+
 async function startServer(
   command = "echo e2e-perm-rules",
   cycles = 3,
@@ -65,11 +75,9 @@ test("permission rules: allow command in session → same command skips card →
     await page.goto(server.url);
     const chip = page.getByRole("button", { name: zh["composer.permission"] });
     await chip.waitFor({ state: "visible", timeout: 20_000 });
-    const area = page.getByTestId("composer-input");
 
     // ① bash 审批卡：四选项（一次 / 本会话允许此命令 / 本项目允许此命令 / 拒绝）
-    await area.fill("first command");
-    await area.press("Enter");
+    await sendPrompt(page, "first command");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
     await expect(card).toBeVisible({ timeout: 20_000 });
     await expect(
@@ -85,8 +93,7 @@ test("permission rules: allow command in session → same command skips card →
     await expect(page.getByText("rules flow complete").first()).toBeVisible({ timeout: 20_000 });
 
     // ② 同命令再发：精确规则命中，不再出卡
-    await area.fill("second command");
-    await area.press("Enter");
+    await sendPrompt(page, "second command");
     await page
       .getByText("rules flow complete")
       .nth(1)
@@ -116,8 +123,7 @@ test("permission rules: allow command in session → same command skips card →
     await page.keyboard.press("Escape");
 
     // ④ 撤销后同命令：审批卡回来
-    await area.fill("third command");
-    await area.press("Enter");
+    await sendPrompt(page, "third command");
     await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toBeVisible({
       timeout: 20_000,
     });
@@ -135,11 +141,9 @@ test("permission rules: allow command for project writes permissions.json → sa
     await page.goto(server.url);
     const chip = page.getByRole("button", { name: zh["composer.permission"] });
     await chip.waitFor({ state: "visible", timeout: 20_000 });
-    const area = page.getByTestId("composer-input");
 
     // ① 卡上「本项目允许此命令」→ 真 config 链写项目 permissions.json
-    await area.fill("project command");
-    await area.press("Enter");
+    await sendPrompt(page, "project command");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card
@@ -183,8 +187,7 @@ test("permission rules: allow command for project writes permissions.json → sa
     });
 
     // ② 同命令再发：项目规则层命中（文件读取），不再出卡
-    await area.fill("project command again");
-    await area.press("Enter");
+    await sendPrompt(page, "project command again");
     await page
       .getByText("rules flow complete")
       .nth(1)
