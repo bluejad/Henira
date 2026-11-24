@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 test.skip(process.env.HENIRA_REAL !== "1", "真 key 采样：HENIRA_REAL=1 本机运行（不进 CI）");
 
@@ -150,11 +151,8 @@ test("三家真 provider 经 serve 链路逐形态采样", async ({ page }) => {
     await page.waitForSelector(".henira-sessions li", { timeout: 30_000 });
     await page.waitForTimeout(500);
     for (const form of FORMS) {
-      const area = page.getByTestId("composer-input");
-      await area.fill(form.prompt);
-      await area.press("Enter");
-      // 真发出门：submit 清草稿（同步）——选中未落定/空转时草稿保留，5 秒内必现真相
-      await expect(area).toHaveValue("", { timeout: 5_000 });
+      // 真发出门：发送钮可用 + submit 清草稿——选中未落定/空转时草稿保留，5 秒内必现真相
+      await sendPrompt(page, form.prompt);
       // 收尾轮询走 REST 真相（快照 busy 落 false），不赌 UI 时序；长输出给足 5 分钟
       let settled = false;
       for (let i = 0; i < 600; i++) {

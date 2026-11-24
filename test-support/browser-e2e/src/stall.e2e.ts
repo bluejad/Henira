@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
 
@@ -101,10 +102,8 @@ test("provider 静默 → 空闲看门狗收口：错误行 + busy 归 false；�
   const { server, stop } = await startServer(provider.baseUrl);
   try {
     await page.goto(server.url);
-    const textarea = page.getByTestId("composer-input");
-    await expect(textarea).toBeVisible({ timeout: 20_000 });
-    await textarea.fill("silent provider run");
-    await textarea.press("Enter");
+    await expect(page.getByTestId("composer-input")).toBeVisible({ timeout: 20_000 });
+    await sendPrompt(page, "silent provider run");
 
     // 等待期：忙碌行是「工作中」走秒（R193 删掉了 3s「响应停滞」的猜测）
     await expect(page.locator(".henira-loading-dots")).toBeVisible({ timeout: 10_000 });

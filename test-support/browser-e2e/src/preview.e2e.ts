@@ -10,6 +10,7 @@ import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
 
@@ -102,10 +103,7 @@ test("preview seam: plugin body takes over .txt, disable falls back to official"
   const { server, dataDir, globalDir, stop } = await startServer();
   try {
     await page.goto(server.url);
-    const textarea = page.getByTestId("composer-input");
-    await expect(textarea).toBeVisible({ timeout: 20_000 });
-    await textarea.fill("write and read a preview file");
-    await textarea.press("Enter");
+    await sendPrompt(page, "write and read a preview file");
 
     // write 非只读 → 审批卡；放行
     const card = page.getByRole("dialog", { name: zh["approval.title"] });

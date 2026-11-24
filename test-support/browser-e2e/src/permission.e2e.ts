@@ -11,12 +11,33 @@ import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
 
 async function shot(page: Page, name: string): Promise<void> {
   await fs.mkdir(ARTIFACTS, { recursive: true });
   await page.screenshot({ path: path.join(ARTIFACTS, name) });
+}
+
+/** 等会话 ui-state 真落盘（宿主 500ms 防抖；reload 的 pagehide 冲刷送达无保证）——
+ *  「刷新保持」断言必须先有持久化事实，否则测到的是写读竞态而不是语义（CI 实锤一次）。 */
+async function waitPermissionPersisted(page: Page, mode: string): Promise<void> {
+  const origin = new URL(page.url()).origin;
+  await expect
+    .poll(
+      async () => {
+        const list = (await (await fetch(`${origin}/api/sessions`)).json()) as { id: string }[];
+        const id = list[0]?.id;
+        if (id === undefined) return undefined;
+        const doc = (await (
+          await fetch(`${origin}/api/sessions/${encodeURIComponent(id)}/ui-state`)
+        ).json()) as { permissionMode?: string };
+        return doc.permissionMode;
+      },
+      { timeout: 5_000, message: "session ui-state did not persist" },
+    )
+    .toBe(mode);
 }
 
 async function startServer(): Promise<{ server: HeniraServer; stop: () => Promise<void> }> {
@@ -66,9 +87,7 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
     await expect(chip).not.toHaveAttribute("data-full", "true");
 
     // ① ask：写 → 审批卡 → 放行 → 完成
-    const area = page.getByTestId("composer-input");
-    await area.fill("first write");
-    await area.press("Enter");
+    await sendPrompt(page, "first write");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
     await expect(card).toBeVisible({ timeout: 20_000 });
     await card.getByRole("button", { name: zh["approval.allow"], exact: true }).click();
@@ -95,8 +114,7 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
     await shot(page, "02-full-chip.png");
 
     // ③ full：写免审批卡直接执行
-    await area.fill("second write");
-    await area.press("Enter");
+    await sendPrompt(page, "second write");
     await page
       .getByText("permission flow complete")
       .nth(1)
@@ -105,6 +123,7 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
     await shot(page, "03-full-no-card.png");
 
     // ④ 刷新：full 保持（会话 ui-state 持久化——重启/刷新不回落，D-080）
+    await waitPermissionPersisted(page, "full");
     await page.reload();
     await expect(page.locator(".henira-permission-trigger[data-full='true']")).toBeVisible({
       timeout: 20_000,
@@ -118,8 +137,7 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
     await expect(page.locator(".henira-permission-trigger[data-full='true']")).toHaveCount(0);
 
     // ⑥ 再写：审批卡回来（fail-closed 恢复）
-    await area.fill("third write");
-    await area.press("Enter");
+    await sendPrompt(page, "third write");
     await expect(page.getByRole("dialog", { name: zh["approval.title"] })).toBeVisible({
       timeout: 20_000,
     });

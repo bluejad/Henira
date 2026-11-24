@@ -20,6 +20,7 @@ import { zh } from "@henira/plugin-web-ui";
 import type { StreamEvent, ToolDefinition } from "@henira/protocol";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 // ── 固定装置：脚本化 LLM + 非只读 probe 工具 ─────────────────────────
 
@@ -208,10 +209,8 @@ test("serve chain: approval settle, streaming render, sessions, themes", async (
   expect(icon.headers()["content-type"]).toBe("image/svg+xml");
 
   // 静态页出货 + 自动选中预建会话 → 输入框可编辑
-  const textarea = page.getByTestId("composer-input");
-  await expect(textarea).toBeVisible();
-  await textarea.fill("run the probe tool please");
-  await textarea.press("Enter");
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await sendPrompt(page, "run the probe tool please");
 
   // R182：非只读工具 → 审批接管输入座位（composer.takeover chain）——输入栏隐藏但挂载
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
@@ -397,10 +396,8 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
   }
 
   // 跑 32 个文本回合 → 64 行（> 尾窗 60；脚本按调用序消费 longTurnScript 段）
-  const textarea = page.getByTestId("composer-input");
   for (let i = 0; i < LONG_TURNS; i++) {
-    await textarea.fill(`长会话问 ${i}`);
-    await textarea.press("Enter");
+    await sendPrompt(page, `长会话问 ${i}`);
     // 等该回合落定：assistant 文本出现（行数单调——确定性事实，不用 busy 位）
     await expect(page.getByText(`回合 ${i} 正文`).first()).toBeVisible({ timeout: 15_000 });
   }
@@ -493,10 +490,8 @@ test("long conversation: snapshot tail window, virtualization, loadOlder, back-t
 
 test("fs tools: write approval card, allow, read line numbers", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByTestId("composer-input");
-  await expect(textarea).toBeVisible();
-  await textarea.fill("write and read a demo file");
-  await textarea.press("Enter");
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await sendPrompt(page, "write and read a demo file");
 
   // write 非只读 → 审批卡（fail-closed 默认）；收答放行
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
@@ -527,10 +522,8 @@ test("fs tools: write approval card, allow, read line numbers", async ({ page })
 
 test("per-tool card: bash terminal card via keyed registration", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByTestId("composer-input");
-  await expect(textarea).toBeVisible();
-  await textarea.fill("run a bash command");
-  await textarea.press("Enter");
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await sendPrompt(page, "run a bash command");
 
   // bash 非只读 → 审批卡 → 允许
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
@@ -558,10 +551,8 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
 
 test("E6 approval card: diff preview, session allow, second call skip", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByTestId("composer-input");
-  await expect(textarea).toBeVisible();
-  await textarea.fill("edit two files please");
-  await textarea.press("Enter");
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await sendPrompt(page, "edit two files please");
 
   // 审批卡：edit 形状参数 → per-tool 预览体（diff add 行）+ 三选项集（bash 族才不提供本会话允许）
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
@@ -589,10 +580,8 @@ test("E6 approval card: diff preview, session allow, second call skip", async ({
 
 test("R184 ask_user: question card answer and cancel", async ({ page }) => {
   await page.goto(server.url);
-  const textarea = page.getByTestId("composer-input");
-  await expect(textarea).toBeVisible();
-  await textarea.fill("ask me a question");
-  await textarea.press("Enter");
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await sendPrompt(page, "ask me a question");
 
   // 提问接管输入座位（chain priority 5）：bar 隐藏但挂载
   const card = page.getByRole("dialog", { name: zh["question.title"] });
@@ -621,8 +610,7 @@ test("R184 ask_user: question card answer and cancel", async ({ page }) => {
   await shot(page, "r184-02-question-trace.png");
 
   // 第二次提问 → 取消整个请求（工具收 Error、回合继续）
-  await textarea.fill("ask me again");
-  await textarea.press("Enter");
+  await sendPrompt(page, "ask me again");
   const card2 = page.getByRole("dialog", { name: zh["question.title"] });
   await expect(card2).toBeVisible();
   await card2.getByRole("button", { name: zh["question.cancel"] }).click();
@@ -636,10 +624,8 @@ test("R192 question card: header pager stays put; single-select custom is exclus
   page,
 }) => {
   await page.goto(server.url);
-  const textarea = page.getByTestId("composer-input");
-  await expect(textarea).toBeVisible();
-  await textarea.fill("ask me two questions");
-  await textarea.press("Enter");
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await sendPrompt(page, "ask me two questions");
 
   const card = page.getByRole("dialog", { name: zh["question.title"] });
   await expect(card).toBeVisible();
@@ -736,16 +722,14 @@ test("R176: zero list requests while streaming + cross-window push sync", async 
   let page2: Page | undefined;
   try {
     await page.goto(srv.url);
-    const textarea = page.getByTestId("composer-input");
-    await expect(textarea).toBeVisible();
+    await expect(page.getByTestId("composer-input")).toBeVisible();
     // 首载请求落定（SSE 长连接使 networkidle 永不成立——短等后取基线）
     await page.waitForTimeout(700);
     const baseline = listHits.length;
     expect(baseline).toBeGreaterThan(0); // 开局各拉一次（会话 + 目录）
 
     // ① 本窗流式回合：全程列表零请求
-    await textarea.fill("stream please");
-    await textarea.press("Enter");
+    await sendPrompt(page, "stream please");
     await expect(page.locator(".henira-streaming")).toBeVisible();
     await page.waitForTimeout(300);
     expect(listHits.length).toBe(baseline);
@@ -765,9 +749,7 @@ test("R176: zero list requests while streaming + cross-window push sync", async 
 
     // ③ 页 B 跑回合 → 页 A busy 点推送翻内存（零列表请求）
     const hitsBeforeStream = listHits.length;
-    const textarea2 = page2.getByTestId("composer-input");
-    await textarea2.fill("stream in window two");
-    await textarea2.press("Enter");
+    await sendPrompt(page2, "stream in window two");
     await expect(page.getByLabel(zh["sessions.busy"])).toBeVisible(); // 页 A 收到状态推送
     await expect(page2.getByText(FINAL_TEXT)).toBeVisible();
     await expect(page.getByLabel(zh["sessions.busy"])).toHaveCount(0);

@@ -10,21 +10,13 @@ import { mockFinish, mockLlm, mockText, mockUsage } from "@henira/llm-mock";
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
 
 async function shot(page: Page, name: string): Promise<void> {
   await fs.mkdir(ARTIFACTS, { recursive: true });
   await page.screenshot({ path: path.join(ARTIFACTS, name) });
-}
-
-/** 填草稿 → 发送钮可用（草稿进 React + 会话 id 就绪）→ Enter → 草稿清空（CI 慢机空提交防线） */
-async function sendPrompt(page: Page, text: string): Promise<void> {
-  const area = page.getByTestId("composer-input");
-  await area.fill(text);
-  await expect(page.locator(".henira-composer-card button.henira-primary")).toBeEnabled();
-  await area.press("Enter");
-  await expect(area).toHaveValue("", { timeout: 5_000 });
 }
 
 async function startServer(): Promise<{ server: HeniraServer; stop: () => Promise<void> }> {

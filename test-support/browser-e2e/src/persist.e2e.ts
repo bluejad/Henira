@@ -10,6 +10,7 @@ import { type MockEntry, mockFinish, mockLlm, mockText } from "@henira/llm-mock"
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
 const DRAFT = "persistent draft text";
@@ -127,9 +128,8 @@ test("刷新还原（D-063 判据①）：上次选中 + 草稿 + 侧栏宽 + �
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
     // 先造正文一行（刷新后必须在场的回归锚——selftest8：boot 还原曾只摆选中不补拉快照）
+    await sendPrompt(page, "persist seed");
     const area = page.getByTestId("composer-input");
-    await area.fill("persist seed");
-    await area.press("Enter");
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
     // 草稿（A 的文档）→ 防抖落盘轮询
     await area.fill(DRAFT);
@@ -201,9 +201,8 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await rowA.click();
     await expect(activeRow(page)).toContainText("persist-a");
     // 先造正文一行（重启后必须在场的回归锚）
+    await sendPrompt(page, "persist seed");
     const area = page.getByTestId("composer-input");
-    await area.fill("persist seed");
-    await area.press("Enter");
     await expect(page.getByText(HISTORY_TEXT)).toBeVisible({ timeout: 15_000 });
     await area.fill(DRAFT);
     await waitUiStateOnDisk(ctx.dataDir, (doc) => doc.draft === DRAFT);
@@ -228,9 +227,7 @@ test("重启还原（D-063 判据②）：同 dataDir 新 server 实例选中/�
     await page.locator(".henira-sessions li button", { hasText: "persist seed" }).click();
     await expect(page.getByTestId("composer-input")).toHaveValue(DRAFT); // 草稿跨重启
     // 重启续聊（懒挂载 attach）：历史会话发消息不再 404——回复行落定
-    const area2 = page.getByTestId("composer-input");
-    await area2.fill("continue after restart");
-    await area2.press("Enter");
+    await sendPrompt(page, "continue after restart");
     await expect(page.getByText(RESTART_TEXT)).toBeVisible({ timeout: 15_000 });
     await shot(page, "18-persist-restart.png");
   } finally {

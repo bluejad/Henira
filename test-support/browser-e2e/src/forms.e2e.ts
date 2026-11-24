@@ -20,6 +20,7 @@ import type { StreamEvent, ToolDefinition } from "@henira/protocol";
 import { LlmError } from "@henira/protocol";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { sendPrompt } from "./send-prompt.js";
 
 const USAGE = { inputTokens: 7, outputTokens: 3 };
 
@@ -63,9 +64,7 @@ async function startServer(
 }
 
 async function send(page: Page, text: string): Promise<void> {
-  const area = page.getByTestId("composer-input");
-  await area.fill(text);
-  await area.press("Enter");
+  await sendPrompt(page, text);
 }
 
 /** 会话 id（插话 steer 端点要用） */
