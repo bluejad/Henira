@@ -89,6 +89,9 @@ export interface LlmRequest {
   maxTokens?: number;
   /** 思考档（按次覆盖；适配器按厂商能力映射到请求参数，none 厂商忽略） */
   reasoningEffort?: ReasoningEffort;
+  /** 本请求所属会话（不透明；只供厂商要求的「每对话稳定」路由/缓存头使用，如
+   * opencode 家族的 x-opencode-session——适配器不得用它做任何语义决策） */
+  sessionId?: string;
 }
 
 /** tools.project() 的产物 = 模型可见清单形状 */

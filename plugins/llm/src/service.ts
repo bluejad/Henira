@@ -18,6 +18,7 @@ import { jsonSchema, streamText } from "ai";
 import { resolveIdleTimeoutMs, withIdleTimeout } from "./idle-stream.js";
 import { toAiInstructions, toAiMessages } from "./messages.js";
 import { resolveLanguageModel } from "./provider.js";
+import { sessionHeadersFor } from "./session-headers.js";
 import { StreamEventMapper } from "./stream-parts.js";
 
 /** 占 'llm' 槽的官方插件定义（inject config：凭据唯一通道，D-013②） */
@@ -30,7 +31,11 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
       const service: LlmService = {
         async *stream(req: LlmRequest, signal: AbortSignal): AsyncGenerator<StreamEvent> {
           const apiKey = await config.credential(req.model.provider);
-          const model = resolveLanguageModel(req.model, { apiKey });
+          // 厂商自动会话头（OpenCode Go）：按 baseUrl 判定，每 request 现算——不进配置缓存
+          const model = resolveLanguageModel(req.model, {
+            apiKey,
+            headers: sessionHeadersFor(req.model.baseUrl, req.sessionId),
+          });
           const mapper = new StreamEventMapper();
           // 空闲看门狗（R193）：provider 静默上限（settings 可配，默认 180s）。
           // 掐流走 fused controller——用户中断（signal）与超时（看门狗）都汇到同一 abort 源

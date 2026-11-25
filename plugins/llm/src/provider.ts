@@ -8,6 +8,9 @@ import type { ModelConfig } from "@henira/protocol";
 export interface ProviderRuntime {
   /** 适配器运行期唯一网络依赖注入点：密钥由调用方从 ConfigService 取（D-013② / D-030） */
   apiKey: string;
+  /** 厂商要求的请求头（当前唯一消费者：opencode Go 的 x-opencode-session——会话级稳定值，
+   * 每 request 计算，不进配置缓存） */
+  headers?: Record<string, string>;
 }
 
 export function resolveLanguageModel(
@@ -25,6 +28,9 @@ export function resolveLanguageModel(
     name: config.provider,
     baseURL: config.baseUrl,
     apiKey: runtime.apiKey,
+    ...(runtime.headers !== undefined && Object.keys(runtime.headers).length > 0
+      ? { headers: runtime.headers }
+      : {}),
   });
   return provider.chatModel(config.model);
 }

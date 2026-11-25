@@ -12,7 +12,7 @@ import {
 } from "@henira/llm-mock";
 import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
-import { asHeniraContext, type Decision, type LlmService } from "@henira/protocol";
+import { asHeniraContext, type Decision, type LlmRequest, type LlmService } from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 整链装配的真实插件只有 session / tools / loop 自身；llm = mockLlm（脚本驱动），
@@ -86,13 +86,23 @@ async function startedLoop(
   script: Parameters<typeof mockLlm>[0],
   maxStepsPerTurn?: number,
   toolOverride?: ToolDefinition,
+  seen?: LlmRequest[],
 ) {
   const mock = mockLlm(script);
+  const llm: LlmService =
+    seen === undefined
+      ? mock.service
+      : {
+          async *stream(req, signal) {
+            seen.push(req);
+            yield* mock.service.stream(req, signal);
+          },
+        };
   const sessionDir = path.join(root, "sess");
   const harness = createHarness()
     .use(sessionPlugin({ directory: sessionDir, cwd: root }))
     .use(toolsPlugin({}))
-    .use(llmStub(mock.service))
+    .use(llmStub(llm))
     .use(approvalStub())
     .use(interactionStub())
     .use(configStub())
@@ -137,6 +147,28 @@ describe("turn/step 状态机（loop.md §1）", () => {
         : (header.data as { toolNames: string[]; systemPromptHash: string });
     expect(headerData?.toolNames).toEqual(["read"]);
     expect(headerData?.systemPromptHash).toHaveLength(16);
+    await harness.dispose();
+  });
+
+  it("每次模型请求携带会话 id（厂商路由头取值；多步回合内不变）", async () => {
+    const seen: LlmRequest[] = [];
+    const { harness, loop, session } = await startedLoop(
+      [
+        [
+          mockToolCall("c1", "read", '{"path":"a.txt"}'),
+          mockUsage(USAGE),
+          mockFinish("tool-calls"),
+        ],
+        [mockText("完成"), mockUsage(USAGE), mockFinish("stop")],
+      ],
+      undefined,
+      undefined,
+      seen,
+    );
+    await collect(loop.run("读一下"));
+    const sessionId = session.header().id;
+    expect(seen).toHaveLength(2);
+    expect(seen.map((req) => req.sessionId)).toEqual([sessionId, sessionId]);
     await harness.dispose();
   });
 

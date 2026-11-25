@@ -23,6 +23,7 @@ describe("reasoningCapability（provider id 前缀 → 参数形状族）", () =
   it("deepseek → thinking-effort（开关+effort）；agnes → template-enable（chat_template_kwargs）", () => {
     expect(reasoningCapability("deepseek")).toBe("thinking-effort");
     expect(reasoningCapability("agnes")).toBe("template-enable");
+    expect(reasoningCapability("opencode-go")).toBe("effort-only"); // 网关聚合族
     // 未知厂商仍 none（不造假参数）
     expect(reasoningCapability("totally-unknown")).toBe("none");
     // 大小写归一（provider id 手写来源）
@@ -66,12 +67,37 @@ describe("reasoningLevels（档位集合数据驱动；缺省形状表兜底）"
   it("仅 budget 声明（未接）→ 空集合（置灰，不造参数）", () => {
     expect(reasoningLevels("effort", [{ type: "budget", min: 1024, max: 20480 }])).toEqual([]);
   });
+
+  it("effort-only 网关族（opencode-go）：effort 数据才出档；toggle/空/缺省一律置灰（不发猜的开关参数）", () => {
+    // Space Bunny：low/medium/high/xhigh/max → 关/低/中/高/最高（xhigh 归「高」）
+    expect(
+      reasoningLevels("effort-only", [
+        { type: "effort", values: ["low", "medium", "high", "xhigh", "max"] },
+      ]),
+    ).toEqual(["off", "low", "medium", "high", "max"]);
+    // kimi-k3 只有 max
+    expect(reasoningLevels("effort-only", [{ type: "effort", values: ["max"] }])).toEqual([
+      "off",
+      "max",
+    ]);
+    // 网关 toggle 模型（hy3/longcat）与 supported-only：没有可发参数 → 灰
+    expect(reasoningLevels("effort-only", [{ type: "toggle" }])).toEqual([]);
+    expect(reasoningLevels("effort-only", [])).toEqual([]);
+    expect(reasoningLevels("effort-only")).toEqual([]);
+    expect(reasoningLevels("effort-only", [{ type: "budget", max: 1024 }])).toEqual([]);
+  });
 });
 
 describe("reasoningParams（形状 × 档位 → 请求体附加参数；none/无效 = 不透传）", () => {
   it("effort 族：非 off 直映 reasoning_effort；off 不透传（openai 系无该档）", () => {
     expect(reasoningParams("effort", "high")).toEqual({ reasoning_effort: "high" });
     expect(reasoningParams("effort", "off")).toBeUndefined();
+  });
+
+  it("effort-only 族（opencode-go）：同 effort 形状——reasoning_effort 直传，off 不发", () => {
+    expect(reasoningParams("effort-only", "high")).toEqual({ reasoning_effort: "high" });
+    expect(reasoningParams("effort-only", "max")).toEqual({ reasoning_effort: "max" });
+    expect(reasoningParams("effort-only", "off")).toBeUndefined();
   });
 
   it("thinking 族：关=disabled、其余=enabled（档位级别 glm 侧不细分）", () => {

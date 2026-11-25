@@ -47,6 +47,8 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     model: modelConfig,
     messages,
     tools: wireTools,
+    // 会话 id 只给适配器做厂商路由头（opencode 家族要求每对话稳定值；语义决策不归它）
+    sessionId: session.header().id,
     ...(opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
   };
   await session.append({

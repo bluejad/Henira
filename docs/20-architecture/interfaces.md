@@ -189,6 +189,9 @@ interface LlmRequest {
   tools: WireToolSchema[]; // 本请求投影给模型的工具清单
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: ReasoningEffort; // 思考档（按次覆盖）
+  sessionId?: string; // 本请求所属会话（不透明）：只供厂商要求的每对话稳定头使用，
+                      // 如 opencode Go 的 x-opencode-session（D-090）；适配器不得用它做语义决策
 }
 
 interface WireToolSchema { // tools.project() 的产物 = 模型可见清单形状
@@ -779,6 +782,8 @@ interface SettingsData {
 }
 interface CatalogModel {
   // 选择器单模型条目（收敛批 2026-11-19 条目化——裸 string id 退场）
+  // 目录已投影：非 chat / 不支持工具 / 模型级别族协议（sdk 覆盖）/ responses / 网关已下架
+  // 的模型不出现（D-090 修订，2026-11-25——判据全部来自 models.dev v1 字段）
   id: string;
   name?: string; // 显示名（快照 name）
   contextWindow?: number;
@@ -794,7 +799,9 @@ interface ModelCatalog {
     string,
     { name?: string; baseUrl?: string; reasoning?: ReasoningCapability; models?: CatalogModel[] }
   >; // reasoning = 思考参数形状族（合同层形状表：effort/thinking/enable/template-enable/
-  //   thinking-effort/none——只管「参数怎么写进请求体」；档位有无看模型条目 reasoningOptions）
+  //   thinking-effort/effort-only/none——只管「参数怎么写进请求体」；档位有无看模型条目
+  //   reasoningOptions。effort-only=网关聚合族（opencode-go，D-090）：只有 effort 数据才出档，
+  //   toggle/空一律置灰——网关没有可发的开关参数）
 }
 interface ProviderCatalogEntry {
   // GET /api/providers（管理分组——模型管理页主视图数据源）
