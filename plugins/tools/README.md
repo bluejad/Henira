@@ -25,12 +25,12 @@ ctx.get("tools").register(myTool); // start 后注册工具（ToolDefinition）
 
 ## 文件 ↔ 设计
 
-| 文件        | 职责                                                                                                                                                                                                                                                                 | 设计出处                            |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| registry.ts | 注册查重 + ajv（draft-07）装载期编译——运行期参数校验用同一份编译产物；DuplicateToolError / InvalidToolSchemaError                                                                                                                                                    | D-044 / tools-approval §2 parseArgs |
-| pipeline.ts | 五段管线逐字落地：parseArgs → pre-execute（waterfall，GateVerdict 单调合并 deny > ask > allow）→ 判定链（requestPermission，抛错 fail-closed）→ execute（abort 竞速：未启动即中止、已启动等自报结果；超时可选）→ post-execute；批执行 cap 10、连续安全并行、顺序回写 | tools-approval §2 / §2.1            |
-| limits.ts   | 统一出口限量：默认 2000 行 / 50KB；截断在码点边界（不切代理对）；超限完整输出落盘留路径 + 头部预览 + 截断尾注（P2 可见）                                                                                                                                             | tools-approval §1.1                 |
-| service.ts  | toolsPlugin（占 'tools' 槽，无 inject——判定链由 ToolContext 注入）                                                                                                                                                                                                   | packages.md / tools-approval §1     |
+| 文件        | 职责                                                                                                                                                                                                                                                                               | 设计出处                            |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| registry.ts | 注册查重 + ajv（draft-07）装载期编译——运行期参数校验用同一份编译产物；DuplicateToolError / InvalidToolSchemaError                                                                                                                                                                  | D-044 / tools-approval §2 parseArgs |
+| pipeline.ts | 五段管线逐字落地：parseArgs → pre-execute（waterfall，GateVerdict 单调合并 deny > ask > allow）→ 判定链（requestPermission 带真实 callId，抛错 fail-closed）→ execute（abort 竞速：未启动即中止、已启动等自报结果；超时可选）→ post-execute；批执行 cap 10、连续安全并行、顺序回写 | tools-approval §2 / §2.1            |
+| limits.ts   | 统一出口限量：默认 2000 行 / 50KB；截断在码点边界（不切代理对）；超限完整输出落盘留**相对会话目录**的路径（`artifacts/<callId>.txt`）+ 头部预览 + 截断尾注（P2 可见 / D-085）                                                                                                      | tools-approval §1.1                 |
+| service.ts  | toolsPlugin（占 'tools' 槽，无 inject——判定链由 ToolContext 注入）                                                                                                                                                                                                                 | packages.md / tools-approval §1     |
 
 ## 测试 ↔ 判据
 

@@ -5,7 +5,7 @@
 // getSession 返回缓存对象（版本化）——useSyncExternalStore 要求引用稳定。
 
 import type { Delta, Row, ServerFrame, SessionSnapshot, SessionState } from "@henira/protocol";
-import { formatSessionTitle } from "@henira/protocol";
+import { deriveSessionTitle, formatSessionTitle } from "@henira/protocol";
 
 export interface SessionView {
   rows: readonly Row[];
@@ -61,6 +61,11 @@ export class RowStore {
     return this.#sessions.has(sessionId);
   }
 
+  /** 按 rowId 取行（订阅过滤 row.delta 的 kind/turn 判定；O(1)） */
+  getRow(sessionId: string, rowId: string): Row | undefined {
+    return this.#sessions.get(sessionId)?.byId.get(rowId);
+  }
+
   /** 历史前插（loadOlder）：页行按 rowSeq 过滤只收窗口首行之前、按 rowId 去重后前插——
    *  ZCode mergeOlderRows 同语义（防复活已删行 / 防重复合并）；无新行返回 false 不触发订阅 */
   mergeOlderRows(sessionId: string, page: readonly Row[]): boolean {
@@ -99,7 +104,7 @@ export class RowStore {
     session.rows = [...snapshot.rows];
     session.byId = new Map(snapshot.rows.map((row) => [row.rowId, row]));
     session.state = { ...snapshot.state };
-    session.title = snapshot.title;
+    session.title = snapshot.title ?? deriveSessionTitle(snapshot.rows);
     session.lastSeq = snapshot.seq;
     // totalRows = 全序行数，此后客户端自持（delta 追加自增、前插不变）——快照帧只在连接时发，
     // 跨过窗口边界时 hasOlder 无帧通知 → hasOlder 改派生（totalRows > rows.length），永不过期

@@ -68,7 +68,7 @@
 - [x] 示例会话（mock）跑完 fs+shell 工具流（**✓ 批 B 2026-11-20**：examples/mock e2e「判据②」write → read → edit → bash 全链，`pnpm --filter @henira/example-mock test`）
 - [x] 能力服务装载强制有测试：工具件声明注入的服务不在场 → 不装载 + 告警；关掉 fs 服务件 → fs 工具全体缺席、系统照跑（D-049）（**✓ 批 B 2026-11-20**：server.test「能力服务装载强制」+ facade.test 双形态同语义；宿主装配层预检对官方 preset 条目同规——kernel start() 静态检查为最后防线）
 - [ ] 插件管理面：坏插件告警可见；版本切换、卸载（默认保留数据）、数据区删除正确；无导入 / 市场入口（D-019 / D-029）
-- [ ] UI 门面：示例插件 UI 用 `sendPrompt` / `onTurnFinished` / `useResource` 跑通；事件订阅双向流有测试（D-042：类型过滤 / 有界队列背压 / 终局必达）
+- [x] UI 门面：示例插件 UI 用 `sendPrompt` / `onTurnFinished` / `useResource` 跑通；事件订阅双向流有测试（D-042：类型过滤 / 有界队列背压 / 终局必达）（**✓ R202 / D-085 2026-11-24**：`subscribe` 帧级词表（Row.kind / turnId）+ 每订阅者队列 + 终局必达、`onTurnFinished` 当前会话 own-send 映射；`test-support/browser-e2e/src/facade.e2e.ts` 第三方探针插件真浏览器跑 `sendPrompt` / `onTurnFinished` / types 过滤（**R203 / D-086**：连发两句——第二句入队，账本 `queueId` 回声对回后双回执）；`useResource` 由 C5 MCP 管理面消费）
 - [x] 执行中向用户提问（R184 / D-074）：`ask_user` 专用工具（与审批分离，答案即工具结果）＋ 提问卡（单选 / 多选 / 自定义 / 多题分页 / Esc 取消 / IME 守卫）＋ 痕迹行问答对 ＋ 重启修复收口；server REST + SDK 双形态 + 浏览器 e2e（答题 + 取消）+ 真 key 活体（明暗双主题）
 - [x] 浏览器 e2e 通过（Playwright 无头 chromium，进 CI）：serve 起服务 → 无头浏览器连入 → 发回合 → 断言行流式渲染 → 审批卡收答；截图留档（流式中 / 完成 / 审批卡 / 明暗双主题）——jsdom 组件级测试不替代本条（`test-support/browser-e2e` serve.e2e.ts 两用例；落地时真浏览器抓修三 bug——?ui=safe 入口漏接线 / 开场选会话未同步 Shell / 暗色变量组 :root 容器错位，见 4f3a86b；CI 绿 run 44019290772 + 截图 artifact 留档）
 - [ ] 界面优化一轮落地：视觉打磨 + markdown 渲染，优化前后截图对照、人眼拍板（界面 = v0.1.0 门面）

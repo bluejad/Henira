@@ -123,11 +123,12 @@ function requestPermission(req: PermissionRequest): Promise<Decision>;
 
 ### 3.3 PermissionRequest 载荷（定稿 · 2026-11-14，D-046）
 
-- **载荷 = `{ tool, args（完整原样）, reason? }`**：引擎一字不加工——判定链、审计事件对、重连重放用同一份全文（Claude Code 权限回调收全 input 同款，行为层观察）；
+- **载荷 = `{ tool, args（完整原样）, reason?, callId? }`**：引擎一字不加工——判定链、审计事件对、重连重放用同一份全文（Claude Code 权限回调收全 input 同款，行为层观察）；`callId` 由 tools 管线填真实 `tool/call` id（R202 / D-085）；
 - **显示归界面 UI**：折叠 / 展开 / 高亮是**展示裁剪**，不是转述——卡上可以只露"写入 bar.ts（约 2000 行）+ 头部预览 + 展开按钮"，数据全文永远在载荷里；引擎层造摘要没有一家做（摘要是转述层，写错 = 骗批准）；
 - **挂起请求自足可渲染**（args 在载荷里）：断线重连、多窗口重放同一张卡（P5 既有设计）；
 - `displayReason`（dsh `user-approval/types.ts:72`，仅展示不入审计）不进 v1 载荷——M2 落码时按卡片可读性再定是否补可选字段。
 - **落码归位（E6，2026-11-21）**：实现初版把 `approval/asked` 落成 12 位 digest（偏离本条备注），E6 批对齐——**审计事件对照记全文**（`args` 完整原样 + `reason`），digest 保留作关联指纹；凭据经架构保证不进 args（`${credential}` 展开只在 MCP 配置装载），`tool/call.arguments` 全文进账本早已是既有实践，D-030 面不新增。**「挂起请求自足可渲染」自此成立**：行模型携带 args 全文，断线重连 / 多窗口重放同一张卡。
+- **超限降级（R202 / D-085）**：args 序列化 >256KB 或不可序列化时，approval 服务侧丢弃 args（digest 保留）；`approval/asked` 与 `ApprovalRow` 携带真实 `callId`，卡片按此从同会话 `tool/call` 行回查参数——挂起卡仍自足；行不在窗口内才回落 digest-only。正常尺寸仍走全文（不新增 argsPreview）。
 - **审计与呈现分层（E3 实锤，2026-11-21）**：默认放行层 / 规则层 / 会话折叠的 `decided` 审计**无 asked 配对**——投影层不为其产会话行（自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行）；只有真问过（answerer 路径）的审批对才有行。审计住账本，呈现归 UI。
 
 ### 3.4 审批卡呈现（定稿 · 2026-11-21，E6）

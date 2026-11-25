@@ -71,6 +71,8 @@ export class Projection {
           turn: data.turn as string,
           text: data.content as string,
           source: data.source as string,
+          // D-086：排队回执对账键（只在队列冲刷回合出现；旧账本无字段同义）
+          ...(typeof data.queueId === "string" ? { queueId: data.queueId } : {}),
           time: event.time,
         };
         this.push(row);
@@ -274,6 +276,8 @@ export class Projection {
           step: data.step as number,
           requestId: data.requestId as string,
           toolName: data.tool as string,
+          // 真实 tool/call id（R202/D-085）：超限 args 丢弃后卡片按此回查 tool 行
+          ...(typeof data.callId === "string" ? { callId: data.callId } : {}),
           argsSummary: data.argsDigest as string,
           // args/reason 完整原样透传（E6，D-046 归位——透传不解释，预览窄化归 UI）
           ...(data.args !== undefined ? { args: data.args as ApprovalRow["args"] } : {}),

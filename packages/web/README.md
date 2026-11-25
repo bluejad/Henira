@@ -27,18 +27,21 @@ await app.dispose();
 
 ## 文件 ↔ 设计
 
-| 文件                   | 职责                                                                                                                    | 设计出处                             |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| store.ts               | 行 store：快照整体替换 + 封闭增量应用 + 断档不猜（跳号 / 缺行 → 重拉快照）；版本化视图（useSyncExternalStore 引用稳定） | interfaces.md server 段 SSE          |
-| host.ts                | createWebApp：帧流消费 / PluginUiHost 门面 / UI 模块激活与安全模式切换 / 槽位挂根 / 双击 Alt                            | D-043 / 判据④ / packages.md 槽位归属 |
-| slot-registry.ts       | 槽位登记簿：registerSlot（list 追加/order）+ replaceSlot（官方顶替/卸载回落）+ chain 登记与选举                         | D-057 / D-048 / D-062 / R182         |
-| slot-vocabulary.ts     | 桌面 web 槽位词表与未知槽处置（词表外告警忽略；keyed 前缀识别）                                                         | D-033 / D-057 / D-062 / R186         |
-| markdown.ts            | 正文 markdown 渲染（GFM / raw HTML 不渲染；settled 臂单实例一次成型）                                                   | D-057 正文不可插 / R188              |
-| streaming-markdown.tsx | 流式增量 markdown：已完成顶层块按源偏移冻结复用，每帧只重渲尾段                                                         | R160 E2 流式增量管线                 |
-| streaming-reveal.ts    | 逐词淡入排期纯函数（Intl.Segmenter + EWMA 估速 + 滞后窗）                                                               | E3 生命感 / R165                     |
-| resource-pump.ts       | useResource 数据泵：同地址一份泵、2s 共享轮询、引用计数、失败保旧                                                       | D-064 / 判据⑤                        |
-| ui-state-sanitize.ts   | 会话 ui-state 落盘前净化（内联 data: URI 图片 tab 剔除，避免 64KB 上限）                                                | D-063 / R188 审查                    |
-| main.tsx               | 自托管 SPA 入口（同源 client + 全布局；`?ui=safe` / token 解析）                                                        | D-037 / 判据④                        |
+| 文件                   | 职责                                                                                                                                                           | 设计出处                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| store.ts               | 行 store：快照整体替换 + 封闭增量应用 + 断档不猜（跳号 / 缺行 → 重拉快照）；版本化视图（useSyncExternalStore 引用稳定）；`getRow` 供订阅过滤 / 快照 title 兜底 | interfaces.md server 段 SSE          |
+| host.ts                | createWebApp：帧流消费 / PluginUiHost 门面（订阅队列 / onTurnFinished / ui.slots 校验）/ UI 模块激活与安全模式切换 / 槽位挂根 / 双击 Alt                       | D-043 / 判据④ / packages.md 槽位归属 |
+| slot-registry.ts       | 槽位登记簿：registerSlot（list 追加/order）+ replaceSlot（官方顶替/卸载回落）+ chain 登记与选举                                                                | D-057 / D-048 / D-062 / R182         |
+| slot-vocabulary.ts     | 桌面 web 槽位词表与未知槽处置（词表外告警忽略；keyed 前缀识别）                                                                                                | D-033 / D-057 / D-062 / R186         |
+| subscribe-queue.ts     | 订阅队列：types / turnId 过滤、连续 delta 合并、有界队列满则先冲刷、终局必达                                                                                   | D-042 / D-085 / R202                 |
+| turn-finished.ts       | onTurnFinished 记账：按会话的发起/收口信用（先记后发、排队回执等账本 queueId 回声对回、每会话一次、重连清信用并按快照 busy 对账）                              | D-028 / D-085 / D-086                |
+| ui-slot-audit.ts       | `ui.slots` 声明 vs 实际注册双向比对（unknown / 死声明 / 漏声明；只告警不阻断）                                                                                 | D-031 / D-085 / R202                 |
+| markdown.ts            | 正文 markdown 渲染（GFM / raw HTML 不渲染；settled 臂单实例一次成型）                                                                                          | D-057 正文不可插 / R188              |
+| streaming-markdown.tsx | 流式增量 markdown：已完成顶层块按源偏移冻结复用，每帧只重渲尾段                                                                                                | R160 E2 流式增量管线                 |
+| streaming-reveal.ts    | 逐词淡入排期纯函数（Intl.Segmenter + EWMA 估速 + 滞后窗）                                                                                                      | E3 生命感 / R165                     |
+| resource-pump.ts       | useResource 数据泵：同地址一份泵、2s 共享轮询、引用计数、失败保旧                                                                                              | D-064 / 判据⑤                        |
+| ui-state-sanitize.ts   | 会话 ui-state 落盘前净化（内联 data: URI 图片 tab 剔除，避免 64KB 上限）                                                                                       | D-063 / R188 审查                    |
+| main.tsx               | 自托管 SPA 入口（同源 client + 全布局；`?ui=safe` / token 解析）                                                                                               | D-037 / 判据④                        |
 
 ## 测试 ↔ 判据
 
@@ -48,6 +51,9 @@ await app.dispose();
 | host.test.tsx               | 正常装载三槽位在渲染（判据④正向）/ 安全模式同零件库 + 徽标 / layout=composer 挑件收起其余槽 |
 | slot-registry.test.ts       | 官方顶替 / 第三方冲突 / 卸载回落 / chain 选举与置替                                         |
 | slot-vocabulary.test.ts     | 词表名识别 / keyed 前缀 / 未知槽告警处置                                                    |
+| subscribe-queue.test.ts     | types / turnId 过滤 / delta 合并 / 满则冲刷 / 终局必达 / 回调抛错隔离                       |
+| turn-finished.test.ts       | 按会话信用：busy 沿一次 / 未见起点不扣 / 排队回声对回与隔离 / 跨会话不冒领                  |
+| ui-slot-audit.test.ts       | 未声明不校验 / 死声明 / 漏声明 / 未知挂载点 / 槽名归一                                      |
 | resource-pump.test.ts       | 同地址共享泵 / 引用计数 / 失败保旧                                                          |
 | markdown.test.tsx           | GFM / raw HTML 消毒 / 表格与代码块                                                          |
 | streaming-markdown.test.tsx | 冻结块复用 / 尾段重渲 / 未闭合围栏                                                          |

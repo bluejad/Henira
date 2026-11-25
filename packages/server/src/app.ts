@@ -21,6 +21,7 @@ import {
 import {
   DECISIONS,
   decodeUtf8Prefix,
+  deriveSessionTitle,
   looksBinary,
   PERMISSION_MODES,
   type PermissionRule,
@@ -211,11 +212,13 @@ export function createApp(deps: AppDeps): Hono {
     // 磁盘历史会话（本进程未装配）：从账本重建快照（真相兜底）
     const events = await deps.registry.ledgerEvents(id);
     if (events === undefined) return c.json({ error: "session not found" }, 404);
-    return c.json(
-      rebuildProjection(events).snapshot(id, deps.fanout.currentSeq(id), {
-        tailRows: SNAPSHOT_TAIL_ROWS,
-      }),
-    );
+    const projection = rebuildProjection(events);
+    const snap = projection.snapshot(id, deps.fanout.currentSeq(id), {
+      tailRows: SNAPSHOT_TAIL_ROWS,
+    });
+    // R202/D-085：磁盘快照与已装配会话同源派生标题（不再只靠前端 rows 兜底）
+    const title = deriveSessionTitle(projection.rows);
+    return c.json({ ...snap, ...(title !== undefined ? { title } : {}) });
   });
 
   // ── 行翻页（长会话历史：before = rowSeq 排他游标；轮边界补齐在 sliceRowsPage 共享实现）──

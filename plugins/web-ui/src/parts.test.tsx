@@ -1955,6 +1955,43 @@ describe("ApprovalCard", () => {
     expect(screen.queryByText("f.ts")).toBeNull();
   });
 
+  it("超限 args 丢弃 → 按真实 callId 从同会话 tool/call 行回查（R202/D-085）", () => {
+    const rows: Row[] = [
+      {
+        kind: "tool",
+        rowId: "t:t-1:1:c-9",
+        rowSeq: 1,
+        turn: "t-1",
+        step: 1,
+        callId: "c-9",
+        name: "edit",
+        status: "done",
+        input: JSON.stringify({ file_path: "f.ts", old_string: "alpha", new_string: "BETA" }),
+      },
+    ];
+    const ctx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows, state: { busy: false } }),
+        subscribe: () => () => {},
+      },
+    });
+    render(
+      <ApprovalCard
+        row={
+          {
+            ...pendingRow,
+            toolName: "edit",
+            callId: "c-9",
+            argsSummary: "digest-only",
+          } as ApprovalRow
+        }
+        ctx={ctx}
+      />,
+    );
+    expect(screen.getByText("f.ts")).toBeDefined();
+    expect(screen.getByText("BETA")).toBeDefined();
+  });
+
   it("队列计数徽标（E6）：queueTotal > 1 时显示「待审批 N」", () => {
     const ctx = fixtureCtx();
     render(<ApprovalCard row={pendingRow} ctx={ctx} queueTotal={3} />);

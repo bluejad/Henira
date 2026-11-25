@@ -72,6 +72,45 @@ describe("fork", () => {
     expect(s.events()).toHaveLength(2); // 源不补写
   });
 
+  it("半回合切点：开回合内无结果的 tool/call 先补合成 tool/result，再补 forked 收尾（D-085）", async () => {
+    const s = await openSession("half-tool");
+    await s.append(turnStart("t1"));
+    await s.append(user("t1", "hi"));
+    await s.append({ type: "step/start", data: { turn: "t1", step: 1 } });
+    await s.append({
+      type: "tool/call",
+      data: { turn: "t1", step: 1, callId: "c1", name: "read", arguments: '{"file_path":"a"}' },
+    });
+    await s.append({
+      type: "tool/call",
+      data: { turn: "t1", step: 1, callId: "c2", name: "read", arguments: '{"file_path":"b"}' },
+    });
+    // c1 已有结果；c2 在切点处仍悬挂
+    await s.append({
+      type: "tool/result",
+      data: { turn: "t1", step: 1, callId: "c1", isError: false, content: "ok", durationMs: 3 },
+    });
+    const child = await s.fork();
+    open.push(child);
+    expect(child.events().map((e) => e.type)).toEqual([
+      "turn/start",
+      "user/message",
+      "step/start",
+      "tool/call",
+      "tool/call",
+      "tool/result",
+      "tool/result", // c2 的合成结果
+      "turn/end",
+    ]);
+    const synthetic = child.events()[6];
+    const data = synthetic.data as { callId: string; isError: boolean; content: string };
+    expect(data.callId).toBe("c2");
+    expect(data.isError).toBe(true);
+    expect(data.content).toContain("[forked]");
+    expect((child.events()[7].data as { reason: string }).reason).toBe("forked");
+    expect(s.events()).toHaveLength(6); // 源不补写
+  });
+
   it("指定 atSeq：切在回合边界（已收尾）不触发补写，子会话从自洽状态继续", async () => {
     const s = await openSession("cut");
     await s.append(turnStart("t1"));

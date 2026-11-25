@@ -197,6 +197,7 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     const snapshot = await facade.snapshot(session.id);
     expect(snapshot.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
     expect(snapshot.state.busy).toBe(false);
+    expect(snapshot.title).toBe("问一句"); // R202/D-085：双形态快照同源派生 title
     void frames;
   });
 

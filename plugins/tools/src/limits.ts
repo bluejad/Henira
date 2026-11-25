@@ -33,6 +33,17 @@ export interface ExitLimitOptions {
   spillDir?: string;
   /** 落盘文件名（调用方按 callId 命名，如 "c1.txt"） */
   spillName?: string;
+  /** 相对路径基准（会话目录；data-directory「路径一律相对会话目录」）——truncated.path
+   *  与尾注都写相对此目录的 POSIX 路径（R202/D-085）；缺省只报文件名，绝不落绝对路径 */
+  spillRoot?: string;
+}
+
+/** 落盘路径 → 账本里的相对路径（POSIX 分隔符；缺基准退文件名） */
+function reportedSpillPath(fullPath: string, root: string | undefined, name: string): string {
+  if (root === undefined) return name;
+  const rel = path.relative(root, fullPath);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return name;
+  return rel.split(path.sep).join("/");
 }
 
 /**
@@ -70,14 +81,16 @@ export async function applyExitLimits(
 
   const preview = head.slice(0, 2000);
   let fullPath: string | undefined;
+  let reported: string | undefined;
   if (opts.spillDir && opts.spillName) {
     await fs.mkdir(opts.spillDir, { recursive: true });
     fullPath = path.join(opts.spillDir, opts.spillName);
     await fs.writeFile(fullPath, text, "utf8");
+    reported = reportedSpillPath(fullPath, opts.spillRoot, opts.spillName);
   }
-  const where = fullPath ?? "(no spill directory configured; full output not kept)";
+  const where = reported ?? "(no spill directory configured; full output not kept)";
   const content =
     `${head}\n[truncated] output exceeds limit (${lines.length} lines / ${Buffer.byteLength(text, "utf8")} bytes); ` +
     `head kept; full output: ${where}`;
-  return { content, truncated: fullPath ? { path: fullPath, preview } : undefined };
+  return { content, truncated: reported !== undefined ? { path: reported, preview } : undefined };
 }

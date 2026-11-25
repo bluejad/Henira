@@ -241,7 +241,7 @@ interface ToolResult {
 
 interface ToolOutcome {
   result: ToolResult;
-  truncated?: { path: string; preview: string }; // 超限落盘留路径（tools-approval §1.1）
+  truncated?: { path: string; preview: string }; // 超限落盘留路径（tools-approval §1.1；path 相对会话目录，如 `artifacts/<callId>.txt`——D-085）
   durationMs: number; // execute 段真实耗时；未到 execute 的链前拒/解析拒为 0（审计事实不造假）
 }
 
@@ -280,11 +280,12 @@ interface PostExecuteValue {
 
 type Decision = "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
-/** 审批载荷（D-046 定稿）：引擎一字不加工；显示折叠归界面 UI */
+/** 审批载荷（D-046 定稿 + R202 补 callId）：引擎一字不加工；显示折叠归界面 UI */
 interface PermissionRequest {
   tool: string;
   args: unknown; // 完整原样
   reason?: string;
+  callId?: string; // 真实 tool/call id（tools 管线填；approval/asked 原样落账，卡片超限回查用）
 }
 
 // 审批策略（D-013①：只管规则与 fail-closed，不碰 UI）
@@ -315,7 +316,7 @@ interface QuestionSpec {
 interface QuestionAnswer {
   id: string;
   selected: string[]; // 空数组 = 明确跳过
-  custom?: string; // 自定义输入（模型不得自带 Other——客户端恒提供；≤2000 字符、码点计长，UI/REST/引擎/账本同源上限——R186）
+  custom?: string; // 自定义输入（指令性：工具描述要求模型不自带 Other，引擎不校验——D-085；客户端恒提供；≤2000 字符、码点计长，UI/REST/引擎/账本同源上限——R186）
 }
 
 type InteractionRequest =
@@ -894,6 +895,7 @@ interface UserRow {
   turn: string;
   text: string;
   source: string; // 账本 user/message.source 原样（send / steer / veto / …开放词表，投影器不筛选）
+  queueId?: string; // 排队条目 id（R203/D-086：仅队列冲刷产生的回合在场——onTurnFinished 对账用）
   time?: number; // 消息时刻（账本 user/message 事件 time，epoch ms——用户行操作行时间戳，E4）
 }
 interface AssistantRow {
@@ -917,7 +919,7 @@ interface ToolRowOutput {
   content: string;
   isError: boolean;
   durationMs: number;
-  truncated?: { path: string; preview: string }; // 输出超限截断（preview 供 UI 展示头部，path 指完整输出落盘文件）
+  truncated?: { path: string; preview: string }; // 输出超限截断（preview 供 UI 展示头部；path 相对会话目录——如 `artifacts/<callId>.txt`，D-085）
   meta?: Record<string, unknown>; // 工具结果带外元数据（ToolResult.__meta 原样透传，账本 tool/result.meta 同源；不进模型上下文——E5；出口尺寸闸：序列化超 256KB 或不可序列化整体丢弃）
 }
 interface ToolRow {
@@ -948,8 +950,9 @@ interface ApprovalRow {
   step: number;
   requestId: string;
   toolName: string;
+  callId?: string; // 真实 tool/call id（R202/D-085）：approval/asked 原样携带；>256KB 丢 args 时卡片按此回查 tool 行参数
   argsSummary?: string; // argsDigest（关联指纹——同参同摘要；chain.test 锁定）
-  args?: unknown; // 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染，per-tool 预览体唯一数据源；**>256KB 或不可序列化时整体丢弃只留 argsDigest**（approval 服务侧闸，挂起卡此时不自足）；凭据经架构保证不进 args，approval/* 不进 derive）
+  args?: unknown; // 审批载荷 args 完整原样（E6，D-046「审计事件对照记全文」落码归位——挂起卡自足可渲染，per-tool 预览体唯一数据源；**>256KB 或不可序列化时丢弃**（approval 服务侧闸）；R202 起卡片按 callId 从同会话 tool/call 行回查，digest 作最后回落；凭据经架构保证不进 args，approval/* 不进 derive）
   reason?: string; // 引擎判定链解释原样（围栏区外访问等；仅呈现）
   status: "pending" | "settled";
   decision?: Decision | "invalidated"; // "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交（settle 端点 z.enum(DECISIONS) 不含它）
@@ -987,7 +990,7 @@ interface SessionState {
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
-  title?: string; // 会话标题（R188：首条非 breaker 用户消息；缺省 = 尚无用户消息）。**已装配会话**由快照派生；重启后磁盘会话的 GET snapshot / SDK snapshot 不派生 title——前端需从 rows 兜底
+  title?: string; // 会话标题（R188：首条非 breaker 用户消息；缺省 = 尚无用户消息）。快照统一从投影行派生——已装配会话、重启后磁盘会话的 GET snapshot、SDK runtime snapshot / 快照帧同源（R202/D-085）
   seq: number; // 该会话当前水位（此后增量帧 seq 单调 +1）——增量帧只动尾部窗口内的行
   rows: Row[]; // 尾部窗口（长会话只含最近段——历史经 /rows 翻页拉取，D-061）
   state: SessionState;
@@ -1020,7 +1023,7 @@ type ServerFrame =
 - 实时两路：①**账本追加**（宿主装饰组合接 `SessionHandle.append`——user / tool / result / approval / turn 生命周期等有身份的事实）；②**总线 loop/event 流式增量**（text / reasoning delta——刻意不落账的打字机碎片，挂到当前流式 assistant 行）；
 - 行构造纯函数共享：快照 = 从空投影顺序 apply 全部账本事件；增量 = 逐追加 apply；两路同一套行构造逻辑（一个词表，无第二 reducer）；
 - **步边界自愈**：`assistant/message` / `tool/result` / `approval/decided` / `question/settled` 落账即 `row.upserted` 整行替换，冲掉流式累积的任何漂移；**孤儿 `approval/decided`（无 asked 配对——默认放行层 / 规则层 / 会话折叠的审计）不投影行**：自动放行的工具调用不在对话流里留「权限请求 allowed-once」噪音行（E3 实锤——幽灵行既污染流又切断相邻聚合组），审计住账本不丢；**孤儿 `approval/invalidated` 与 `question/settled`（无 asked 配对）同款抑制**；
-- **重启收口**（R175；R184 扩提问）：serve 启动扫描全部账本（registry.repairLedgers，监听前）+ 开档（SessionStore.create）双路径执行同一修理——①seq 外科重排（append 串行化之前写者竞态留下的共享 seq 伤——保事件保行序只修 seq，删行会丢 decided 事实）②孤儿挂起审批补写 `approval/invalidated`、孤儿挂起提问补写 `question/settled{outcome:"invalidated"}`（修理专用，loop 与客户端都不发；事件自带 ignorable——旧读者透明跳过）③开回合补写 `turn/end{interrupted}`（time = 账本最后真实事件时间——轮耗时定格死亡时刻）。投影侧：invalidated → settled 痕迹行「已失效（服务重启）」；reason:"interrupted" 与 aborted 同享中断徽章 + interruptedKind:"restart" 分型 + 死亡步悬挂工具行（tool/call 无 result）收口为 error——幽灵审批卡 / 幽灵提问卡 / 假在跑工具卡 / 跨重启 busy 计时四族幽灵在结构上不可能从账本重放出来。**例外（挂账）**：任意 atSeq 半回合 fork 产生的 `turn/end{forked}` 重放后，悬挂工具行仍为 `status:"running"`（收口只覆盖 aborted/interrupted）；
+- **重启收口**（R175；R184 扩提问）：serve 启动扫描全部账本（registry.repairLedgers，监听前）+ 开档（SessionStore.create）双路径执行同一修理——①seq 外科重排（append 串行化之前写者竞态留下的共享 seq 伤——保事件保行序只修 seq，删行会丢 decided 事实）②孤儿挂起审批补写 `approval/invalidated`、孤儿挂起提问补写 `question/settled{outcome:"invalidated"}`（修理专用，loop 与客户端都不发；事件自带 ignorable——旧读者透明跳过）③开回合补写 `turn/end{interrupted}`（time = 账本最后真实事件时间——轮耗时定格死亡时刻）。投影侧：invalidated → settled 痕迹行「已失效（服务重启）」；reason:"interrupted" 与 aborted 同享中断徽章 + interruptedKind:"restart" 分型 + 死亡步悬挂工具行（tool/call 无 result）收口为 error——幽灵审批卡 / 幽灵提问卡 / 假在跑工具卡 / 跨重启 busy 计时四族幽灵在结构上不可能从账本重放出来。**fork 收口（R202 / D-085）**：任意 atSeq 半回合 fork 的子账本在 `turn/end{forked}` 前已为开回合内每个无结果的 `tool/call` 追加合成 `tool/result`（isError）——投影落 `status:"error"` 与说明文案，不再有永久 running 的假在跑卡；
 - **回合耗时**（E3 回合头）：`turn/start` 记账本 time、`turn/end` 结算 `durationMs` 入 `state.turnTimings`，E4 扩 `endedAt`（轮尾时间戳）与 `forkSeq`（turn/end 事件 seq——轮尾 fork 的账本切点）（事件时间戳取数——重放重建/重载后仍在；保留最近 50 轮）；**busy 段计时起点**（R173）：`state.busySince` 同取 turn/start time、turn/end 清除，前端「思考中」秒数优先此值——刷新/重连/换窗口续同一块表；
 - **行时间**（E4 轮尾/用户行操作行时间戳）：`user/message` / `assistant/message` 落账投影带 `time`（事件 time，epoch ms）——流式行与中止冻结行无权威落定故缺字段；**例外**：零文本中止/中断的合成行取 `turn/end` 事件 time（来源不是 assistant/message）；
 - seq 在扇出层按会话编发（快照帧携带当前水位，增量帧 +1 单调）；
@@ -1315,13 +1318,18 @@ interface UiModuleContext {
 interface PluginUiHost {
   // 对话：发起仍单口 sendPrompt；接收 = 双向事件流（D-042：订阅 opt-in、增量可并、终局必达）
   sendPrompt(text: string): Promise<TurnReceipt>; // ✓ M3
-  subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable; // ✓ M3
-  //   EventFilter = { sessionId?: string } —— 行词表帧流（ServerFrame）；
-  //   M3 实装 = 仅 sessionId 过滤（同步直发，无背压队列）；types / turnId 过滤与终局必达队列随插件批补；
-  //   R176：全局列表信号 sessions.changed 只投给不带 sessionId 过滤的订阅者（不属于任何会话）
-  onTurnFinished(cb: (result: TurnResult) => void): Disposable; // ✓ M3（终局便捷回调；M3 无 receipt 参数，任意会话 busy→false 回调）
-  //   M3 实装 = 简版：会话 busy 沿（true→false）即通知、恒 {ok:true}、无 own-receipt 过滤——
-  //   receipt 形（恰一次/终局映射 interrupted|error|submit_failed）随插件批升级（现无消费者）
+  subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable; // ✓ M3 / R202 完整契约
+  //   EventFilter = { sessionId?: string; types?: Row["kind"][]; turnId?: string } —— 行词表帧流（ServerFrame）；
+  //   types 只看行帧（snapshot 行同滤；state.updated 不受 types 影响）；turnId 过滤行帧、state.updated 仅在 lastTurnId 匹配时投递；
+  //   全局列表信号 sessions.changed 只投给不带 sessionId 且不带 turnId 的订阅者（R176）；
+  //   每订阅者一条有界队列（cap 256，满则先同步冲刷）/ 16ms 攒批 / 连续 row.delta 同 rowId+field 合并 /
+  //   结构·状态·快照帧必达（D-042：增量可并、终局必达）；cb 抛错只记日志，不拖死消费循环
+  onTurnFinished(cb: (result: TurnResult) => void): Disposable; // ✓ M3 / R202 语义升级 / R203 排队回执
+  //   只认当前会话 + 自己成功 sendPrompt 发起的回合：busy→false 触发一次，按 D-028 映射投递
+  //   （error 行 → error、assistant interrupted → interrupted、否则 {ok:true,text}）；
+  //   sendPrompt reject → submit_failed；排队条目经账本 `user/message.queueId` 回声对回（D-086）；
+  //   重连清空断线前信用、快照按 state.busy 对账（错过终局即出清）；删除 / 升格插话 /
+  //   promote 的条目不投（没有独立回合），重启前入队、断线重连前发起的不补投
   prefill(input: { chip?: string; text: string }): void; // ✓ M3 只回填不发送（web 宿主现空实现——官方输入框自管草稿，接线随命令进输入框批）
   renderMarkdown(text: string, opts?: { streaming?: boolean }): unknown; // ✓ M3 web 宿主返回 React 元素；M4 批 A 起 shiki 高亮（预装 js/ts/python/bash/json，流式中不高亮——delta 高频重渲下高亮留到回合完成）；E2 起 streaming=true 走增量臂（streaming-markdown：冻结已完成顶层块——元素按源偏移 key 只建一次引用复用、每帧只解析重渲尾段 2 块；非前缀输入整体重置），settled 全文单实例一次成型；已知取舍 = 跨冻结边界的链接引用定义流式期渲染为字面文本、settled 自愈，settle 时全文重渲一次（选区丢失一次）；R177 起外链新标签打开、相对链接不导航（`preventDefault`）、GFM 任务列表只读主题化；R188 起内联图片可点开预览（宿主按 ui.preview.image 路由）
   tokenizeCode?(
@@ -1334,7 +1342,7 @@ interface PluginUiHost {
   listPlugins(filter?: { category?: string }): Promise<PluginInfo[]>; // ✓ 批 C（GET /api/plugins；管理面数据源；category 过滤预留）
   listDir(path: string): Promise<DirEntry[]>; // ✓ M3（经 server files 端点）；只限会话工作区；隐藏项不返
   readWorkspaceFile(path: string): Promise<WorkspaceFileContent>; // ✓ R190（预览缝 read() 的宿主实现；经 GET /api/sessions/:id/file；旧宿主缺 = 预览仅行快照）
-  listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3（经 GET /api/sessions；M3 只做 cwd 过滤，不排序、不派生 title）
+  listSessionsByCwd(cwd: string): Promise<SessionRef[]>; // ✓ M3 / R202（经 GET /api/sessions；cwd 过滤 + 保留 title + updatedAt 降序）
 
   // 宿主
   getSession(): { sessionId: string; cwd: string } | null; // ✓ M3
@@ -1406,7 +1414,7 @@ interface SessionRef {
 
 - 官方界面件（会话列表 / 对话面板 / 输入框 / 审批卡…）经**宿主标准件出口**供插件 import（import map，与 react 同口子，D-043）；件与**会话上下文**一起给——连着哪个会话、往哪发、流式增量从哪来（**承重缝已定稿 = `WebPartContext`，见 web 段**）；没装东西的区域槽**收起**（不渲染不占宽）；
 - `useResource` 地址格式 `henira-data://<pluginId>/<mcpServer>/<tool>?args=<URL 编码 JSON>`；只允许同一插件 `mcp/` 里声明过的 server（越权 403）；2 秒共享轮询、30 秒超时、200 × 1024 字符截断；失败保留上次数据；
-- `onTurnFinished` 只收该 UI 模块自己发起那一轮的终稿；终局映射见 [plugins.md](./plugins.md) §4；
+- `onTurnFinished` 只收该 UI 模块自己发起那一轮的终稿（R202：当前会话 + 成功 `sendPrompt`；R203/D-086：排队条目经 `queueId` 回声同样对回）；终局映射见 [plugins.md](./plugins.md) §4；
 - `openInExplorer` 是能力查询：非桌面宿主返回 `false`，UI 模块应自行降级；
 - `renderMarkdown` 的返回类型由宿主决定（protocol 不依赖 React）；非 web 宿主不实现 UI 门面。
 

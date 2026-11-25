@@ -56,13 +56,15 @@ export interface TurnCallbacks {
 
 /** 单回合（含步循环与全部落账）；返回终局原因。队列冲刷由外层驱动。
  * opts = 模型/思考按次覆盖（每次提问绑定；插话条目进场不换档——回合档位在
- * 回合开始即定，steer 只进文本）。 */
+ * 回合开始即定，steer 只进文本）。
+ * queueId = 队列条目 id（D-086：只由冲刷路径传入，落进 user/message 供客户端对账）。 */
 export async function runTurnCore(
   prompt: string,
   deps: LoopDeps,
   callbacks: TurnCallbacks,
   signal: AbortSignal,
   opts?: PromptOptions,
+  queueId?: string,
 ): Promise<TurnEndReason> {
   const { session, ctx } = deps; // llm / tools / approval / config 由 runStep 经 deps 取用
   const turn = `t-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
@@ -87,7 +89,13 @@ export async function runTurnCore(
   }
   await session.append({
     type: "user/message",
-    data: { turn, step: 0, content: prompt, source: "send" },
+    data: {
+      turn,
+      step: 0,
+      content: prompt,
+      source: "send",
+      ...(queueId !== undefined ? { queueId } : {}),
+    },
   });
   // 权限模式随回合开场落账 + 广播（D-080：approval 靠 turn/start 跟踪本回合模式；
   // 缺省 = ask——旧账本无字段同义）

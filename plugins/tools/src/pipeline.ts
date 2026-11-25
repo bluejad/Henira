@@ -4,6 +4,7 @@
 //   可选超时）→ post-execute（waterfall）→ 出口限量 → 权威结果。
 // 失败一律结构化 error 结果回模型（拒执行不抛穿——错误也是权威结果，P8 替换者清单）。
 
+import path from "node:path";
 import type { EventBus } from "@henira/kernel";
 import type {
   ApprovalOptions,
@@ -94,7 +95,10 @@ async function gateAndPermission(
   };
   let decision: Decision;
   try {
-    decision = await ctx.requestPermission({ tool: call.name, args, reason: merged.reason }, opts);
+    decision = await ctx.requestPermission(
+      { tool: call.name, args, reason: merged.reason, callId: call.callId },
+      opts,
+    );
   } catch (err) {
     // fail-closed（P5）：判定链缺席 / 抛错一律 unavailable——缺失即放行不存在
     return errorOutcome(
@@ -173,8 +177,9 @@ export async function runOne(
   outcome = post.outcome;
 
   const limits: ExitLimits = { ...DEFAULT_EXIT_LIMITS, ...deps.limits };
+  const spillDir = ctx.artifactsDir ?? deps.artifactsDir; // 会话目录 artifacts/ 优先（M4 批 A 接线）
   const limited = await applyExitLimits(outcome.result.content, limits, {
-    spillDir: ctx.artifactsDir ?? deps.artifactsDir, // 会话目录 artifacts/ 优先（M4 批 A 接线）
+    ...(spillDir !== undefined ? { spillDir, spillRoot: path.dirname(spillDir) } : {}),
     spillName: `${call.callId}.txt`,
   });
   return {

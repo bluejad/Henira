@@ -24,6 +24,11 @@ export interface ForkOptions {
   atSeq?: number;
 }
 
+/** 分叉点未完成调用的合成结果（模型可见；D-085 / dsh TOOL_OUTCOME_UNKNOWN 行为层） */
+const FORKED_TOOL_RESULT =
+  "[forked] This tool call has no recorded result at the fork point. " +
+  "The parent session may have completed it after the fork; do not retry blindly.";
+
 export async function forkSession(opts: ForkOptions): Promise<SessionStore> {
   const lastSeq =
     opts.sourceEvents.length > 0 ? opts.sourceEvents[opts.sourceEvents.length - 1].seq : 0;
@@ -62,6 +67,31 @@ export async function forkSession(opts: ForkOptions): Promise<SessionStore> {
     // 半回合切点：前缀有 turn/start 无 turn/end → 为复制出的前缀补写收尾（session.md §6）
     const open = openTurnOf(prefix);
     if (open !== null) {
+      // D-085 / dsh 同款：开回合内无结果的调用先补合成 tool/result，让子账本自洽
+      const answered = new Set<string>();
+      for (const event of prefix) {
+        if (event.type !== "tool/result") continue;
+        const callId = (event.data as { callId?: unknown }).callId;
+        if (typeof callId === "string") answered.add(callId);
+      }
+      for (const event of prefix) {
+        if (event.type !== "tool/call") continue;
+        const data = event.data as { turn?: unknown; step?: unknown; callId?: unknown };
+        if (data.turn !== open || typeof data.callId !== "string" || answered.has(data.callId)) {
+          continue;
+        }
+        await store.append({
+          type: "tool/result",
+          data: {
+            turn: open,
+            step: typeof data.step === "number" ? data.step : 0,
+            callId: data.callId,
+            isError: true,
+            content: FORKED_TOOL_RESULT,
+            durationMs: 0,
+          },
+        });
+      }
       await store.append({ type: "turn/end", data: { turn: open, reason: "forked" } });
     }
     return store;

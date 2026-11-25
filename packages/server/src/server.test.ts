@@ -1564,6 +1564,50 @@ describe("REST 面与设置", () => {
     }
   });
 
+  it("磁盘快照带 title（R202/D-085）：重启后未装配会话从投影行派生", async () => {
+    const dataDir = path.join(root, `history-title-${Math.random().toString(36).slice(2, 8)}`);
+    const globalDir = path.join(dataDir, "config");
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.writeFile(
+      path.join(globalDir, "settings.json"),
+      JSON.stringify({ version: 1, model: "mock/mock-1" }),
+      "utf8",
+    );
+    const first = await createServer({
+      dataDir,
+      globalDir,
+      llm: llmStub(mockLlm([[mockText("好"), mockFinish("stop")]]).service),
+    });
+    const id = await createSession(first.url);
+    const prompt = await fetch(`${first.url}/api/sessions/${id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "给这个会话起个标题" }),
+    });
+    expect(prompt.status).toBe(200);
+    await waitFor(async () => {
+      const snap = (await (await fetch(`${first.url}/api/sessions/${id}/snapshot`)).json()) as {
+        rows: { kind: string }[];
+      };
+      return snap.rows.some((r) => r.kind === "assistant") ? true : undefined;
+    });
+    await first.stop();
+
+    const second = await createServer({
+      dataDir,
+      globalDir,
+      llm: llmStub({ stream: async function* () {} } as unknown as LlmService),
+    });
+    try {
+      const snap = (await (await fetch(`${second.url}/api/sessions/${id}/snapshot`)).json()) as {
+        title?: string;
+      };
+      expect(snap.title).toBe("给这个会话起个标题");
+    } finally {
+      await second.stop();
+    }
+  });
+
   it("ui-assets（D-059）：清单枚举已装语言包 + 资产只读伺服 + 穿越与非法 kind 拒绝", async () => {
     const { base, dataDir, cleanup } = await makeServer([]);
     try {

@@ -4,12 +4,14 @@
 export const DECISIONS = ["allowed-once", "rejected", "cancelled", "unavailable"] as const;
 export type Decision = (typeof DECISIONS)[number];
 
-/** 审批载荷（D-046 定稿）：引擎一字不加工；显示折叠归界面 UI */
+/** 审批载荷（D-046 定稿 + R202 补 callId）：引擎一字不加工；显示折叠归界面 UI */
 export interface PermissionRequest {
   tool: string;
   /** 完整原样 */
   args: unknown;
   reason?: string;
+  /** 真实 tool/call id（tools 管线填；approval/asked 原样落账，卡片超限回查用——D-085） */
+  callId?: string;
 }
 
 /** 规则匹配条件（tools-approval §3.1）：tool 相等；命令约束任一在场即须全部满足。

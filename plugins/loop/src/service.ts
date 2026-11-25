@@ -116,11 +116,13 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         maxStepsPerTurn: options.maxStepsPerTurn,
       });
 
-      /** 一回合 + 回合末队列依次冲刷（D-045）；事件双喂：本生成器 + 总线 loop/event */
+      /** 一回合 + 回合末队列依次冲刷（D-045）；事件双喂：本生成器 + 总线 loop/event。
+       *  queueId = 队列条目 id（D-086：只由冲刷分支传入，落进 user/message 供客户端对账） */
       async function* executeAndDrain(
         prompt: string,
         signal: AbortSignal,
         opts?: PromptOptions,
+        queueId?: string,
       ): AsyncGenerator<LoopEvent> {
         const channel = new EventChannel();
         const core = runTurnCore(
@@ -137,6 +139,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           },
           signal,
           opts,
+          queueId,
         );
         const settled = core.then(
           () => channel.close(),
@@ -169,11 +172,16 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
             broadcastQueue();
             return;
           }
-          yield* executeAndDrain(next.text, signal, {
-            modelId: next.modelId,
-            reasoningEffort: next.reasoningEffort,
-            permissionMode: next.permissionMode,
-          });
+          yield* executeAndDrain(
+            next.text,
+            signal,
+            {
+              modelId: next.modelId,
+              reasoningEffort: next.reasoningEffort,
+              permissionMode: next.permissionMode,
+            },
+            next.id,
+          );
           next = await queue.drainNext();
           broadcastQueue();
         }

@@ -60,6 +60,23 @@ describe("RowStore", () => {
     expect(store.getSession("s-1").title).toBe("补上左栏标题");
   });
 
+  it("快照无 title 时从 rows 兜底派生（R202/D-085：旧服务端也同源）", () => {
+    const store = new RowStore();
+    store.applySnapshot(
+      snapshotFrame("s-2", 1, [
+        {
+          kind: "user",
+          rowId: "u:1",
+          rowSeq: 1,
+          turn: "t-1",
+          text: "  磁盘会话标题  ",
+          source: "send",
+        },
+      ]),
+    );
+    expect(store.getSession("s-2").title).toBe("磁盘会话标题");
+  });
+
   it("增量：row.appended → row.delta 追加文本 → state.updated", () => {
     const store = new RowStore();
     const listener = vi.fn();

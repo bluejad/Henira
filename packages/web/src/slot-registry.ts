@@ -48,6 +48,8 @@ export interface SlotRegistry {
   /** 按调用方整批撤出（R186 收尾，审查 P3⑨）：apply 注册后抛错 / 模块未返回 dispose 时，
    *  宿主仍能把该插件的全部登记清干净（单槽下泄漏 = 官方件被顶掉直到刷新）。幂等。 */
   releaseOwner(callerId: string): void;
+  /** 某调用方当前占用的槽名（R202/D-085：`ui.slots` 声明 vs 实际注册的漏声明比对） */
+  ownedSlotNames(callerId: string): string[];
 }
 
 export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
@@ -256,6 +258,20 @@ export function createSlotRegistry(opts: SlotRegistryOptions): SlotRegistry {
           // 单个撤出异常不阻断其余登记（卸载清理路径；避免一件坏件拖住整批回退）
         }
       }
+    },
+    ownedSlotNames(callerId) {
+      const names = new Set<string>();
+      for (const [name, parts] of slots) {
+        if (parts.some((part) => partOwners.get(part as unknown as object) === callerId)) {
+          names.add(name);
+        }
+      }
+      for (const [name, entries] of chains) {
+        if (entries.some((entry) => chainOwners.get(entry as unknown as object) === callerId)) {
+          names.add(name);
+        }
+      }
+      return [...names];
     },
   };
 }

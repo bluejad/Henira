@@ -328,7 +328,7 @@
   5. 字段名是 `ui.slots`（不是 `slot`）；一个 UI 模块可声明多个挂载点，同一组件可挂多处，由 `registerSlot` 决定。
 - **理由**：可选声明 + 运行时权威，兼顾可发现性与单一真源；强制静态（C）会让 AI 先猜位置并制造两套真源，纯运行时（A）则插件页 / AI 自测没有静态目标。
 - **备注**：plugins.md §3 / §4；50-open 勾掉 UI 位置项；D-021 加后续修订指针。
-- **后续修订**：D-033 区分"属于别的宿主词表"（静默忽略）与"完全未知"（告警并忽略）。
+- **后续修订**：D-033 区分"属于别的宿主词表"（静默忽略）与"完全未知"（告警并忽略）；**2026-11-24 R202 / D-085** 静态申报校验落码——宿主装载 UI 模块后把 manifest `ui.slots` 与实际注册双向比对（未知挂载点丢弃并告警、死声明/漏声明告警），只告警不阻断。
 
 ## D-032 同名覆盖统一口径：作用域优先 + 显式文件优先
 
@@ -934,7 +934,7 @@
   1. **机制照 dsh**：新增官方引擎插件 `plugin-ask-user`（`ask_user` 工具），普通工具调用 await 答复，**答复即工具结果**；不借用审批通道、不折回 modifiedInput。工具 `isConcurrencySafe: true`（无副作用，且必须绕过审批默认链——否则提问前先弹审批）。
   2. **交互种类扩协议**：`InteractionRequest` / `InteractionAnswer` 判别联合扩 `kind:"question"`（答案数组 + `cancelled:true` 两变体）；一个服务承载两类，settle 种类必须匹配（防跨通道误收）。
   3. **审计对 + 行投影**：`question/asked` + `question/settled{outcome: answered|cancelled|invalidated, answers?}`；`QuestionRow`（rowId `q:<requestId>`，题面自足）进 Row 词表；收口 REST `POST /api/sessions/:id/questions/:requestId`（answers 或 cancelled；400/404/幂等语义同审批）；SDK `settleQuestion` 双形态。
-  4. **UI 照 ZCode**：`composer.takeover` 第二条官方条目 `question`（**priority 5 压过审批 10**——dsh 客户端 precedence 1>0 行为层；两条都挂起时先显示提问）；提问卡无预选、选项按钮 + ARIA、自定义输入恒在末位（模型不得自带 Other）、逐题分页、Space 多选、Enter 推进 / 末题提交、Ctrl/Cmd+Enter 随时提交、Esc 首题取消整个请求 / 后题回退、IME 组合不提交、空选 = 跳过；乐观摘卡 / 失败回滚 / 404 视为已解决（同审批）。痕迹行 = `tool.call.view.ask_user` 官方卡（挂起「提问中」/完成逐题问答/取消「已取消」），question 行不进正文流（同 approval）。**R192 修订（2026-11-23）**：单选 = 唯一答案——选选项清空自定义、输入自定义清空选项、点选即推进（与 Enter 同路径）；多选允许选项 + 自定义并存；多题导航常驻卡头右端（← 页码 →，到端禁用），footer 只留取消 + 继续/提交；自定义输入 ↑↓ 回选项、单选聚焦未选时按继续自动补选并写回草稿。〔现状（2026-11-24 反向核对）：仅工具描述声明「不得自带 Other」；`parseQuestions` 未拒绝模型自带 Other/自定义 label——挂账，见 50-open〕
+  4. **UI 照 ZCode**：`composer.takeover` 第二条官方条目 `question`（**priority 5 压过审批 10**——dsh 客户端 precedence 1>0 行为层；两条都挂起时先显示提问）；提问卡无预选、选项按钮 + ARIA、自定义输入恒在末位（模型不得自带 Other）、逐题分页、Space 多选、Enter 推进 / 末题提交、Ctrl/Cmd+Enter 随时提交、Esc 首题取消整个请求 / 后题回退、IME 组合不提交、空选 = 跳过；乐观摘卡 / 失败回滚 / 404 视为已解决（同审批）。痕迹行 = `tool.call.view.ask_user` 官方卡（挂起「提问中」/完成逐题问答/取消「已取消」），question 行不进正文流（同 approval）。**R192 修订（2026-11-23）**：单选 = 唯一答案——选选项清空自定义、输入自定义清空选项、点选即推进（与 Enter 同路径）；多选允许选项 + 自定义并存；多题导航常驻卡头右端（← 页码 →，到端禁用），footer 只留取消 + 继续/提交；自定义输入 ↑↓ 回选项、单选聚焦未选时按继续自动补选并写回草稿。〔2026-11-24 拍板（D-085）：照 dsh **不校验**——工具描述保持指令性，官方提问卡的定制输入行无标签，模型自带的 Other 只是一个普通选项，不存在同名冲突；`parseQuestions` 不加拒绝规则〕
   5. **取消与重启**：用户取消 / 回合 abort / 交互服务缺席 → 工具 Error 结果、**回合继续**（模型自行判断或重问）；**不做墙钟自动收口**（dsh 阻塞模式没有；此前口头提过的 5 分钟自动收口是 ZCode 专属，不采用）；重启 = 既有 repair 补 `question/settled{invalidated}` + `turn/end{interrupted}`，不重问、不自动答。
   6. **编排落点**：`plugin-ask-user` 进 defaultPreset（可停用、不可卸载）；ComposerApi 扩 `pendingQuestion/questionQueueTotal/onQuestionDecided/onQuestionFailed`；submit 让位判据 = 未答审批 **或** 未答提问（answered 过滤后；乐观已答不拦）。
 - **理由**：提问是澄清表单、审批是闭合裁决——合并会让「提问」变成「先审批再提问」，且答案形状被迫压进 Decision 词表；dsh 的不合并是结构上更干净的一条。UI 取 ZCode 是因为它的卡片交互语义已被真实用户使用打磨（预选歧义、IME 误提交、Esc 误取消都是踩过的坑）。提问卡第三方可整只换（chain 条目 `replaceChainSlot("composer.takeover")` 同 id；痕迹卡走 keyed 缝），「一切皆插件」不破。
@@ -948,8 +948,8 @@
 - **决定**：
   1. **预览打开方式**：`settings.ui.preview = { file?: "panel"|"modal", image?: "panel"|"modal" }`（缺省 file=panel、image=modal）；弹窗与右栏 tab 两种表面都实现，按内容类型各自可设，设置 → 外观页两行分段控件；写入深合并（只改 image 不丢 file），REST/服务端/SDK/Web UI 类型同形。
   2. **预览内容不塞 ui-state**：文件 tab 只存 `{path, rowId}`，正文由该 tool 行 input/output 现场解析（read=output、write=input.content、edit=old/new 现算 diff；行已翻出窗口 → 「重新打开文件」提示）；图片存 `{src, alt}`——URL src 是引用可持久化，data: 内联图只活在本页内存（宿主落盘前剔除，R189 审查修：64KB 闸会连草稿一起拒）。同文件/同图复用 tab（file 按 rowId、image 按 src 指纹）。
-  3. **统一入口**：`WebPartContext.preview`（`PreviewApi`）——`open(target)` 按设置路由、`setMode(kind, mode)` 内存即时 + 落盘、`modal`/`close` 供框架件渲染弹窗；官方件与第三方件同一入口；旧宿主缺 `preview` 时官方件保留本地弹窗回退、设置页隐藏预览行。〔现状（2026-11-24 反向核对）：本地弹窗回退只覆盖 read 卡；write/edit 的文件 chip 在无 `preview` 时 `onOpen` 置 undefined、退化为静态文本——挂账〕
-  4. **会话标题单一真源**：新增 `formatSessionTitle`/`deriveSessionTitle`（protocol；首条非 breaker 用户消息、空白归一、40 码点截断加省略号）；服务端列表有界读账本头部（64KB，成功缓存）、快照从投影行派生、SDK 从内存投影派生；`SessionSnapshot.title?` 随快照下发，web store 透传，左栏行与中列 header 同源。`meta.json` 仍只作预留（当前不落）。〔现状（2026-11-24 反向核对）：重启后磁盘会话的 GET snapshot 与 SDK snapshot 不派生 title（interfaces.md 已注）；web store 不从 rows 兜底，中列 header 回落「新对话」而左栏行有列表摘要——三路同源未完全成立，挂账〕
+  3. **统一入口**：`WebPartContext.preview`（`PreviewApi`）——`open(target)` 按设置路由、`setMode(kind, mode)` 内存即时 + 落盘、`modal`/`close` 供框架件渲染弹窗；官方件与第三方件同一入口；旧宿主缺 `preview` 时官方件保留本地弹窗回退、设置页隐藏预览行。〔2026-11-24 R202 补齐（D-085）：write/edit 的文件 chip 在无 `preview` 时同开本地弹窗——write 显示新内容、edit 显示 old/new diff 体〕
+  4. **会话标题单一真源**：新增 `formatSessionTitle`/`deriveSessionTitle`（protocol；首条非 breaker 用户消息、空白归一、40 码点截断加省略号）；服务端列表有界读账本头部（64KB，成功缓存）、快照从投影行派生、SDK 从内存投影派生；`SessionSnapshot.title?` 随快照下发，web store 透传，左栏行与中列 header 同源。`meta.json` 仍只作预留（当前不落）。〔2026-11-24 R202 补齐（D-085）：磁盘会话 GET snapshot、SDK runtime `snapshot()` 与快照帧、web store `applySnapshot` 全部从投影行派生/兜底，三路同源成立〕
   5. **界面收口清单**：左栏「＋新会话」改安静行、会话行显示 title + 相对时间、去 idle 灰点、组计数去描边胶囊；中列 header = 目录弱前缀（Folder 图标）+ 标题强，去「·」；空会话草稿态 = 按时段问候 + 品牌水印 + 一句真实能力提示；设置「外观」= 页标题/说明/行卡（主题 + 文件/图片预览分段）、语言页同版式；模型管理加厂商标记、meta 去点串（窗口/视觉标签/思考图标带间距）、断开 hover 浮现、加载/错误态、选择页页头/分区计数；插件页按内置/可管理分段、去重复 id 与「官方」胶囊、统一 switch、卸载 hover；工具行失败状态固定贴右、开合 300ms（reduced-motion 直卸）、edit old===new 显示「无变更」行；diff 按扩展名 shiki 高亮（宿主 `tokenizeCode`，异步、120k 上限、失败降纯文本）。
   6. **CSS / 组件拆分**：`styles/` 二次拆 `composer/`、`controls/`、`sidebar/`、`dialogs/`、`layout/`、`settings/`（级联位置不变）；`settings/models.tsx` 按四视图拆 `models/`（index/list/picker/connect/custom/shared），旧路径 re-export 薄壳。
 - **理由**：预览是「看内容」的通用动作，不该由每种内容各自拍开法；设置驱动 + 两表面同 resolver 是唯一不会分叉的形状。左栏同名与 header 恒「新对话」是内容不真，不是审美；不补标题，任何 CSS 都救不回来。对话区那堵墙的根因是判空写法不一致——按 trim 统一是最小且可测的修法。
@@ -1087,3 +1087,33 @@
   2. **缝只在栏与栏之间**：撤掉根部的 8px 内缩，四周贴窗口；栏缝 8px → **4px**（拖宽把手宽 = 缝宽）。
   3. **最大化右栏 = 全屏卡片**：`.henira-right-panel--max` 同样 12px 圆角（fixed inset 0，四角贴窗口也圆）。
   4. 落点补：`10-right-panel.css` 的 `--max` 圆角；e2e 增最大化全屏矩形/圆角断言。
+
+## D-085 对账挂账收口：fork 合成结果、审批 callId 回查、门面订阅落码（R202）
+
+- **状态**：已定 · 2026-11-24 · 用户拍板（fork / 审批大参数 / 提问 Other 三问均按 dsh / ZCode 只读取证后选定）；✓ 同日落码，2026-11-25 活体真 key 采证补跑。
+- **背景**：全仓反向核对在 50-open 记了 9 项「文档说了、代码没做到」。三项需要设计裁定：半回合 fork 的悬挂工具调用、审批 args 超限后的卡片自足、模型自带 Other 的处置。取证结论——dsh 支持任意 atSeq fork 并在子账本补合成 tool/result；审批只带 callId、UI 按 callId 回查 tool/call；提问不校验 Other（自由输入行无标签）。ZCode 禁止半回合 fork、审批带全文无尺寸闸、提问整呼拒绝 Other（其 UI 恒加字面 "Other" 行）。
+- **决定**：
+  1. **fork 照 dsh**：`forkSession` 在补 `turn/end{forked}` 之前，对**开回合内**每个无 `tool/result` 的 `tool/call` 追加一条合成 `tool/result`（`isError: true`、`durationMs: 0`、英文文案说明「分叉点后父会话可能已完成，勿盲目重试」）；不补 `step/end`（现有 fork 同样不补，无读者要求）。源会话不动；UI 沿用现有失败卡，不新增中断词表。
+  2. **审批 args 超限照 dsh 的引用思路**：`PermissionRequest` 增可选 `callId`，tools 管线传真实 `tool/call.callId`；`approval/asked` 与 `ApprovalRow` 记真实 callId（修掉当前 `callId: requestId` 占位）。正常尺寸仍带 args 全文（E6/D-046 不变）；>256KB 或不可序列化时仍丢 args，但卡片按 callId 从同会话 `tool/call` 行回查参数，不再退成 digest-only；digest 保留作关联指纹。
+  3. **提问 Other 照 dsh 不校验**：工具描述里的「不得自带 Other」保持指令性；官方提问卡的定制输入行无标签（无同名冲突），模型自带的 Other 只是一个普通选项。此项不再是缺陷，文档改为如实描述。
+  4. **门面订阅落码（D-042 的帧级词表）**：`subscribe` 的 `types` 白名单 = `Row["kind"]`（user / assistant / tool / approval / question / error），`turnId` 过滤行帧；state.updated 不受 types 影响、turnId 只在 `lastTurnId` 匹配时投递；`sessions.changed` 只投给不带会话/回合过滤的订阅者。每订阅者一条有界队列（cap 256，满则先同步冲刷）；16ms 攒批；连续 `row.delta` 同 rowId+field 合并；结构/状态/快照帧必达；过滤后的 snapshot 只含匹配行。cb 抛错只记日志，不拖死消费循环。
+  5. **`onTurnFinished`**：只认当前会话；只在有自己成功 `sendPrompt` 时于 busy→false 触发一次；投递按 D-028 映射（error 行 → `error`、assistant interrupted → `interrupted`、否则 `{ok:true,text}`）；`sendPrompt` reject 发 `submit_failed`。记账按会话（`turn-finished.ts`）：**发起时即计入**（快回合可能先于 prompt 回执收口）、排队回执当场出账、每会话 busy→false 消耗一次信用（非当前会话也消耗，防信用泄漏到下一轮冒领）。排队条目的精确回执由 **D-086** 补上（账本回声 `queueId`）。
+  6. **`ui.slots` 校验落码**：manifest 声明与实际注册双向比对，死声明/漏声明告警不阻断（D-031 语义不变）；仅当 manifest 有 `ui.slots` 时校验。
+- **理由**：dsh 的 fork 做法让子账本自洽，任何消费者重放都不需要「理解悬挂」；审批的 callId 回查避免同一份 args 在账本里存两遍，同时让超限路径仍有真实参数；提问不校验是因为我们的自由输入行没有标签，ZCode 的冲突前提不存在。门面订阅按行帧词表落地，是 D-042 在现有 ServerFrame 形状下唯一可执行的映射。
+- **代价**：fork 子账本多 n 条合成 result（n = 切点处未完成调用数）；超限审批卡需读 store（行不在窗口内时仍回落 digest）；排队条目的 onTurnFinished 由 D-086 补投。
+- **非目标**：ToolRow 中断标记 / 「已中断（分叉点）」徽章（dsh 显示失败）；argsPreview；Other 校验；`prefill` / `openPlugin` / `getInitialView` / `listPlugins category`；排队条目精确回执（由 D-086 补）；data-directory 计划件、`paths` 模块、Windows ACL（M5）。
+- **备注**：落点 = plugin-session fork、protocol approval/server-events/projection、plugin-tools pipeline/limits、plugin-approval service、server app、sdk runtime、web store/host/subscribe-queue/turn-finished/ui-slot-audit/slot-registry、web-ui approval-card/file-preview/write/diff/preview；测试 = 各包单测 + e2e facade 夹具 + 活体真 key（title / fork / 审批 callId）。同日自审（无 P1）：onTurnFinished 记账改为按会话账本（原全局计数会跨会话冒领、后记会漏快回合）、store 标题兜底复用 `deriveSessionTitle`、`ownedSlotNames` 补单测。
+
+## D-086 排队条目的回合回执：账本回声 queueId（R203）
+
+- **状态**：已定 · 2026-11-25 · 用户拍板（「做排队回执」）；✓ 同日落码。
+- **背景**：R202 的 `onTurnFinished` 只覆盖「直接开回合」：`sendPrompt` 忙时返回排队回执 `{queued:true, id}`，但队列冲刷时 `executeAndDrain(next.text, …)` 只把文本传下去，账本 `user/message` 不带条目 id——客户端无法把「我排的那一条」对回「哪一轮」，只能挂账。
+- **决定**：
+  1. **账本回声**：`user/message` 增可选 `queueId`（只在队列冲刷产生的回合里出现；直接发送、插话、promote 不带）。session.md §2.2 事件表与 zod 校验器同批加字段；`UserRow.queueId?` 原样投影（types/turnId 过滤与 rowId 规则不变）。
+  2. **loop 透传**：`runTurnCore(..., opts?, queueId?)`；冲刷分支传 `next.id`（`run` / `startChain` 不传；`steer()` 升格为 step 边界插话的条目不带——插话没有独立回合）。
+  3. **宿主归属**：`turn-finished.ts` 增 `queued(sessionId, id)` / `match(sessionId, id)`。`sendPrompt` 收排队回执时登记；行流出现 `UserRow.queueId` 且命中本窗口登记 → 记一次回合信用（`sent`），该回合 `busy→false` 时按既有规则投递。回执晚于行帧的窄竞态：回执到达时若 store 已有该 `queueId` 行且该回合**未收口**（`turnTimings` 无该轮）→ 直接记信用；已收口则只清账不补投（避免信用泄漏到下一轮）。注意 user 行先于 `turn/start` 落账，不能用 `busy` / `lastTurnId` 判回合状态。**重连对账**：`connected` 帧（每次 SSE 建立 / 重连）清空断线前的信用与 busy 起点（排队登记保留）；快照帧按 `state.busy` 对账——busy=true 只补起点（重连后仍在途的排队回合靠它结算），busy=false 而本地起点仍在 = 错过终局，信用与起点一并出清（防冒领下一轮）；快照里命中的排队回声随后照常记信用。
+  4. **边界**：删除 / 升格插话 / promote 的条目不投（没有独立回合）；重启前入队的条目在重启后冲刷时本窗口登记已丢，不投；断线重连前发起的回合不补投（信用按快照出清）；别的窗口排的条目不带本窗口登记，不投（只认自己）。
+- **理由**：关联键放账本而不是新帧 / 新总线事件——投影行本来就带 `turn`，加一个可选字段即闭环，不需要新行类型、不需要新 ServerFrame；SDK / CLI / 未来 TUI 同一份事实都可用。
+- **代价**：账本多一个可选字段（旧账本无字段同义 = 非排队）；宿主多一张待匹配表（死 id 不回收——随机串不会误配，体积可忽略）。
+- **非目标**：`PromptReceipt` 带 turnId（入队时回合不存在）；排队条目的跨重启回执；steer / promote 回执。
+- **备注**：落点 = session.md §2.2 / loop.md §1、plugin-session validators、protocol server-events/projection、plugin-loop turn/service、web turn-finished/host；测试 = validator/projection/loop/turn-finished 单测 + e2e facade 延迟 mock 双回执 + 活体真 key（第二句入队、账本 queueId 回声、浏览器宿主两次回执）。同日自审（P2 一修）：`connected`/快照帧与回执账本对账——重连清断线前信用、`busy=false` 与本地起点冲突即出清、`busy=true` 补起点；否则断线期间错过的终局会把信用泄漏到下一轮冒领。

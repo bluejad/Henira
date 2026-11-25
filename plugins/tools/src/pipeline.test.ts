@@ -30,18 +30,18 @@ afterEach(async () => {
 });
 
 interface PermissionProbe {
-  calls: { tool: string; floor?: "ask" }[];
+  calls: { tool: string; floor?: "ask"; callId?: string }[];
   /** ToolContext.requestPermission 实现 */
   ask(next: Decision[]): (req: PermissionRequest, opts?: ApprovalOptions) => Promise<Decision>;
 }
 
 function probe(): PermissionProbe {
-  const calls: { tool: string; floor?: "ask" }[] = [];
+  const calls: { tool: string; floor?: "ask"; callId?: string }[] = [];
   return {
     calls,
     ask(decisions) {
       return async (req, opts) => {
-        calls.push({ tool: req.tool, floor: opts?.floor });
+        calls.push({ tool: req.tool, floor: opts?.floor, callId: req.callId });
         return decisions.shift() ?? "unavailable";
       };
     },
@@ -102,7 +102,7 @@ describe("runOne 五段管线", () => {
       deps,
     );
     expect(outcome.result).toEqual({ content: "file body" });
-    expect(p.calls).toEqual([{ tool: "read", floor: undefined }]); // 判定链必然执行（§2.1）
+    expect(p.calls).toEqual([{ tool: "read", floor: undefined, callId: "c1" }]); // 判定链必然执行（§2.1）+ 真实 callId（R202）
     await harness.dispose();
   });
 
@@ -171,7 +171,7 @@ describe("runOne 五段管线", () => {
       deps,
     );
     expect(outcome.result.content).toBe("file body"); // answerer 放行 → 照常执行
-    expect(p.calls).toEqual([{ tool: "read", floor: "ask" }]);
+    expect(p.calls).toEqual([{ tool: "read", floor: "ask", callId: "c1" }]);
     await harness.dispose();
   });
 
@@ -281,7 +281,8 @@ describe("runOne 五段管线", () => {
       deps,
     );
     expect(outcome.result.content).toContain("[truncated]");
-    expect(outcome.truncated?.path).toBe(path.join(artifacts, "big1.txt"));
+    expect(outcome.result.content).toContain("full output: artifacts/big1.txt");
+    expect(outcome.truncated?.path).toBe("artifacts/big1.txt"); // 相对会话目录（R202/D-085）
     await harness.dispose();
   });
 

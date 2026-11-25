@@ -85,6 +85,8 @@ const schemas: Record<string, z.ZodType> = {
     attachments: z.array(attachmentSchema).max(100).optional(),
     source: z.string().min(1),
     surfaceOp: surfaceOpSchema.optional(),
+    // D-086：队列冲刷产生的回合带排队条目 id（客户端把排队回执对回回合；直接发送/插话不带）
+    queueId: z.string().min(1).optional(),
   }),
   "system/message": z.object({
     turn: z.string().min(1),

@@ -39,6 +39,27 @@ describe("账本回放 → 快照", () => {
     expect(p.state.lastTurnId).toBe("t-1");
   });
 
+  it("user/message.queueId 原样投影（D-086：排队回执对账键；缺省不带键）", () => {
+    const p = rebuildProjection([
+      ev(1, "user/message", { turn: "t-1", step: 0, content: "直接发", source: "send" }),
+      ev(2, "turn/start", { turn: "t-1" }),
+      ev(3, "turn/end", { turn: "t-1", reason: "completed" }),
+      ev(4, "turn/start", { turn: "t-2" }),
+      ev(5, "user/message", {
+        turn: "t-2",
+        step: 0,
+        content: "排队来的",
+        source: "send",
+        queueId: "q-1",
+      }),
+      ev(6, "turn/end", { turn: "t-2", reason: "completed" }),
+    ]);
+    const users = p.rows.filter((r) => r.kind === "user");
+    expect(users[0]).toMatchObject({ text: "直接发" });
+    expect((users[0] as { queueId?: string }).queueId).toBeUndefined();
+    expect(users[1]).toMatchObject({ text: "排队来的", queueId: "q-1" });
+  });
+
   it("busySince（R173 计时续表）：turn/start 置事件 time、turn/end 清除、重放重建恢复", () => {
     const events = [
       ev(1, "user/message", { turn: "t-1", step: 0, content: "hi", source: "send" }, 1_000),
@@ -114,6 +135,27 @@ describe("账本回放 → 快照", () => {
     ]);
     const tool = p.rows[0];
     expect(tool).toMatchObject({ status: "error", output: { isError: true } });
+  });
+
+  it("fork 收口：开回合内无结果调用由子账本合成 tool/result → 投影 status error，无 running 残影（D-085）", () => {
+    const p = rebuildProjection([
+      ev(1, "turn/start", { turn: "t-1" }),
+      ev(2, "step/start", { turn: "t-1", step: 1 }),
+      ev(3, "tool/call", { turn: "t-1", step: 1, callId: "c1", name: "read", arguments: "{}" }),
+      ev(4, "tool/result", {
+        turn: "t-1",
+        step: 1,
+        callId: "c1",
+        isError: true,
+        content: "[forked] This tool call has no recorded result at the fork point.",
+        durationMs: 0,
+      }),
+      ev(5, "turn/end", { turn: "t-1", reason: "forked" }),
+    ]);
+    const tool = p.rows.find((r) => r.kind === "tool");
+    expect(tool).toMatchObject({ status: "error", output: { isError: true } });
+    expect((tool as { output: { content: string } }).output.content).toContain("[forked]");
+    expect(p.state.busy).toBe(false);
   });
 
   it("tool/result 截断标记：truncated 原样进 output（结构化，不再只靠尾注文本）", () => {
@@ -202,7 +244,7 @@ describe("账本回放 → 快照", () => {
         turn: "t-1",
         step: 1,
         requestId: "r-1",
-        callId: "r-1",
+        callId: "call-7",
         tool: "shell",
         argsDigest: "sha:abcd",
       }),
@@ -212,6 +254,7 @@ describe("账本回放 → 快照", () => {
     expect(p.rows[0]).toMatchObject({
       rowId: "p:r-1",
       toolName: "shell",
+      callId: "call-7",
       argsSummary: "sha:abcd",
       status: "pending",
     });

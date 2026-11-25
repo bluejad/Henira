@@ -35,6 +35,21 @@ function commandOf(args: unknown): string | undefined {
   return typeof command === "string" && command.trim() !== "" ? command : undefined;
 }
 
+/** args 超限丢弃后按真实 callId 从同会话 tool/call 行回查（R202/D-085：dsh 引用式自足）；
+ *  行不在 store（旧账本 / 已翻出窗口）时返回 undefined，卡片回落 digest-only */
+function resolveApprovalArgs(row: ApprovalRow, ctx: WebPartContext): unknown {
+  if (row.args !== undefined) return row.args;
+  if (row.callId === undefined) return undefined;
+  try {
+    const view = ctx.store.getSession(ctx.sessionId);
+    const tool = view.rows.find((r) => r.kind === "tool" && r.callId === row.callId);
+    if (tool?.kind !== "tool") return undefined;
+    return tool.input.trim() === "" ? {} : (JSON.parse(tool.input) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
 /** 审批卡外壳（导出——第三方 keyed 顶替件复用同一 chrome，D-057 观感协调）：warn 边框卡 +
  * 标题行（权限请求 + 队列计数 + pending/settled 徽章 + 工具名）+ reason 解释行 + 预览 children +
  * 按钮组 + Enter/Esc 键盘直选（IME 组合中不抢）。点击即退场（R171——参照产品/opencode/dsh
@@ -213,18 +228,24 @@ export function ApprovalCard(props: {
   onDecided?: (requestId: string) => void;
   onDecideFailed?: (requestId: string) => void;
 }): React.ReactNode {
+  // 超限 args 丢弃后按 callId 回查（R202/D-085）；回查结果同时供预览体与命令级规则使用
+  const resolved = resolveApprovalArgs(props.row, props.ctx);
+  const row =
+    props.row.args === undefined && resolved !== undefined
+      ? { ...props.row, args: resolved }
+      : props.row;
   return (
     <ApprovalCardShell
-      row={props.row}
+      row={row}
       ctx={props.ctx}
       queueTotal={props.queueTotal}
       onDecided={props.onDecided}
       onDecideFailed={props.onDecideFailed}
     >
-      {props.row.args !== undefined ? (
-        <ApprovalPreview row={props.row} ctx={props.ctx} />
-      ) : props.row.argsSummary !== undefined ? (
-        <div className="henira-approval-digest">{props.row.argsSummary}</div>
+      {row.args !== undefined ? (
+        <ApprovalPreview row={row} ctx={props.ctx} />
+      ) : row.argsSummary !== undefined ? (
+        <div className="henira-approval-digest">{row.argsSummary}</div>
       ) : null}
     </ApprovalCardShell>
   );
@@ -305,9 +326,10 @@ export function ApprovalSettledRow({
               ? ctx.t("approval.decision.session")
               : ctx.t("approval.decision.allowed")
           : ctx.t("approval.decision.rejected");
+  const argValue = resolveApprovalArgs(row, ctx);
   const args =
-    row.args !== null && typeof row.args === "object" && !Array.isArray(row.args)
-      ? (row.args as Record<string, unknown>)
+    argValue !== null && typeof argValue === "object" && !Array.isArray(argValue)
+      ? (argValue as Record<string, unknown>)
       : null;
   const summary = argsSummaryText(row.toolName, args);
   const fullText = args !== null ? JSON.stringify(args, null, 2) : (row.argsSummary ?? "");

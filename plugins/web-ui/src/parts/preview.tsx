@@ -9,28 +9,10 @@ import type { PreviewTabPayload, PreviewTarget, PreviewView, WebPartContext } fr
 import { XGlyph } from "./icons.js";
 import { PREVIEW_SLOT_PREFIX, pickPreviewSlot, previewExt } from "./preview-slot.js";
 import { SlotBoundary } from "./slot-boundary.js";
-import { buildDiffRows, DiffRowsView, useDiffTokens } from "./tool-cards/diff.js";
+import { EditPreviewBody } from "./tool-cards/diff.js";
 import { parseInput, str } from "./tool-cards/shell.js";
 
 export type { PreviewTabPayload } from "../types.js";
-
-function EditPreviewBody(props: {
-  oldText: string;
-  newText: string;
-  path: string;
-  ctx: WebPartContext;
-}): ReactNode {
-  const tokens = useDiffTokens(props.ctx, props.oldText, props.newText, props.path);
-  const diff = buildDiffRows(props.oldText, props.newText);
-  if (diff === null) {
-    return <div className="henira-preview-empty">{props.ctx.t("tool.noChanges")}</div>;
-  }
-  return (
-    <div className="henira-preview-diff">
-      <DiffRowsView rows={diff.rows} tokens={tokens} />
-    </div>
-  );
-}
 
 function FilePreviewBody(props: { row: ToolRow; ctx: WebPartContext }): ReactNode {
   const { row, ctx } = props;

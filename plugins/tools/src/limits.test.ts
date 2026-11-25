@@ -27,18 +27,19 @@ describe("applyExitLimits（统一出口限量 §1.1）", () => {
     expect(out.truncated).toBeUndefined();
   });
 
-  it("超字节 + 落盘目录：完整输出写盘，truncated = {path, preview}", async () => {
+  it("超字节 + 落盘目录：完整输出写盘，truncated.path = 相对基准的路径（D-085）", async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), "henira-limits-"));
     const text = "y".repeat(60_000);
     const out = await applyExitLimits(text, DEFAULT_EXIT_LIMITS, {
       spillDir: dir,
       spillName: "c1.txt",
+      spillRoot: dir,
     });
     expect(out.truncated).toBeDefined();
-    const spillPath = out.truncated?.path;
-    expect(spillPath).toBe(path.join(dir, "c1.txt"));
+    expect(out.truncated?.path).toBe("c1.txt"); // 相对路径（绝不落绝对路径）
+    expect(out.content).toContain("full output: c1.txt"); // 尾注同用相对路径
     expect(out.truncated?.preview.length).toBeLessThanOrEqual(2000);
-    const spilled = await fs.readFile(spillPath ?? "", "utf8");
+    const spilled = await fs.readFile(path.join(dir, "c1.txt"), "utf8");
     expect(spilled).toBe(text); // 完整原文落盘
     await fs.rm(dir, { recursive: true, force: true });
   });

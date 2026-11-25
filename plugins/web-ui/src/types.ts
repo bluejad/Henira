@@ -491,12 +491,24 @@ export interface ResourceSnapshot {
   updatedAt?: number;
 }
 
+/** UI 门面事件过滤（D-042 / D-085）：types = 行 kind 白名单；turnId 只过滤行帧与 state.updated */
+export interface EventFilter {
+  sessionId?: string;
+  types?: Row["kind"][];
+  turnId?: string;
+}
+
+/** onTurnFinished 终局（D-028 映射；R202 起只投自己发起回合） */
+export type TurnResult =
+  | { ok: true; text: string }
+  | { ok: false; reason: "interrupted" | "error" | "submit_failed" };
+
 /** UI 模块拿到的宿主门面（M3 实装子集 → C5 起 useResource 实装） */
 export interface PluginUiHost {
   sendPrompt(text: string): Promise<{ messageId: string | null; sessionId: string }>;
-  /** 行词表帧流（ServerFrame，D-042 双向事件流：opt-in、有界队列背压） */
-  subscribe(filter: { sessionId?: string }, cb: (e: ServerFrame) => void): Disposable;
-  onTurnFinished(cb: (result: { ok: boolean; text?: string; reason?: string }) => void): Disposable;
+  /** 行词表帧流（ServerFrame，D-042 双向事件流：opt-in、有界队列背压、终局必达） */
+  subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable;
+  onTurnFinished(cb: (result: TurnResult) => void): Disposable;
   prefill(input: { text: string }): void;
   renderMarkdown(text: string, opts?: { streaming?: boolean }): ReactNode;
   /** 代码整段 token 化（差异卡高亮；可选——旧宿主缺 = 纯文本）。返回每行 token */

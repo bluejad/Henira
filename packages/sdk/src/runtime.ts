@@ -570,11 +570,13 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     });
     sessions.set(id, session);
     await dirs.upsert(cwd, id); // 带目录建会话 = 自动登记（与 server 同一语义）
+    const title = deriveSessionTitle(projection.rows); // R202/D-085：快照帧与 snapshot() 同源派生
     deliver({
       kind: "snapshot",
       sessionId: id,
       snapshot: {
         ...projection.snapshot(id, currentSeq(id)),
+        ...(title !== undefined ? { title } : {}),
         state: stateWithQueue(projection.state, session.ctx),
       },
     });
@@ -1122,7 +1124,12 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       const session = requireSession(sessions, sessionId);
       // 尾窗 60（与 server 快照端点同档——双形态一致：长会话只回尾部窗口，历史经 sessionRows 翻页）
       const snap = session.projection.snapshot(sessionId, currentSeq(sessionId), { tailRows: 60 });
-      return { ...snap, state: stateWithQueue(snap.state, session.ctx) };
+      const title = deriveSessionTitle(session.projection.rows); // R202/D-085：与 server 同源
+      return {
+        ...snap,
+        ...(title !== undefined ? { title } : {}),
+        state: stateWithQueue(snap.state, session.ctx),
+      };
     },
 
     async sessionRows(sessionId, opts) {
@@ -1216,11 +1223,13 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       try {
         yield { kind: "connected", server: { version: "sdk-runtime", startedAt: Date.now() } };
         for (const session of sessions.values()) {
+          const title = deriveSessionTitle(session.projection.rows); // R202/D-085：快照帧同源
           yield {
             kind: "snapshot",
             sessionId: session.id,
             snapshot: {
               ...session.projection.snapshot(session.id, currentSeq(session.id)),
+              ...(title !== undefined ? { title } : {}),
               state: stateWithQueue(session.projection.state, session.ctx),
             },
           };

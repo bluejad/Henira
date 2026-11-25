@@ -301,6 +301,14 @@ describe("EditCard（diff 卡）", () => {
     expect(text).not.toContain("0.0 秒");
   });
 
+  it("旧宿主缺 preview：文件 chip 开本地 diff 弹窗（R202/D-085）", () => {
+    const view = render(createElement(EditCard, { row: editRow(), ctx }));
+    fireEvent.click(view.getByRole("button", { name: "demo.txt" }));
+    const dialog = document.body.textContent ?? "";
+    expect(dialog).toContain("beta");
+    expect(dialog).toContain("BETA");
+  });
+
   it("old === new → 仍走 edit 行（已编辑 + 无变更），不回落通用参数卡（R179）", () => {
     const text = renderCard(
       createElement(EditCard, {
@@ -443,6 +451,28 @@ describe("WriteCard（写入卡）", () => {
     expect(overwrote).toContain("已更新");
     expect(overwrote).toContain("hi");
     expect(overwrote).not.toContain("覆盖文件");
+  });
+
+  it("旧宿主缺 preview：文件 chip 开本地弹窗看新内容（R202/D-085）", () => {
+    const view = render(
+      createElement(WriteCard, {
+        row: toolRow({
+          name: "write",
+          input: JSON.stringify({ file_path: "note.txt", content: "alpha\nbeta" }),
+          output: {
+            content: "created",
+            isError: false,
+            durationMs: 1,
+            meta: { kind: "write", path: "note.txt", created: true },
+          },
+        }),
+        ctx,
+      }),
+    );
+    fireEvent.click(view.getByRole("button", { name: "note.txt" }));
+    const dialog = document.body.textContent ?? "";
+    expect(dialog).toContain("alpha");
+    expect(dialog).toContain("beta");
   });
 
   it("created 全文超千行 → 截断注记", () => {

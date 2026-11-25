@@ -18,6 +18,7 @@ import {
   defaultParts,
   defaultPreviewViews,
   defaultToolViews,
+  type EventFilter,
   type LayoutOption,
   makeT,
   type PluginUiHost,
@@ -25,13 +26,21 @@ import {
   type ResourceSnapshot,
   type SettingsSection,
   type SlotPart,
+  type TurnResult,
   type UiModuleContext,
   type WebPart,
   type WebPartContext,
   type WebSlotName,
   webUiModule,
 } from "@henira/plugin-web-ui";
-import type { GlobalUiState, ServerFrame, SessionSummary, SessionUiState } from "@henira/protocol";
+import type {
+  GlobalUiState,
+  Row,
+  ServerFrame,
+  SessionState,
+  SessionSummary,
+  SessionUiState,
+} from "@henira/protocol";
 import {
   DEFAULT_PREVIEW_OPEN,
   type PreviewKind,
@@ -46,6 +55,9 @@ import { createSlotRegistry } from "./slot-registry.js";
 import { isSingleSlot, slotAccepted } from "./slot-vocabulary.js";
 import { RowStore } from "./store.js";
 import { streamingMarkdownNode } from "./streaming-markdown.js";
+import { createFrameSubscription, type FrameSubscription } from "./subscribe-queue.js";
+import { createTurnLedger } from "./turn-finished.js";
+import { auditUiSlots } from "./ui-slot-audit.js";
 import { sanitizeSessionUiState } from "./ui-state-sanitize.js";
 
 /** 整页布局选项（形状真源在 plugin-web-ui types.LayoutOption；API 兼容别名） */
@@ -155,11 +167,10 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   /** 语言包覆盖字典（D-059：缺 key 回落官方 zh；undefined = 官方 zh） */
   let localeOverride: Record<string, string> | undefined;
   let safeMode = opts.safeMode ?? false;
-  const turnListeners = new Set<
-    (result: { ok: boolean; text?: string; reason?: string }) => void
-  >();
-  const frameListeners = new Set<(frame: ServerFrame) => void>();
-  let lastBusy = false;
+  const turnListeners = new Set<(result: TurnResult) => void>();
+  const subscriptions = new Set<FrameSubscription>();
+  /** 自己发起、尚未收口的回合信用（按会话；busy 沿账本见 turn-finished.ts） */
+  const turnLedger = createTurnLedger();
   let frameAbort: AbortController | undefined;
   /** 链路状态（R193）：client 供给（runtime 缺 onLinkState = 恒 connected）；驱动重连横幅 */
   let linkState: "connected" | "reconnecting" = "connected";
@@ -390,6 +401,28 @@ export function createWebApp(opts: WebAppOptions): WebApp {
           version: plugin.version,
           dispose: typeof dispose === "function" ? (dispose as () => void) : undefined,
         });
+        // D-031 / D-085：manifest 声明 vs 实际注册双向比对（只告警不阻断；未声明 = 不校验）
+        const audit = auditUiSlots({
+          declared: plugin.ui?.slots,
+          registered: registry.ownedSlotNames(plugin.id),
+          accepted: slotAccepted,
+          canonical: canonicalPreviewSlotName,
+        });
+        for (const name of audit.unknown) {
+          const message = `UI slot declared but unknown, ignored: ${plugin.id} ${name}`;
+          console.warn(`[henira] ${message}`);
+          uiWarnings.push(message);
+        }
+        for (const name of audit.missing) {
+          const message = `UI slot declared but not registered: ${plugin.id} ${name}`;
+          console.warn(`[henira] ${message}`);
+          uiWarnings.push(message);
+        }
+        for (const name of audit.undeclared) {
+          const message = `UI slot registered but not declared: ${plugin.id} ${name}`;
+          console.warn(`[henira] ${message}`);
+          uiWarnings.push(message);
+        }
       } catch (err) {
         // apply 注册到一半抛错：已登记的槽/chain 整批撤出，不留半装件（R186 审查 P3⑨）
         registry.releaseOwner(plugin.id);
@@ -462,25 +495,45 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   // ── PluginUiHost 门面（官方件共享基座；第三方件经 hostFor(pluginId) 拿绑定副本）──
   const hostFacade: PluginUiHost = {
     async sendPrompt(text: string) {
-      if (sessionId === null) throw new Error("no active session");
-      const receipt = await opts.client.prompt(sessionId, text);
-      return { messageId: receipt.id, sessionId };
+      if (sessionId === null) {
+        fireTurnFinished({ ok: false, reason: "submit_failed" }); // D-028：提交失败 / 未进入回合
+        throw new Error("no active session");
+      }
+      const sid = sessionId; // 回执按发起时会话返回（await 期间可能已切会话）
+      // 先记账再发（D-085）：快回合可能在 prompt 回执返回前就收口，后记会永久漏投
+      turnLedger.sent(sid);
+      let receipt: Awaited<ReturnType<HeniraFacade["prompt"]>>;
+      try {
+        receipt = await opts.client.prompt(sid, text);
+      } catch (err) {
+        turnLedger.settle(sid); // 没开出回合：当场出账
+        fireTurnFinished({ ok: false, reason: "submit_failed" });
+        throw err;
+      }
+      // 排队回执（id !== null）没有直接回合（D-086）：出掉发起时记的信用，登记条目 id
+      // 等账本 `user/message.queueId` 回声；回执可能晚于行帧——已落 store 的行当场对回
+      if (receipt.id !== null) {
+        turnLedger.settle(sid);
+        turnLedger.queued(sid, receipt.id);
+        const echoed = store
+          .getSession(sid)
+          .rows.find((row) => row.kind === "user" && row.queueId === receipt.id);
+        if (echoed !== undefined) claimQueuedTurn(sid, echoed);
+      }
+      return { messageId: receipt.id, sessionId: sid };
     },
-    subscribe(filter: { sessionId?: string }, cb: (frame: ServerFrame) => void): () => void {
-      const listener = (frame: ServerFrame): void => {
-        if (frame.kind === "connected") return;
-        if (filter.sessionId !== undefined) {
-          // 全局列表信号（sessions.changed）不属于任何会话——带会话过滤的订阅者不收
-          if (frame.kind === "sessions.changed" || frame.sessionId !== filter.sessionId) return;
-        }
-        cb(frame);
-      };
-      frameListeners.add(listener);
+    subscribe(filter: EventFilter, cb: (frame: ServerFrame) => void): () => void {
+      const sub = createFrameSubscription(filter, {
+        lookupRow: (sid, rowId) => store.getRow(sid, rowId),
+        deliver: cb,
+      });
+      subscriptions.add(sub);
       return () => {
-        frameListeners.delete(listener);
+        subscriptions.delete(sub);
+        sub.dispose();
       };
     },
-    onTurnFinished(cb: (result: { ok: boolean; text?: string; reason?: string }) => void) {
+    onTurnFinished(cb: (result: TurnResult) => void) {
       turnListeners.add(cb);
       return () => {
         turnListeners.delete(cb);
@@ -526,9 +579,16 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     },
     async listSessionsByCwd(cwd: string) {
       const all: SessionSummary[] = await opts.client.listSessions();
+      // R202/D-085：cwd 过滤 + 保留 title + updatedAt 降序
       return all
         .filter((s) => s.cwd === cwd)
-        .map((s) => ({ id: s.id, cwd: s.cwd, updatedAt: s.updatedAt }));
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map((s) => ({
+          id: s.id,
+          cwd: s.cwd,
+          updatedAt: s.updatedAt,
+          ...(s.title !== undefined ? { title: s.title } : {}),
+        }));
     },
     useResource: (address: string) => resourceSnapshotFor("plugin-web-ui", address),
     async listPlugins() {
@@ -552,21 +612,71 @@ export function createWebApp(opts: WebAppOptions): WebApp {
     });
   });
 
+  /** 终局回调扇出（单个监听者抛错不拖累其他监听者） */
+  function fireTurnFinished(result: TurnResult): void {
+    for (const cb of turnListeners) {
+      try {
+        cb(result);
+      } catch (err) {
+        console.warn("[henira] onTurnFinished callback failed:", err);
+      }
+    }
+  }
+
+  /** 从该轮行派生终局（D-028 映射）：error 行 → error；assistant interrupted → interrupted */
+  function turnResultFor(sid: string, state: SessionState): TurnResult {
+    const turn = state.lastTurnId;
+    const rows =
+      turn === undefined ? [] : store.getSession(sid).rows.filter((row) => row.turn === turn);
+    if (rows.some((row) => row.kind === "error")) return { ok: false, reason: "error" };
+    if (rows.some((row) => row.kind === "assistant" && row.interrupted === true)) {
+      return { ok: false, reason: "interrupted" };
+    }
+    let text = "";
+    for (const row of rows) {
+      if (row.kind === "assistant" && row.text !== "") text = row.text;
+    }
+    return { ok: true, text };
+  }
+
+  /** 排队回执行回声对回（D-086）：命中登记 → 记一次回合信用。该回合已收口（回执晚于整轮
+   *  结束）只清账不补投——信用会泄漏到下一轮冒领；`turnTimings` 是「已结束」的权威标记
+   *  （user 行先于 turn/start 落账，不能用 busy/lastTurnId 判——那一刻新回合还没开） */
+  function claimQueuedTurn(sid: string, row: Row): void {
+    if (row.kind !== "user" || row.queueId === undefined) return;
+    if (!turnLedger.match(sid, row.queueId)) return;
+    if (store.getSession(sid).state.turnTimings?.[row.turn] !== undefined) return;
+    turnLedger.sent(sid);
+  }
+
   async function consumeFrames(signal: AbortSignal): Promise<void> {
     for await (const frame of opts.client.events()) {
       if (signal.aborted) break;
-      if (frame.kind === "snapshot") store.applySnapshot(frame);
-      else if (frame.kind === "delta") {
+      if (frame.kind === "connected") {
+        // 重连（或首连）：断线期间的 busy 沿不可知——信用与起点一律出清，随后快照重建
+        turnLedger.reset();
+      } else if (frame.kind === "snapshot") {
+        store.applySnapshot(frame);
+        // 快照对账（D-086）：busy=true 补起点（重连后仍在途的排队回合靠它结算）；
+        // busy=false 而本地还挂着起点 = 错过终局，出清信用——否则会冒领到下一轮
+        turnLedger.sync(frame.sessionId, frame.snapshot.state.busy);
+        // 断线重连快照里可能已有排队回合的行：当场对回（回合已结束则丢弃——D-086）
+        for (const row of frame.snapshot.rows) claimQueuedTurn(frame.sessionId, row);
+      } else if (frame.kind === "delta") {
         store.applyFrame(frame);
+        if (frame.delta.op === "row.appended" || frame.delta.op === "row.upserted") {
+          claimQueuedTurn(frame.sessionId, frame.delta.row);
+        }
         if (frame.delta.op === "state.updated") {
+          const sid = frame.sessionId;
           const busy = frame.delta.state.busy;
-          if (lastBusy && !busy) {
-            for (const cb of turnListeners) cb({ ok: true });
+          // 每会话 busy→false 消耗一次自己回合的信用；只有当前会话才投递（D-085）
+          if (turnLedger.onBusy(sid, busy) && sid === sessionId) {
+            fireTurnFinished(turnResultFor(sid, frame.delta.state));
           }
-          lastBusy = busy;
         }
       }
-      for (const listener of frameListeners) listener(frame);
+      for (const sub of subscriptions) sub.push(frame);
     }
   }
 

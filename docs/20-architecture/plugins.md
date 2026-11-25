@@ -158,35 +158,35 @@
 - **keyed 槽占用语义（D-057 / R190）**：官方内置件默认占用（工具卡 / 审批卡各有官方默认实现——E5 起工具卡官方默认实现 = per-tool 卡真实注册进缝、E6 起审批卡同款八键注册，均非代码级 fallback；**预览缝 R190 起同款**：官方预览体显式注册在通配键 `sidebar.right.preview.*`，解析 = 文件名最长后缀匹配（`tar.gz` > `gz`）→ `*` → 代码内最终兜底；图片无扩展名只落 `*`）；插件 `replaceSlot` 顶替，卸载 / 停用自动回落官方；同 key 第二家顶替 → 报错不装载 ＋ 告警（与 D-022 唯一占用、D-048 回落官方同语义）；**预览键全族 single 占用（R190）**——`registerSlot` 与 `replaceSlot` 都走认领/卸载回落，一个后缀一位实现，第二家第三方冲突（消灭 keyed 追加 `[0]` 赢的静默歧义）；**注册口归一（R191）**——预览键先归一再进登记簿（后缀小写、去前导点、空后缀归并为 `*`）：`MD`/`.md`/`..md` 落同一规范键当场报冲突、空后缀与 `*` 同键（官方在位 = 顶替语义），占用判据与解析键空间一致；件渲染崩溃由 SlotBoundary 隔离并回落官方体；`conversation.images` 同理可顶替；`turn.tail` 纯追加（`registerSlot` 多件共存，`order` 排序）；**安全模式**（双击 Alt / `?ui=safe`）不装载第三方件；官方默认件同形注册进行级缝（`defaultParts` + `defaultToolViews` + `defaultApprovalViews` + `defaultPreviewViews` + `composer.bar` + `defaultComposerSeats` + `defaultChainEntries`——不是「缝收起」）；`sidebar.right` 官方默认件 = tab 框架（ZCode 式 tab 条 + 加号 / 下拉列已注册面板——dsh tab 注册制 extension 优先 builtin 行为层，v1 简化：插件 tab 追加共存，preview 的 keyed 顶替缝同一语义）；顶替 `sidebar.right` 本体 = 整条右栏替换（tab 框架一并换）；
 - **标准件出口（D-043）**：官方界面件（**整页框架件** / 会话列表 / 对话面板 / 输入框 / 审批卡…）经宿主标准件出口（import map，与 react 同口子）供插件 import——同一份同版本件，插件间禁止私拉直连；件与**会话上下文**一起给（承重缝，M3 定稿）；插件可 import 官方件复用（站在官方件上写自己的），不强制从零造；
 - **官方界面 = 真插件（D-043）**：`plugin-web-ui` 一个包装下整页框架（`layout` 槽）与各件、各占各槽；与社区插件同一条注册路径；内圈 UI 槽位**不给关、不提供版本钉**（D-016 机制，装配层规则）；三级后手 = 槽位级自动回退 → 双击 Alt 安全模式 → URL `?ui=safe` 兜底；
-- **位置申报（D-031 / D-033）**：`ui.slots` 可选，当前**仅作清单展示素材**——`discovery.ts` 只过滤非字符串项，宿主不读 manifest 声明做校验（死声明/漏声明告警未落码）；与实际注册不一致不阻断；
+- **位置申报（D-031 / D-033 / R202）**：`ui.slots` 可选；宿主装载 UI 模块后把 manifest 声明与实际注册双向比对——未知挂载点丢弃并告警、声明了没注册（死声明）/ 注册了没声明（漏声明）告警，**只告警不阻断**；运行时 `registerSlot` 仍是唯一权威（D-085）；
 - **错误与隔离**：未知挂载点 / 重名 / 模块加载失败 → **不挂该 UI 并告警**，其他槽位与宿主照常；插件列表标黄；`ui.slots` 与实际注册不一致 → 告警但不阻断（D-031）；
 - **安全口径**：同源同权限，**不是安全边界**；门面不提供凭据、文件、进程能力；插件来源仍限"用户自己装的 / AI 创建的"；**不求值源码**（无 `new Function` / eval）。
 
 **UI 宿主门面 14 方法（D-028 12 个 ＋ D-042 subscribe ＋ R190 readWorkspaceFile；另含可选 `tokenizeCode?`，不计入这 14 个）**：
 
-| 组       | 方法                          | 语义                                                                                                                                                                   |
-| -------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **对话** | `sendPrompt(text)`            | 把一句话作为用户提问送进中柱（与手打同一条路），返回 `{ messageId, sessionId }`；`messageId` 为 null = 未排队、直接开跑（发送失败走 Promise reject）                   |
-|          | `subscribe(filter, cb)`       | 订阅本会话引擎事件（含流式增量）；**M3 实装 = 仅 `{sessionId?}` 过滤、同步直发**；类型白名单 / turnId / 有界队列背压（终局必达）为契约目标，未落码（D-042 细则见下节） |
-|          | `onTurnFinished(cb)`          | **M3 实装**：无 receipt 参数；任意会话 busy true→false 时向监听者回调 `{ok:true}`；「恰一次 / 只收自己发起」未落码；返回 `Disposable`                                  |
-|          | `prefill({ text })`           | 把引导语回填输入框，不发送；**M3 空实现**（`chip` 参数与技能 chip 行为未落码）                                                                                         |
-|          | `renderMarkdown(text, opts?)` | 返回宿主同款、已消毒的 Markdown 元素；`opts = { streaming? }`（`highlight` 选项未落码）                                                                                |
-| **数据** | `useResource(address)`        | 订阅实时数据，返回 `{ status: 'loading' \| 'live' \| 'failed', data?, text?, error?, updatedAt? }`；React hook 语义，仅 render 期调用（同地址共享 2s 泵、失败保旧）    |
-|          | `listPlugins({ category? })`  | **M3 实装**：只返回启用插件（`enabled` 恒 true），`category` / `filter` 未接，结果无 `category` / `broken` / `slotKinds`                                               |
-|          | `listDir(path)`               | 列目录（只限会话工作区内；隐藏项不返）                                                                                                                                 |
-|          | `readWorkspaceFile(path)`     | 读工作区文件（R190；cwd 围栏 + realpath；文本 1 MiB 截断 / 二进制 base64——预览缝 `read()` 的宿主实现）                                                                 |
-|          | `listSessionsByCwd(cwd)`      | **M3 实装**：只做 cwd 过滤，不排序、不派生 `title`（排序在 server / SDK 两侧）                                                                                         |
-| **宿主** | `getSession()`                | `{ sessionId, cwd }`；无会话时皆 null                                                                                                                                  |
-|          | `openInExplorer(path)`        | 资源管理器定位；仅桌面宿主可用，其他宿主返回 `false`（web 恒 false）                                                                                                   |
-|          | `openPlugin(id, view?)`       | **M3 空实现**（打开另一插件的挂载面未落码）                                                                                                                            |
-|          | `getInitialView()`            | **M3 恒 undefined**（`view` 暂存 / 读后即焚 / 按插件隔离未落码）                                                                                                       |
+| 组       | 方法                          | 语义                                                                                                                                                                                                                                                                                |
+| -------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **对话** | `sendPrompt(text)`            | 把一句话作为用户提问送进中柱（与手打同一条路），返回 `{ messageId, sessionId }`；`messageId` 为 null = 未排队、直接开跑（发送失败走 Promise reject）                                                                                                                                |
+|          | `subscribe(filter, cb)`       | 订阅本会话行帧流（含流式增量）；`filter = { sessionId?, types?: Row.kind[], turnId? }`；**R202 完整落码**：types 只看行帧、turnId 过滤行帧与 state.updated；每订阅者一条有界队列（cap 256，满则先同步冲刷）/ 16ms 攒批 / 连续 delta 合并 / 结构·状态·快照帧必达（D-042 细则见下节） |
+|          | `onTurnFinished(cb)`          | **R202 语义升级 / R203 排队回执**：只认当前会话 + 自己成功 `sendPrompt` 发起的回合；busy→false 触发一次，按下方终局映射投递；`sendPrompt` reject → `submit_failed`；排队条目经账本 `user/message.queueId` 回声对回（D-086）；返回 `Disposable`                                      |
+|          | `prefill({ text })`           | 把引导语回填输入框，不发送；**M3 空实现**（`chip` 参数与技能 chip 行为未落码）                                                                                                                                                                                                      |
+|          | `renderMarkdown(text, opts?)` | 返回宿主同款、已消毒的 Markdown 元素；`opts = { streaming? }`；代码高亮自动（shiki），无 `highlight` 选项                                                                                                                                                                           |
+| **数据** | `useResource(address)`        | 订阅实时数据，返回 `{ status: 'loading' \| 'live' \| 'failed', data?, text?, error?, updatedAt? }`；React hook 语义，仅 render 期调用（同地址共享 2s 泵、失败保旧）                                                                                                                 |
+|          | `listPlugins({ category? })`  | **M3 实装**：只返回启用插件（`enabled` 恒 true），`category` / `filter` 未接，结果无 `category` / `broken` / `slotKinds`                                                                                                                                                            |
+|          | `listDir(path)`               | 列目录（只限会话工作区内；隐藏项不返）                                                                                                                                                                                                                                              |
+|          | `readWorkspaceFile(path)`     | 读工作区文件（R190；cwd 围栏 + realpath；文本 1 MiB 截断 / 二进制 base64——预览缝 `read()` 的宿主实现）                                                                                                                                                                              |
+|          | `listSessionsByCwd(cwd)`      | **R202**：cwd 过滤 + 保留 `title` + 按 `updatedAt` 降序                                                                                                                                                                                                                             |
+| **宿主** | `getSession()`                | `{ sessionId, cwd }`；无会话时皆 null                                                                                                                                                                                                                                               |
+|          | `openInExplorer(path)`        | 资源管理器定位；仅桌面宿主可用，其他宿主返回 `false`（web 恒 false）                                                                                                                                                                                                                |
+|          | `openPlugin(id, view?)`       | **M3 空实现**（打开另一插件的挂载面未落码）                                                                                                                                                                                                                                         |
+|          | `getInitialView()`            | **M3 恒 undefined**（`view` 暂存 / 读后即焚 / 按插件隔离未落码）                                                                                                                                                                                                                    |
 
 **双向事件流（D-042 修订 D-028 单向阀）**：
 
 - UI 模块 → 中柱仍只有 `sendPrompt` 一条路（发起单口，避免双写）；
-- AI → UI 模块开放**订阅**：`host.subscribe(filter, cb)` 收**本会话**引擎事件（含流式增量）；过滤 = 事件类型白名单 + 可选 turnId；**不订阅不收**（默认行为同原单向阀，订阅是显式 opt-in）；
-- **背压**：每订阅者一条有界队列；队满时增量类可丢可并（16ms 攒批，P6 同款），终局类（tool-call 终态 / approval / turn-end）必达；
-- `onTurnFinished` 保留为自己发起回合的便捷终局回执；
+- AI → UI 模块开放**订阅**：`host.subscribe(filter, cb)` 收**本会话**行帧流（含流式增量）；`filter = { sessionId?, types?: Row["kind"][], turnId? }`——`types` 白名单只看行帧（snapshot 行同滤；`state.updated` 不受影响），`turnId` 过滤行帧且 `state.updated` 仅在 `lastTurnId` 匹配时投递；`sessions.changed` 只投给不带 sessionId / turnId 的订阅者；**不订阅不收**（订阅是显式 opt-in）；
+- **背压（R202 落码）**：每订阅者一条有界队列（cap 256，满则先同步冲刷）；16ms 攒批；连续 `row.delta` 同 rowId+field 合并；结构 / 状态 / 快照帧必达（增量可并、终局必达）；订阅回调抛错只记日志，不拖死消费循环；
+- `onTurnFinished` 保留为自己发起回合的便捷终局回执：只认当前会话、只投自己 `sendPrompt` 发起的回合；排队条目经账本 `user/message.queueId` 回声对回（D-086；删除 / 升格插话 / promote 的条目不投，重启前入队、断线重连前发起的也不补投）；
 - **模型不知道 UI 模块存在**不变——订阅是宿主推给呈现层，事件不回注模型上下文；"UI 不是第二个对话窗口"的边界由**输入单口**守住。
 
 **`useResource` 数据泵（D-028）**：

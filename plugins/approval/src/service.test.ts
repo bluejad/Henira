@@ -145,7 +145,7 @@ const askOpts = (floor?: "ask", signal?: AbortSignal): ApprovalOptions => ({ flo
 
 type Approval = {
   requestPermission(
-    req: { tool: string; args?: unknown; reason?: string },
+    req: { tool: string; args?: unknown; reason?: string; callId?: string },
     opts?: ApprovalOptions,
   ): Promise<Decision>;
 };
@@ -654,6 +654,7 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
         tool: "edit",
         args: { file_path: "f.ts", old_string: "a", new_string: "b" },
         reason: "path is outside the session workspace: X",
+        callId: "call-42",
       },
       askOpts("ask"),
     );
@@ -661,10 +662,16 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
       .events()
       .find((e) => e.type === "approval/asked");
     expect(asked).toBeDefined();
-    const data = asked?.data as { args?: unknown; reason?: string; argsDigest?: string };
+    const data = asked?.data as {
+      args?: unknown;
+      reason?: string;
+      argsDigest?: string;
+      callId?: string;
+    };
     expect(data.args).toEqual({ file_path: "f.ts", old_string: "a", new_string: "b" });
     expect(data.reason).toBe("path is outside the session workspace: X");
     expect(data.argsDigest).toEqual(expect.any(String));
+    expect(data.callId).toBe("call-42"); // R202：真实 tool/call id（超限回查用）
     await harness.dispose();
   });
 
@@ -679,7 +686,7 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
     ]);
     const { harness, ctx } = await startedHarness(interaction);
     const decision = await approvalOf(ctx).requestPermission(
-      { tool: "write", args: { blob: "z".repeat(300 * 1024) } },
+      { tool: "write", args: { blob: "z".repeat(300 * 1024) }, callId: "big-call" },
       askOpts("ask"),
     );
     expect(decision).toBe("rejected");
@@ -687,9 +694,10 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
       .events()
       .find((e) => e.type === "approval/asked");
     if (askedEvent === undefined) throw new Error("asked event missing");
-    const askedData = askedEvent.data as { args?: unknown; argsDigest?: string };
-    expect(askedData.args).toBeUndefined(); // 超闸丢弃（digest-only 回落形状）
+    const askedData = askedEvent.data as { args?: unknown; argsDigest?: string; callId?: string };
+    expect(askedData.args).toBeUndefined(); // 超闸丢弃（卡片按 callId 回查 tool 行）
     expect(askedData.argsDigest).toEqual(expect.any(String));
+    expect(askedData.callId).toBe("big-call");
     const decidedEvent = sessionOf(ctx)
       .events()
       .find((e) => e.type === "approval/decided");

@@ -224,7 +224,7 @@ describe("turn/step 状态机（loop.md §1）", () => {
   });
 
   it("忙时投递唯一 = 排队（D-045）：run 中 send 入队并持久化 queue.json；回合末自动开新回合", async () => {
-    const { harness, ctx, loop, sessionDir } = await startedLoop([
+    const { harness, ctx, loop, sessionDir, session } = await startedLoop([
       // 第一回合：慢速文本流，留出 send() 窗口
       (req) => {
         void req;
@@ -252,10 +252,16 @@ describe("turn/step 状态机（loop.md §1）", () => {
     const raw = await fs.readFile(path.join(sessionDir, "queue.json"), "utf8"); // 持久化
     expect(raw).toContain("插进来的第二问");
     await consuming;
-    // 回合末队列自动冲刷：第二回合的 user/message 已落账本
+    // 回合末队列自动冲刷：第二回合的 user/message 已落账本，且带排队条目 id（D-086）
     const sources = await fs.readdir(sessionDir);
     expect(sources).toContain("queue.json");
     expect(events.at(-1)).toBe("turn-ended");
+    const users = session
+      .events()
+      .filter((e) => e.type === "user/message")
+      .map((e) => e.data as { content: string; queueId?: string });
+    expect(users.find((d) => d.content === "第一")?.queueId).toBeUndefined(); // 直接发送不带
+    expect(users.find((d) => d.content === "插进来的第二问")?.queueId).toBe(queued.id); // 冲刷回合带
     await harness.dispose();
   });
 

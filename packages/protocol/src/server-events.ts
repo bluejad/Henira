@@ -23,6 +23,9 @@ export interface UserRow {
   text: string;
   /** 账本 user/message.source 原样（send / steer / veto / …开放词表） */
   source: string;
+  /** 排队条目 id（R203/D-086：只在队列冲刷产生的回合出现——`onTurnFinished` 把排队回执
+   *  对回回合；直接发送 / 插话 / promote 不带） */
+  queueId?: string;
   /** 消息时刻（账本 user/message 事件 time，epoch ms——消息外壳时间戳，E4） */
   time?: number;
 }
@@ -57,7 +60,8 @@ export interface ToolRowOutput {
   content: string;
   isError: boolean;
   durationMs: number;
-  /** 输出超限截断（tools 管线结算原样透传；preview 供 UI 展示头部，path 指完整输出落盘文件） */
+  /** 输出超限截断（tools 管线结算原样透传；preview 供 UI 展示头部，path 指完整输出落盘文件，
+   *  相对会话目录——如 `artifacts/<callId>.txt`，D-085） */
   truncated?: { path: string; preview: string };
   /** 工具结果带外元数据（ToolResult.__meta 原样透传，账本 tool/result.meta 同源；不进模型上下文）。
    *  形状归工具件约定、kind 标记开放集（官方 kind："shell"/"read"/"write"/"edit"/"glob"/"grep"/"mcp"）；
@@ -87,11 +91,15 @@ export interface ApprovalRow {
   step: number;
   requestId: string;
   toolName: string;
+  /** 真实 tool/call id（R202/D-085；approval/asked 原样携带——超限 args 丢弃时卡片按此回查 tool 行） */
+  callId?: string;
   /** argsDigest（关联指纹，chain.test 锁定语义——同参同摘要） */
   argsSummary?: string;
   /** 审批载荷 args 完整原样（approval/asked 投影，E6——D-046「挂起请求自足可渲染」落地：
    * 断线重连 / 多窗口重放同一张卡；per-tool 预览体的唯一数据源。凭据经架构保证不进 args
-   * （${credential} 展开只在 MCP 配置装载），且 approval/* 不进 derive——模型上下文不可达 */
+   * （${credential} 展开只在 MCP 配置装载），且 approval/* 不进 derive——模型上下文不可达。
+   * R202：>256KB 或不可序列化时事件侧丢弃 args；卡片按 callId 回查同会话 tool/call 行，
+   * 行不在窗口内才回落 argsSummary） */
   args?: unknown;
   /** 审批请求解释（引擎判定链 reason 原样——围栏区外访问等；仅呈现） */
   reason?: string;

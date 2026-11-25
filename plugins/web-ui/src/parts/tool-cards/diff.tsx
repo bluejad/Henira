@@ -6,7 +6,7 @@ import type { WebPartContext } from "../../types.js";
 import { ToolRow } from "../row-chrome.js";
 import { toolGlyph } from "../tool-icons.js";
 import { ToolView } from "./fallback.js";
-import { FileChip } from "./file-preview.js";
+import { FileChip, FilePreviewDialog } from "./file-preview.js";
 import { type CardProps, failureTitle, parseInput, str, toolFailure } from "./shell.js";
 
 interface DiffRow {
@@ -255,8 +255,29 @@ function EditDiffBody(props: {
   );
 }
 
+/** 预览弹窗/右栏共用的 edit 正文（R202/D-085：从 preview.tsx 移入——write/edit 旧宿主回退
+ *  与右栏预览同一套 diff 机器，避免 preview→diff 的反向依赖） */
+export function EditPreviewBody(props: {
+  oldText: string;
+  newText: string;
+  path: string;
+  ctx: WebPartContext;
+}): React.ReactNode {
+  const tokens = useDiffTokens(props.ctx, props.oldText, props.newText, props.path);
+  const diff = buildDiffRows(props.oldText, props.newText);
+  if (diff === null) {
+    return <div className="henira-preview-empty">{props.ctx.t("tool.noChanges")}</div>;
+  }
+  return (
+    <div className="henira-preview-diff">
+      <DiffRowsView rows={diff.rows} tokens={tokens} />
+    </div>
+  );
+}
+
 /** edit 卡：old/new 从行 input JSON 解析；行本身可展开看 diff。 */
 export function EditCard({ row, ctx }: CardProps): React.ReactNode {
+  const [localPreview, setLocalPreview] = useState(false);
   const input = parseInput(row);
   const oldText = input === null ? null : str(input.old_string);
   const newText = input === null ? null : str(input.new_string);
@@ -264,33 +285,41 @@ export function EditCard({ row, ctx }: CardProps): React.ReactNode {
   if (oldText === null || newText === null || filePath === null) {
     return <ToolView row={row} ctx={ctx} />;
   }
+  const openPreview = (): void => {
+    // R202/D-085：旧宿主缺 preview → 本地弹窗（edit 看 diff 体），不再退化成静态文本
+    if (ctx.preview !== undefined) {
+      ctx.preview.open({ kind: "file", path: filePath, rowId: row.rowId });
+    } else {
+      setLocalPreview(true);
+    }
+  };
+  const localDialog = localPreview ? (
+    <FilePreviewDialog
+      title={filePath}
+      body={<EditPreviewBody oldText={oldText} newText={newText} path={filePath} ctx={ctx} />}
+      closeLabel={ctx.t("filePreview.close")}
+      onClose={() => setLocalPreview(false)}
+    />
+  ) : null;
   const diff = buildDiffRows(oldText, newText);
   const running = row.status === "running";
   if (diff === null) {
     // old === new：不再回落通用参数卡（R179 挂账）——仍是 edit 行，只是没有 diff 体
     return (
-      <ToolRow
-        icon={toolGlyph(row.name)}
-        kindLabel={ctx.t(running ? "tool.kind.editing" : "tool.kind.edited")}
-        primary={
-          <FileChip
-            path={filePath}
-            onOpen={
-              ctx.preview === undefined
-                ? undefined
-                : () => {
-                    ctx.preview?.open({ kind: "file", path: filePath, rowId: row.rowId });
-                  }
-            }
-          />
-        }
-        secondary={ctx.t("tool.noChanges")}
-        busy={running}
-        canToggle={false}
-        rowTitle={`${row.name} (${row.callId})`}
-        status={toolFailure(row, ctx.t)}
-        statusTitle={failureTitle(row)}
-      />
+      <>
+        <ToolRow
+          icon={toolGlyph(row.name)}
+          kindLabel={ctx.t(running ? "tool.kind.editing" : "tool.kind.edited")}
+          primary={<FileChip path={filePath} onOpen={openPreview} />}
+          secondary={ctx.t("tool.noChanges")}
+          busy={running}
+          canToggle={false}
+          rowTitle={`${row.name} (${row.callId})`}
+          status={toolFailure(row, ctx.t)}
+          statusTitle={failureTitle(row)}
+        />
+        {localDialog}
+      </>
     );
   }
   const diffRows =
@@ -298,31 +327,29 @@ export function EditCard({ row, ctx }: CardProps): React.ReactNode {
       ? [...diff.rows, { kind: "note" as const, text: ctx.t("tool.diffTruncated") }]
       : diff.rows;
   return (
-    <ToolRow
-      icon={toolGlyph(row.name)}
-      kindLabel={ctx.t(running ? "tool.kind.editing" : "tool.kind.edited")}
-      primary={
-        <FileChip
+    <>
+      <ToolRow
+        icon={toolGlyph(row.name)}
+        kindLabel={ctx.t(running ? "tool.kind.editing" : "tool.kind.edited")}
+        primary={<FileChip path={filePath} onOpen={openPreview} />}
+        diff={<DiffTotals added={diff.added} removed={diff.removed} />}
+        busy={running}
+        canToggle
+        persistKey={`${ctx.sessionId ?? "none"}:${row.callId}`}
+        rowTitle={`${row.name} (${row.callId})`}
+        status={toolFailure(row, ctx.t)}
+        statusTitle={failureTitle(row)}
+      >
+        <EditDiffBody
+          ctx={ctx}
+          rows={diffRows}
+          oldText={oldText}
+          newText={newText}
           path={filePath}
-          onOpen={
-            ctx.preview === undefined
-              ? undefined
-              : () => {
-                  ctx.preview?.open({ kind: "file", path: filePath, rowId: row.rowId });
-                }
-          }
         />
-      }
-      diff={<DiffTotals added={diff.added} removed={diff.removed} />}
-      busy={running}
-      canToggle
-      persistKey={`${ctx.sessionId ?? "none"}:${row.callId}`}
-      rowTitle={`${row.name} (${row.callId})`}
-      status={toolFailure(row, ctx.t)}
-      statusTitle={failureTitle(row)}
-    >
-      <EditDiffBody ctx={ctx} rows={diffRows} oldText={oldText} newText={newText} path={filePath} />
-    </ToolRow>
+      </ToolRow>
+      {localDialog}
+    </>
   );
 }
 

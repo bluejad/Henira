@@ -8,7 +8,9 @@ import { baseName } from "./shell.js";
 export function FilePreviewDialog(props: {
   title: string;
   subtitle?: string;
-  content: string;
+  content?: string;
+  /** 富正文（edit 的 diff 体等）；提供时替代 content 的纯文本 pre（R202/D-085） */
+  body?: React.ReactNode;
   closeLabel?: string;
   onClose(): void;
 }): React.ReactNode {
@@ -41,9 +43,7 @@ export function FilePreviewDialog(props: {
             ×
           </button>
         </div>
-        <div className="henira-preview-body">
-          <pre>{props.content}</pre>
-        </div>
+        <div className="henira-preview-body">{props.body ?? <pre>{props.content ?? ""}</pre>}</div>
       </div>
     </div>
   );

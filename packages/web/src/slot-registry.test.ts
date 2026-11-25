@@ -298,3 +298,43 @@ describe("releaseOwner（R186 收尾，审查 P3⑨）：按调用方整批撤�
     expect(registry.slots.has("composer.dock")).toBe(false);
   });
 });
+
+describe("ownedSlotNames（R202 / D-085：ui.slots 漏声明比对）", () => {
+  const chainEntry = (id: string) => ({
+    id,
+    priority: 0,
+    select: () => null,
+    Component: NullComponent,
+  });
+
+  it("registerSlot / replaceSlot / chain 三者都算占用；只报自己的", () => {
+    const { registry } = make();
+    const official = registry.apiFor("plugin-web-ui");
+    const plugin = registry.apiFor("my-ui");
+    official.registerSlot("tool.call.view.bash", () => "official");
+    official.registerSlot("conversation", () => "official-conv");
+    plugin.registerSlot("sidebar", () => "mine");
+    plugin.replaceSlot("tool.call.view.bash", () => "mine-bash");
+    plugin.registerChainSlot("composer.takeover", chainEntry("q"));
+
+    expect(new Set(registry.ownedSlotNames("my-ui"))).toEqual(
+      new Set(["sidebar", "tool.call.view.bash", "composer.takeover"]),
+    );
+    expect(registry.ownedSlotNames("plugin-web-ui")).toEqual(["conversation"]);
+    expect(registry.ownedSlotNames("never")).toEqual([]);
+  });
+
+  it("槽名按登记键（已归一）返回；撤出后不再占用", () => {
+    const registry = createSlotRegistry({
+      slotAccepted: () => true,
+      onUnknownSlot: () => {},
+      officialId: "plugin-web-ui",
+      canonicalSlotName: (name) => name.toLowerCase(),
+    });
+    const plugin = registry.apiFor("ui-a");
+    const dispose = plugin.replaceSlot("sidebar.right.preview.MD", () => "md");
+    expect(registry.ownedSlotNames("ui-a")).toEqual(["sidebar.right.preview.md"]);
+    dispose();
+    expect(registry.ownedSlotNames("ui-a")).toEqual([]);
+  });
+});

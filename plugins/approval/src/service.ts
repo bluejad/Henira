@@ -84,12 +84,13 @@ export function approvalPlugin(): ServiceDefinition<ApprovalService> {
                 turn,
                 step,
                 requestId,
-                callId: requestId,
+                // 真实 tool/call id（R202/D-085）：超限丢 args 时卡片按此回查 tool 行；缺省回落 requestId
+                callId: req.callId ?? requestId,
                 tool: req.tool,
                 argsDigest: argsDigest(req.args),
                 // args 完整原样（E6，D-046「审计事件对照记全文」落码归位）：挂起卡自足可渲染
                 // （断线重连/多窗口重放），per-tool 预览体唯一数据源；digest 保留作关联指纹；
-                // 尺寸闸超限丢 args 留 digest（卡回落 digest-only，args 全文在 tool/call 可查）
+                // 尺寸闸超限丢 args 留 digest（R202 起卡片按 callId 回查，行不在窗口才回落 digest）
                 ...(req.args !== undefined && withinArgsCap(req.args) ? { args: req.args } : {}),
                 ...(req.reason !== undefined ? { reason: req.reason } : {}),
               },
