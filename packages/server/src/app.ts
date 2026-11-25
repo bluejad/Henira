@@ -19,9 +19,11 @@ import {
   sameCwd,
 } from "@henira/plugin-session";
 import {
+  APPROVAL_FEEDBACK_MAX,
   DECISIONS,
   decodeUtf8Prefix,
   deriveSessionTitle,
+  fitsApprovalFeedback,
   looksBinary,
   PERMISSION_MODES,
   type PermissionRule,
@@ -83,6 +85,7 @@ const permissionRuleMatchSchema = z.object({
   commandExact: z.string().min(1).optional(),
   commandPrefix: z.string().min(1).optional(),
   commandContains: z.string().min(1).optional(),
+  pathExact: z.string().min(1).optional(),
 });
 const permissionRuleSchema = z.object({
   match: permissionRuleMatchSchema,
@@ -344,15 +347,33 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   // ── 审批收答（settle 幂等先答者赢；行投影由账本驱动。scope:'session'/'project' = 允许范围，
-  // E6/R198：decided{scope,rule} 落账 → 同命令后续调用免 ask——tools-approval §3.1）──
+  // E6/R198：decided{scope,rule} 落账 → 同命令后续调用免 ask；D-087：rejected 可带 feedback，
+  // 随工具结果回给模型——tools-approval §3.1/§3.3）──
   app.post("/api/sessions/:id/approvals/:requestId", async (c) => {
     const entry = await requireEntry(c, deps);
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     const parsed = z
-      .object({ decision: z.enum(DECISIONS), scope: z.enum(["session", "project"]).optional() })
+      .object({
+        decision: z.enum(DECISIONS),
+        scope: z.enum(["session", "project"]).optional(),
+        feedback: z
+          .string()
+          .refine(fitsApprovalFeedback, {
+            message: `feedback must be at most ${APPROVAL_FEEDBACK_MAX} characters`,
+          })
+          .optional(),
+      })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
-      return c.json({ error: `decision must be one of ${DECISIONS.join("/")}` }, 400);
+      return c.json(
+        {
+          error: `decision must be one of ${DECISIONS.join("/")}; feedback at most ${APPROVAL_FEEDBACK_MAX} characters`,
+        },
+        400,
+      );
+    }
+    if (parsed.data.decision !== "rejected" && parsed.data.feedback !== undefined) {
+      return c.json({ error: "feedback is only allowed with rejected" }, 400);
     }
     const requestId = c.req.param("requestId");
     const applied = entry.interaction.settle(requestId, {
@@ -360,6 +381,7 @@ export function createApp(deps: AppDeps): Hono {
       requestId,
       decision: parsed.data.decision,
       ...(parsed.data.scope !== undefined ? { scope: parsed.data.scope } : {}),
+      ...(parsed.data.feedback !== undefined ? { feedback: parsed.data.feedback } : {}),
     });
     if (!applied && entry.interaction.knows?.(requestId) !== true) {
       // 从不存在（服务重启收口/重启前死亡）：404 让前端判别「当已解决」，

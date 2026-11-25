@@ -79,6 +79,30 @@ const SessionRow = memo(
           >
             {title}
           </span>
+          {/* D-089：待我处理（审批/提问挂起）——ZCode 左栏 task 行同款徽标；
+              title 带总数，窄栏只显示文案，多张卡时数字跟在后面。 */}
+          {s.pendingInteraction !== undefined ? (
+            <span
+              data-session-pending={s.pendingInteraction.kind}
+              title={`${ctx.t("sessions.awaiting")}${
+                s.pendingInteraction.count > 1 ? ` ${s.pendingInteraction.count}` : ""
+              }`}
+              style={{
+                flexShrink: 0,
+                borderRadius: 999,
+                padding: "0 6px",
+                background: "var(--henira-ok-bg)",
+                color: "var(--henira-ok-text)",
+                fontSize: "var(--henira-fs-sm)",
+                lineHeight: "18px",
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {ctx.t("sessions.awaiting")}
+              {s.pendingInteraction.count > 1 ? ` ${s.pendingInteraction.count}` : ""}
+            </span>
+          ) : null}
           <span
             style={{
               marginLeft: "auto",

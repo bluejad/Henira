@@ -48,7 +48,7 @@ async function toolsWithFs(): Promise<Map<string, ToolDefinition>> {
 
 const toolCtx: ToolContext = {
   signal: new AbortController().signal,
-  requestPermission: async () => "allowed-once" as never,
+  requestPermission: async () => ({ decision: "allowed-once" as const }),
   cwd: "/ws",
   config: { cwd: "/ws" } as never,
 };

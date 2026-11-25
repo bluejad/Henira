@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   argsDigest,
@@ -5,9 +6,13 @@ import {
   isCredentialAccess,
   isDisasterCommand,
   matchesRule,
+  normalizeRulePath,
+  pathRule,
+  requestPath,
   stringValues,
 } from "./chain.js";
 
+const CWD = path.resolve(process.cwd(), "fixtures", "project");
 const req = (args: unknown) => ({ tool: "bash", args });
 
 describe("链外硬拒：凭据（D-039，任何规则都放不了行）", () => {
@@ -47,25 +52,28 @@ describe("链外硬拒：灾难命令（官方清单，D-039）", () => {
 describe("规则匹配（permissions.json 形状，tools-approval §3.1）", () => {
   it("tool 相等 + commandPrefix / commandContains", () => {
     expect(
-      matchesRule(req({ command: "npm test --watch" }), {
-        match: { tool: "bash", commandPrefix: "npm test" },
-        decision: "allow",
-      }),
+      matchesRule(
+        req({ command: "npm test --watch" }),
+        { match: { tool: "bash", commandPrefix: "npm test" }, decision: "allow" },
+        CWD,
+      ),
     ).toBe(true);
     expect(
-      matchesRule(req({ command: "yarn test" }), {
-        match: { tool: "bash", commandPrefix: "npm test" },
-        decision: "allow",
-      }),
+      matchesRule(
+        req({ command: "yarn test" }),
+        { match: { tool: "bash", commandPrefix: "npm test" }, decision: "allow" },
+        CWD,
+      ),
     ).toBe(false);
     expect(
-      matchesRule(req({ command: "npm run rm -rf docs" }), {
-        match: { tool: "bash", commandContains: "rm -rf" },
-        decision: "deny",
-      }),
+      matchesRule(
+        req({ command: "npm run rm -rf docs" }),
+        { match: { tool: "bash", commandContains: "rm -rf" }, decision: "deny" },
+        CWD,
+      ),
     ).toBe(true);
     expect(
-      matchesRule(req({ command: "ls" }), { match: { tool: "read" }, decision: "allow" }),
+      matchesRule(req({ command: "ls" }), { match: { tool: "read" }, decision: "allow" }, CWD),
     ).toBe(false);
   });
 
@@ -74,10 +82,10 @@ describe("规则匹配（permissions.json 形状，tools-approval §3.1）", () 
       match: { tool: "bash", commandExact: "git status" },
       decision: "allow" as const,
     };
-    expect(matchesRule(req({ command: "git status" }), rule)).toBe(true);
-    expect(matchesRule(req({ command: "git status --short" }), rule)).toBe(false);
-    expect(matchesRule(req({ command: "git status extra" }), rule)).toBe(false);
-    expect(matchesRule(req({}), rule)).toBe(false);
+    expect(matchesRule(req({ command: "git status" }), rule, CWD)).toBe(true);
+    expect(matchesRule(req({ command: "git status --short" }), rule, CWD)).toBe(false);
+    expect(matchesRule(req({ command: "git status extra" }), rule, CWD)).toBe(false);
+    expect(matchesRule(req({}), rule, CWD)).toBe(false);
   });
 
   it("R198 多约束同时在场须全部满足", () => {
@@ -85,9 +93,9 @@ describe("规则匹配（permissions.json 形状，tools-approval §3.1）", () 
       match: { tool: "bash", commandPrefix: "npm", commandContains: "test" },
       decision: "allow" as const,
     };
-    expect(matchesRule(req({ command: "npm test" }), rule)).toBe(true);
-    expect(matchesRule(req({ command: "npm run build" }), rule)).toBe(false);
-    expect(matchesRule(req({ command: "pnpm test" }), rule)).toBe(false);
+    expect(matchesRule(req({ command: "npm test" }), rule, CWD)).toBe(true);
+    expect(matchesRule(req({ command: "npm run build" }), rule, CWD)).toBe(false);
+    expect(matchesRule(req({ command: "pnpm test" }), rule, CWD)).toBe(false);
   });
 
   it("R198 commandRule：仅命令类工具 + 非空命令出精确规则", () => {
@@ -105,15 +113,95 @@ describe("规则匹配（permissions.json 形状，tools-approval §3.1）", () 
   });
 
   it("无命令字段的 args 按 tool 单匹配", () => {
-    expect(matchesRule(req({ path: "a.txt" }), { match: { tool: "bash" }, decision: "deny" })).toBe(
+    expect(
+      matchesRule(req({ path: "a.txt" }), { match: { tool: "bash" }, decision: "deny" }, CWD),
+    ).toBe(true);
+    expect(
+      matchesRule(
+        req({ path: "a.txt" }),
+        { match: { tool: "bash", commandContains: "x" }, decision: "deny" },
+        CWD,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("D-087 路径规则（write/edit）", () => {
+  it("requestPath：file_path 优先、其次 path；空白/缺失视为无路径", () => {
+    expect(requestPath({ tool: "write", args: { file_path: "a.ts" } })).toBe("a.ts");
+    expect(requestPath({ tool: "edit", args: { path: "b.ts" } })).toBe("b.ts");
+    expect(requestPath({ tool: "write", args: { file_path: "a.ts", path: "b.ts" } })).toBe("a.ts");
+    expect(requestPath({ tool: "write", args: { file_path: "   " } })).toBeUndefined();
+    expect(requestPath({ tool: "bash", args: { command: "ls" } })).toBeUndefined();
+  });
+
+  it("pathExact：相对/绝对两种写法归一后同一条；相邻文件、前缀相同的文件都不误命中", () => {
+    const rule = {
+      match: { tool: "write", pathExact: "src/a.ts" },
+      decision: "allow" as const,
+    };
+    expect(matchesRule({ tool: "write", args: { file_path: "src/a.ts" } }, rule, CWD)).toBe(true);
+    expect(
+      matchesRule({ tool: "write", args: { file_path: path.join(CWD, "src", "a.ts") } }, rule, CWD),
+    ).toBe(true);
+    expect(matchesRule({ tool: "write", args: { file_path: "src/ab.ts" } }, rule, CWD)).toBe(false);
+    expect(matchesRule({ tool: "write", args: { file_path: "src/a.ts.bak" } }, rule, CWD)).toBe(
+      false,
+    );
+    expect(matchesRule({ tool: "write", args: {} }, rule, CWD)).toBe(false);
+    expect(matchesRule({ tool: "read", args: { file_path: "src/a.ts" } }, rule, CWD)).toBe(false);
+  });
+
+  it("write 与 edit 的路径规则互相命中（ZCode 别名同款）；工具级规则不跨工具", () => {
+    const writePath = {
+      match: { tool: "write", pathExact: "src/a.ts" },
+      decision: "allow" as const,
+    };
+    expect(matchesRule({ tool: "edit", args: { file_path: "src/a.ts" } }, writePath, CWD)).toBe(
       true,
     );
+    const editPath = {
+      match: { tool: "edit", pathExact: "src/a.ts" },
+      decision: "allow" as const,
+    };
+    expect(matchesRule({ tool: "write", args: { file_path: "src/a.ts" } }, editPath, CWD)).toBe(
+      true,
+    );
+    // 工具级（无 pathExact）不享受别名：本会话允许 write 不等于允许 edit
     expect(
-      matchesRule(req({ path: "a.txt" }), {
-        match: { tool: "bash", commandContains: "x" },
-        decision: "deny",
-      }),
+      matchesRule({ tool: "edit", args: {} }, { match: { tool: "write" }, decision: "allow" }, CWD),
     ).toBe(false);
+  });
+
+  it("normalizeRulePath：cwd 外路径保留 ../，win32 大小写折叠", () => {
+    expect(normalizeRulePath(CWD, path.join(CWD, "src", "a.ts"))).toBe("src/a.ts");
+    expect(normalizeRulePath(CWD, path.join(CWD, "..", "shared", "a.ts"))).toBe("../shared/a.ts");
+    const upper = normalizeRulePath(CWD, "SRC/A.TS");
+    expect(upper === "src/a.ts").toBe(process.platform === "win32");
+    if (process.platform === "win32") {
+      // 跨盘符：path.relative 返回绝对路径（不是 ../...），仍确定性可比较——同盘规则照常命中
+      expect(normalizeRulePath(CWD, "Z:\\other\\a.ts")).toBe("z:/other/a.ts");
+      const rule = {
+        match: { tool: "write", pathExact: "Z:\\other\\a.ts" },
+        decision: "allow" as const,
+      };
+      expect(
+        matchesRule({ tool: "write", args: { file_path: "z:\\OTHER\\a.ts" } }, rule, CWD),
+      ).toBe(true);
+      expect(matchesRule({ tool: "write", args: { file_path: "a.ts" } }, rule, CWD)).toBe(false);
+    }
+  });
+
+  it("pathRule：仅 write/edit + 可解析路径出精确规则；缺失路径返回 undefined", () => {
+    expect(
+      pathRule({ tool: "write", args: { file_path: path.join(CWD, "src", "a.ts") } }, CWD),
+    ).toEqual({ match: { tool: "write", pathExact: "src/a.ts" }, decision: "allow" });
+    expect(pathRule({ tool: "edit", args: { path: "./src/a.ts" } }, CWD)).toEqual({
+      match: { tool: "edit", pathExact: "src/a.ts" },
+      decision: "allow",
+    });
+    expect(pathRule({ tool: "write", args: {} }, CWD)).toBeUndefined();
+    expect(pathRule({ tool: "bash", args: { file_path: "a.ts" } }, CWD)).toBeUndefined();
   });
 });
 

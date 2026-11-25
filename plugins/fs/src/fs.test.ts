@@ -16,7 +16,9 @@ async function tmpWorkdir(): Promise<string> {
 }
 
 function gate(overrides?: Partial<FsGate> & { decision?: string }): FsGate {
-  const requestPermission = vi.fn(async () => (overrides?.decision ?? "allowed-once") as never);
+  const requestPermission = vi.fn(async () => ({
+    decision: (overrides?.decision ?? "allowed-once") as never,
+  }));
   return {
     tool: "read",
     args: { file_path: "x.txt" },

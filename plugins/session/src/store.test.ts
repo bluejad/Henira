@@ -250,6 +250,39 @@ describe("审批写入规则（session.md §1.1：没有打开的回合不接受
       }),
     ).rejects.toBeInstanceOf(EventDataInvalidError);
   });
+
+  it("D-087 pathExact 规则与 feedback 过闸；超长说明被拒", async () => {
+    const s = await openSession("appr-d087");
+    await s.append(turnStart("t1"));
+    const decided = await s.append({
+      type: "approval/decided",
+      data: {
+        turn: "t1",
+        step: 0,
+        requestId: "r1",
+        decision: "allowed-once",
+        scope: "session",
+        rule: { match: { tool: "write", pathExact: "src/a.ts" }, decision: "allow" },
+      },
+    });
+    expect(decided.type).toBe("approval/decided");
+    await s.append({
+      type: "approval/decided",
+      data: { turn: "t1", step: 0, requestId: "r2", decision: "rejected", feedback: "用 pnpm" },
+    });
+    await expect(
+      s.append({
+        type: "approval/decided",
+        data: {
+          turn: "t1",
+          step: 0,
+          requestId: "r3",
+          decision: "rejected",
+          feedback: "x".repeat(4097),
+        },
+      }),
+    ).rejects.toBeInstanceOf(EventDataInvalidError);
+  });
 });
 
 describe("surfaceOp 重叠裁决（session.md §4：先写生效，后到的整条忽略并补非致命 error）", () => {

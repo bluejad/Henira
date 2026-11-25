@@ -318,6 +318,50 @@ describe("账本回放 → 快照", () => {
     );
     expect("scope" in (q.rows[0] as object)).toBe(false);
     expect("args" in (q.rows[0] as object)).toBe(false);
+
+    // D-087：拒绝说明随 decided 投影（settled 行可展开查看）；空串不落键
+    const f = new Projection();
+    f.ingest(
+      ev(1, "approval/asked", {
+        turn: "t",
+        step: 1,
+        requestId: "r-4",
+        callId: "r-4",
+        tool: "bash",
+        argsDigest: "d",
+      }),
+    );
+    f.ingest(
+      ev(2, "approval/decided", {
+        turn: "t",
+        step: 1,
+        requestId: "r-4",
+        decision: "rejected",
+        feedback: "用 pnpm",
+      }),
+    );
+    expect(f.rows[0]).toMatchObject({ decision: "rejected", feedback: "用 pnpm" });
+    const g = new Projection();
+    g.ingest(
+      ev(1, "approval/asked", {
+        turn: "t",
+        step: 1,
+        requestId: "r-5",
+        callId: "r-5",
+        tool: "bash",
+        argsDigest: "d",
+      }),
+    );
+    g.ingest(
+      ev(2, "approval/decided", {
+        turn: "t",
+        step: 1,
+        requestId: "r-5",
+        decision: "rejected",
+        feedback: "",
+      }),
+    );
+    expect("feedback" in (g.rows[0] as object)).toBe(false);
   });
 
   it("提问对（R184）：asked → pending 行（题面自足）；settled answered/cancelled 原位 upsert；孤儿抑制", () => {

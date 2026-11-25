@@ -30,6 +30,7 @@ import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
 import { ModelSeat } from "./parts/model-seat.js";
 import { ModelSelect } from "./parts/model-select.js";
+import { PermissionRuleLine } from "./parts/permission-rule.js";
 import { PreviewBody } from "./parts/preview.js";
 import { QuestionCard } from "./parts/question-card.js";
 import { QueueDock } from "./parts/queue-dock.js";
@@ -358,6 +359,25 @@ describe("SessionList", () => {
     await waitFor(() => expect(screen.queryByLabelText(t("sessions.busy"))).toBeNull());
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(listSessions).toHaveBeenCalledTimes(1); // 推送翻内存，零请求
+  });
+
+  it("D-089 等待确认徽标：pendingInteraction 有值才渲染（多张卡带计数）", async () => {
+    const ctx = fixtureCtx();
+    ctx.client.listSessions = async () => [
+      {
+        id: "s-1",
+        cwd: "C:\\demo",
+        updatedAt: 1,
+        busy: false,
+        pendingInteraction: { kind: "approval", count: 2 },
+      },
+      { id: "s-2", cwd: "C:\\other", updatedAt: 2, busy: false },
+    ];
+    render(<SessionList {...ctx} />);
+    const badge = await screen.findByTitle(`${t("sessions.awaiting")} 2`);
+    expect(badge.getAttribute("data-session-pending")).toBe("approval");
+    expect(badge.textContent).toBe(`${t("sessions.awaiting")} 2`);
+    expect(document.querySelectorAll("[data-session-pending]")).toHaveLength(1);
   });
 
   it("R176：sessions.changed → 新会话上屏（列表事实变重载）", async () => {
@@ -1394,7 +1414,11 @@ describe("输入座位四席 + Composer API（R183）", () => {
     });
     const takeover = document.querySelector(".henira-composer-takeover") as HTMLElement;
     expect(takeover).not.toBeNull();
-    expect(document.activeElement).toBe(takeover);
+    // D-088 起审批卡自聚焦第 1 行：dock 把焦点送进座位后，卡内立刻把焦点落到选中行
+    expect(takeover.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toBe(
+      takeover.querySelector(".henira-approval-option.is-selected"),
+    );
   });
 });
 
@@ -1663,6 +1687,40 @@ describe("提问卡（R184）", () => {
     expect(document.activeElement).toBe(custom);
   });
 
+  it("D-089 Tab 围栏：卡容器/选项/自定义输入/页脚都在卡内循环", () => {
+    const rows: Row[] = [questionRow];
+    const ctx = questionCtx(rows);
+    ctx.client.settleQuestion = vi.fn(async () => true);
+    const { container } = render(<ComposerDock {...ctx} />);
+    const card = container.querySelector(".henira-question") as HTMLElement;
+    const options = screen.getAllByRole("option") as HTMLButtonElement[];
+    const custom = screen.getByPlaceholderText(
+      t("question.customPlaceholder"),
+    ) as HTMLTextAreaElement;
+    const cancel = screen.getByRole("button", {
+      name: t("question.cancel"),
+    }) as HTMLButtonElement;
+    const submit = screen.getByRole("button", {
+      name: t("question.submit"),
+    }) as HTMLButtonElement;
+
+    act(() => card.focus());
+    fireEvent.keyDown(card, { key: "Tab" });
+    expect(document.activeElement).toBe(options[0]); // 卡容器 Tab = 第一项（不跳页头/页脚）
+    fireEvent.keyDown(options[0] as HTMLButtonElement, { key: "Tab" });
+    expect(document.activeElement).toBe(options[1]);
+    fireEvent.keyDown(options[1] as HTMLButtonElement, { key: "Tab" });
+    expect(document.activeElement).toBe(custom); // 选项循环末尾 = 自定义输入
+    fireEvent.keyDown(custom, { key: "Tab" });
+    expect(document.activeElement).toBe(cancel); // 自定义 Tab = 页脚（ZCode 原生顺序，仍在卡内）
+    fireEvent.keyDown(cancel, { key: "Tab" });
+    expect(document.activeElement).toBe(submit);
+    fireEvent.keyDown(submit, { key: "Tab" });
+    expect(document.activeElement).toBe(options[0]); // 页脚 Tab 回第一项，出不了卡
+    fireEvent.keyDown(options[0] as HTMLButtonElement, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(custom); // Shift+Tab 反向循环
+  });
+
   it("多选 + 分页 + 自定义输入：下一页 Enter 提交，答案按题对齐", async () => {
     const multi = {
       ...questionRow,
@@ -1873,11 +1931,18 @@ describe("ApprovalCard", () => {
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once");
   });
 
-  it("非 bash 工具三选项：本会话允许走 settleApproval 带 scope:'session'（E6）", async () => {
+  it("非 bash 工具三选项：点未选中行只选中、再点才裁决（D-088）；本会话允许带 scope:'session'（E6）", async () => {
     const ctx = fixtureCtx();
     const settle = vi.spyOn(ctx.client, "settleApproval");
     render(<ApprovalCard row={pendingRow} ctx={ctx} />);
-    fireEvent.click(screen.getByText(t("approval.sessionAllow")));
+    const sessionAllow = screen.getByText(t("approval.sessionAllow")).closest("button");
+    if (sessionAllow === null) throw new Error("session allow button missing");
+    fireEvent.click(sessionAllow);
+    expect(settle).not.toHaveBeenCalled(); // 第一下只移动选中
+    expect(sessionAllow.classList.contains("is-selected")).toBe(true);
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    expect(allow?.classList.contains("is-selected")).toBe(false); // 首行退选（D-088 截图缺口）
+    fireEvent.click(sessionAllow);
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
   });
 
@@ -1891,7 +1956,10 @@ describe("ApprovalCard", () => {
       />,
     );
     expect(screen.queryByText(t("approval.sessionAllow"))).toBeNull(); // 工具级文案不出现
-    fireEvent.click(screen.getByText(t("approval.sessionAllowCommand")));
+    const sessionAllow = screen.getByText(t("approval.sessionAllowCommand")).closest("button");
+    if (sessionAllow === null) throw new Error("session command button missing");
+    fireEvent.click(sessionAllow); // 选中 → 裁决（D-088）
+    fireEvent.click(sessionAllow);
     expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
 
     cleanup(); // 点击即进入 settling（选项退场）——项目级选项重挂一张卡验证
@@ -1903,7 +1971,10 @@ describe("ApprovalCard", () => {
         ctx={projectCtx}
       />,
     );
-    fireEvent.click(screen.getByText(t("approval.projectAllowCommand")));
+    const projectAllow = screen.getByText(t("approval.projectAllowCommand")).closest("button");
+    if (projectAllow === null) throw new Error("project command button missing");
+    fireEvent.click(projectAllow);
+    fireEvent.click(projectAllow);
     expect(projectSettle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "project");
   });
 
@@ -1914,6 +1985,423 @@ describe("ApprovalCard", () => {
     expect(screen.queryByText(t("approval.sessionAllow"))).toBeNull();
     expect(screen.queryByText(t("approval.sessionAllowCommand"))).toBeNull();
     expect(screen.queryByText(t("approval.projectAllowCommand"))).toBeNull();
+  });
+
+  it("D-087 write/edit 带路径：会话/项目都落「此路径」；无路径时只留一次/拒绝", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={
+          {
+            ...pendingRow,
+            toolName: "write",
+            args: { file_path: "src/a.ts", content: "x" },
+          } as ApprovalRow
+        }
+        ctx={ctx}
+      />,
+    );
+    expect(screen.queryByText(t("approval.sessionAllow"))).toBeNull(); // 工具级文案不出现
+    const sessionAllow = screen.getByText(t("approval.sessionAllowPath")).closest("button");
+    if (sessionAllow === null) throw new Error("session path button missing");
+    fireEvent.click(sessionAllow);
+    fireEvent.click(sessionAllow);
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
+
+    cleanup(); // 点击即进入 settling——项目级选项重挂一张卡验证
+    const projectCtx = fixtureCtx();
+    const projectSettle = vi.spyOn(projectCtx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={
+          {
+            ...pendingRow,
+            toolName: "write",
+            args: { file_path: "src/a.ts", content: "x" },
+          } as ApprovalRow
+        }
+        ctx={projectCtx}
+      />,
+    );
+    const projectAllow = screen.getByText(t("approval.projectAllowPath")).closest("button");
+    if (projectAllow === null) throw new Error("project path button missing");
+    fireEvent.click(projectAllow);
+    fireEvent.click(projectAllow);
+    expect(projectSettle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "project");
+
+    cleanup();
+    const bareCtx = fixtureCtx();
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "write", args: {} } as ApprovalRow}
+        ctx={bareCtx}
+      />,
+    );
+    expect(screen.queryByText(t("approval.sessionAllowPath"))).toBeNull();
+    expect(screen.queryByText(t("approval.projectAllowPath"))).toBeNull();
+    expect(screen.getByText(t("approval.deny"))).toBeDefined();
+  });
+
+  it("D-087 拒绝说明：独立输入行；输入后回车 = 拒绝 + 说明；点拒绝也带草稿；Esc 只失焦", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={ctx} />);
+    const input = screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement;
+    expect(input).toBeDefined();
+    fireEvent.change(input, { target: { value: "  用 pnpm  " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "rejected", undefined, "用 pnpm");
+
+    cleanup();
+    const denyCtx = fixtureCtx();
+    const denySettle = vi.spyOn(denyCtx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={denyCtx} />);
+    fireEvent.change(screen.getByLabelText(t("approval.feedbackAria")), {
+      target: { value: "换个做法" },
+    });
+    const deny = screen.getByText(t("approval.deny")).closest("button");
+    if (deny === null) throw new Error("deny button missing");
+    fireEvent.click(deny); // 先选中（D-088）
+    fireEvent.click(deny); // 再裁决——草稿一并带上
+    expect(denySettle).toHaveBeenCalledWith("s-1", "r-1", "rejected", undefined, "换个做法");
+
+    cleanup();
+    const escCtx = fixtureCtx();
+    const escSettle = vi.spyOn(escCtx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={escCtx} />);
+    const escInput = screen.getByLabelText(t("approval.feedbackAria"));
+    escInput.focus();
+    fireEvent.keyDown(escInput, { key: "Escape" });
+    expect(escSettle).not.toHaveBeenCalled();
+  });
+
+  it("D-088 选中态：默认第 1 行；↓ 移动选中与焦点；Enter 裁决选中行", async () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    const session = screen.getByText(t("approval.sessionAllowCommand")).closest("button");
+    if (allow === null || session === null) throw new Error("options missing");
+    expect(allow.classList.contains("is-selected")).toBe(true); // 默认选中第 1 行
+    await waitFor(() => expect(document.activeElement).toBe(allow)); // RAF 自聚焦落位
+    fireEvent.keyDown(allow, { key: "ArrowDown" });
+    expect(session.classList.contains("is-selected")).toBe(true);
+    expect(allow.classList.contains("is-selected")).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(session)); // 焦点跟随选中
+    fireEvent.keyDown(session, { key: "Enter" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
+  });
+
+  it("D-088 说明框聚焦即选中末行、首行退选（截图缺口回归锁）", () => {
+    const ctx = fixtureCtx();
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const input = screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement;
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    const row = input.closest(".henira-approval-feedback");
+    if (allow === null || row === null) throw new Error("rows missing");
+    act(() => input.focus());
+    expect(row.classList.contains("is-selected")).toBe(true);
+    expect(allow.classList.contains("is-selected")).toBe(false);
+    // 同屏只允许一个选中行
+    const options = document.querySelectorAll(".henira-approval-option.is-selected");
+    expect(options).toHaveLength(0);
+  });
+
+  it("D-088 常驻确认钮：说明行为空时禁用、填写后发送拒绝说明；选中选项时裁决该选项", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const input = screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement;
+    act(() => input.focus());
+    const confirm = screen.getByRole("button", {
+      name: t("approval.confirm"),
+    }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true); // 说明行选中 + 空内容 = 不可确认
+    fireEvent.change(input, { target: { value: " 先看下日志 " } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "rejected", undefined, "先看下日志");
+
+    cleanup();
+    const onceCtx = fixtureCtx();
+    const onceSettle = vi.spyOn(onceCtx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={onceCtx} />);
+    fireEvent.click(screen.getByRole("button", { name: t("approval.confirm") }));
+    expect(onceSettle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once"); // 默认选中第 1 行
+  });
+
+  it("D-089 ↑↓ 从说明框移出：焦点跟随选中回选项（R206 焦点滞留回归）", async () => {
+    const ctx = fixtureCtx();
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const input = screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement;
+    const deny = screen.getByText(t("approval.deny")).closest("button");
+    if (deny === null) throw new Error("deny missing");
+    act(() => input.focus());
+    expect(input.closest(".henira-approval-feedback")?.classList.contains("is-selected")).toBe(
+      true,
+    );
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(document.activeElement).toBe(deny));
+    expect(deny.classList.contains("is-selected")).toBe(true);
+    fireEvent.keyDown(deny, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+
+  it("D-089 Tab 围栏：选项/说明框循环，确认钮上 Tab 回选中行（不出卡）", async () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    const input = screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement;
+    const confirm = screen.getByRole("button", { name: t("approval.confirm") });
+    if (allow === null) throw new Error("allow missing");
+    await waitFor(() => expect(document.activeElement).toBe(allow)); // RAF 自聚焦落位
+    // 首行 Shift+Tab 回说明行（撤掉 D-088 的边界放行——ZCode 普通审批窗没有上方控件）
+    fireEvent.keyDown(allow, { key: "Tab", shiftKey: true });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.closest(".henira-approval-feedback")?.classList.contains("is-selected")).toBe(
+      true,
+    );
+    // 说明框 Tab 回第 1 行，不落到确认钮
+    fireEvent.keyDown(input, { key: "Tab" });
+    await waitFor(() => expect(document.activeElement).toBe(allow));
+    expect(allow.classList.contains("is-selected")).toBe(true);
+    // 用户先点确认钮再按 Tab：卡根兜底回选中行，且不裁决
+    act(() => confirm.focus());
+    fireEvent.keyDown(confirm, { key: "Tab" });
+    expect(document.activeElement).toBe(allow);
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("D-089 首帧焦点不依赖 RAF（后台标签页 rAF 停摆仍落在选中行）", () => {
+    const ctx = fixtureCtx();
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    try {
+      render(
+        <ApprovalCard
+          row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+          ctx={ctx}
+        />,
+      );
+      const allow = screen.getByText(t("approval.allow")).closest("button");
+      if (allow === null) throw new Error("allow missing");
+      expect(document.activeElement).toBe(allow);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("D-089 焦点由接管容器转投后，↑↓ 仍跟随选中（e2e 实锤回归）", async () => {
+    const ctx = fixtureCtx();
+    render(
+      <div className="henira-composer-takeover" tabIndex={-1}>
+        <ApprovalCard
+          row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+          ctx={ctx}
+        />
+      </div>,
+    );
+    const host = document.querySelector(".henira-composer-takeover") as HTMLElement;
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    const sessionPath = screen.getByText(t("approval.sessionAllowCommand")).closest("button");
+    if (allow === null || sessionPath === null) throw new Error("options missing");
+    // dock 晚到：容器获焦 → 卡内 focusin 转投（这条路径不会设置首帧标志，旧实现会让
+    // ArrowDown 只改选中不跟焦点——D-088 e2e 实锤）
+    act(() => {
+      host.focus();
+      host.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    await waitFor(() => expect(document.activeElement).toBe(allow));
+    fireEvent.keyDown(allow, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(sessionPath));
+  });
+
+  it("D-088 数字键：1..N 直接裁决、N+1 聚焦说明行（不裁决）", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    if (allow === null) throw new Error("allow missing");
+    fireEvent.keyDown(allow, { key: "3" }); // 第 3 行 = 本项目允许此命令
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "project");
+
+    cleanup();
+    const selectCtx = fixtureCtx();
+    const selectSettle = vi.spyOn(selectCtx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={selectCtx}
+      />,
+    );
+    const allowAgain = screen.getByText(t("approval.allow")).closest("button");
+    if (allowAgain === null) throw new Error("allow missing");
+    fireEvent.keyDown(allowAgain, { key: "5" }); // 末位说明行：只聚焦
+    expect(selectSettle).not.toHaveBeenCalled();
+    const feedbackRow = screen
+      .getByLabelText(t("approval.feedbackAria"))
+      .closest(".henira-approval-feedback");
+    expect(feedbackRow?.classList.contains("is-selected")).toBe(true);
+  });
+
+  it("D-088 座位内全局键：body 上 Enter 确认选中行、Esc 拒绝；卡外按钮不抢", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <>
+        <ApprovalCard row={pendingRow} ctx={ctx} />
+        <button type="button" aria-label="probe">
+          probe
+        </button>
+      </>,
+    );
+    fireEvent.keyDown(screen.getByLabelText("probe"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByLabelText("probe"), { key: "Escape" });
+    expect(settle).not.toHaveBeenCalled(); // 卡外按钮走自己的行为
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "rejected");
+  });
+
+  it("R206 审查：默认焦点在首行选项按钮时 Esc 仍拒绝（按钮不吞 Esc）", async () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={ctx} />);
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    if (allow === null) throw new Error("option missing");
+    await waitFor(() => expect(document.activeElement).toBe(allow));
+    fireEvent.keyDown(allow, { key: "Escape" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "rejected");
+  });
+
+  it("R206 审查：Ctrl/Cmd/Alt+数字不裁决（系统快捷键不误放行）", () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(<ApprovalCard row={pendingRow} ctx={ctx} />);
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    if (allow === null) throw new Error("option missing");
+    fireEvent.keyDown(allow, { key: "1", ctrlKey: true });
+    fireEvent.keyDown(allow, { key: "2", metaKey: true });
+    fireEvent.keyDown(allow, { key: "3", altKey: true });
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("R206 审查：挂载时焦点在座位外，说明框 ↑ 移出后焦点仍跟选中", async () => {
+    const ctx = fixtureCtx();
+    render(
+      <>
+        <input aria-label="outside" />
+        <ApprovalCard row={pendingRow} ctx={ctx} />
+      </>,
+    );
+    const outside = screen.getByLabelText("outside");
+    outside.focus();
+    expect(document.activeElement).toBe(outside); // 座位守卫：不抢外部焦点
+    const feedback = screen.getByLabelText(t("approval.feedbackAria"));
+    feedback.focus();
+    fireEvent.keyDown(feedback, { key: "ArrowUp" });
+    const deny = screen.getByText(t("approval.deny")).closest("button");
+    if (deny === null) throw new Error("deny missing");
+    expect(deny.classList.contains("is-selected")).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(deny));
+  });
+
+  it("R206 审查：换请求复位乐观离场——队列下一张卡不被上张吞掉", async () => {
+    const ctx = fixtureCtx();
+    vi.spyOn(ctx.client, "settleApproval").mockImplementation(() => new Promise(() => {}));
+    const { rerender } = render(<ApprovalCard row={pendingRow} ctx={ctx} />);
+    fireEvent.click(screen.getByText(t("approval.allow")));
+    rerender(
+      <ApprovalCard
+        row={{ ...pendingRow, rowId: "p:r-2", requestId: "r-2" } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText(t("approval.allow")).closest("button")).not.toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: t("approval.confirm") })).toBeTruthy();
+  });
+
+  it("D-088 body 上 Enter = 确认当前选中行（旧全局「允许一次」退场）", async () => {
+    const ctx = fixtureCtx();
+    const settle = vi.spyOn(ctx.client, "settleApproval");
+    render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const session = screen.getByText(t("approval.sessionAllowCommand")).closest("button");
+    if (session === null) throw new Error("session button missing");
+    fireEvent.click(session); // 只选中（不进卡焦点也能确认选中行）
+    expect(settle).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(settle).toHaveBeenCalledWith("s-1", "r-1", "allowed-once", "session");
+  });
+
+  it("D-088 换请求复位选中与草稿（不跨请求泄漏）", () => {
+    const ctx = fixtureCtx();
+    const { rerender } = render(
+      <ApprovalCard
+        row={{ ...pendingRow, toolName: "bash", args: { command: "git status" } } as ApprovalRow}
+        ctx={ctx}
+      />,
+    );
+    const input = screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "草稿" } });
+    const project = screen.getByText(t("approval.projectAllowCommand")).closest("button");
+    if (project === null) throw new Error("project button missing");
+    fireEvent.click(project); // 选中第 3 行
+    rerender(
+      <ApprovalCard
+        row={
+          {
+            ...pendingRow,
+            rowId: "p:r-2",
+            requestId: "r-2",
+            toolName: "bash",
+            args: { command: "git status" },
+          } as ApprovalRow
+        }
+        ctx={ctx}
+      />,
+    );
+    const allow = screen.getByText(t("approval.allow")).closest("button");
+    expect(allow?.classList.contains("is-selected")).toBe(true);
+    expect((screen.getByLabelText(t("approval.feedbackAria")) as HTMLTextAreaElement).value).toBe(
+      "",
+    );
   });
 
   it("per-tool 预览体（E6）：edit 显示 diff 行；bash 显示命令行；args 缺 → 通用回落", () => {
@@ -2699,6 +3187,18 @@ describe("权限模式 chip（D-080）", () => {
       }),
     );
     expect(openSettings).toHaveBeenCalledWith("permission");
+  });
+
+  it("D-087 规则行：pathExact 自报路径——设置/会话面板不把「一个文件」显示成「整个工具」", () => {
+    render(
+      <PermissionRuleLine
+        ctx={fixtureCtx()}
+        rule={{ match: { tool: "write", pathExact: "src/a.ts" }, decision: "allow" }}
+      />,
+    );
+    const constraint = document.querySelector(".henira-permission-rule-constraint");
+    expect(constraint?.textContent).toContain(`${t("permission.rule.path")} "src/a.ts"`);
+    expect(constraint?.textContent).not.toContain(t("permission.rule.wholeTool"));
   });
 
   it("确认卡取消 / 外点 / Esc：档位不变（写零次）", async () => {

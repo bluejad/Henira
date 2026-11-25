@@ -130,12 +130,14 @@ export interface HeniraFacade {
    *  半回合切点补写 turn/end{forked}），子会话装配入册；返回子会话 id。atSeq 缺省 = 复制到最新 */
   fork(sessionId: string, atSeq?: number): Promise<string>;
   /** settle 幂等先答者赢；未知 requestId 返回 false。scope:'session'/'project' = 允许范围
-   *  （E6/R198：decided{scope,rule} 落账 → 同命令后续调用免 ask，tools-approval §3.1） */
+   *  （E6/R198：decided{scope,rule} 落账 → 同命令后续调用免 ask，tools-approval §3.1）；
+   *  feedback（D-087）= 拒绝说明，仅 decision:"rejected" 时有效，随工具结果回给模型 */
   settleApproval(
     sessionId: string,
     requestId: string,
     decision: Decision,
     scope?: "session" | "project",
+    feedback?: string,
   ): Promise<boolean>;
   /** 权限规则快照（R198：会话级 = 账本折叠；项目/全局 = 配置文件） */
   sessionPermissions(sessionId: string): Promise<PermissionSnapshot>;

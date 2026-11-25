@@ -10,6 +10,7 @@ import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { chooseApprovalOption } from "./approval-choose.js";
 import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
@@ -78,9 +79,7 @@ test("permission rules: allow command in session → same command skips card →
       card.getByRole("button", { name: zh["approval.projectAllowCommand"], exact: true }),
     ).toBeVisible();
     await shot(page, "01-command-options.png");
-    await card
-      .getByRole("button", { name: zh["approval.sessionAllowCommand"], exact: true })
-      .click();
+    await chooseApprovalOption(card, zh["approval.sessionAllowCommand"]);
     await expect(page.getByText("rules flow complete").first()).toBeVisible({ timeout: 20_000 });
 
     // ② 同命令再发：精确规则命中，不再出卡
@@ -137,9 +136,7 @@ test("permission rules: allow command for project writes permissions.json → sa
     await sendPrompt(page, "project command");
     const card = page.getByRole("dialog", { name: zh["approval.title"] });
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card
-      .getByRole("button", { name: zh["approval.projectAllowCommand"], exact: true })
-      .click();
+    await chooseApprovalOption(card, zh["approval.projectAllowCommand"]);
     await expect(page.getByText("rules flow complete").first()).toBeVisible({ timeout: 20_000 });
     // 权限菜单：本项目只读计数 = 1（审批痕迹行按设计不进官方对话流，入口在菜单）
     await chip.click();

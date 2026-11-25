@@ -16,7 +16,7 @@
 
 - **压缩 = 替换记录，不是删消息**：压缩插件只在日志尾部追加一条替换记录，声明"某段 `seq` 区间在派发时用摘要代替"；原事件永久保留，文件只增不减。派生规则见 §4。
 - **审批问答对在回合内，不进模型历史**：`approval/asked` + `approval/decided` 夹在本回合事件流中间（`tool/call` 与 `tool/result` 之间），`deriveMessages` 跳过它们。两条硬规则：**没有打开的回合不接受审批记录**（`approval/revoked` 除外——撤销是设置动作，见下）；**先落 `decided` 再执行工具**（write-ahead）。
-- **权限分两层**：会话内的"记住允许"是**事件**（追加进日志、随会话消亡、撤销 = 再追加一条；命令类工具落精确命令规则，其余工具级）；跨会话的规则是**可手改的文件**（全局 `config/permissions.json` + 项目数据目录 `projects/<key>/permissions.json`，经 `ConfigService` 读）。判断标准一句话：**日志记"发生了什么"，规则记"以后怎么办"**。详见 [tools-approval.md](./tools-approval.md) §3.1。
+- **权限分两层**：会话内的"记住允许"是**事件**（追加进日志、随会话消亡、撤销 = 再追加一条；命令类工具落精确命令规则，write/edit 落精确路径规则，其余工具级）；跨会话的规则是**可手改的文件**（全局 `config/permissions.json` + 项目数据目录 `projects/<key>/permissions.json`，经 `ConfigService` 读）。判断标准一句话：**日志记"发生了什么"，规则记"以后怎么办"**。详见 [tools-approval.md](./tools-approval.md) §3.1。
 
 ## 2. 信封与事件词表 v0（已定 · 2026-11-12）
 
@@ -49,26 +49,26 @@ interface SessionHeader {
 
 ### 2.2 事件表（18 个）
 
-| 事件                   | `data` 载荷                                                                                                                                | 进派生       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| `turn/start`           | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）                                                                   | —            |
-| `turn/end`             | `turn`, `reason`, `usage?`, `error?`                                                                                                       | —            |
-| `step/start`           | `turn`, `step`                                                                                                                             | —            |
-| `step/end`             | `turn`, `step`, `usage`, `interrupted?`                                                                                                    | —            |
-| `request/header`       | `turn`, `step`, `model`, `params`, `toolNames[]`, `systemPromptHash`                                                                       | 跳过         |
-| `user/message`         | `turn`, `step`, `content`, `attachments?`, `source`, `surfaceOp?`, `queueId?`（D-086：队列冲刷产生的回合带排队条目 id，直接发送/插话不带） | ✅           |
-| `system/message`       | `turn`, `step`, `content`, `key?`, `surfaceOp?`                                                                                            | ✅           |
-| `assistant/message`    | `turn`, `step`, `content`, `reasoning?`, `model`, `finishReason`, `surfaceOp?`                                                             | ✅           |
-| `assistant/attempt`    | `turn`, `step`, `content?`, `error`                                                                                                        | 跳过         |
-| `tool/call`            | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                                                                                   | ✅（配对后） |
-| `tool/result`          | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?`                                                            | ✅（配对后） |
-| `approval/asked`       | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                                                                                | 跳过         |
-| `approval/decided`     | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080）, `rule?`（R198 命令级允许）                 | 跳过         |
-| `approval/revoked`     | `turn?`, `step?`, `scope`, `tool?`, `rule?`（R198 设置动作：可发生在回合之外）                                                             | 跳过         |
-| `approval/invalidated` | `turn`, `step`, `requestId`（R175 修理专用：重启收口补写，loop/客户端不发）                                                                | 跳过         |
-| `question/asked`       | `turn`, `step`, `requestId`, `callId`, `questions[]`（id / question / header? / options?[{label,description?}] / multiSelect?；R184）      | 跳过         |
-| `question/settled`     | `turn`, `step`, `requestId`, `outcome`（answered / cancelled / invalidated）, `answers?[]`（id / selected[] / custom?）                    | 跳过         |
-| `error`                | `turn?`, `step?`, `code`, `message`, `fatal?`                                                                                              | 跳过         |
+| 事件                   | `data` 载荷                                                                                                                                                                  | 进派生       |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `turn/start`           | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）                                                                                                     | —            |
+| `turn/end`             | `turn`, `reason`, `usage?`, `error?`                                                                                                                                         | —            |
+| `step/start`           | `turn`, `step`                                                                                                                                                               | —            |
+| `step/end`             | `turn`, `step`, `usage`, `interrupted?`                                                                                                                                      | —            |
+| `request/header`       | `turn`, `step`, `model`, `params`, `toolNames[]`, `systemPromptHash`                                                                                                         | 跳过         |
+| `user/message`         | `turn`, `step`, `content`, `attachments?`, `source`, `surfaceOp?`, `queueId?`（D-086：队列冲刷产生的回合带排队条目 id，直接发送/插话不带）                                   | ✅           |
+| `system/message`       | `turn`, `step`, `content`, `key?`, `surfaceOp?`                                                                                                                              | ✅           |
+| `assistant/message`    | `turn`, `step`, `content`, `reasoning?`, `model`, `finishReason`, `surfaceOp?`                                                                                               | ✅           |
+| `assistant/attempt`    | `turn`, `step`, `content?`, `error`                                                                                                                                          | 跳过         |
+| `tool/call`            | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                                                                                                                     | ✅（配对后） |
+| `tool/result`          | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?`                                                                                              | ✅（配对后） |
+| `approval/asked`       | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                                                                                                                  | 跳过         |
+| `approval/decided`     | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080）, `rule?`（R198 命令级 / D-087 路径级允许）, `feedback?`（D-087 用户拒绝说明） | 跳过         |
+| `approval/revoked`     | `turn?`, `step?`, `scope`, `tool?`, `rule?`（R198 设置动作：可发生在回合之外）                                                                                               | 跳过         |
+| `approval/invalidated` | `turn`, `step`, `requestId`（R175 修理专用：重启收口补写，loop/客户端不发）                                                                                                  | 跳过         |
+| `question/asked`       | `turn`, `step`, `requestId`, `callId`, `questions[]`（id / question / header? / options?[{label,description?}] / multiSelect?；R184）                                        | 跳过         |
+| `question/settled`     | `turn`, `step`, `requestId`, `outcome`（answered / cancelled / invalidated）, `answers?[]`（id / selected[] / custom?）                                                      | 跳过         |
+| `error`                | `turn?`, `step?`, `code`, `message`, `fatal?`                                                                                                                                | 跳过         |
 
 - **`request/header`** 是**每次模型请求**的快照：`model`（实际能力字段取值）、`params`（温度 / maxTokens 等）、`toolNames`（这次投影给模型的工具名）、`systemPromptHash`（系统消息内容的哈希）。它让 P1 的"任何请求都可重建"成为字面事实；**不含任何凭据**；
 - `assistant/attempt` 记**每次失败 / 中断的流残余**（`content` 是已收到的部分），重试各留一条；永不进模型历史；

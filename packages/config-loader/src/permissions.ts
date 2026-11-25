@@ -100,7 +100,7 @@ export function sanitizePermissionRules(raw: readonly unknown[]): {
     }
     const cleaned: PermissionRuleMatch = { tool: match.tool };
     let malformed = false;
-    for (const key of ["commandExact", "commandPrefix", "commandContains"] as const) {
+    for (const key of ["commandExact", "commandPrefix", "commandContains", "pathExact"] as const) {
       if (!(key in match)) continue;
       const value = match[key];
       if (typeof value !== "string" || value === "") {

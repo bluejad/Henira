@@ -11,6 +11,7 @@ import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/
 import { zh } from "@henira/plugin-web-ui";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { chooseApprovalOption } from "./approval-choose.js";
 import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
@@ -40,7 +41,9 @@ async function waitPermissionPersisted(page: Page, mode: string): Promise<void> 
     .toBe(mode);
 }
 
-async function startServer(): Promise<{ server: HeniraServer; stop: () => Promise<void> }> {
+async function startServer(
+  script?: Parameters<typeof mockLlm>[0],
+): Promise<{ server: HeniraServer; stop: () => Promise<void> }> {
   const dataDir = await fs.mkdtemp(path.join(tmpdir(), "henira-perm-e2e-"));
   const globalDir = path.join(dataDir, "config");
   await fs.mkdir(globalDir, { recursive: true });
@@ -59,7 +62,9 @@ async function startServer(): Promise<{ server: HeniraServer; stop: () => Promis
     mockUsage({ inputTokens: 1, outputTokens: 1 }),
     mockFinish("stop"),
   ] as const;
-  const mock = mockLlm([writeRound, textRound, writeRound, textRound, writeRound, textRound]);
+  const mock = mockLlm(
+    script ?? [writeRound, textRound, writeRound, textRound, writeRound, textRound],
+  );
   const server = await createServer({
     dataDir,
     globalDir,
@@ -74,6 +79,87 @@ async function startServer(): Promise<{ server: HeniraServer; stop: () => Promis
     },
   };
 }
+
+test("D-087 路径级允许 + 拒绝说明：同路径免卡 / 异路径再卡 / 说明落账", async ({ page }) => {
+  const writeRound = (callId: string, file: string): Parameters<typeof mockLlm>[0][number] => [
+    mockToolCall(callId, "write", `{"file_path":"${file}","content":"x"}`),
+    mockUsage({ inputTokens: 1, outputTokens: 1 }),
+    mockFinish("tool-calls"),
+  ];
+  const textRound = (text: string): Parameters<typeof mockLlm>[0][number] => [
+    mockText(text),
+    mockUsage({ inputTokens: 1, outputTokens: 1 }),
+    mockFinish("stop"),
+  ];
+  const { server, stop } = await startServer([
+    writeRound("wa1", "e2e-path-a.txt"),
+    textRound("path done one"),
+    writeRound("wa2", "e2e-path-a.txt"),
+    textRound("path done two"),
+    writeRound("wb1", "e2e-path-b.txt"),
+    textRound("path done three"),
+  ]);
+  try {
+    await page.goto(server.url);
+    const title = zh["approval.title"];
+    await page
+      .getByRole("button", { name: zh["composer.permission"] })
+      .waitFor({ state: "visible", timeout: 20_000 });
+
+    // ① 第一次写 a：本会话允许此路径
+    await sendPrompt(page, "write a");
+    const card = page.getByRole("dialog", { name: title });
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(card.getByRole("button", { name: zh["approval.sessionAllowPath"] })).toBeVisible();
+    await chooseApprovalOption(card, zh["approval.sessionAllowPath"]);
+    await expect(page.getByText("path done one").first()).toBeVisible({ timeout: 20_000 });
+    await shot(page, "06-path-allow.png");
+
+    // ② 写同路径：不再出卡（路径规则命中；写已存在文件的读态守卫是执行期错误，不影响卡语义）
+    await sendPrompt(page, "write a again");
+    await expect(page.getByText("path done two").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("dialog", { name: title })).toHaveCount(0);
+
+    // ③ 写异路径：卡回来 + 说明框独立在场
+    await sendPrompt(page, "write b");
+    const second = page.getByRole("dialog", { name: title });
+    await expect(second).toBeVisible({ timeout: 20_000 });
+    await expect(second.getByLabel(zh["approval.feedbackAria"])).toBeVisible();
+
+    // ④ 说明框回车 = 拒绝 + 说明：账本/快照落 feedback，痕迹行展开可见
+    await second.getByLabel(zh["approval.feedbackAria"]).fill("用 pnpm");
+    await second.getByLabel(zh["approval.feedbackAria"]).press("Enter");
+    await expect(page.getByText("path done three").first()).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(
+        async () => {
+          const list = (await (await fetch(`${server.url}/api/sessions`)).json()) as {
+            id: string;
+          }[];
+          const id = list[0]?.id;
+          if (id === undefined) return undefined;
+          const snap = (await (
+            await fetch(`${server.url}/api/sessions/${encodeURIComponent(id)}/snapshot`)
+          ).json()) as {
+            rows: { kind: string; status?: string; decision?: string; feedback?: string }[];
+          };
+          return snap.rows.find(
+            (row) =>
+              row.kind === "approval" && row.status === "settled" && row.decision === "rejected",
+          )?.feedback;
+        },
+        { timeout: 10_000, message: "feedback did not reach the ledger" },
+      )
+      .toBe("用 pnpm");
+    // 官方对话流不渲染审批痕迹（既有纪律：pending 在 dock、settled 不产正文行）；
+    // 说明已随账本/快照落定，这里只留截图证据
+    await shot(page, "07-deny-feedback.png");
+  } finally {
+    await stop();
+    await fs.rm(path.join(process.cwd(), "e2e-path-a.txt"), { force: true }).catch(() => {});
+    await fs.rm(path.join(process.cwd(), "e2e-path-b.txt"), { force: true }).catch(() => {});
+  }
+});
 
 test("permission mode: ask card → full auto-allow → reload keeps full → back to ask card again", async ({
   page,
@@ -164,5 +250,119 @@ test("permission mode: ask card → full auto-allow → reload keeps full → ba
   } finally {
     await stop();
     await fs.rm(path.join(process.cwd(), "e2e-perm.txt"), { force: true }).catch(() => {});
+  }
+});
+
+test("D-088 审批卡选中 + 确认：默认首行/↑↓ 换选中/Enter 裁决；说明框聚焦即选中末行", async ({
+  page,
+}) => {
+  const writeRound = (callId: string, file: string): Parameters<typeof mockLlm>[0][number] => [
+    mockToolCall(callId, "write", `{"file_path":"${file}","content":"x"}`),
+    mockUsage({ inputTokens: 1, outputTokens: 1 }),
+    mockFinish("tool-calls"),
+  ];
+  const textRound = (text: string): Parameters<typeof mockLlm>[0][number] => [
+    mockText(text),
+    mockUsage({ inputTokens: 1, outputTokens: 1 }),
+    mockFinish("stop"),
+  ];
+  // 两轮异路径：第一轮走「本会话允许此路径」，第二轮换文件重新出卡（聚焦说明框 → 拒绝 + 说明）
+  const { server, stop } = await startServer([
+    writeRound("kb1", "e2e-select-a.txt"),
+    textRound("kb done one"),
+    writeRound("kb2", "e2e-select-b.txt"),
+    textRound("kb done two"),
+    writeRound("kb3", "e2e-select-c.txt"),
+    textRound("kb done three"),
+  ]);
+  try {
+    await page.goto(server.url);
+    await page
+      .getByRole("button", { name: zh["composer.permission"] })
+      .waitFor({ state: "visible", timeout: 20_000 });
+    const card = page.getByRole("dialog", { name: zh["approval.title"] });
+
+    // ① 首张卡：默认选中第 1 行并已聚焦，确认按钮在场可用
+    await sendPrompt(page, "write one");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const allow = card.getByRole("button", { name: zh["approval.allow"], exact: true });
+    await expect(allow).toHaveClass(/is-selected/);
+    await expect(allow).toBeFocused();
+    const confirm = card.getByRole("button", { name: zh["approval.confirm"] });
+    await expect(confirm).toBeEnabled();
+    // D-089：左列表同步出现「等待确认」徽标（approval/asked 驱动 sessions.changed）
+    const pendingBadge = page.locator("[data-session-pending]");
+    await expect(pendingBadge).toHaveCount(1);
+    await expect(pendingBadge).toContainText(zh["sessions.awaiting"]);
+    await shot(page, "08-card-selection-default.png");
+
+    // D-089：确认钮上按 Tab 也留在卡内（卡根兜底回当前选中行）
+    await confirm.focus();
+    await page.keyboard.press("Tab");
+    await expect(allow).toBeFocused();
+
+    // ② ↓ 移动选中 + 焦点跟随；Enter = 裁决当前选中行（第 2 行 = 本会话允许此路径）
+    await page.keyboard.press("ArrowDown");
+    const sessionPath = card.getByRole("button", {
+      name: zh["approval.sessionAllowPath"],
+      exact: true,
+    });
+    await expect(sessionPath).toHaveClass(/is-selected/);
+    await expect(allow).not.toHaveClass(/is-selected/);
+    await expect(sessionPath).toBeFocused();
+    await shot(page, "09-card-selection-second.png");
+    await page.keyboard.press("Enter");
+    await expect(card).toHaveCount(0);
+    await expect(page.getByText("kb done one").first()).toBeVisible({ timeout: 20_000 });
+    await expect(pendingBadge).toHaveCount(0); // 收口信号把徽标摘掉
+
+    // ③ 第二张卡：点说明框 → 末行选中、首行退选；空说明时确认钮禁用，填字后可用
+    await sendPrompt(page, "write two");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const feedback = card.getByLabel(zh["approval.feedbackAria"]);
+    await feedback.click();
+    await expect(card.locator(".henira-approval-feedback")).toHaveClass(/is-selected/);
+    await expect(
+      card.getByRole("button", { name: zh["approval.allow"], exact: true }),
+    ).not.toHaveClass(/is-selected/);
+    await expect(confirm).toBeDisabled();
+    await shot(page, "10-card-feedback-selected.png");
+
+    // D-089：↑ 移出说明框 → 光标跟选中回拒绝行（R206 焦点滞留回归）
+    await feedback.press("ArrowUp");
+    const deny = card.getByRole("button", { name: zh["approval.deny"], exact: true });
+    await expect(deny).toHaveClass(/is-selected/);
+    await expect(deny).toBeFocused();
+    await expect(feedback).not.toBeFocused();
+
+    // D-089：Tab 在「选项 + 说明行」循环——不回确认钮、不出卡
+    await page.keyboard.press("Tab");
+    await expect(feedback).toBeFocused();
+    await expect(card.locator(".henira-approval-feedback")).toHaveClass(/is-selected/);
+    await page.keyboard.press("Tab");
+    await expect(allow).toBeFocused(); // 说明行 Tab = 回第 1 行
+    await page.keyboard.press("Shift+Tab");
+    await expect(feedback).toBeFocused(); // 首行 Shift+Tab = 回说明行（不再放行出卡）
+
+    await feedback.fill("换个做法");
+    await expect(confirm).toBeEnabled();
+    await feedback.press("Enter"); // 说明框回车 = 拒绝 + 说明
+    await expect(card).toHaveCount(0);
+    await expect(page.getByText("kb done two").first()).toBeVisible({ timeout: 20_000 });
+    await shot(page, "11-card-deny-feedback.png");
+
+    // ④ 第三张卡：默认焦点在首行选项按钮上，直接 Esc = 拒绝（R206 审查回归——
+    //    旧守卫排除所有 button，Esc 在默认焦点下失效）
+    await sendPrompt(page, "write three");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(allow).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+    await expect(page.getByText("kb done three").first()).toBeVisible({ timeout: 20_000 });
+  } finally {
+    await stop();
+    await fs.rm(path.join(process.cwd(), "e2e-select-a.txt"), { force: true }).catch(() => {});
+    await fs.rm(path.join(process.cwd(), "e2e-select-b.txt"), { force: true }).catch(() => {});
+    await fs.rm(path.join(process.cwd(), "e2e-select-c.txt"), { force: true }).catch(() => {});
   }
 });

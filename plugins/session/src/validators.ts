@@ -2,7 +2,13 @@
 // zod 是本包的实现细节，不进协议词汇（D-051）；注册进 protocol 的开放注册表，
 // 插件经 registerPluginEvent 追加自有事件（前缀 = 包名，session.md §2.3）。
 
-import { PERMISSION_MODES, QUESTION_CUSTOM_MAX, SessionEventRegistry } from "@henira/protocol";
+import {
+  APPROVAL_FEEDBACK_MAX,
+  fitsApprovalFeedback,
+  PERMISSION_MODES,
+  QUESTION_CUSTOM_MAX,
+  SessionEventRegistry,
+} from "@henira/protocol";
 import { z } from "zod";
 
 const surfaceOpSchema = z.union([
@@ -22,7 +28,7 @@ const attachmentSchema = z.object({
   name: z.string().optional(),
 });
 
-/** 账本里的允许规则（R198）：只记命令级允许（deny 规则住配置文件，不进决策行）。
+/** 账本里的允许规则（R198）：只记精确允许（deny 规则住配置文件，不进决策行）。
  *  形状与 protocol PermissionRule 一致，decision 收窄为 allow。 */
 const permissionRuleSchema = z.object({
   match: z.object({
@@ -30,6 +36,7 @@ const permissionRuleSchema = z.object({
     commandExact: z.string().min(1).optional(),
     commandPrefix: z.string().min(1).optional(),
     commandContains: z.string().min(1).optional(),
+    pathExact: z.string().min(1).optional(),
   }),
   decision: z.literal("allow"),
 });
@@ -152,9 +159,16 @@ const schemas: Record<string, z.ZodType> = {
     scope: z.string().optional(),
     /** 审计标记（D-080）：mode:"full" = 由完全访问模式自动放行（非用户逐次点允许） */
     mode: z.literal("full").optional(),
-    /** 允许时落下的精确规则（R198）：scope:"session" 由折叠消费；scope:"project" 已写
+    /** 允许时落下的精确规则（R198/D-087）：scope:"session" 由折叠消费；scope:"project" 已写
      *  permissions.json，本字段只作审计对照 */
     rule: permissionRuleSchema.optional(),
+    /** 用户拒绝说明（D-087）：只在 rejected 且用户填写时在场；码点计长，与 UI/REST/引擎同源 */
+    feedback: z
+      .string()
+      .refine(fitsApprovalFeedback, {
+        message: `feedback must be at most ${APPROVAL_FEEDBACK_MAX} characters`,
+      })
+      .optional(),
   }),
   "approval/revoked": z.object({
     // 撤销是设置动作不是审批记录（R198）：可发生在回合之外，turn/step 因此可缺省

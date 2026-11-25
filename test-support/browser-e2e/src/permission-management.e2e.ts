@@ -20,6 +20,7 @@ import { zh } from "@henira/plugin-web-ui";
 import type { StreamEvent } from "@henira/protocol";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { chooseApprovalOption } from "./approval-choose.js";
 import { sendPrompt } from "./send-prompt.js";
 
 const ARTIFACTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "artifacts");
@@ -139,16 +140,12 @@ test("permission management: session rules list → revoke one → that command 
     // ① 两条命令各自「本会话允许此命令」
     await sendPrompt(page, "run A");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card
-      .getByRole("button", { name: zh["approval.sessionAllowCommand"], exact: true })
-      .click();
+    await chooseApprovalOption(card, zh["approval.sessionAllowCommand"]);
     await expect(page.getByText("done A1").first()).toBeVisible({ timeout: 20_000 });
 
     await sendPrompt(page, "run B");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card
-      .getByRole("button", { name: zh["approval.sessionAllowCommand"], exact: true })
-      .click();
+    await chooseApprovalOption(card, zh["approval.sessionAllowCommand"]);
     await expect(page.getByText("done B1").first()).toBeVisible({ timeout: 20_000 });
 
     // ② chip → 规则面板：两条都在，撤掉 A
@@ -170,7 +167,7 @@ test("permission management: session rules list → revoke one → that command 
     // ③ 被撤的 A 重新出卡（拒绝收尾）；B 仍免卡
     await sendPrompt(page, "run A again");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByRole("button", { name: zh["approval.deny"], exact: true }).click();
+    await chooseApprovalOption(card, zh["approval.deny"]);
     await expect(page.getByText("done A2").first()).toBeVisible({ timeout: 20_000 });
 
     await sendPrompt(page, "run B again");
@@ -200,9 +197,7 @@ test("permission management: project rule in settings → delete → same comman
     // ① 卡上「本项目允许此命令」→ 文件落规则
     await sendPrompt(page, "run project");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card
-      .getByRole("button", { name: zh["approval.projectAllowCommand"], exact: true })
-      .click();
+    await chooseApprovalOption(card, zh["approval.projectAllowCommand"]);
     await expect(page.getByText("project done 1").first()).toBeVisible({ timeout: 20_000 });
     expect(await projectRuleFiles(dataDir)).toHaveLength(1);
 
@@ -232,7 +227,7 @@ test("permission management: project rule in settings → delete → same comman
     // ③ 同命令重新出卡
     await sendPrompt(page, "run project again");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByRole("button", { name: zh["approval.deny"], exact: true }).click();
+    await chooseApprovalOption(card, zh["approval.deny"]);
     await expect(page.getByText("project done 2").first()).toBeVisible({ timeout: 20_000 });
     await shot(page, "07-project-card-returns.png");
   } finally {
@@ -378,7 +373,7 @@ test("permission management: global rule in settings → delete → same command
     // ③ 同命令重新出卡
     await sendPrompt(page, "run global again");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByRole("button", { name: zh["approval.deny"], exact: true }).click();
+    await chooseApprovalOption(card, zh["approval.deny"]);
     await expect(page.getByText("global done 2").first()).toBeVisible({ timeout: 20_000 });
     await shot(page, "10-global-card-returns.png");
   } finally {

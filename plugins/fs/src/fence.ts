@@ -4,7 +4,7 @@
 
 import os from "node:os";
 import path from "node:path";
-import type { ApprovalOptions, Decision, PermissionRequest } from "@henira/protocol";
+import type { ApprovalOptions, PermissionRequest, PermissionResult } from "@henira/protocol";
 
 /** fs 能力的统一错误：code 稳定（工具层可翻译），message 面向模型、恒英文（D-050） */
 export class FsError extends Error {
@@ -28,7 +28,7 @@ export function expandHome(p: string): string {
 export type RequestPermissionFn = (
   req: PermissionRequest,
   opts?: ApprovalOptions,
-) => Promise<Decision>;
+) => Promise<PermissionResult>;
 
 export interface AccessArgs {
   absolute: string;
@@ -69,7 +69,7 @@ export function createFence(cwd: string): Fence {
       requestPermission,
     }: AccessArgs) {
       if (inside) return;
-      const decision = await requestPermission(
+      const result = await requestPermission(
         {
           tool,
           args: callArgs,
@@ -77,10 +77,10 @@ export function createFence(cwd: string): Fence {
         },
         { floor: "ask", signal },
       );
-      if (decision !== "allowed-once") {
+      if (result.decision !== "allowed-once") {
         throw new FsError(
           "outside_workspace",
-          `access to "${absolute}" was not approved (decision: ${decision}); it is outside the session workspace`,
+          `access to "${absolute}" was not approved (decision: ${result.decision}); it is outside the session workspace`,
         );
       }
     },

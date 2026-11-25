@@ -656,13 +656,14 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
       return childId;
     },
 
-    async settleApproval(sessionId, requestId, decision, scope) {
+    async settleApproval(sessionId, requestId, decision, scope, feedback) {
       const session = requireSession(sessions, sessionId);
       return session.ctx.get("interaction").settle(requestId, {
         kind: "approval",
         requestId,
         decision,
         ...(scope !== undefined ? { scope } : {}),
+        ...(feedback !== undefined ? { feedback } : {}),
       });
     },
 

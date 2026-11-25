@@ -27,7 +27,12 @@ async function tmpWorkdir(): Promise<string> {
 }
 
 function gate(signal?: AbortSignal) {
-  return { tool: "bash", args: {}, signal, requestPermission: async () => "allowed-once" as never };
+  return {
+    tool: "bash",
+    args: {},
+    signal,
+    requestPermission: async () => ({ decision: "allowed-once" as const }),
+  };
 }
 
 describe("shell 服务（真实 spawn）", () => {

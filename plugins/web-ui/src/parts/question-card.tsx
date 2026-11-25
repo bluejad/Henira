@@ -7,6 +7,8 @@
 // 审批同款：提交/取消即 onAnswered，settle 失败回滚（404 = 已解决，不回滚）。
 // R192 交互修正：单选 = 唯一答案（选选项清空自定义、输入自定义清空选项、点选即推进，
 // 与 Enter 同路径）；多选允许选项 + 自定义并存。多题导航常驻页头右端（← 页码 →，到端禁用）。
+// D-089（R206）：Tab 围栏——选项/卡容器 Tab 在「选项 + 自定义输入」循环，自定义输入与页脚的
+// Tab 由卡根兜底在卡内可聚焦件之间循环（Shift 反向、首尾相接），Tab 不出卡；底部提示含 Tab。
 
 import {
   QUESTION_CUSTOM_MAX,
@@ -109,6 +111,25 @@ export function QuestionCard(props: {
             : { selected: [], custom: value },
       };
     });
+  }, []);
+
+  /** 卡内 Tab 围栏：选项/卡容器走 moveOptionFocus；自定义输入与页脚走到这里。
+   *  Shift 反向，首尾循环——Tab 永远不出卡（ZCode 选项 Tab 循环 + 页脚漏口一并堵上）。 */
+  const trapTabInCard = useCallback((shift: boolean): void => {
+    const card = cardRef.current;
+    if (card === null) return;
+    const focusables = Array.from(
+      card.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), a[href]",
+      ),
+    );
+    if (focusables.length === 0) return;
+    const index = focusables.indexOf(document.activeElement as HTMLElement);
+    const next =
+      index < 0
+        ? focusables[shift ? focusables.length - 1 : 0]
+        : focusables[(index + (shift ? -1 : 1) + focusables.length) % focusables.length];
+    next?.focus();
   }, []);
 
   /** 选项/自定义输入之间的键盘焦点移动（卡片容器 ↑↓ 与自定义输入框 ↑↓ 共用） */
@@ -214,6 +235,15 @@ export function QuestionCard(props: {
       advanceOrSubmit();
       return;
     }
+    if (e.key === "Tab") {
+      // 卡容器 Tab = 进/回可选行（ZCode handleCardKeyDown 同款）；其余目标由卡根兜底
+      // 在卡内可聚焦件之间循环——自定义输入/页脚也出不了卡。
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      if (e.target === e.currentTarget) moveOptionFocus(e.shiftKey ? -1 : 1);
+      else trapTabInCard(e.shiftKey);
+      return;
+    }
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       // 选项间移动（容器/选项上）；自定义输入框自己处理（onCustomKeyDown）
       if (e.target instanceof HTMLTextAreaElement) return;
@@ -224,6 +254,13 @@ export function QuestionCard(props: {
 
   const onOptionKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, label: string): void => {
     if (!pending || current === undefined || isImeComposing(e)) return;
+    if (e.key === "Tab") {
+      // ZCode handleOptionKeyDown 同款：Tab/Shift+Tab 在「选项 + 自定义输入」里循环
+      e.preventDefault();
+      e.stopPropagation();
+      moveOptionFocus(e.shiftKey ? -1 : 1);
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();

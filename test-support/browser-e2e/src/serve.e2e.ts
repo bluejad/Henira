@@ -20,6 +20,7 @@ import { zh } from "@henira/plugin-web-ui";
 import type { StreamEvent, ToolDefinition } from "@henira/protocol";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { chooseApprovalOption } from "./approval-choose.js";
 import { sendPrompt } from "./send-prompt.js";
 
 // ── 固定装置：脚本化 LLM + 非只读 probe 工具 ─────────────────────────
@@ -77,14 +78,18 @@ const mock = mockLlm([
     mockFinish("tool-calls"),
   ],
   [mockText("shell flow complete"), mockUsage(USAGE), mockFinish("stop")],
-  // E6：审批卡富化——edit 形状参数（diff 预览数据源）+ 同工具两连调（本会话允许 → 第二次折叠免审批）
+  // E6/D-087：审批卡富化——edit 形状参数（diff 预览数据源）+ 同路径两连调（本会话允许此路径 → 第二次折叠免审批）
   [
     mockToolCall(
       "e6a",
       "edit",
       '{"file_path":"e6-demo.txt","old_string":"one\\ntwo","new_string":"one\\nTWO"}',
     ),
-    mockToolCall("e6b", "edit", '{"file_path":"e6-other.txt","old_string":"a","new_string":"b"}'),
+    mockToolCall(
+      "e6b",
+      "edit",
+      '{"file_path":"e6-demo.txt","old_string":"TWO","new_string":"THREE"}',
+    ),
     mockUsage(USAGE),
     mockFinish("tool-calls"),
   ],
@@ -547,23 +552,25 @@ test("per-tool card: bash terminal card via keyed registration", async ({ page }
   await shot(page, "e5-01-terminal-card.png");
 });
 
-// ── 用例 ⑥（E6）：审批卡富化——edit diff 预览 / 本会话允许 / 同工具第二次折叠免审批 ──
+// ── 用例 ⑥（E6/D-087）：审批卡富化——edit diff 预览 / 本会话允许此路径 / 同路径第二次折叠免审批 ──
 
-test("E6 approval card: diff preview, session allow, second call skip", async ({ page }) => {
+test("E6 approval card: diff preview, path-scoped session allow, second call skip", async ({
+  page,
+}) => {
   await page.goto(server.url);
   await expect(page.getByTestId("composer-input")).toBeVisible();
   await sendPrompt(page, "edit two files please");
 
-  // 审批卡：edit 形状参数 → per-tool 预览体（diff add 行）+ 三选项集（bash 族才不提供本会话允许）
+  // 审批卡：edit 形状参数 → per-tool 预览体（diff add 行）+ 路径级选项（D-087）
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
   await expect(card.getByText("e6-demo.txt")).toBeVisible();
   await expect(card.getByText("TWO", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button", { name: zh["approval.sessionAllow"] })).toBeVisible();
+  await expect(card.getByRole("button", { name: zh["approval.sessionAllowPath"] })).toBeVisible();
   await shot(page, "e6-01-approval-diff-preview.png");
 
-  // 本会话允许（scope:'session'）→ c1 执行 → c2 折叠免审批直接执行 → 回合完成
-  await card.getByRole("button", { name: zh["approval.sessionAllow"] }).click();
+  // 本会话允许此路径（scope:'session'）→ c1 执行 → c2 同路径规则命中直接执行 → 回合完成
+  await chooseApprovalOption(card, zh["approval.sessionAllowPath"]);
   await expect(page.getByText("e6 approval flow complete")).toBeVisible({ timeout: 15_000 });
 
   // 审批痕迹不进对话流；折叠生效 = 无第二张审批卡

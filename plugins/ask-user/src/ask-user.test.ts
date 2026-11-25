@@ -99,7 +99,7 @@ function toolCtx(signal: AbortSignal = new AbortController().signal): ToolContex
   return {
     cwd: process.cwd(),
     signal,
-    requestPermission: async () => "allowed-once",
+    requestPermission: async () => ({ decision: "allowed-once" }),
     config: undefined as never,
   };
 }

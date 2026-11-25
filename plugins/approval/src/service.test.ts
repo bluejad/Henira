@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHarness, type ServiceDefinition } from "@henira/kernel";
 import {
+  APPROVAL_FEEDBACK_MAX,
   type ApprovalOptions,
   asHeniraContext,
   type Decision,
   type InteractionAnswer,
   type InteractionRequest,
+  type PermissionResult,
   type PermissionRule,
 } from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -48,6 +50,7 @@ function sessionStub(): ServiceDefinition & { service: never } {
           return { ...input, seq: events.length, time: 0 };
         },
         events: () => events,
+        header: () => ({ cwd: root }),
       };
     },
   } as never;
@@ -154,8 +157,25 @@ type Session = {
   events(): { type: string; data: unknown }[];
 };
 
+/** 旧断言视角：只看 decision（D-087 起服务返回对象；全链结果用 rawApprovalOf） */
 function approvalOf(ctx: ReturnType<typeof asHeniraContext>): Approval {
-  return ctx.get("approval") as unknown as Approval;
+  const raw = rawApprovalOf(ctx);
+  return {
+    requestPermission: async (req, opts) => (await raw.requestPermission(req, opts)).decision,
+  };
+}
+function rawApprovalOf(ctx: ReturnType<typeof asHeniraContext>): {
+  requestPermission(
+    req: { tool: string; args?: unknown; reason?: string; callId?: string },
+    opts?: ApprovalOptions,
+  ): Promise<PermissionResult>;
+} {
+  return ctx.get("approval") as unknown as {
+    requestPermission(
+      req: { tool: string; args?: unknown; reason?: string; callId?: string },
+      opts?: ApprovalOptions,
+    ): Promise<PermissionResult>;
+  };
 }
 function sessionOf(ctx: ReturnType<typeof asHeniraContext>): Session {
   return ctx.get("session") as unknown as Session;
@@ -438,7 +458,7 @@ describe("判定链全序（tools-approval §3）", () => {
     await harness.dispose();
   });
 
-  it("R198 非命令工具点项目级 → 不写项目规则，按一次放行", async () => {
+  it("R198 非精确工具点项目级 → 不写项目规则，按一次放行", async () => {
     const interaction = interactionStub([
       (req) => ({
         kind: "approval",
@@ -449,7 +469,10 @@ describe("判定链全序（tools-approval §3）", () => {
     ]);
     const { harness, ctx, config } = await startedHarness(interaction);
     expect(
-      await approvalOf(ctx).requestPermission({ tool: "write", args: { file_path: "a.txt" } }),
+      await approvalOf(ctx).requestPermission({
+        tool: "mcp__srv__tool",
+        args: { query: "x" },
+      }),
     ).toBe("allowed-once");
     expect(config.added).toHaveLength(0);
     const decided = [...sessionOf(ctx).events()]
@@ -631,15 +654,119 @@ describe("answerer scope:'session' 生产者端到端 + asked 全文（E6）", (
       .events()
       .find((e) => e.type === "approval/decided");
     if (decidedEvent === undefined) throw new Error("decided event missing");
-    const decidedData = decidedEvent.data as { scope?: string };
+    const decidedData = decidedEvent.data as { scope?: string; rule?: PermissionRule };
     expect(decidedData.scope).toBe("session");
-    // 第二次同工具：折叠命中免问（脚本第二项是抛错——若被问到会 unavailable）
+    // D-087：write 的会话允许落精确路径规则（相对会话 cwd 归一）
+    expect(decidedData.rule).toEqual({
+      match: { tool: "write", pathExact: "a.txt" },
+      decision: "allow",
+    });
+    // 第二次同路径：折叠命中免问（脚本第二项是抛错——若被问到会 unavailable）
     const second = await approvalOf(ctx).requestPermission(
-      { tool: "write", args: { file_path: "b.txt", content: "y" } },
+      { tool: "write", args: { file_path: "a.txt", content: "y" } },
       askOpts("ask"),
     );
     expect(second).toBe("allowed-once");
     expect(interaction.requests).toHaveLength(1);
+    await harness.dispose();
+  });
+
+  it("D-087 会话路径规则：write 允许此路径 → edit 同路径免问；换路径重新问；无路径降级一次", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "session",
+      }),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    const approval = approvalOf(ctx);
+    expect(
+      await approval.requestPermission({ tool: "write", args: { file_path: "src/a.ts" } }),
+    ).toBe("allowed-once");
+    // write 的路径规则对 edit 同路径生效（ZCode 别名）
+    expect(
+      await approval.requestPermission({ tool: "edit", args: { file_path: "src/a.ts" } }),
+    ).toBe("allowed-once");
+    expect(interaction.requests).toHaveLength(1);
+    // 换路径：重新问（脚本已耗尽 → unavailable = 确实问过）
+    expect(
+      await approval.requestPermission({ tool: "write", args: { file_path: "src/b.ts" } }),
+    ).toBe("unavailable");
+    expect(interaction.requests).toHaveLength(2);
+    // 无路径：不落工具级放行（下一次同工具仍要问）
+    await ctx.events.emit("turn/start", { turn: "t2" });
+    expect(await approval.requestPermission({ tool: "write", args: {} })).toBe("unavailable");
+    expect(interaction.requests).toHaveLength(3);
+    await harness.dispose();
+  });
+
+  it("D-087 项目路径规则：写项目 permissions.json 的 pathExact", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        scope: "project",
+      }),
+    ]);
+    const { harness, ctx, config } = await startedHarness(interaction);
+    expect(
+      await approvalOf(ctx).requestPermission({ tool: "write", args: { file_path: "src/a.ts" } }),
+    ).toBe("allowed-once");
+    expect(config.added).toEqual([
+      { match: { tool: "write", pathExact: "src/a.ts" }, decision: "allow" },
+    ]);
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    expect(decided?.data).toMatchObject({
+      scope: "project",
+      rule: { match: { tool: "write", pathExact: "src/a.ts" }, decision: "allow" },
+    });
+    await harness.dispose();
+  });
+
+  it("D-087 拒绝说明：用户拒绝带 feedback → 结果与 decided 同源；允许/超长按规则归一", async () => {
+    const interaction = interactionStub([
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "rejected",
+        feedback: "  用 pnpm  ",
+      }),
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "allowed-once",
+        feedback: "这条应被丢弃",
+      }),
+      (req) => ({
+        kind: "approval",
+        requestId: req.requestId,
+        decision: "rejected",
+        feedback: "x".repeat(APPROVAL_FEEDBACK_MAX + 10),
+      }),
+    ]);
+    const { harness, ctx } = await startedHarness(interaction);
+    const approval = rawApprovalOf(ctx);
+    const denied = await approval.requestPermission({ tool: "bash", args: { command: "npm i" } });
+    expect(denied).toEqual({ decision: "rejected", deniedBy: "user", feedback: "用 pnpm" });
+    const decided = [...sessionOf(ctx).events()]
+      .reverse()
+      .find((e) => e.type === "approval/decided");
+    const decidedData = decided?.data as { feedback?: string } | undefined;
+    expect(decidedData?.feedback).toBe("用 pnpm");
+
+    const allowed = await approval.requestPermission({ tool: "bash", args: { command: "ls" } });
+    expect(allowed).toEqual({ decision: "allowed-once" });
+    expect(
+      (sessionOf(ctx).events().at(-1)?.data as { feedback?: string } | undefined)?.feedback,
+    ).toBeUndefined();
+
+    const long = await approval.requestPermission({ tool: "bash", args: { command: "pwd" } });
+    expect(long.feedback).toHaveLength(APPROVAL_FEEDBACK_MAX);
     await harness.dispose();
   });
 

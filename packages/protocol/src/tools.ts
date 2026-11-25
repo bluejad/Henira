@@ -2,7 +2,7 @@
 // 五段管线与 pre-execute×判定链组合语义见 tools-approval.md §2 / §2.1。
 
 import type { Disposable } from "@henira/kernel";
-import type { ApprovalOptions, Decision, PermissionRequest } from "./approval.js";
+import type { ApprovalOptions, PermissionRequest, PermissionResult } from "./approval.js";
 import type { ConfigService } from "./config.js";
 import type { JsonSchema, WireToolSchema } from "./llm.js";
 
@@ -30,7 +30,7 @@ export interface ToolContext {
   cwd: string;
   signal: AbortSignal;
   /** 判定链唯一入口（tools-approval §2.1：管线先查闸、判定链管终审；floor 语义见 ApprovalOptions） */
-  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<PermissionResult>;
   config: ConfigService;
   /** 工具输出超限落盘目录（截断 spill；loop 传会话目录 artifacts/——随会话同生共死，M4 批 A） */
   artifactsDir?: string;

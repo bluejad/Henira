@@ -20,6 +20,7 @@ import type { StreamEvent, ToolDefinition } from "@henira/protocol";
 import { LlmError } from "@henira/protocol";
 import { createServer, type HeniraServer } from "@henira/server";
 import { expect, type Page, test } from "@playwright/test";
+import { chooseApprovalOption } from "./approval-choose.js";
 import { sendPrompt } from "./send-prompt.js";
 
 const USAGE = { inputTokens: 7, outputTokens: 3 };
@@ -140,7 +141,7 @@ test("审批拒绝：deny → settled rejected → 回合继续", async ({ page 
   await send(page, "run probe");
   const card = page.getByRole("dialog", { name: zh["approval.title"] });
   await expect(card).toBeVisible();
-  await card.getByRole("button", { name: zh["approval.deny"] }).click();
+  await chooseApprovalOption(card, zh["approval.deny"]);
   await expect(page.getByText("Denied as requested.")).toBeVisible();
   await expect(page.getByText(zh["approval.decision.rejected"], { exact: true })).toHaveCount(0); // 审批痕迹不进对话流
   await shot(page, "12-denied.png");

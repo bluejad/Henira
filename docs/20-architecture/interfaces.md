@@ -227,7 +227,7 @@ interface ToolDefinition {
 interface ToolContext {
   cwd: string;
   signal: AbortSignal;
-  requestPermission(req: PermissionRequest): Promise<Decision>; // 判定链唯一入口
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<PermissionResult>; // 判定链唯一入口
   config: ConfigService;
   /** 工具输出超限落盘目录（截断 spill；loop 传会话目录 artifacts/——随会话同生共死，M4 批 A） */
   artifactsDir?: string;
@@ -280,6 +280,13 @@ interface PostExecuteValue {
 
 type Decision = "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
+/** 判定结果（D-087）：feedback 只在用户拒绝时在场；deniedBy 区分用户拒绝与策略拒绝 */
+interface PermissionResult {
+  decision: Decision;
+  feedback?: string; // 用户说明（≤4096 码点；随工具结果回给模型，与 approval/decided.feedback 同源）
+  deniedBy?: "user" | "policy"; // policy = 链外硬拒 / deny 规则 / hook deny；缺省按 policy
+}
+
 /** 审批载荷（D-046 定稿 + R202 补 callId）：引擎一字不加工；显示折叠归界面 UI */
 interface PermissionRequest {
   tool: string;
@@ -295,7 +302,7 @@ interface ApprovalOptions {
   floor?: "ask";
 }
 interface ApprovalService {
-  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<PermissionResult>;
 }
 
 // 交互通道（D-013①）：引擎所在进程的宿主实现（①=server；③=cli / sdk 嵌入方，sdk 自带缺省实现；
@@ -324,7 +331,13 @@ type InteractionRequest =
   | { kind: 'question'; requestId: string; toolName: string; questions: QuestionSpec[] };
 
 type InteractionAnswer =
-  | { kind: 'approval'; requestId: string; decision: Decision; scope?: 'session' | 'project' }
+  | {
+      kind: 'approval';
+      requestId: string;
+      decision: Decision;
+      scope?: 'session' | 'project';
+      feedback?: string; // 拒绝说明（D-087）：仅 rejected 有效；落 decided.feedback 并进工具结果
+    }
   | { kind: 'question'; requestId: string; answers: QuestionAnswer[] }
   | { kind: 'question'; requestId: string; cancelled: true };
 
@@ -341,6 +354,7 @@ interface PermissionRuleMatch {
   commandExact?: string;   // 整串相等（R198：卡上「允许此命令」落点）
   commandPrefix?: string;  // 手写规则能力
   commandContains?: string; // 手写规则能力（多约束同时在场须全部满足）
+  pathExact?: string;      // 会话 cwd 归一的相对路径（D-087：write/edit 卡上「允许此路径」落点；write↔edit 互相命中）
 }
 interface PermissionRule {
   match: PermissionRuleMatch;
@@ -349,7 +363,7 @@ interface PermissionRule {
 
 /** 权限规则快照（R198：权限菜单数据源；会话级 = 账本折叠，项目/全局 = 配置文件） */
 interface PermissionSnapshot {
-  session: { rules: PermissionRule[]; tools: string[] }; // tools = 工具级本会话允许
+  session: { rules: PermissionRule[]; tools: string[] }; // tools = 工具级本会话允许（MCP 等无精确参数的工具）
   project: PermissionRule[];
   global: PermissionRule[];
 }
@@ -600,7 +614,7 @@ interface FsGate {
   tool: string;
   args?: unknown;
   signal?: AbortSignal;
-  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<PermissionResult>;
 }
 
 interface FsService {
@@ -668,12 +682,17 @@ interface ShellService {
 ### 会话注册表（每会话一个 harness 实例，hosts.md §3 定稿语义）
 
 ```ts
+interface SessionPendingInteraction {
+  kind: "approval" | "question"; // 最早一条挂起的类型（徽标文案两 kind 同文）
+  count: number; // 当前挂起总数（多张卡时列表徽标跟数字）
+}
 interface SessionSummary {
   id: string;
   cwd: string;
   title?: string; // 首条非 breaker 用户消息派生（R188 已实装；列表/快照/SDK 三路同源，缺省 = 尚无用户消息）
   updatedAt: number; // 活动时间 = 账本文件 mtime（R189：追加即回顶列表；非目录 mtime）
   busy: boolean; // 回合进行中（投影 state 提供）
+  pendingInteraction?: SessionPendingInteraction; // 挂起审批/提问（D-089：活进程投影汇总；左列表「等待确认」徽标数据源）
 }
 // POST /api/sessions { cwd? } → SessionSummary：装配三步 ①③（D-016：官方 preset + settings.plugins
 //   enabled 过滤）；②已装插件目录扫描装载随 M4（M3 判据无一条需要，克制不预建机器）。
@@ -697,7 +716,7 @@ POST /api/sessions/:id/queue/resume                     → { ok: boolean }     
 POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
 POST /api/sessions/:id/interrupt                        → { ok: true }
 POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   // 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话并装配入册，返回子会话 id（parentSession 指源；半回合切点补写 turn/end{forked}）；atSeq 缺省 = 复制到最新；越界切点 400
-POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" | "project" } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；scope:'session' = 会话级允许（E6：decided{scope,rule} 落账 → 同命令/同工具后续调用免 ask）；scope:'project' = 写项目 permissions.json 的精确命令规则（R198）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
+POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" | "project", feedback?: string } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；feedback = 拒绝说明（≤4096 码点；仅 decision:"rejected" 可带，其他值携带 400，D-087）；scope:'session' = 会话级允许（E6：decided{scope,rule} 落账 → 同命令/同工具后续调用免 ask）；scope:'project' = 写项目 permissions.json 的精确规则——命令类 commandExact / write·edit 类 pathExact（D-087）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
 GET  /api/sessions/:id/permissions                         → PermissionSnapshot  // 权限规则快照（R198）：会话级 = 账本折叠，项目/全局 = 配置文件；404 session not found
 POST /api/sessions/:id/permissions/session/revoke { tool?, rule? } → { ok: true }  // 撤销本会话允许（R198/R199）：缺省/{} = 清空；tool = 该工具（含其命令规则）；rule = 精确一条；二者互斥（400）；rule 只收 allow（400）；坏 JSON 400；回合之外也接受
 GET  /api/permissions/projects?sessionId=                  → PermissionProjectsView  // 项目清单（R199）：登记目录 + 规则计数/状态，当前会话项目置顶并回传 currentId
@@ -957,6 +976,7 @@ interface ApprovalRow {
   status: "pending" | "settled";
   decision?: Decision | "invalidated"; // "invalidated" 仅由修理事件 approval/invalidated 投影（R175 重启收口）——客户端不可提交（settle 端点 z.enum(DECISIONS) 不含它）
   scope?: "session" | "project"; // 允许范围标记（decided{scope} 投影——settled「· 本会话/本项目」，R198）
+  feedback?: string; // 拒绝说明（D-087 decided{feedback} 投影；官方对话流按 E6 纪律不渲染审批痕迹——自定义 conversation 件/审计面可消费，模型已收到同一份）
 }
 interface QuestionRow {
   kind: "question"; // 提问（R184）：question/asked 投影 pending 行；settled 原位 upsert
@@ -1010,8 +1030,9 @@ type ServerFrame =
   | { kind: "connected"; server: { version: string; startedAt: number } }
   | { kind: "snapshot"; sessionId: string; snapshot: SessionSnapshot }
   | { kind: "delta"; sessionId: string; seq: number; delta: Delta }
-  // 列表信号（R176）：会话/目录列表事实变了（新建 / 删除 / fork / 懒挂载 / 目录增删）——
-  // 全局帧，无 sessionId、无 seq；消费者自行去抖重载。流式 token 增量绝不发此帧。
+  // 列表信号（R176）：会话/目录列表事实变了（新建 / 删除 / fork / 懒挂载 / 目录增删 /
+  // 挂起审批或提问出现与收口）——全局帧，无 sessionId、无 seq；消费者自行去抖重载。
+  // 流式 token 增量绝不发此帧。
   | { kind: "sessions.changed" };
 ```
 
@@ -1033,7 +1054,7 @@ type ServerFrame =
 ### SSE 传输形状
 
 - 单端点 `GET /api/events`；首帧 `connected`，随后**逐会话快照帧**，之后增量帧按会话混排；
-- **列表信号帧**（R176）：`sessions.changed` 是全局帧（无 sessionId / 无 seq），只在列表事实变化时发（建 / 删 / fork / 懒挂载 / 目录增删）——**流式增量绝不发**；消费者（侧栏列表）按「装载一次 + 信号驱动重载」消费，服务端不推送列表内容本体；
+- **列表信号帧**（R176；D-089 扩触发）：`sessions.changed` 是全局帧（无 sessionId / 无 seq），只在列表事实变化时发（建 / 删 / fork / 懒挂载 / 目录增删 / **挂起审批或提问出现与收口**）——**流式增量绝不发**；消费者（侧栏列表）按「装载一次 + 信号驱动重载」消费，服务端不推送列表内容本体；
 - 心跳：15s 注释帧（传输层）；每订阅者有界队列，溢出断开（客户端重连 = 重拉快照）；
 - **客户端链路看门狗（R193）**：心跳注释也算字节；`createClient` 默认 30s（2×心跳）无任何字节 →
   判定半开连接，abort 本次连接并退避重连（`linkIdleTimeoutMs` 可调，建立连接阶段未收到响应头时
@@ -1092,7 +1113,8 @@ interface HeniraFacade {
     requestId: string,
     decision: Decision,
     scope?: "session" | "project",
-  ): Promise<boolean>; // scope:'session' = 会话级允许（E6）；'project' = 项目精确命令规则（R198）
+    feedback?: string,
+  ): Promise<boolean>; // scope:'session' = 会话级允许（E6）；'project' = 项目精确规则（R198/D-087）；feedback = 拒绝说明（D-087，仅 rejected 有效）
   sessionPermissions(sessionId: string): Promise<PermissionSnapshot>; // 权限规则快照（R198；双形态同测锁）
   revokeSessionApprovals(
     sessionId: string,
@@ -1282,12 +1304,12 @@ interface ComposerApi {
   - 布局与部件基线（批 A3，2026-11-17 用户拍板照 ZCode 形态；**输入座位 R182 按 D-072 修订**）：**会话列表按工作目录分组**（折叠组头 = caret + 目录名 + 会话数徽标，活跃会话所在组自动展开——ZCode projects view 行为层）；**设置齿轮住侧栏左下**固定行（ZCode WorkspaceSidebarFooter 行为层）；**输入座位（R182）**：`composer` = 接管座位（官方件 ComposerDock，chain 路由 `composer.takeover`），`composer.bar` = 常驻输入栏（chain fallback；审批/提问接管时保持挂载、`display:none`，草稿 / DOM 态不丢，焦点移入接管卡、决定后回输入栏）。输入卡视觉照 ZCode：`--henira-card-bg` 白底 + 10% 细边 + 16px 圆角 + 两层轻影（`--henira-shadow-composer`），hover / focus-within 只把边框加深到 16%（不再黑边聚焦），内部无独立焦点环；编辑区最小 40px / 最大 160px / 行高 20px / 占位最弱档；工具排 = 28px 高 / 14px 字 / hover 浅底不描边，左 = 模型席（`composer.model`，官方 ModelSeat：模型选择器 + 思考档；触发钮只显示模型显示名——厂商 id 不进按钮，绑定值目录里失效即回落清单首个，2026-11-19）+ 左追加位（`composer.left`，官方空）、弹簧、右追加位（`composer.right`，官方空）+ 28px 圆形发送/停止钮；占位三态 = 空会话「向 Henira 提问」/ 有历史「提出后续修改要求」/ 忙「继续输入以排队后续修改」（键盘教学与忙态常驻提示退场，修饰键提示由发送钮 tooltip 承担）；排队卡 = 上圆角 + 负底边距 + 半透明底 + 毛玻璃，贴输入卡后沿；**R183 起排队卡住 `composer.dock`（bar 外），审批接管时仍可见**；**发送/停止语义 = ZCode**（忙+有草稿 = 发送排队、忙+空草稿 = 停止——有字时圆钮恒为发送）；prompt 失败回填草稿 + 行内错误提示（不静默）；**对话列宽三档**（列含内衬默认 808px → 视口 ≥1124px 896 → ≥1540px 1152，对话列与输入 dock 同档——ZCode conversationLayout 672/896/1152 行为层；**R200 起列宽作用在滚动视口内的内层列，视口本身铺满中列**）；**滚动条细圆条**（14px 槽 / thumb 3px 透明边 padding-box 胶囊 / track 透明 / 色=border 派生档；**R200 起对话视口 `scrollbar-gutter: stable both-edges`、滚动条贴中列最右**；输入区外层按浏览器实测槽宽（`--henira-scroll-gutter`，离屏探针量 `(offsetWidth-clientWidth)/2`）同宽内缩 → 用户气泡右缘 = 输入卡右缘、助手正文左缘 = 输入卡左缘（D-083）——ZCode styles.css 数值档行为层，实现自家写法）；**R201 卡片化（D-084，含同日修订）**：左/中/右三栏 = 1px 描边 + 12px 圆角的卡片（拖宽把手 4px 即栏缝、缝只在栏间、四周贴窗口；最大化右栏同为圆角全屏卡），顶行各管各的；卡片底色不变、无阴影，R200 的对齐不变量在卡内继续成立；usage 不进对话区（数据仍在行上，R178）；
   - **长会话渲染（批 A'，2026-11-18——D-061）**：对话时间线虚拟滚动（tanstack react-virtual——ZCode 同款；虚拟单位 = 轮，turn 相同行不拆散；measureElement 动态测高、estimateSize 一屏兜底、overscan 2；会话切换以 sessionId 为内层 React key 重挂换测高缓存）；**bottom-follow**（上滚手势 wheel/touchmove/方向键 capture 解除 + 落点贴底 48px 恢复 + 回底按钮——dsh 显式按钮不取）；**滚顶翻页**（scrollTop < 64 且 hasOlder → `sessionRows(before=窗口首行 rowSeq)` → store 前插合并（只收窗口首行之前 + rowId 去重）+ scrollTop 补位防跳顶；宿主缺 sessionRows = 静态窗口）；**行引用契约**（store：未变行同引用、变化行新对象）+ RowView/SessionRow memo（比较函数拆稳定子集 row+t+host+slots——ctx 本体每渲染新对象不可比）；jsdom 无 ResizeObserver 降级全量渲染；
   - **侧栏目录区（R127，2026-11-18 用户三拍板——D-060）**：分组数据 = 登记工作目录表（`client.listDirs` 驱动——空目录也显示、未登记 cwd 补组、无 cwd 归「其他」）；宿主**五可选方法齐备才渲染目录交互**（缺任一退化纯 cwd 分组）；区头 hover 显「＋目录」（服务端目录树弹窗：此电脑 → 盘符 → 目录逐级懒展开 + 路径输入框双通道，浏览器拿完整路径）；目录行 hover 显 ＋ = 在该目录新建会话（`createSession({cwd})` 服务端自动登记）；右键组头/会话行出非模态菜单（目录 = 新建会话/复制路径/删除目录；会话 = 删除——busy 项 disabled「运行中，请先中断」）；删除一律模态确认（硬删不可恢复，不学 ZCode 软删两击——确认弹窗 + busy 前置守卫）；
-  - **会话列表刷新契约（R176，2026-11-22——五家 0/5 铁律落码）**：列表**装载一次 + `sessions.changed` 信号驱动**（建 / 删 / fork / 懒挂载 / 目录增删）——250ms 去抖 + 单飞（在飞只标脏、落定恰补一枪）+ 失败保旧列表**不自动重试**（下个信号再来）；`state.updated` 帧就地翻 busy 点（零请求）；重连快照对未知会话补一次重载。**流式 token 增量绝不触发列表请求**（行 store 通知不再接列表刷新）；e2e 以网络面板计数断言「流式回合列表零请求」；
+  - **会话列表刷新契约（R176，2026-11-22——五家 0/5 铁律落码；D-089 扩触发）**：列表**装载一次 + `sessions.changed` 信号驱动**（建 / 删 / fork / 懒挂载 / 目录增删 / **挂起审批或提问出现与收口**）——250ms 去抖 + 单飞（在飞只标脏、落定恰补一枪）+ 失败保旧列表**不自动重试**（下个信号再来）；`state.updated` 帧就地翻 busy 点（零请求）；重连快照对未知会话补一次重载。**流式 token 增量绝不触发列表请求**（行 store 通知不再接列表刷新）；e2e 以网络面板计数断言「流式回合列表零请求」；
   - **中间对话区输出组织契约（R178，2026-11-22——按参照实现逐行修正，D-069；D-068 的旧描述以本节为准）**：视觉层级 = 正文 / subtle 类别与摘要 / subtlest 状态；**行本身无边框无底色，结果才用卡片**，hover 才提亮显箭头。**工具行** = 工具身份图标（read/search 放大镜、bash/powershell 终端、edit/write 铅笔、MCP 插头、兜底扳手，16px 弱色）+ 类别词（正在读取 / 已读取、正在搜索 / 已搜索、正在执行 / 已执行、正在编辑 / 已编辑、正在写入 / 已更新、MCP）+ 主信息 + diff 计数 + **仅失败时**的状态词（虚线下划线 + 原因 title）；成功行不显示状态词 / 单次耗时；错误不自动展开；展开状态按 `sessionId:callId` 记忆。**read / search / glob 是静态行**（`canToggle=false`，无按钮语义 / 箭头）：read 主信息 = 文件图标 + 文件名（点击弹窗看账本已捕获 content；不显示行号范围 / 耗时）；search / glob 只有一句「查找 \<query\>」/「列出 \<path\>」，不展开结果列表 / 文件 chip。**思考块**：默认收起；「正在思考」/「思考 持续了 N 秒」（历史无起点「持续了几秒」）；流式摘要在同一行右侧；展开 14px/1.75 纯文本、左导线、max-h 240；**流式中展开直接落在最新一行并继续跟随（用户上滚 >4px 暂停、回底恢复；已收尾的思考展开从头看——R194）**。**完成轮过程折叠**：最终回答之前的思考 / 工具 / 中间文本收进「已工作 3 分 44 秒」（无「用时」、无工具计数；底边细分隔线；箭头常显），最终回答留在外面；运行中不显示轮级折叠头（过程直接展开 + 末尾「工作中 + 时长」加载行）；中断「已停止」、无时长「已处理」；异常轮默认展开；用户手动开合优先；最终回答行自带 reasoning 收进折叠体。**轮内过程分组**：连续「思考 + 有类别的工具」**项数 ≥2** 折叠（思考也算一项）；未知工具 / MCP 是边界不分组；组头统计「已查阅 N 项，已执行 N 命令，已修改 N 文件」（运行中未完成措辞；中文逗号；change 按去重文件数，路径未知单列）；**收起态修改组显示去重文件名（basename；展开回统计）**；运行中组头显示当前活动项摘要，**展开后显示统计**；组内左导线 + 16lh + 120px 上限，**子行不重复工具图标、思考块不叠二级导线（组导线唯一）**。**审批**：pending 在输入区 dock；**settled 痕迹不进官方对话流**（行模型无 approval 行；数据仍在 store，自定义 conversation 区域可消费）。**不上屏**：usage / 思考档行徽章、assistant 下「已中断」胶囊。**结果卡**：兜底扁平参数 = 两列键值表（不露花括号；空对象显「无参数」），嵌套对象才用 JSON；MCP 结果优先（短结果小卡 / 长结果代码块 288px）+ 参数收进二级「查看调用详情」；execute 命令 3lh 可展开到 10lh、输出 5lh；diff 上限 240px。正文 markdown：14px / 1.75 / 0.025em；strong 500；ul 各级 disc、ol inside、li 内 p margin 0；行内 code 12px 无边框；标题 mt 24 / mb 16；引用 pl 12；链接蓝色点线；外链新标签、相对链接不导航。**不改协议 / 行投影 / 存储 / 槽语义**；`conversation` 区域槽、`tool.call.view.*` / `tool.call.view.mcp`、`approval.view.*` 顶替与卸载回落、公共出口与 `ToolCallView` / `ApprovalCardView` props 原样保留；JSX 结构变化只发生在官方默认件内部；
   - **CSS / 组件组织（R177 初拆 / R178 对话区 / R187 二次拆分 / R188 设置重排）**：样式拆 `plugins/web-ui/src/styles/` 分区文件，对话区再拆 `styles/conversation/` 六个功能文件（`00-motion` / `10-markdown` / `20-actions` / `30-rows` / `40-turn` / `50-empty`），输入区拆 `composer/`（shell / model-select / queue / approval / question / trace）与 `controls/`（HeniraSelect 基础弹层，保持原级联位置），三栏/弹窗/设置拆 `sidebar/` / `dialogs/` / `layout/` / `settings/`；入口 `tokens.css` 只做 `@import` 汇总（包出口 `./tokens.css` 不变，宿主 import 零改动；构建 copy 脚本递归复制 styles/）；组件按职责拆 `parts/conversation/`、`parts/tool-cards/`、`parts/settings/`（模型管理四视图 = `models/` 下 index/list/picker/connect/custom + shared）、`parts/session-list/`，旧路径保留 re-export 薄壳；中间区布局样式出组件、走 CSS 类；
   - **界面收口（R188，2026-11-23）**：左栏会话行 = 服务端派生 `title`（首条非 breaker user/message，40 码点截断；空 → 目录名回落）+ 相对时间（刚刚/N 分钟/N 小时/昨天/N 天/日期）；busy 只留前置 spinner，无 idle 灰点；「＋新会话」= 图标+文字安静行；中列 header = 目录弱前缀（Folder 图标）+ 标题强（真实 title，缺省「新会话」），不再用「·」点串；空会话草稿态 = 按时段问候 + 品牌水印 + 一句真实能力提示（无 suggestion 假卡片）；设置「外观」= 页标题/说明/行卡（主题 select + 文件/图片预览分段），语言页同版式；文件预览默认右侧 tab、图片默认弹窗（`ui.preview` 按类型可改；文件 tab 只存 rowId/path 引用，正文现场解析），`ctx.preview` 为官方/第三方共用入口；工具行失败状态固定贴右、开合 300ms（reduced-motion 直卸）、edit old===new 显示「无变更」行；diff 按扩展名 shiki 高亮（异步、120k 上限、失败降纯文本）；插件页按内置/可管理分段、统一 switch、卸载 hover 浮现；模型管理加厂商标记、meta 去点串、加载/错误态；
-  - **审批卡 / 排队卡（R180，2026-11-22——按参照重排；D-071）**：审批卡 = **中性弹层卡**（border + radius-xl + panel 底，无黄底 / 无状态徽章）+「权限请求」标题 + 工具预览块（图标 + 等待审批 + 工具身份 + 内容卡：diff / 命令 / JSON）+ **编号选项行**（主文案 + 说明，首行默认底；点击即决定；Enter=允许一次、Esc=拒绝，焦点在可编辑控件时不抢键）+ 键盘提示行；队列计数仅 >1 时以弱色尾注显示。排队卡 = 贴在输入卡上沿的**静音列表**（无标题 / 计数头）：14px 主文字行、steer 徽章、行动作 hover/focus 浮现；暂停态 = 中性提示条 + 继续发送。keyed 缝 `approval.view.*` 与 `composer.queue.*` 词表不变；
-  - **输入座位 / chain（R182，2026-11-22——D-072）**：`composer` = 官方件 **ComposerDock**（chain 接管路由），`composer.bar` = 常驻输入栏（单槽 fallback），`composer.takeover` = chain（条目 = `id + priority + select(owner) + Component`；升序、first non-null wins；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10））。待审批 / 待提问时输入栏 `display:none` 但保持挂载（草稿不丢），接管卡占同一座位；焦点移入接管座位（提问卡落卡本体、其余落容器——R185 审查修夺焦）、决定或提交后回输入栏（仅当焦点没被用户移走）。点击即决定 / 乐观摘卡与回滚 / Enter=允许一次 / Esc=拒绝 / 可编辑控件守卫全部不变；提问卡语义：无预选、Space 多选、Enter 单选推进 / 末题提交、Ctrl+Enter 随时提交、Esc 首题取消整个请求 / 后续题回退、IME 组合不提交（R184）。**R192 修订**：单选互斥（选选项清空自定义、输入自定义清空选项）且点选即推进；多选允许选项 + 自定义并存；多题导航常驻卡头右端（← 页码 →，到端禁用），footer 只留取消 + 继续/提交；自定义输入 ↑↓ 回选项、单选聚焦未选时按继续自动补选并写回草稿。应用侧兜底：**未答**审批或提问在位时输入栏 submit 直接返回——乐观已答不计：卡已离场、输入栏已回来，不吞发送（审查修复）。chain 登记簿 = `registerChainSlot` / `replaceChainSlot`（官方条目同走公共注册路径，第三方顶替、卸载按登记回落；同槽同 id 冲突 D-022 同款）。**四个座位与 Composer API（R183，2026-11-22——D-073）**：`composer.model`（**single**——模型 + 思考档同一席，官方件 ModelSeat；`registerSlot` 认领、卸载回落、第二家第三方冲突）· `composer.left` / `composer.right`（**list**——工具排左 / 右追加位，官方空）· `composer.dock`（**list**——输入卡外通栏条目，官方件 QueueDock 排队面板；R182 前排队面板在 bar 内，接管时随 bar 隐藏，R183 移出后接管期间仍可见）。四席与 `composer.bar` 共用 `ComposerApi`（`WebPartContext.composer`，ComposerDock 注入）：草稿 `draft/setDraft`（会话级 uiState 双写）· `focus/registerInput`（bar 登记输入框）· 按次模型绑定 `model/setModel/effort/setEffort/catalog/settingsReady` · 发送 `submit/stop` · 审批面 `pendingApproval/approvalQueueTotal/onApprovalDecided/onApprovalFailed`（乐观摘卡/回滚）· 提问面 `pendingQuestion/questionQueueTotal/onQuestionDecided/onQuestionFailed`（R184，同款乐观/回滚）。状态唯一真源 = `useComposerRuntime`（ComposerDock 内），bar 与座位件不私存；`Composer` 单独渲染 = fail-loud（须经 ComposerDock 整座装配）。`composer.bar` 与 `composer.model` 按 dsh single 槽语义落码（同一时刻一位占用）；dsh 的 `input.dock`（卡上）/`composer.dock`（卡下）两缝在本表合并为一个 `composer.dock`（卡上，装第一个真实消费者排队面板），卡下缝等第二个消费者再拆；提问（第二条 chain entry）R184 已落码（ask_user 专用工具 + 提问卡 + 痕迹行）**；
+  - **审批卡 / 排队卡（R180，2026-11-22——按参照重排；D-071 / R205 D-088）**：审批卡 = **中性弹层卡**（border + radius-xl + panel 底，无黄底 / 无状态徽章）+「权限请求」标题 + 工具预览块（图标 + 等待审批 + 工具身份 + 内容卡：diff / 命令 / JSON）+ **编号选项行**（主文案 + 说明；**选中态 + 焦点跟随，默认第 1 行**；选项行 ↑↓/←→/Tab 移动选中（说明行 ↑↓/Tab），Enter = 确认当前选中行；数字键 1..N 直接裁决、N+1 聚焦说明行；鼠标点未选中行只选中、再点 / Enter / 确认钮才裁决）+ 拒绝说明独立末行（聚焦即选中）+ 底部**常驻「确认」按钮**（说明行选中且为空、或会话不可用时禁用）+ 键盘提示；**D-089 Tab 围栏**：Tab/Shift+Tab 只在「选项 + 说明行」循环，说明框 Tab 与 ↑↓ 同路走 moveSelection，确认钮是鼠标件（键盘用 Enter），确认钮/卡容器上的 Tab 由卡根兜底回选中行——Tab 不出卡；Esc=拒绝（焦点在说明框内只失焦）；焦点在可编辑控件或座位外时不抢键（按钮上 Enter 不抢、Esc 照常拒绝）；首帧焦点不依赖 RAF（同步座位守卫 + `setTimeout(0)` 容器兜底，后台标签页 rAF 停摆也落选中行）。队列计数仅 >1 时以弱色尾注显示。排队卡 = 贴在输入卡上沿的**静音列表**（无标题 / 计数头）：14px 主文字行、steer 徽章、行动作 hover/focus 浮现；暂停态 = 中性提示条 + 继续发送。keyed 缝 `approval.view.*` 与 `composer.queue.*` 词表不变；
+  - **输入座位 / chain（R182，2026-11-22——D-072）**：`composer` = 官方件 **ComposerDock**（chain 接管路由），`composer.bar` = 常驻输入栏（单槽 fallback），`composer.takeover` = chain（条目 = `id + priority + select(owner) + Component`；升序、first non-null wins；官方条目 = 提问（priority 5，R184 已落码）与审批（priority 10））。待审批 / 待提问时输入栏 `display:none` 但保持挂载（草稿不丢），接管卡占同一座位；焦点移入接管座位（提问卡落卡本体、审批卡落选中行——R205 D-088）、决定或提交后回输入栏（仅当焦点没被用户移走）。**乐观摘卡与回滚 / Esc=拒绝 / 可编辑控件守卫不变；审批卡裁决交互自 R205 起为「选中 + 确认」（D-088：默认第 1 行、↑↓/Tab 移动、Enter 确认当前行、常驻确认钮），R206 D-089 补键盘围栏（Tab 只在选项 + 说明行循环、焦点随选中移出说明框、确认钮鼠标件）**；提问卡语义：无预选、Space 多选、Enter 单选推进 / 末题提交、Ctrl+Enter 随时提交、Esc 首题取消整个请求 / 后续题回退、IME 组合不提交（R184）；**D-089 Tab 围栏**：选项/卡容器 Tab 在选项 + 自定义输入循环，自定义输入与页脚的 Tab 由卡根兜底在卡内循环——Tab 不出卡；底部提示含 Tab。**R192 修订**：单选互斥（选选项清空自定义、输入自定义清空选项）且点选即推进；多选允许选项 + 自定义并存；多题导航常驻卡头右端（← 页码 →，到端禁用），footer 只留取消 + 继续/提交；自定义输入 ↑↓ 回选项、单选聚焦未选时按继续自动补选并写回草稿。应用侧兜底：**未答**审批或提问在位时输入栏 submit 直接返回——乐观已答不计：卡已离场、输入栏已回来，不吞发送（审查修复）。chain 登记簿 = `registerChainSlot` / `replaceChainSlot`（官方条目同走公共注册路径，第三方顶替、卸载按登记回落；同槽同 id 冲突 D-022 同款）。**四个座位与 Composer API（R183，2026-11-22——D-073）**：`composer.model`（**single**——模型 + 思考档同一席，官方件 ModelSeat；`registerSlot` 认领、卸载回落、第二家第三方冲突）· `composer.left` / `composer.right`（**list**——工具排左 / 右追加位，官方空）· `composer.dock`（**list**——输入卡外通栏条目，官方件 QueueDock 排队面板；R182 前排队面板在 bar 内，接管时随 bar 隐藏，R183 移出后接管期间仍可见）。四席与 `composer.bar` 共用 `ComposerApi`（`WebPartContext.composer`，ComposerDock 注入）：草稿 `draft/setDraft`（会话级 uiState 双写）· `focus/registerInput`（bar 登记输入框）· 按次模型绑定 `model/setModel/effort/setEffort/catalog/settingsReady` · 发送 `submit/stop` · 审批面 `pendingApproval/approvalQueueTotal/onApprovalDecided/onApprovalFailed`（乐观摘卡/回滚）· 提问面 `pendingQuestion/questionQueueTotal/onQuestionDecided/onQuestionFailed`（R184，同款乐观/回滚）。状态唯一真源 = `useComposerRuntime`（ComposerDock 内），bar 与座位件不私存；`Composer` 单独渲染 = fail-loud（须经 ComposerDock 整座装配）。`composer.bar` 与 `composer.model` 按 dsh single 槽语义落码（同一时刻一位占用）；dsh 的 `input.dock`（卡上）/`composer.dock`（卡下）两缝在本表合并为一个 `composer.dock`（卡上，装第一个真实消费者排队面板），卡下缝等第二个消费者再拆；提问（第二条 chain entry）R184 已落码（ask_user 专用工具 + 提问卡 + 痕迹行）**；
   - 图标 = **Phosphor**（`@phosphor-icons/react`，MIT），统一经内部 `Icon` 收口组件使用（库可换：换集只动一处）；**字重规范（基础件批 2026-11-20）= UI chrome 静态图标 bold + 操作钮 14px**（regular 细笔画在 ≤14px 操作钮尺寸糊成「小点/空方块」——用户实拍根因；Horse 用 fill、Spinner 保持 regular）；小图标操作钮统一 `.henira-iconbtn` 基类（透明重置全局按钮基线，muted 常态 hover 升 strong + surface-hover）；**统一下拉弹层件 `HeniraSelect`**（`parts/dropdown.tsx`，原生 `<select>` 系统菜单退场——受控单选 + 键盘 ↑↓/Home/End/Enter + `useDismiss` 统一外点/Esc 收，思考档 / 设置主题 / 设置语言三处已换装；复合面板 ModelSelect 保留自研但接 useDismiss + 键盘导航）；排队卡行操作钮 / 右栏 tab 关闭钮 hover·focus-within 浮现（opacity-only）；品牌行 = `Horse` 16px fill + `app.title` 词标（R145 起；R201 卡片化后行底边框归左栏卡片）；标签页 favicon = `packages/web/public/favicon.svg`（Phosphor Horse fill，墨底 `#111` + 暖纸 `#f7f6f3` + `<title>Henira</title>`；vite 拷进 dist-web，server 按扩展名出 `image/svg+xml`，e2e 静态断言锁 MIME）；
   - 文案纪律按 frontend-design 的 writing 节（用户视角命名 / 动词一致 / 错误消息具体不道歉）+ D-050（一切用户可见文案经 `t(key)`，缺 key fail-loud）；
   - 界面资产缝（D-059，**已落码，M4 批 A**）：插件包可带 `locales/<lang>.json` 语言包（缺 key 回落官方 zh，不 fail-loud）与 `themes/<名>.css` 主题包（变量组追加进设置下拉，官方 light / dark 两档永在不可覆盖）；读者 = 官方界面件；`settings.ui.theme` / `ui.locale` 扩为任意已装 id；安全模式回落官方默认组合；清单与伺服走 `GET /api/ui-assets` 两端点（scanUiAssets 住 config-loader）。

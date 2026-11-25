@@ -32,7 +32,7 @@ function approvalStub(): ServiceDefinition {
   return {
     name: "approval",
     start() {
-      return { requestPermission: async () => "allowed-once" };
+      return { requestPermission: async () => ({ decision: "allowed-once" as const }) };
     },
   };
 }

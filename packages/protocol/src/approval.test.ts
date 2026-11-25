@@ -2,6 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  APPROVAL_FEEDBACK_MAX,
+  fitsApprovalFeedback,
   type PermissionRule,
   permissionRuleKey,
   samePermissionRule,
@@ -41,6 +43,21 @@ describe("权限规则规范键（R199）", () => {
     ).toBe(false);
   });
 
+  it("D-087 路径规则参与规范键：路径不同 / 命令与路径混用 = 不同规则", () => {
+    const path = (p: string): PermissionRule => ({
+      match: { tool: "write", pathExact: p },
+      decision: "allow",
+    });
+    expect(samePermissionRule(path("src/a.ts"), path("src/b.ts"))).toBe(false);
+    expect(samePermissionRule(path("src/a.ts"), path("src/a.ts"))).toBe(true);
+    expect(
+      samePermissionRule(path("src/a.ts"), {
+        match: { tool: "write", pathExact: "src/a.ts", commandExact: "x" },
+        decision: "allow",
+      }),
+    ).toBe(false);
+  });
+
   it("去重保留首次出现", () => {
     const a = exact("npm test");
     const b = {
@@ -51,5 +68,13 @@ describe("权限规则规范键（R199）", () => {
       a,
       exact("npm run build"),
     ]);
+  });
+
+  it("D-087 说明上限按码点计：4096 个代理对（8192 码元）仍在限内，4097 个超限", () => {
+    const emoji = "😀";
+    expect([...emoji].length).toBe(1);
+    expect(emoji.length).toBe(2); // UTF-16 码元 ≠ 码点——按 length 判会误杀一半
+    expect(fitsApprovalFeedback(emoji.repeat(APPROVAL_FEEDBACK_MAX))).toBe(true);
+    expect(fitsApprovalFeedback(emoji.repeat(APPROVAL_FEEDBACK_MAX + 1))).toBe(false);
   });
 });

@@ -109,6 +109,9 @@ export interface ApprovalRow {
   decision?: Decision | "invalidated";
   /** 允许范围标记（decided{scope} 投影——settled 留痕「· 本会话/本项目」） */
   scope?: "session" | "project";
+  /** 拒绝说明（D-087 decided{feedback} 投影）：用户拒绝时填写，随工具结果回给模型；
+   *  settled 行可展开查看 */
+  feedback?: string;
 }
 
 export interface QuestionRow {
@@ -183,10 +186,17 @@ export type ServerFrame =
   | { kind: "connected"; server: { version: string; startedAt: number } }
   | { kind: "snapshot"; sessionId: string; snapshot: SessionSnapshot }
   | { kind: "delta"; sessionId: string; seq: number; delta: Delta }
-  /** 会话/目录**列表**事实变了（新建 / 删除 / fork / 懒挂载 / 目录登记增删）——全局帧，
-   *  无 sessionId、无 seq：不是行投影增量，消费者（侧栏列表）自行去抖重载。流式 token
-   *  增量绝不发此帧（R176 五家铁律：列表管道与高频增量彻底分家）。 */
+  /** 会话/目录**列表**事实变了（新建 / 删除 / fork / 懒挂载 / 目录登记增删 / 挂起交互
+   *  出现或收口）——全局帧，无 sessionId、无 seq：不是行投影增量，消费者（侧栏列表）
+   *  自行去抖重载。流式 token 增量绝不发此帧（R176 五家铁律：列表管道与高频增量彻底分家）。 */
   | { kind: "sessions.changed" };
+
+/** 左侧会话列表「等待确认」徽标数据源：approval/question 挂起。count = 当前挂起总数，
+ *  kind = 最早一条的类型（徽标文案两 kind 同文；计数供多张卡时显示）。无挂起时字段缺省。 */
+export interface SessionPendingInteraction {
+  kind: "approval" | "question";
+  count: number;
+}
 
 export interface SessionSummary {
   id: string;
@@ -194,6 +204,8 @@ export interface SessionSummary {
   title?: string;
   updatedAt: number;
   busy: boolean;
+  /** 当前等待用户处理的最早挂起交互；无则缺省（左列表徽标，D-089） */
+  pendingInteraction?: SessionPendingInteraction;
 }
 
 /** prompt 端点回执：D-045 单口——闲直跑（id=null）/ 忙入队（id=排队条目） */

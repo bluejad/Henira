@@ -8,6 +8,7 @@ import {
   type Decision,
   type HeniraContext,
   type PermissionRequest,
+  type PermissionResult,
   type ToolContext,
   type ToolOutcome,
 } from "@henira/protocol";
@@ -31,8 +32,10 @@ afterEach(async () => {
 
 interface PermissionProbe {
   calls: { tool: string; floor?: "ask"; callId?: string }[];
-  /** ToolContext.requestPermission 实现 */
-  ask(next: Decision[]): (req: PermissionRequest, opts?: ApprovalOptions) => Promise<Decision>;
+  /** ToolContext.requestPermission 实现（D-087 起返回对象；字符串数组 = 无反馈的判定） */
+  ask(
+    next: Decision[],
+  ): (req: PermissionRequest, opts?: ApprovalOptions) => Promise<PermissionResult>;
 }
 
 function probe(): PermissionProbe {
@@ -42,14 +45,14 @@ function probe(): PermissionProbe {
     ask(decisions) {
       return async (req, opts) => {
         calls.push({ tool: req.tool, floor: opts?.floor, callId: req.callId });
-        return decisions.shift() ?? "unavailable";
+        return { decision: decisions.shift() ?? "unavailable" };
       };
     },
   };
 }
 
 /** 失败的判定链（缺席语义）：任何请求 → 不可用——loop 装配错误的 fail-closed 形态 */
-function brokenPermission(req: PermissionRequest): Promise<Decision> {
+function brokenPermission(req: PermissionRequest): Promise<PermissionResult> {
   throw new Error(`slot 'approval' missing (requested by ${req.tool})`);
 }
 
@@ -185,6 +188,34 @@ describe("runOne 五段管线", () => {
       deps,
     );
     expect(outcome.result.content).toContain("[permission:rejected]");
+    await harness.dispose();
+  });
+
+  it("用户拒绝带说明（D-087）：工具结果给「停下等指示」+ 用户原话；策略拒绝不冒充用户", async () => {
+    const { harness, ctx } = await started();
+    const deps = makeDeps(ctx, {});
+    deps.registry.register(writeTool);
+    const userDenied = await runOne(
+      { callId: "c1", name: "write", argsText: "{}" },
+      mkToolCtx(async () => ({
+        decision: "rejected",
+        deniedBy: "user",
+        feedback: "用 pnpm，别用 npm",
+      })),
+      deps,
+    );
+    expect(userDenied.result.content).toContain("[permission:rejected]");
+    expect(userDenied.result.content).toContain("Stop and wait for the user's instruction");
+    expect(userDenied.result.content).toContain("The user said: 用 pnpm，别用 npm");
+
+    const policyDenied = await runOne(
+      { callId: "c2", name: "write", argsText: "{}" },
+      mkToolCtx(async () => ({ decision: "rejected", deniedBy: "policy" })),
+      deps,
+    );
+    expect(policyDenied.result.content).toBe(
+      '[permission:rejected] tool "write" was not permitted',
+    );
     await harness.dispose();
   });
 

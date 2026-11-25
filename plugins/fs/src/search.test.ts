@@ -14,7 +14,7 @@ function gate(): FsGate {
   return {
     tool: "glob",
     args: {},
-    requestPermission: vi.fn(async () => "allowed-once" as never),
+    requestPermission: vi.fn(async () => ({ decision: "allowed-once" as const })),
   };
 }
 

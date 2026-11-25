@@ -41,6 +41,27 @@ describe("权限规则文件 helpers（R199）", () => {
       invalidCount: 0,
     });
 
+    const pathRule = {
+      match: { tool: "write", pathExact: "src/a.ts" },
+      decision: "allow" as const,
+    };
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        rules: [
+          pathRule,
+          { match: { tool: "write", pathExact: "" }, decision: "allow" }, // 坏路径约束
+          { match: { tool: "edit", pathExact: 42 }, decision: "allow" }, // 非字符串
+        ],
+      }),
+      "utf8",
+    );
+    const paths = await readPermissionRules(file);
+    expect(paths.status).toBe("ok");
+    expect(paths.rules).toEqual([pathRule]);
+    expect(paths.invalidCount).toBe(2);
+
     await fs.writeFile(
       file,
       JSON.stringify({

@@ -39,7 +39,7 @@ function approvalStub(decisions: Decision[] = ["allowed-once"]): ServiceDefiniti
   return {
     name: "approval",
     start() {
-      return { requestPermission: async () => queue.shift() ?? "allowed-once" };
+      return { requestPermission: async () => ({ decision: queue.shift() ?? "allowed-once" }) };
     },
   };
 }

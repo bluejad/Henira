@@ -116,7 +116,7 @@ describe("formatGrepResult", () => {
 describe("glob/grep execute __meta（搜索卡数据源，E5）", () => {
   const toolCtx: ToolContext = {
     signal: new AbortController().signal,
-    requestPermission: async () => "allowed-once" as never,
+    requestPermission: async () => ({ decision: "allowed-once" as const }),
     cwd: "/ws",
     config: { cwd: "/ws" } as never,
   };

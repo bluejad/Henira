@@ -4,6 +4,27 @@
 export const DECISIONS = ["allowed-once", "rejected", "cancelled", "unavailable"] as const;
 export type Decision = (typeof DECISIONS)[number];
 
+/** 拒绝说明长度上限（码点计数）：UI 输入框 / REST 校验 / 引擎归一 / 账本校验四处同源。 */
+export const APPROVAL_FEEDBACK_MAX = 4096;
+
+/** 说明是否在码点上限内（REST 闸 / 账本校验 / 引擎归一三处共用——别在别处重写这个
+ *  表达式：`maxLength` 按 UTF-16 码元、上限按码点，代理对会让两者数字不同）。 */
+export function fitsApprovalFeedback(value: string): boolean {
+  return [...value].length <= APPROVAL_FEEDBACK_MAX;
+}
+
+/** 判定链结果（D-087）：决策 + 用户拒绝时附带的说明。
+ *  旧调用方只读 decision 即可；feedback 只在 rejected 且用户在卡上填写时在场。 */
+export interface PermissionResult {
+  decision: Decision;
+  /** 用户说明原样（已 trim；≤ APPROVAL_FEEDBACK_MAX 码点）——随工具结果回给模型，
+   *  与 approval/decided.feedback 同源（刷新/重放后仍在） */
+  feedback?: string;
+  /** rejected 的来源：user = 用户在卡上拒绝（工具结果给「停下等指示」措辞）；
+   *  policy = 链外硬拒 / deny 规则 / hook deny。缺省按 policy 处理 */
+  deniedBy?: "user" | "policy";
+}
+
 /** 审批载荷（D-046 定稿 + R202 补 callId）：引擎一字不加工；显示折叠归界面 UI */
 export interface PermissionRequest {
   tool: string;
@@ -14,14 +35,18 @@ export interface PermissionRequest {
   callId?: string;
 }
 
-/** 规则匹配条件（tools-approval §3.1）：tool 相等；命令约束任一在场即须全部满足。
- *  commandExact = 卡上「本会话/本项目允许此命令」的落点（同一条命令才免问）。 */
+/** 规则匹配条件（tools-approval §3.1）：tool 相等；命令/路径约束任一在场即须全部满足。
+ *  commandExact = 卡上「本会话/本项目允许此命令」的落点（同一条命令才免问）；
+ *  pathExact = write/edit 卡上「本会话/本项目允许此路径」的落点（同一文件才免问，
+ *  按会话 cwd 归一后的相对路径存储；write 与 edit 的路径规则互相命中）。 */
 export interface PermissionRuleMatch {
   tool: string;
   /** 精确命令（整串相等；比 prefix/contains 窄，写盘/落账都用它） */
   commandExact?: string;
   commandPrefix?: string;
   commandContains?: string;
+  /** 精确路径（会话 cwd 归一的相对路径、POSIX 分隔符、win32 小写；只由 write/edit 卡写入） */
+  pathExact?: string;
 }
 
 /** 跨会话权限规则（tools-approval §3.1 permissions.json；deny 压倒一切，链首） */
@@ -34,14 +59,14 @@ export interface PermissionRule {
 export interface PermissionSnapshot {
   session: {
     rules: PermissionRule[];
-    /** 工具级本会话允许（无命令精确度的旧形状：write/edit/read…） */
+    /** 工具级本会话允许（无命令/路径精确度的旧形状：MCP 等） */
     tools: string[];
   };
   project: PermissionRule[];
   global: PermissionRule[];
 }
 
-/** 规则规范键（R199）：decision + tool + 三个命令约束，键序与未知字段无关。
+/** 规则规范键（R199）：decision + tool + 命令/路径约束，键序与未知字段无关。
  *  添加幂等、文件删除、账本撤销、UI key 共用同一身份。 */
 export function permissionRuleKey(rule: PermissionRule): string {
   return JSON.stringify([
@@ -50,6 +75,7 @@ export function permissionRuleKey(rule: PermissionRule): string {
     rule.match.commandExact ?? null,
     rule.match.commandPrefix ?? null,
     rule.match.commandContains ?? null,
+    rule.match.pathExact ?? null,
   ]);
 }
 
@@ -114,5 +140,5 @@ export interface ApprovalOptions {
 }
 
 export interface ApprovalService {
-  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<PermissionResult>;
 }

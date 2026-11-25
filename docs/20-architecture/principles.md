@@ -47,7 +47,7 @@
 
 以下语义由**官方 approval 插件**实现并默认装载；框架允许替换它，替换者自担语义责任（D-010）：
 
-- `requestPermission(): Promise<Decision>`；
+- `requestPermission(req, opts?): Promise<PermissionResult>`（D-087 起返回 `{ decision, feedback?, deniedBy? }`）；
 - 判定词表：`allowed-once | rejected | cancelled | unavailable`——**缺失、异常、不合规的回答一律 `unavailable`，必须拒**；不存在"答案缺失即放行"；
 - **凭据路径硬拒**在一切规则链之外，且工具围栏 + 引擎兜底双保险——凭据泄进模型上下文不可撤回，不存在可放行的理由；凭据清单由官方 approval 插件承担（D-012④，kernel 纯机制不承载业务策略）；灾难性操作硬拒与凭据同列链外（D-039）；
 - 每次 ask / decide 落**审计事件对**（`approval/asked` + `approval/decided`）；

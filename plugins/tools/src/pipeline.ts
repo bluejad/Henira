@@ -8,8 +8,8 @@ import path from "node:path";
 import type { EventBus } from "@henira/kernel";
 import type {
   ApprovalOptions,
-  Decision,
   GateVerdict,
+  PermissionResult,
   PostExecuteValue,
   ToolCall,
   ToolContext,
@@ -93,9 +93,9 @@ async function gateAndPermission(
     signal: ctx.signal,
     floor: merged.verdict === "ask" ? "ask" : undefined,
   };
-  let decision: Decision;
+  let answer: PermissionResult;
   try {
-    decision = await ctx.requestPermission(
+    answer = await ctx.requestPermission(
       { tool: call.name, args, reason: merged.reason, callId: call.callId },
       opts,
     );
@@ -105,10 +105,22 @@ async function gateAndPermission(
       `[unavailable] approval chain failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (decision !== "allowed-once") {
-    return errorOutcome(`[permission:${decision}] tool "${call.name}" was not permitted`);
+  if (answer.decision !== "allowed-once") {
+    return errorOutcome(deniedMessage(call.name, answer));
   }
   return undefined;
+}
+
+/** 拒绝时给模型的权威文本（D-087）：
+ *  - 用户拒绝 = 明确「工具没执行 + 停下等指示」，填了说明就原样转给模型（ZCode 行为层同款）；
+ *  - 策略拒绝（凭据/灾难/deny 规则/hook deny）/ 取消 / 缺席 = 保持既有中性文本，
+ *    不冒充「用户拒绝」——策略拒不是用户的决定。 */
+function deniedMessage(tool: string, result: PermissionResult): string {
+  if (result.decision === "rejected" && result.deniedBy === "user") {
+    const base = `[permission:rejected] tool "${tool}" was not permitted. The user rejected this call; the tool did not run. Stop and wait for the user's instruction.`;
+    return result.feedback !== undefined ? `${base}\nThe user said: ${result.feedback}` : base;
+  }
+  return `[permission:${result.decision}] tool "${tool}" was not permitted`;
 }
 
 /** 段4 execute：未启动即中止 → ABORTED_BEFORE_DISPATCH；已启动等工具自行结束并保留自报错误 */

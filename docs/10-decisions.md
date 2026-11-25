@@ -834,6 +834,8 @@
 - **非目标（挂账）**：`/api/sessions`、`/api/dirs` 的全量扫盘 / 整文件读优化；服务端 batcher 多事件合并；客户端全局并发队列（opencode 4 槽先例）。根因消除后列表调用归零级，以上仅未来加固。
 - **备注**：落点 = interfaces.md（ServerFrame / SSE 传输形状 / sdk events / web 侧栏刷新契约 / PluginUiHost.subscribe 过滤语义）；测试 = web-ui 6 例 + server SSE 1 例 + facade 双形态 1 例 + e2e 网络计数/双页 1 例。
 
+- **现状注（D-089，2026-11-25）**：列表信号新增「挂起交互出现/收口」触发——`approval/asked`、`approval/decided`、`approval/invalidated`、`question/asked`、`question/settled` 五类账本事件后发 `sessions.changed`（左列表「等待确认」徽标数据源）。帧形状、250ms 去抖 / 单飞 / 失败不重试纪律不变；流式增量仍绝不触发列表。
+
 ## D-068 中间对话区输出组织与视觉重做 + 结构拆分（R177）
 
 - **状态**：已定 · 2026-11-22 · 用户实拍反馈批（样式与输出序列）；✓ 同日落码；**输出组织细节已被 D-069 修正（R178）**
@@ -897,7 +899,7 @@
   5. **不动**：`approval.view.<工具名>` / `composer.queue.*` 词表、审批乐观摘卡/回滚、Enter/Esc 语义、队列 promote/remove/resume 端点与 UI 数据源。
 - **理由**：审批与排队是输入区的延伸，不是系统警报；层级应靠字重与留白，而不是底色与徽章。参照的可观察结构（中性卡 + 编号选项 + 静音列表）直接解决「丑」的根因，同时保留本仓一键应答与动作浮现两个既有裁定。
 - **非目标（挂账）**：审批卡底部独立「确认」按钮（参照模型 = 选中 + 确认；本仓保留点击即决定，避免多一步）；排队行拖拽排序 / 编辑冻结锁（既有挂账）；审批选项的前缀规则 scope 展示（bash 前缀级规则挂账）。
-- **备注**：落点 = interfaces.md web 段（审批/排队卡条）；测试 = web-ui 125 例（+1 键盘守卫；全仓 622 过 / 1 skip，e2e 27 过 / 1 skip）；七门禁 + build + bundle 全绿；活体 = Agnes 3.0 Flash（bash sleep 审批 → 允许 → 忙时入队），明暗双主题截图存 `artifacts/r180/`（不入库）；活体顺带抓修：审批卡 window 键监听会在输入框打字时误放行（已加可编辑控件守卫）。
+- **备注**：落点 = interfaces.md web 段（审批/排队卡条）；测试 = web-ui 125 例（+1 键盘守卫；全仓 622 过 / 1 skip，e2e 27 过 / 1 skip）；七门禁 + build + bundle 全绿；活体 = Agnes 3.0 Flash（bash sleep 审批 → 允许 → 忙时入队），明暗双主题截图存 `artifacts/r180/`（不入库）；活体顺带抓修：审批卡 window 键监听会在输入框打字时误放行（已加可编辑控件守卫）。**现状注（R205）**：决定 3 的「点击即决定保留 / Enter=允许一次」与非目标的「底部独立确认按钮挂账」已被 **D-088** 反转（选中 + 常驻确认钮）；Esc=拒绝、乐观摘卡/回滚、词表与出口均不变。
 
 ## D-072 输入座位与 chain 槽（R182）
 
@@ -911,6 +913,7 @@
 - **理由**：dsh 用一个消费者也把 chain 做成通用机制；我们已有审批这个真实消费者，先把机制做对，提问（R184）到来时只加一条 entry，宿主不用再动。视觉照 ZCode 是因为它是用户点名的观感基准；机制照 dsh 是因为「一切皆插件」的装配基准。两件事同批做，避免同一 dock 被改两遍。
 - **非目标（后续批）**：`composer.dock` / `composer.model` / `composer.left` / `composer.right` 四个座位与 composer API 归 R183；向用户提问（第二条 chain entry）归 R184；Esc=停止单独拍；上下文 / 加号 / 发送不做座位（骨架，dsh 同款）。排队面板仍在输入栏内，待审批时随输入栏一起隐藏——R183 `composer.dock` 时移出。
 - **备注**：落点 = plugins.md §4/§7.2 + interfaces.md 槽词表/视觉基线；测试 = chain 登记簿 5 例 + ComposerDock 接管/隐藏/焦点 + 占位三态 + 通用 chain 件；e2e 定位器从占位文案改 `data-testid="composer-input"`（占位变三态后文案不再稳定）。
+- **现状注（D-088/D-089，2026-11-25）**：决定 4「不动」里的「Enter=允许、Esc=拒绝」已被选中 + 确认模型取代——Enter = 确认当前选中行（默认第 1 行即允许一次），Esc = 拒绝；Tab 围栏见 D-089。
 
 ## D-073 输入座位四席与 Composer API（R183）
 
@@ -1034,7 +1037,7 @@
   4. **规则读取**：approval 经 `ConfigService` 读全局 + 项目两张表并合并，**deny 跨表压倒一切**；规则文件里写了命令约束但值非法（空串/非字符串）→ 整条丢弃——静默降级成 tool 级会把「一条命令的 deny」放大成「整个工具的 deny」。
   5. **审计与降级**：`decided` 带 `scope`/`rule`；项目写盘失败或命令缺失时降级为一次放行（不拿配置写失败挡住用户已点下的允许）；审计行仍在账本。
 - **理由**：日志记事实、文件记策略的分界不变，只是把「项目」补成文件层的自然分界（与会话 cwd / 项目数据目录同生命周期）；精确命令比工具级安全，又不需要 batch 2 的路径级规则就能覆盖「同一条命令反复跑」的高频场景；事件级撤销可回放、可审计，ZCode 的内存 sessionRules 做不到。
-- **非目标**：路径级规则（write/edit 的中间档，batch 2）；卡上一键前缀规则（保留手写）；拒绝附反馈；项目规则管理面板；撤销单条规则的 UI（折叠层已支持按 tool/rule 精确撤销；本批 REST/SDK 只开清空档，UI 先给清空）。
+- **非目标**：路径级规则（write/edit 的中间档，batch 2；**D-087 已补**）；卡上一键前缀规则（保留手写）；拒绝附反馈（**D-087 已补**）；项目规则管理面板；撤销单条规则的 UI（折叠层已支持按 tool/rule 精确撤销；本批 REST/SDK 只开清空档，UI 先给清空）。
 - **备注**：落点 = protocol（`PermissionRuleMatch.commandExact`、`PermissionSnapshot`、`InteractionAnswer.scope`、`ApprovalRow.scope`）、plugin-session（`decided.rule` / `revoked` 校验器与回合闸豁免）、plugin-approval（`commandRule` / `matchesRule` AND 语义 / 会话折叠 rules+tools / 项目写盘）、config-loader（`projectPermissionRules` / `addProjectPermissionRule` / 窄化）、server（配置装配 projectDir、settle scope `project`、`GET /permissions`、`POST /permissions/session/revoke`）、sdk（双形态 `sessionPermissions` / `revokeSessionApprovals`）、web-ui（卡四/三钮、权限菜单允许区、词条）、web 宿主零改动（client 直通）；测试 = 引擎精确规则/折叠/项目写盘/降级、账本 rule+revoked 免闸、config 项目文件、server 端点、sdk 双形态、web-ui 卡与撤销区、e2e 真浏览器（允许此命令→同命令免卡→撤销→再出卡）；活体真 key 验收另跑。
 
 ## D-082 权限管理面：设置管持久规则、会话管临时允许（R199）
@@ -1050,7 +1053,7 @@
   6. **拒绝仍一次性**：审批卡的「拒绝」不生成规则；下一次相同调用继续询问。持久 deny 只存在于规则文件（本批只读/可删，不提供新增/编辑）。
   7. **深链**：`SettingsModal` 跟随 `props.section` 变化（原先只在首次挂载生效）；chip「本项目允许 N 条 › 设置中管理」调 `ctx.openSettings("permission")`。
 - **理由**：会话允许是随会话消亡的事实，塞进全局设置会逼用户枚举每个会话且作用域不清；项目/全局是策略，管理面应能看到每一条（尤其 deny），否则「手改文件」是唯一可见路径。逐条删除让策略可收回；canonical 身份让手改文件的键序/附加字段不产生幽灵重复。拒绝一次性与参照行为层一致：拒绝是本次裁决，持久拒绝是策略，应走规则编辑而非审批热键。
-- **非目标**：设置内新增/编辑规则（只查看/删除；卡仍是 allow 的新增路径）；卡上「持久拒绝」第五钮；路径级规则；孤儿项目进选择器；项目重命名/可搜索选择器；文件删除的审计事件；设置弹窗 600px 高度修正；forked UUID 会话删除 id bug。
+- **非目标**：设置内新增/编辑规则（只查看/删除；卡仍是 allow 的新增路径）；卡上「持久拒绝」第五钮；路径级规则（**D-087 已补**）；孤儿项目进选择器；项目重命名/可搜索选择器；文件删除的审计事件；设置弹窗 600px 高度修正；forked UUID 会话删除 id bug。
 - **备注**：落点 = protocol（canonical helpers + 管理视图类型）、config-loader（`permissions.ts` 三态读取/添加/删除、唯一 tmp、config.ts 委托）、plugin-approval（折叠 canonical + 去重）、plugin-session（`isProjectKey`、`DirRegistry.peek`）、server（`permission-projects.ts` + 5 端点 + 会话撤销可选 body）、sdk（5 新方法 + `revokeSessionApprovals` opts）、web-ui（设置权限页/规则行/删除确认、chip 规则面板、深链修复、词条/CSS）、web 宿主零改动（`openSettings` 已有）；测试 = protocol/config/approval/session/server/sdk 双形态/web-ui + e2e 三用例（会话逐条撤销/项目删/全局删）；活体真 key 验收另跑。
 - **审查补正（同日）**：① 项目选择器弹层原先无宽度上限且条目 `nowrap`，长 `name — cwd` 标签把弹层撑到 900px+，被设置内容区 `overflow:auto` 计成横向滚动溢出（页面可被滚右、标题/行首被裁，用户实拍）；改为弹层限宽 `min(420px, 100vw - 96px)`、`--input` 形态右缘钉触发钮向左生长、条目省略号 + `title` 看全文；e2e 预置长名项目锁 `scrollWidth == clientWidth` 与弹层不出弹窗。② `useDismiss` 的 Esc 改 capture 并止住冒泡：下拉打开时 Esc 只收弹层，不再连关设置弹窗。③ 选择器可访问名改「选择项目」（原与分区标题撞名）；SDK runtime 项目清单补 `id/cwd/displayName` 窄化，与 server 的 `usableDir` 同口径。
 
@@ -1117,3 +1120,60 @@
 - **代价**：账本多一个可选字段（旧账本无字段同义 = 非排队）；宿主多一张待匹配表（死 id 不回收——随机串不会误配，体积可忽略）。
 - **非目标**：`PromptReceipt` 带 turnId（入队时回合不存在）；排队条目的跨重启回执；steer / promote 回执。
 - **备注**：落点 = session.md §2.2 / loop.md §1、plugin-session validators、protocol server-events/projection、plugin-loop turn/service、web turn-finished/host；测试 = validator/projection/loop/turn-finished 单测 + e2e facade 延迟 mock 双回执 + 活体真 key（第二句入队、账本 queueId 回声、浏览器宿主两次回执）。同日自审（P2 一修）：`connected`/快照帧与回执账本对账——重连清断线前信用、`busy=false` 与本地起点冲突即出清、`busy=true` 补起点；否则断线期间错过的终局会把信用泄漏到下一轮冒领。
+
+## D-087 审批中间档补齐：write/edit 路径级 + 拒绝说明（R204）
+
+- **状态**：已定 · 2026-11-25 · 用户拍板（对照 ZCode 源码后确认：说明是独立一行输入；write/edit 本来就该有路径级，不是分期问题）；✓ 同日落码。
+- **背景**：R198 只给命令类工具做了精确档——bash/powershell 有「本会话/本项目允许此命令」，write/edit 仍停在**整工具**本会话允许且没有项目档。用户指出这是配对漏项。同时「拒绝」只回模型一句 `[permission:rejected] tool "x" was not permitted`：没有原因、没有「停下等指示」，用户要解释只能再发一条消息。
+- **取证（ZCode 只读）**：`bootstrap/src/permission-options.ts` 的项目级允许从请求输入取 `command / url / file_path / path / pattern` 作为 `ruleContent`（命令工具记命令、文件工具记路径、WebFetch 记 URL），MCP/工作流这类每次调用都不同的工具才用 `session-always-allow`（整工具、只存内存）；`packages/ui/src/PermissionDialog.tsx` 把说明做成编号列表**最后一行**的 textarea（不是挂在拒绝按钮上），输入后 Enter = 拒绝 + 说明，纯拒绝是另一行；`buildPermissionDeniedContent` 的拒绝文本 = 工具未执行 + 停下等指示 + 可选 `The user said: …`，上限 4096 字符。dsh 审批面板只有拒绝/允许一次、无反馈通道（靠沙箱降噪），本项无参考。
+- **决定**：
+  1. **规则形状**：`PermissionRuleMatch` 增 `pathExact`（与 `commandExact` 同层）。路径按会话 cwd 归一（`path.resolve` → `path.relative` → POSIX 分隔符 → win32 小写），批准/匹配/撤销共用同一个归一函数；卡上「此路径」只写精确文件，目录/前缀规则只留给手写 `permissions.json`。
+  2. **write/edit 路径规则互相命中**（ZCode 的 Write→Edit 别名同款）：允许 edit 某文件即允许 write 同文件；工具级规则不跨工具（本会话允许 write 不等于允许 edit）。
+  3. **卡选项按工具族**：bash/powershell（命令在场）= 一次 / 本会话允许此命令 / 本项目允许此命令 / 拒绝；write/edit（路径在场）= 一次 / 本会话允许此路径 / 本项目允许此路径 / 拒绝；MCP 等无精确参数的工具 = 一次 / 本会话允许（工具级）/ 拒绝。args 缺命令/路径（超限丢弃、旧账本）= 降级一次，不落整工具放行。
+  4. **拒绝说明是独立一行**：编号列表最后一项是 textarea「告诉模型接下来应该怎么做…」；输入后 Enter（trim 非空）= `rejected` + 说明；空内容回车不提交；Esc 只失焦；点「拒绝」时草稿一并带上。上限 4096 码点，UI / REST / 引擎 / 账本校验同源。
+  5. **传输与审计**：`requestPermission` 返回 `PermissionResult { decision, feedback?, deniedBy? }`——`deniedBy:"user"` = 用户在卡上拒绝，工具结果给「工具未执行 + 停下等指示（+ 用户原话）」；`deniedBy:"policy"`（凭据/灾难/deny 规则/hook deny）与 cancelled/unavailable 保持既有中性文本，不冒充用户拒绝。`approval/decided.feedback?` 只在 rejected 且用户填写时落账；投影 `ApprovalRow.feedback`（官方对话流按既有纪律不渲染审批痕迹——E6「审批痕迹不进对话流」不变；自定义 conversation 件/未来审计面可消费），刷新/重放/多窗口同一事实。
+  6. **结算通道**：REST `POST /api/sessions/:id/approvals/:requestId` body 收可选 `feedback`（非 rejected 携带 = 400）；SDK client/runtime 与 web-ui 类型同批加可选尾参，旧调用形状不变。
+- **理由**：中间档不够细，谨慎用户只剩「逐次允许」或「切完全访问」两条路——审批摩擦会把人推向 full，安全设计反噬。路径级把中间档变成真正可用的安全阀；说明走账本而不是一次性通道，是为了刷新/重放/多窗口一致，审计与工具结果同一事实。
+- **代价**：`requestPermission` 返回形状是跨插件签名，所有 answerer/工具消费点同批改；账本多一个可选字段；路径规则按会话 cwd 归一，跨机器共享数据目录时**手写绝对路径**规则会失配（相对路径不受影响）。
+- **非目标**：卡上写目录/前缀规则；MCP 参数级规则；拒绝说明生成规则；工具级项目档；「允许并切换为自主模式」（模式切换仍走 chip 轴 + 风险确认卡）；沙箱降噪（dsh 路线）。
+- **备注**：落点 = protocol approval/interaction/tools/fs/server-events/projection、plugin-session validators、config-loader permissions、plugin-approval chain/service、plugin-tools pipeline、server app、sdk client/facade/runtime、web-ui types/approval-card/locales/30-approval.css；测试 = chain/service/pipeline/protocol/config/session/projection/server/sdk/web-ui 单测 + e2e（同路径免卡 / 异路径再卡 / 说明回车落账——快照与投影可见，官方对话流不渲染，E6）；活体真 key 另跑。
+- **审查补正（同日）**：① 规则行原先只认命令约束——设置/会话面板会把一条路径规则显示成「整个工具」；规则行补路径渲染（`permission.rule.path`）+ 单测。② 反馈码点上限在 REST/账本/引擎三处是重复表达式，收口为 protocol `fitsApprovalFeedback`，补代理对边界测试（4096 码点 = 8192 码元，按 `length` 判会误杀一半）。③ 文档补正：`ApprovalRow.feedback` 不在官方对话流渲染（E6 纪律不变）；全局文件手写 `pathExact` 会跨项目命中同名相对路径（卡不写全局路径规则，手写放项目文件）；`pathExact` 是词法路径，不解析 symlink/junction（链接与真实路径互不命中，方向为 fail-safe 重问）。
+
+## D-088 审批卡「选中 + 确认」：键盘选中态与常驻确认按钮（R205）
+
+- **状态**：已定 · 2026-11-25 · 用户截图对照 ZCode 桌面弹窗后拍板（「到最后一个输入框输入，咋还是选择的是第一个」「输入哪里没有确认按钮」「缺少上下键移动」）；✓ 同日落码。
+- **背景**：D-087 的说明行是最后一行，但卡仍是「首行常驻灰底 + 点击即决定」的静态模型——用户点进说明框打字，第 1 行看起来仍是选中；没有上下键移动；没有确认按钮。ZCode 桌面弹窗的实际模型：`selectedIndex` 默认 0、方向键/Tab 换选中、Enter 确认当前行、说明行是独立导航行（聚焦即选中）、常驻确认按钮（说明行选中且为空时禁用）、鼠标点未选中行只选中。本仓提问卡（R184/R192）已按同款「焦点即意图」落地，交互模式有先例。
+- **取证（ZCode 只读）**：`packages/ui/src/PermissionDialog.tsx`——`selectedIndex` 默认 0（614）、`moveSelection` 取模循环（666-678）、选项 keydown（765-860：数字 1/2/3 直接裁决、反馈位数字只聚焦、方向键/Tab 移动、Enter 确认）、说明框 keydown（736-763：Tab/方向键离开、Enter 提交非空说明、Esc 只失焦）、常驻确认按钮（1270-1285，说明行选中且 `!feedback.trim()` 时禁用）；`docs/permission-project-approval.md` 44-46 同文。Esc：桌面弹窗没有 Esc=拒绝（选项无 Esc 分支、说明框 Esc 只失焦），TUI 有（`apps/zcode-cli/docs/design/v2/permission-broker.md:114`「Escape 返回 deny」、`turn-cancellation.md:106`）。IME：ZCode 用 `compositionActive || isComposing`；本仓按用户裁定**不强行耦合**，只把守卫补到提问卡同款（`isComposing || keyCode 229`）。
+- **决定**：
+  1. **选中态**：`selectedIndex` ∈ `0..options.length`（末位 = 说明行），默认 0；`row.requestId` 变化时复位选中与草稿。视觉 `.is-selected`（`--henira-selected`），删掉首行常驻 `.is-default`。焦点跟随选中：首次自聚焦走座位守卫（焦点在 body / 卡内 / 接管宿主内才落位，RAF 后判定——不抢设置弹窗/外部输入焦点，R185 审查 P3③ 纪律）；之后选中变化即时聚焦目标行；说明框持有焦点时不被抢。
+  2. **卡内键位**：选项行 ↑/← 上移、↓/→ 下移、Tab/Shift+Tab 循环（首行 Shift+Tab、说明行 Tab 放行给浏览器 → 确认钮，不把键盘困在卡里）、Enter 确认当前行、数字 `1..N` 直接裁决 / `N+1` 聚焦说明行（ZCode 同款，选项数 2/3/4 通用化）。说明框：↑↓ 离开输入框回选项（提问卡同款）、Shift+Tab 回上一行、Tab 放行到确认钮、Enter（非 Shift）= 拒绝 + 说明（trim 空不提交，Shift+Enter 保留换行）、Esc 只失焦。
+  3. **座位内全局键**：焦点在 body / 卡内 / 接管宿主内，目标不是可编辑控件、不是按钮、未被卡内处理器消费时——Enter = **确认当前选中行**（取代旧的「Enter=允许一次」）、Esc = 拒绝。顺带修掉旧缺陷：焦点在预览展开按钮上按 Enter 会同时放行审批；焦点在设置弹窗里按 Esc/Enter 会误裁决。
+  4. **鼠标**：点未选中行只选中（ZCode 同款）；再点同一行 / Enter / 确认按钮才裁决；点说明行 = 聚焦并选中；拒绝行裁决仍带草稿；`settleApproval` 参数形状、乐观摘卡、404/回滚全不变。
+  5. **footer**：键盘提示左、常驻「确认」按钮右（`henira-primary`）；说明行选中且 `trim()` 为空或 `ctx.sessionId === null` 时禁用。
+  6. **取代关系**：D-071 决定 3「点击即决定保留 / Enter=允许一次」与其非目标「审批卡底部独立确认按钮挂账」、D-071 决定 5、D-072 决定 4 中「Enter=允许一次」均以本决定为准；**Esc=拒绝不变**。
+- **理由**：说明框里打字时首行仍高亮 = 选中语义说不清；点一下立即放行 = 移动端/触屏误触代价最高的一类交互。选中 + 确认把「看哪一行」与「落决定」分开，键盘与鼠标共用一套状态；ZCode 桌面弹窗与本仓提问卡都已验证这套模式。
+- **代价**：非首行选项从单击变成两次点击（或点选中后 Enter/确认钮）——e2e 与单测的动作语义全部经 helper/两段式更新；旧全局 Enter 的「不看选中直接允许」便利退场（默认选中第 1 行，实际仍是「回车允许」，但光标移到别的行后回车 = 确认那一行）。
+- **非目标**：抽共享 IME helper / 改提问卡（用户明确不耦合同一套 IME 机制）；hover 跟随选中；审批卡弹窗化（仍是输入区接管卡）；卡根加第五个「拒绝」钮（D-082 已定：拒绝是一次性裁决，持久 deny 只住规则文件）；`approval.sessionAllowTip/pending/scopeSession` 三个死键。
+- **备注**：落点 = `plugins/web-ui/src/parts/approval-card.tsx`（选中态/焦点跟随/键位/确认钮/座位守卫）、`locales/zh.ts`（`approval.confirm` / `approval.keyboardHint`）、`styles/composer/30-approval.css`（`.is-selected` / footer / 确认钮）；测试 = parts.test 交互七例（含「说明框聚焦即选中末行」截图缺口回归锁、座位内全局 Enter/Esc、数字键、换请求复位）+ e2e 新用例（默认首行聚焦 / ↓+Enter / 说明框选中与确认钮禁用→可用 / 回车拒绝带说明）+ 五文件非首行点击改两段式（`approval-choose.ts` helper）；文档 = 本条 + tools-approval §3.4 + interfaces 审批卡条 + D-071 现状注 + web-ui README。
+- **现状注（D-089，2026-11-25）**：决定 2 的「首行 Shift+Tab / 说明行 Tab 放行给浏览器 → 确认钮」已被 D-089 撤回——Tab/Shift+Tab 现在都只在「选项 + 说明行」里循环，确认钮是鼠标件（键盘用 Enter）；决定 1 的「RAF 后判定」也被 D-089 决定 1 取代（同步座位守卫 + `setTimeout(0)`，不依赖 RAF）；另补 `moveSelection` 清焦点守卫（↑↓/Tab 移出说明框后焦点跟选中回选项）与左列表「等待确认」徽标。
+
+## D-089 审批/提问键盘围栏 + 左列表「等待确认」（R206）
+
+- **状态**：已定 · 2026-11-25 · 用户活体对照 ZCode 源码后拍板（「上下键移动进一次再移出，光标一直在输入框」「左侧对话没有待我处理提示」「点卡片后 Tab 还能选中弹窗之外」「提问卡底部没写 Tab」）；✓ 同日落码。
+- **背景**：D-088 落地后的活体验收抓到四类缺口：①审批卡 ↑↓ 从说明框移出后，高亮走了但光标留在输入框；②审批/提问挂起时左列表没有任何「待我处理」提示，切走会话就完全不知道有卡在等；③点进卡后 Tab 仍能走到卡外的侧栏/设置/输入区，审批与提问两张卡都有；④提问卡底部提示没有 Tab。D-088 的「边界放行」是为够到确认钮做的让步，与 ZCode 的实际键盘模型相反。
+- **取证（ZCode 只读）**：
+  - `PermissionDialog.tsx:666-678`：`moveSelection` 第一件事清 `feedbackInputFocusedRef`，再改 `selectedIndex`；聚焦 effect `:644-664` 随后把焦点交给新选中行。
+  - `PermissionDialog.tsx:736-763`：说明框 `handleFeedbackKeyDown` 把 `Tab` 与 ↑↓ 放进同一分支——`preventDefault + moveSelection`，说明框 Tab 不出可选行；`:796-841`：选项 Tab/Shift+Tab 恒循环，只有上方真有控件（预览展开 `:809-815`、工作流设置 `:816-826`、保存窗 `:827-838`）才故意放行；确认钮不在 Tab 循环里（`1270-1285`，键盘用 Enter）。
+  - `ElicitationDialog.tsx:618-620`：选项 Tab 循环；`:890-893`：焦点在卡容器时 Tab 也走 `moveSelection`；`:124-162`：自定义输入的 Tab 未处理——原生 Tab 会到页脚、页脚再 Tab 出卡（ZCode 自身漏口，不是完整 focus trap）。
+  - `TaskInteractionBadge.tsx` + `TaskListItem.tsx:715-721` / `grouped/task-row.tsx:183-188`：`task.pendingInteraction` 有值即渲染徽标；`zh-CN.ts:3355-3356` permission/userInput 两 kind 同文「等待确认」，`:7384` 审批弹窗内预览块也标「等待确认」。
+  - `zh-CN.ts:7485`：提问卡底部提示原文「使用 Tab / 上下键选择，回车或空格选中」。
+- **决定**：
+  1. **审批焦点回归**：`moveSelection` 先 `feedbackFocusedRef.current = false` 再改选中（ZCode 同款）；↑↓/Tab 从说明框移出后，选中与焦点一起回到目标选项；补单测 + e2e 回归锁。**首帧焦点不依赖 RAF**：同步座位守卫 + `setTimeout(0)` 容器兜底——活体实锤 IAB 页 `visibilityState=visible` 但 `requestAnimationFrame` 不回调（后台标签页同理），旧 RAF 路径会让焦点永远留在 `.henira-composer-takeover`；dock 聚焦容器后由 `focusin` 转投选中行，转投成功即置 `focusedOnceRef`，后续 ↑↓/Tab 选中变化直接跟随（e2e 实锤「选中变了、焦点没跟」的路径）。
+  2. **审批 Tab 围栏**：选项 Tab/Shift+Tab 恒在「选项 + 说明行」循环；说明框 Tab/Shift+Tab 与 ↑↓ 同走 `moveSelection`（不再放行到确认钮）；撤掉 D-088 的首行无条件 Shift+Tab 出口（普通审批窗上方没有可聚焦控件；第三方 `approval.view.*` 顶替件若在预览区放可聚焦控件，其 Tab 顺序暂不可达——已知限制）；卡根 Tab 兜底——确认钮/卡容器上的 Tab 回当前选中行，不出卡。确认钮仍是鼠标件，键盘用 Enter，与 ZCode 相同。
+  3. **提问 Tab 围栏**：选项 Tab/Shift+Tab 循环「选项 + 自定义输入」（ZCode 同款）；卡容器 Tab 进/回可选行；自定义输入与页脚由卡根兜底在卡内所有可聚焦件之间循环（Shift 反向、首尾相接），把 ZCode 页脚漏口一并堵上——Tab 不出卡。底部提示补「Tab / ↑↓ 移动」。
+  4. **左列表「等待确认」**：`SessionSummary.pendingInteraction?: { kind: "approval" | "question"; count: number }`；服务端 `list()` 对在订会话从投影行汇总（最早一条的 kind + 当前挂起总数；历史/未挂载会话无 pending——待处理只可能存在于活进程，重启收口会投影成 invalidated）；`onAppend` 在 `approval/asked`、`approval/decided`、`approval/invalidated`、`question/asked`、`question/settled` 五类事件前后比对投影摘要，**挂起集真的变了才发** `sessions.changed`（自动 decided——规则 allow / 只读默认放行 / hook / full——没有配对 asked，不改变徽标，不发）；会话行渲染「等待确认」徽标（ok 色；count > 1 时数字跟在文案后）。
+- **理由**：D-088 的焦点守卫只防 RAF 抢输入焦点，没防用户主动移出——高亮与光标分家是最直接的「键盘坏了」观感；边界放行会让 Tab 在可选行走完一圈后直接落到卡外，和 ZCode 的循环模型相反；左列表缺口让用户切走后彻底失去待处理感知。四条都按 ZCode 行为层对齐，并把 ZCode 自身的页脚漏口一并堵上。
+- **代价**：确认钮不再能靠 Tab 到达（Enter 确认 / 鼠标点击；与 ZCode 相同）；`sessions.changed` 新增交互出现/收口触发（列表重载仍 250ms 去抖 + 单飞，频率 = 审批/提问状态变化，不进流式管道）；`SessionSummary` 多一个可选字段（旧客户端忽略）。
+- **非目标**：不抽共享 IME helper、不改提问卡无预选/点选语义；不做模态化（拦的是 Tab，卡外鼠标仍可操作）；不做 AskUserQuestion 自动结束倒计时与暂停（ZCode 有，本仓无 auto-resolution）；不把 pending 持久化到磁盘（仅活进程）；不改 `settleApproval` / `settleQuestion` 形状与乐观摘卡/回滚。
+- **备注**：落点 = `plugins/web-ui/src/parts/approval-card.tsx`（moveSelection / Tab / 卡根兜底 / 首帧焦点兜底）、`parts/question-card.tsx`（Tab / `trapTabInCard`）、`locales/zh.ts`（`sessions.awaiting` / `question.keyboardHint`）、`parts/session-list/row.tsx`、`packages/protocol/src/server-events.ts`、`packages/server/src/session-registry.ts`；测试 = parts.test（焦点回归 2 例 + RAF 停摆 1 例 + focusin 转投后 ↑↓ 跟随 1 例 + 提问 Tab 1 例 + 列表徽标 1 例）+ server.test（审批/提问列表字段与 `sessions.changed` + 自动 decided 不发信号 1 例）+ e2e（↑ 移出焦点回归 / Tab 循环 / 徽标出现与摘除，并入 D-088 命名用例）+ 文档 = 本条 + D-067/D-088 现状注 + tools-approval §3.4 + interfaces SessionSummary / 列表信号 / 审批卡条 + web-ui README。**活体（R206，Agnes 真 key）**：旧挂起审批卡首帧焦点原落容器，刷后落选中行；↑ 从说明框移出焦点回拒绝行、Tab 循环/说明框 Tab 回选项实测；左列表在另一会话可见「等待确认」并在收口后消失。IAB 页 `document.hasFocus()=false`，物理键不进页面，活体交互用页面事件驱动；真键盘路径由 e2e（Playwright 真 Chromium）覆盖。
+- **审查补正（同日）**：① Esc=拒绝在默认焦点下曾失效——座位内全局键守卫把**任何** `<button>` 都排除，而首帧焦点正好落在选中选项按钮上，选项行自己的键位又没有 Escape 分支；改为按钮排除只对 Enter 生效，Esc 对卡内按钮照常拒绝，补「默认焦点按 Esc」单测。② `sessions.changed` 曾按事件类型无脑发，自动放行路径（无 asked 的 decided）会让 read/glob 每次调用都重载列表；改为 append 前后比对挂起摘要，变了才发，补 server 单测。③ 左列表徽标只覆盖 live 会话（重启收口走 invalidated 投影，历史会话无 pending）——本批既定语义，不是缺口。

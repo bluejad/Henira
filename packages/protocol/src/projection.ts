@@ -305,6 +305,9 @@ export class Projection {
             : data.scope === "project"
               ? { scope: "project" as const }
               : {}),
+          ...(typeof data.feedback === "string" && data.feedback !== ""
+            ? { feedback: data.feedback }
+            : {}),
         };
         const existing = this.byId.get(row.rowId);
         if (existing?.kind !== "approval") {

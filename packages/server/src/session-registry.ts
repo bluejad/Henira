@@ -55,6 +55,7 @@ import {
   type Row,
   rebuildProjection,
   type SessionEvent,
+  type SessionPendingInteraction,
   type SessionState,
   type SessionSummary,
   sliceRowsPage,
@@ -143,6 +144,31 @@ const CORE_SLOT_NAMES = new Set([
 
 /** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
+
+/** 可能改变左列表「等待确认」徽标的账本事件（出现/收口的候选）——onAppend 前后比对
+ *  投影摘要，只有挂起集真的变了才发 sessions.changed。自动 decided（规则 allow / 只读默认
+ *  放行 / hook / full）没有配对 asked，不改变徽标，不能按事件类型无脑发；普通 tool/assistant
+ *  行不触发列表重载（R176 列表管道与高频增量分家纪律）。 */
+const LIST_INTERACTION_EVENTS = new Set([
+  "approval/asked",
+  "approval/decided",
+  "approval/invalidated",
+  "question/asked",
+  "question/settled",
+]);
+
+/** 投影行 → 列表徽标摘要：最早一条挂起的 kind + 当前挂起总数 */
+function pendingInteractionOf(rows: readonly Row[]): SessionPendingInteraction | undefined {
+  let kind: SessionPendingInteraction["kind"] | undefined;
+  let count = 0;
+  for (const row of rows) {
+    if ((row.kind === "approval" || row.kind === "question") && row.status === "pending") {
+      kind ??= row.kind;
+      count += 1;
+    }
+  }
+  return kind === undefined ? undefined : { kind, count };
+}
 
 export class SessionRegistry {
   readonly #entries = new Map<string, SessionEntry>();
@@ -526,7 +552,8 @@ export class SessionRegistry {
     return undefined;
   }
 
-  /** 列表 = 磁盘全扫（含历史会话）∪ 本进程在订（busy 状态仅后者可知） */
+  /** 列表 = 磁盘全扫（含历史会话）∪ 本进程在订（busy / 挂起交互仅后者可知——
+   *  挂起审批/提问只可能存在于活进程；重启收口会把这些行投影成 invalidated） */
   async list(): Promise<SessionSummary[]> {
     const summaries = new Map<string, SessionSummary>();
     const projectsDir = path.join(this.#opts.dataDir, "projects");
@@ -567,6 +594,7 @@ export class SessionRegistry {
     }
     for (const entry of this.#entries.values()) {
       const title = deriveSessionTitle(entry.projection.rows) ?? summaries.get(entry.id)?.title;
+      const pendingInteraction = pendingInteractionOf(entry.projection.rows);
       summaries.set(entry.id, {
         id: entry.id,
         cwd: entry.cwd,
@@ -574,6 +602,7 @@ export class SessionRegistry {
         // 在订条目也用磁盘账本 mtime（同一份活动真源）；账本尚未落盘 = 创建时间
         updatedAt: Math.max(entry.createdAt, summaries.get(entry.id)?.updatedAt ?? 0),
         busy: entry.projection.state.busy,
+        ...(pendingInteraction !== undefined ? { pendingInteraction } : {}),
       });
     }
     return [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -671,6 +700,9 @@ export class SessionRegistry {
     };
 
     const onAppend = (event: SessionEvent): void => {
+      // 只有候选事件才做前后摘要比对；普通行（含高频流式增量）不扫行表
+      const mayChangePending = LIST_INTERACTION_EVENTS.has(event.type);
+      const pendingBefore = mayChangePending ? pendingInteractionOf(projection.rows) : undefined;
       // state.updated 键级整体替换语义：每个载荷必须带全量队列（否则 busy 翻转会把
       // 客户端 queue 键抹掉）——发布口统一并线 loop 服务活态
       const deltas = projection
@@ -681,6 +713,15 @@ export class SessionRegistry {
             : d,
         );
       this.#opts.fanout.publish(id, deltas);
+      if (mayChangePending) {
+        // 挂起集真的变了才发（左栏「等待确认」徽标）；自动 decided 不产生挂起行，若按事件
+        // 类型无脑发，read/glob 每次调用都会重载列表（R206 审查：保住 R176 分家纪律）
+        const pendingAfter = pendingInteractionOf(projection.rows);
+        const changed =
+          pendingBefore?.kind !== pendingAfter?.kind ||
+          (pendingBefore?.count ?? 0) !== (pendingAfter?.count ?? 0);
+        if (changed) this.#opts.fanout.sessionsChanged();
+      }
     };
 
     // 装配三步（§5：①基础清单 ②目录件 ③enabled 由 prepare 过滤）+ 宿主两件

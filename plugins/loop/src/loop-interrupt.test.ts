@@ -35,7 +35,7 @@ function llmStub(service: LlmService): ServiceDefinition<LlmService> {
 function approvalStub(): ServiceDefinition {
   return {
     name: "approval",
-    start: () => ({ requestPermission: async (): Promise<Decision> => "allowed-once" }),
+    start: () => ({ requestPermission: async () => ({ decision: "allowed-once" as const }) }),
   };
 }
 function interactionStub(): ServiceDefinition {

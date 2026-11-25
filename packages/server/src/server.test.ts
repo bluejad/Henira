@@ -315,6 +315,52 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
     }
   });
 
+  it("R206 审查：自动放行只落 decided（无 asked）——不发 sessions.changed", async () => {
+    const { server, base, cleanup } = await makeServer([
+      [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
+      [mockText("已处理"), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    const controller = new AbortController();
+    try {
+      const id = await createSession(base);
+      server.registry
+        .get(id)
+        ?.ctx.get("tools")
+        .register({
+          name: "demo-write",
+          description: "demo write tool (auto-allowed in full mode)",
+          inputSchema: { type: "object", properties: {} },
+          execute: async () => ({ content: "written" }),
+        });
+      subscribe(base, sink, controller.signal);
+      await waitFor(() => (sink.some((f) => f.kind === "connected") ? true : undefined));
+      sink.length = 0;
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "写文件", permissionMode: "full" }),
+      });
+      await waitFor(() => {
+        const ended = framesFor(sink, id).some(
+          (f) =>
+            f.kind === "delta" && f.delta.op === "state.updated" && f.delta.state.busy === false,
+        );
+        return ended ? true : undefined;
+      });
+      // 自动 decided 不产生/消除挂起行 → 徽标没变 → 列表信号一帧都不许有
+      expect(sink.some((f) => f.kind === "sessions.changed")).toBe(false);
+      // 对照：工具确实执行（full 自动放行生效，不是回合没跑）。孤儿 decided 不投影审批行，
+      // 所以检查工具行而不是 approval 行。
+      const snap = await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json();
+      const rows = (snap as { rows: { kind: string; status?: string }[] }).rows;
+      expect(rows.some((r) => r.kind === "tool" && r.status === "done")).toBe(true);
+    } finally {
+      controller.abort();
+      await cleanup();
+    }
+  });
+
   it("判据②：审批挂起 → 新客户端重连快照即见审批行（重放）→ REST 收答 → 回合继续", async () => {
     // 非并发安全工具 → 默认放行层不适用 → approval/request 缝 → answerer（server InteractionService）
     const { server, base, cleanup } = await makeServer([
@@ -324,6 +370,8 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
     const sink: ServerFrame[] = [];
     try {
       const id = await createSession(base);
+      subscribe(base, sink);
+      sink.length = 0; // 只留 prompt 之后的帧（审批出现/收口信号）
       // 注册非并发安全工具（缺省注册表不自带工具——宿主组合面）
       server.registry
         .get(id)
@@ -342,7 +390,6 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
       expect(promptRes.status).toBe(200);
 
       // 首个客户端看到挂起审批行
-      subscribe(base, sink);
       const pendingRow = await waitFor(() => {
         for (const f of framesFor(sink, id)) {
           if (
@@ -356,6 +403,17 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
         return undefined;
       });
       expect(pendingRow).toMatchObject({ status: "pending", toolName: "demo-write" });
+
+      // D-089：挂起审批 = 列表事实变——sessions.changed 到达，摘要带 pendingInteraction
+      await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+      const pendingList = (await (await fetch(`${base}/api/sessions`)).json()) as {
+        id: string;
+        pendingInteraction?: { kind: string; count: number };
+      }[];
+      expect(pendingList.find((summary) => summary.id === id)?.pendingInteraction).toEqual({
+        kind: "approval",
+        count: 1,
+      });
 
       // 断线重连（判据②本体）：新客户端首帧快照即携带挂起审批行
       const reconnect: ServerFrame[] = [];
@@ -375,6 +433,7 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
       expect(replayed).toMatchObject({ status: "pending" });
 
       // REST 收答（先答者赢）→ 回合继续 → 收尾
+      sink.length = 0; // 只留收口后的帧
       const settle = await fetch(`${base}/api/sessions/${id}/approvals/${pendingRow.requestId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -406,6 +465,13 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
         );
         return settled && ended ? true : undefined;
       });
+      // D-089：收口同样发 sessions.changed，摘要不再带待处理
+      await waitFor(() => (sink.some((f) => f.kind === "sessions.changed") ? true : undefined));
+      const settledList = (await (await fetch(`${base}/api/sessions`)).json()) as {
+        id: string;
+        pendingInteraction?: unknown;
+      }[];
+      expect(settledList.find((summary) => summary.id === id)?.pendingInteraction).toBeUndefined();
       // 快照终态：审批 settled + 工具行 error（被拒）
       const snap = await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json();
       const rows = (snap as { rows: { kind: string; status?: string }[] }).rows;
@@ -458,6 +524,15 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
       });
       expect(pending).toMatchObject({ status: "pending" });
       expect(pending.questions[0]).toMatchObject({ id: "q1", header: "选择" });
+      // D-089：提问挂起同走列表徽标（kind=question）
+      const pendingList = (await (await fetch(`${base}/api/sessions`)).json()) as {
+        id: string;
+        pendingInteraction?: { kind: string; count: number };
+      }[];
+      expect(pendingList.find((summary) => summary.id === id)?.pendingInteraction).toEqual({
+        kind: "question",
+        count: 1,
+      });
 
       // 断线重连快照即携带挂起提问行（自足可渲染）
       const snap1 = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
@@ -595,6 +670,12 @@ describe("回合全链（mock LLM + 真 HTTP）", () => {
       expect(toolRows[0]?.output?.isError).toBe(false);
       expect(toolRows[0]?.output?.meta).toMatchObject({ kind: "ask_user" });
       expect(toolRows[1]?.output?.isError).toBe(true);
+      // D-089：两道提问都收口 → 列表摘要不再带待处理
+      const settledList = (await (await fetch(`${base}/api/sessions`)).json()) as {
+        id: string;
+        pendingInteraction?: unknown;
+      }[];
+      expect(settledList.find((summary) => summary.id === id)?.pendingInteraction).toBeUndefined();
     } finally {
       await cleanup();
     }
@@ -2704,7 +2785,7 @@ process.stdin.on("end", () => {
     return {
       cwd: dataDir,
       signal: new AbortController().signal,
-      requestPermission: async () => "allowed-once",
+      requestPermission: async () => ({ decision: "allowed-once" }),
       config: entry.ctx.get("config"),
     };
   }
@@ -3089,7 +3170,7 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
     return {
       cwd,
       signal: new AbortController().signal,
-      requestPermission: async () => decision as never,
+      requestPermission: async () => ({ decision: decision as never }),
       config: { get: async () => undefined } as unknown as ConfigService,
     };
   }
@@ -3188,7 +3269,7 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
       const askCtx = fsToolCtx(dataDir);
       askCtx.requestPermission = async (req) => {
         asks.push({ reason: req.reason });
-        return "allowed-once";
+        return { decision: "allowed-once" };
       };
       const o = await entry.ctx.get("tools").execute(
         {
@@ -3323,6 +3404,59 @@ describe("重启收口（R175）：settle 分型 + 启动账本修理", () => {
       });
       expect(settle2.status).toBe(200);
       expect(((await settle2.json()) as { applied: boolean }).applied).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("D-087 审批收答带拒绝说明：形状闸 + rejected+feedback 落账并投影", async () => {
+    const { server, base, cleanup } = await makeServer([
+      [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
+      [mockText("收到"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    try {
+      const id = await createSession(base);
+      server.registry
+        .get(id)
+        ?.ctx.get("tools")
+        .register({
+          name: "demo-write",
+          description: "demo write tool (requires approval)",
+          inputSchema: { type: "object", properties: {} },
+          execute: async () => ({ content: "written" }),
+        });
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "写文件" }),
+      });
+      const requestId = await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: { kind: string; status?: string; requestId?: string }[];
+        };
+        return snap.rows.find((r) => r.kind === "approval" && r.status === "pending")?.requestId;
+      });
+      const settleWith = (body: unknown): Promise<Response> =>
+        fetch(`${base}/api/sessions/${id}/approvals/${requestId}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      // 反馈只属于拒绝；码点上限 4096
+      expect((await settleWith({ decision: "allowed-once", feedback: "x" })).status).toBe(400);
+      expect((await settleWith({ decision: "rejected", feedback: "x".repeat(4097) })).status).toBe(
+        400,
+      );
+      const ok = await settleWith({ decision: "rejected", feedback: "  用 pnpm  " });
+      expect(ok.status).toBe(200);
+      expect(((await ok.json()) as { applied: boolean }).applied).toBe(true);
+      const settled = await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: { kind: string; status?: string; decision?: string; feedback?: string }[];
+        };
+        return snap.rows.find((r) => r.kind === "approval" && r.status === "settled");
+      });
+      expect(settled).toMatchObject({ decision: "rejected", feedback: "用 pnpm" });
     } finally {
       await cleanup();
     }

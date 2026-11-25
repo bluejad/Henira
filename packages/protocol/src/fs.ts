@@ -2,7 +2,7 @@
 // 进出全为字符串 / 结构化数据、零 Node 句柄零流——沙箱 fs 同槽替换时围栏从「区外问」
 // 变硬 containment，工具件与注入者零改动（第二实现思想实验，D-065）。
 
-import type { ApprovalOptions, Decision, PermissionRequest } from "./approval.js";
+import type { ApprovalOptions, PermissionRequest, PermissionResult } from "./approval.js";
 
 /** 围栏放行通道：区外访问经判定链问（floor:"ask" 抬高默认放行层）——服务不绕链直问 interaction。
  *  tool / args = 调用方工具名与原始 args（区外弹卡 PermissionRequest 用，卡上显示真实调用） */
@@ -10,7 +10,7 @@ export interface FsGate {
   tool: string;
   args?: unknown;
   signal?: AbortSignal;
-  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<Decision>;
+  requestPermission(req: PermissionRequest, opts?: ApprovalOptions): Promise<PermissionResult>;
 }
 
 /** read 的结果：原始内容切片 + 分页事实；行号渲染与尾注归工具件 */

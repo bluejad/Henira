@@ -17,6 +17,10 @@ function constraintsOf(rule: PermissionRule | undefined, t: (key: string) => str
   if (rule.match.commandContains !== undefined) {
     out.push(`${t("permission.rule.contains")} "${rule.match.commandContains}"`);
   }
+  // D-087：路径规则必须自报路径——否则设置/会话面板把「一个文件」误显示成「整个工具」
+  if (rule.match.pathExact !== undefined) {
+    out.push(`${t("permission.rule.path")} "${rule.match.pathExact}"`);
+  }
   return out.length > 0 ? out : [t("permission.rule.wholeTool")];
 }
 

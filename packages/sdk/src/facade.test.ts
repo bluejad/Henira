@@ -313,6 +313,59 @@ describe.each(forms.map((f) => [f.name, f] as const))("行为一致：%s", (_nam
     });
   });
 
+  it("D-087 拒绝说明（双形态）：rejected + feedback → settled 行携带说明", async () => {
+    const { facade, registerTool } = await form.make([
+      [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],
+      [mockText("收到"), mockUsage({ inputTokens: 1, outputTokens: 1 }), mockFinish("stop")],
+    ]);
+    const sink: ServerFrame[] = [];
+    const session = await facade.createSession();
+    await registerTool(session.id);
+    void (async () => {
+      try {
+        for await (const frame of facade.events()) sink.push(frame);
+      } catch {
+        // stop
+      }
+    })();
+    await facade.prompt(session.id, "写文件");
+    const requestRow = await waitFor(() => {
+      for (const f of framesOf(sink, session.id)) {
+        if (
+          f.kind === "delta" &&
+          f.delta.op === "row.appended" &&
+          f.delta.row.kind === "approval"
+        ) {
+          return f.delta.row;
+        }
+      }
+      return undefined;
+    });
+    expect(
+      await facade.settleApproval(
+        session.id,
+        requestRow.requestId,
+        "rejected",
+        undefined,
+        "用 pnpm",
+      ),
+    ).toBe(true);
+    const settled = await waitFor(() => {
+      for (const f of framesOf(sink, session.id)) {
+        if (
+          f.kind === "delta" &&
+          f.delta.op === "row.upserted" &&
+          f.delta.row.kind === "approval" &&
+          f.delta.row.status === "settled"
+        ) {
+          return f.delta.row;
+        }
+      }
+      return undefined;
+    });
+    expect(settled).toMatchObject({ decision: "rejected", feedback: "用 pnpm" });
+  });
+
   it("R198 会话权限快照/撤销（双形态）：本会话允许 → 快照可见 → 撤销清空", async () => {
     const { facade, registerTool } = await form.make([
       [mockToolCall("c1", "demo-write", "{}"), mockFinish("tool-calls")],

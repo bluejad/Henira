@@ -59,12 +59,14 @@ export interface HeniraClientLike {
   interrupt(sessionId: string): Promise<void>;
   /** 轮尾分叉（可选，E4）：按账本 seq 前缀复制出新会话，返回子会话 id；宿主缺方法 = 轮尾 fork 钮不渲染 */
   fork?(sessionId: string, atSeq?: number): Promise<string>;
-  /** scope:'session'/'project' = 允许范围（E6/R198：decided{scope,rule} 落账 → 同命令免 ask） */
+  /** scope:'session'/'project' = 允许范围（E6/R198：decided{scope,rule} 落账 → 同命令免 ask）；
+   *  feedback（D-087）= 拒绝说明，仅 decision:"rejected" 时有效 */
   settleApproval(
     sessionId: string,
     requestId: string,
     decision: Decision,
     scope?: "session" | "project",
+    feedback?: string,
   ): Promise<boolean>;
   /** 权限规则快照（可选，R198——旧宿主缺省时权限菜单不显示允许区） */
   sessionPermissions?(sessionId: string): Promise<PermissionSnapshot>;
