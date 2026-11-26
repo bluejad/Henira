@@ -14,6 +14,7 @@ import {
   type LoopService,
   type PromptOptions,
 } from "@henira/protocol";
+import { ContextMeter } from "./meter.js";
 import { PromptQueue } from "./queue.js";
 import { systemPromptHash } from "./step.js";
 import { type LoopDeps, runTurnCore, type TurnHandle } from "./turn.js";
@@ -72,6 +73,10 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       const cx = asHeniraContext(ctx);
       const queue = new PromptQueue(cx.get("session").directory); // directory 是 SessionService 定稿字段
       await queue.load(); // 重启恢复（D-045）
+      // 余量计量器（compaction.md §4.2）：每步重算并广播读数；停用压缩插件照常成立
+      const meter = new ContextMeter((reading) => {
+        cx.events.emit("context/changed", { context: reading });
+      });
 
       let current: TurnHandle | undefined;
       let currentController: AbortController | undefined;
@@ -113,6 +118,7 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         approval: cx.get("approval"),
         config: cx.get("config"),
         queue,
+        meter,
         maxStepsPerTurn: options.maxStepsPerTurn,
       });
 
@@ -310,6 +316,14 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           return queuePaused;
         },
 
+        contextUsage() {
+          return meter.reading();
+        },
+
+        isBusy() {
+          return drainChainAlive;
+        },
+
         async resume() {
           // 忙时判定从严：链在跑（含回合间空窗）一律拒绝——冻结态下 UI 横幅在场，
           // 点击间隔够不着该窗口；链彻底死透才允许显式恢复
@@ -328,6 +342,8 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         },
 
         async interrupt() {
+          // 在途手动压缩也归停止钮管（compaction.md §4.11）：插件监听总线自行中断
+          cx.events.emit("compaction/stop", {});
           currentController?.abort(); // 中止当前回合（中断纪律在 turn.ts 逐条收尾）
         },
       };

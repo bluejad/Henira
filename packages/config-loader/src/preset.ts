@@ -31,6 +31,9 @@ export const defaultPreset: PluginEntry[] = [
   // 提问件（R184）：ask_user 工具——模型执行中向用户要信息；可停用（settings.plugins），
   // 官方 npm 包无盘上目录不可卸载
   { id: "plugin-ask-user" },
+  // 压缩件（compaction.md）：压力触发 + 摘要替换；外圈可停用（计量与封顶住 loop，
+  // 停用后余量/封顶照常成立）
+  { id: "plugin-compaction" },
   // MCP 读者（D-064，C5）：外圈官方件——可停用（settings.plugins["plugin-mcp"].enabled:false），
   // 不可卸载（官方 npm 包无盘上目录，卸载端点天然 404）；无 mcp 槽位时零开销
   { id: "plugin-mcp" },

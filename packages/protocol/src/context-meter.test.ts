@@ -1,0 +1,291 @@
+// 计量器单测（compaction.md §4.2、§5 I-1 / 计量器 / 换模型）：锚点 + 增量、
+// 推理不回传的携带量扣减、换模型作废锚点、替换落账后锚点失效、k 只上调。
+
+import { describe, expect, it } from "vitest";
+import { contextBudget } from "./context-budget.js";
+import { measureContext, nextK, scaleParts } from "./context-meter.js";
+import type { SessionEvent } from "./envelope.js";
+import type { TokenUsage, WireToolSchema } from "./llm.js";
+import type { ModelMessage, SurfaceEntry } from "./services.js";
+import { estimateMessage, estimateTools } from "./token-estimate.js";
+
+let sequence = 1;
+function ev(type: string, data: unknown): SessionEvent {
+  const seq = sequence++;
+  return { type, seq, time: 1_700_000_000_000 + seq, data };
+}
+
+function reset(): void {
+  sequence = 1;
+}
+
+function toolSchema(name: string, description = "does things"): WireToolSchema {
+  return { name, description, inputSchema: { type: "object" } };
+}
+
+function entry(seq: number, message: ModelMessage): SurfaceEntry {
+  return { seq, message };
+}
+
+const budget = contextBudget();
+
+describe("measureContext（compaction.md §4.2）", () => {
+  it("无锚点：整面估算（系统 + 工具表 + 消息），标 estimated", () => {
+    reset();
+    const system = ev("system/message", { turn: "t", step: 0, content: "You are Henira." });
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const surface = [
+      entry(system.seq, { role: "system", content: "You are Henira." }),
+      entry(user.seq, { role: "user", content: "hello" }),
+    ];
+    const tools = [toolSchema("bash")];
+    const result = measureContext({
+      events: [system, user],
+      surface,
+      tools,
+      model: "p/m",
+      budget,
+      k: 1,
+    });
+    const expected =
+      estimateMessage(surface[0].message) +
+      estimateMessage(surface[1].message) +
+      estimateTools(tools);
+    expect(result.reading.estimated).toBe(true);
+    expect(result.reading.used).toBe(expected);
+    expect(result.anchor).toBeUndefined();
+    expect(result.reading.parts.system).toBe(estimateMessage(surface[0].message));
+    expect(result.reading.parts.messages).toBe(estimateMessage(surface[1].message));
+    expect(result.reading.parts.tools).toBe(estimateTools(tools));
+    expect(
+      result.reading.parts.system + result.reading.parts.tools + result.reading.parts.messages,
+    ).toBe(result.reading.used);
+  });
+
+  it("锚点 + 携带量：推理不回传时扣掉思考 token；缓存命中率取 cacheRead ÷ input", () => {
+    reset();
+    const events = [
+      ev("request/header", {
+        turn: "t",
+        step: 1,
+        model: "p/m",
+        params: {},
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev("assistant/message", {
+        turn: "t",
+        step: 1,
+        content: "hi",
+        model: "p/m",
+        finishReason: "stop",
+      }),
+      ev("step/end", {
+        turn: "t",
+        step: 1,
+        usage: { inputTokens: 1000, outputTokens: 200, reasoningTokens: 80, cacheReadTokens: 500 },
+      }),
+    ];
+    const assistant: ModelMessage = { role: "assistant", content: "hi" };
+    const surface = [entry(events[1].seq, assistant)];
+    const result = measureContext({ events, surface, tools: [], model: "p/m", budget, k: 1 });
+    expect(result.reading.estimated).toBe(false);
+    expect(result.reading.used).toBe(1120); // 1000 + (200 − 80)
+    expect(result.reading.cacheHitRate).toBe(0.5);
+    expect(result.anchor?.cutSeq).toBe(events[1].seq);
+  });
+
+  it("回传推理时携带量不扣减", () => {
+    reset();
+    const events = [
+      ev("request/header", {
+        turn: "t",
+        step: 1,
+        model: "p/m",
+        params: { echoReasoning: true },
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev("assistant/message", {
+        turn: "t",
+        step: 1,
+        content: "hi",
+        model: "p/m",
+        finishReason: "stop",
+      }),
+      ev("step/end", {
+        turn: "t",
+        step: 1,
+        usage: { inputTokens: 1000, outputTokens: 200, reasoningTokens: 80 },
+      }),
+    ];
+    const result = measureContext({
+      events,
+      surface: [entry(events[1].seq, { role: "assistant", content: "hi" })],
+      tools: [],
+      model: "p/m",
+      budget,
+      k: 1,
+    });
+    expect(result.reading.used).toBe(1200);
+  });
+
+  it("锚后工具结果按 k 计入；替换落账后锚点失效、转全量估算", () => {
+    reset();
+    const base = [
+      ev("request/header", {
+        turn: "t",
+        step: 1,
+        model: "p/m",
+        params: {},
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev("assistant/message", {
+        turn: "t",
+        step: 1,
+        content: "hi",
+        model: "p/m",
+        finishReason: "tool-calls",
+      }),
+      ev("step/end", {
+        turn: "t",
+        step: 1,
+        usage: { inputTokens: 1000, outputTokens: 200, reasoningTokens: 80 },
+      }),
+    ];
+    const toolResult: ModelMessage = {
+      role: "tool",
+      callId: "c1",
+      name: "bash",
+      content: "x".repeat(400),
+      isError: false,
+    };
+    const tailSeq = 100;
+    const withoutReplace = measureContext({
+      events: base,
+      surface: [
+        entry(base[1].seq, { role: "assistant", content: "hi" }),
+        entry(tailSeq, toolResult),
+      ],
+      tools: [],
+      model: "p/m",
+      budget,
+      k: 1.5,
+    });
+    expect(withoutReplace.reading.used).toBe(1120 + 1.5 * estimateMessage(toolResult));
+
+    const replace = ev("user/message", {
+      turn: "t",
+      step: 2,
+      content: "summary",
+      source: "compaction",
+      surfaceOp: { op: "replace", startSeq: 1, endSeq: base[2].seq },
+    });
+    const withReplace = measureContext({
+      events: [...base, replace],
+      surface: [entry(1, { role: "user", content: "summary" })],
+      tools: [],
+      model: "p/m",
+      budget,
+      k: 1.5,
+    });
+    expect(withReplace.anchor).toBeUndefined();
+    expect(withReplace.reading.estimated).toBe(true);
+    expect(withReplace.surfaceGeneration).toBe(1);
+  });
+
+  it("换模型即作废锚点：同厂商换模型与换厂商都按全量估算", () => {
+    reset();
+    const events = [
+      ev("request/header", {
+        turn: "t",
+        step: 1,
+        model: "p/m-old",
+        params: {},
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev("assistant/message", {
+        turn: "t",
+        step: 1,
+        content: "hi",
+        model: "p/m-old",
+        finishReason: "stop",
+      }),
+      ev("step/end", { turn: "t", step: 1, usage: { inputTokens: 1000, outputTokens: 200 } }),
+    ];
+    for (const model of ["p/m-new", "q/m-old"]) {
+      const result = measureContext({
+        events,
+        surface: [entry(events[1].seq, { role: "assistant", content: "hi" })],
+        tools: [],
+        model,
+        budget,
+        k: 1,
+      });
+      expect(result.reading.estimated).toBe(true);
+      expect(result.anchor).toBeUndefined();
+    }
+  });
+
+  it("k 只上调：估高不动、估低按 0.3 滑动、钳 1.5", () => {
+    expect(nextK(1, 900, 1000)).toBeUndefined(); // 估高
+    expect(nextK(1, 400, 100)).toBeUndefined(); // 样本不足 500
+    expect(nextK(1, 1200, 1000)).toBeCloseTo(1 + 0.3 * 0.2, 6);
+    expect(nextK(1.4, 2000, 1000)).toBe(1.5); // 钳上限
+    expect(nextK(1.5, 3000, 1000)).toBeUndefined(); // 已在顶
+  });
+
+  it("分段折算后之和等于 used，舍入差额并入 messages、任一段不为负", () => {
+    const parts = scaleParts({ system: 100, tools: 50, messages: 30, total: 180 }, 180, 200);
+    expect(parts.system + parts.tools + parts.messages).toBe(200);
+    expect(parts.messages).toBe(200 - parts.system - parts.tools);
+    expect(parts.system).toBeGreaterThanOrEqual(0);
+    expect(parts.tools).toBeGreaterThanOrEqual(0);
+    expect(parts.messages).toBeGreaterThanOrEqual(0);
+    // used 很小时也不出现负数（差额全由 messages 兜）
+    const tiny = scaleParts({ system: 100, tools: 50, messages: 30, total: 180 }, 180, 10);
+    expect(tiny.system + tiny.tools + tiny.messages).toBe(10);
+    expect(tiny.messages).toBeGreaterThanOrEqual(0);
+  });
+
+  it("usage 五字段只影响锚点，不影响表面估算", () => {
+    reset();
+    const usage: TokenUsage = {
+      inputTokens: 500,
+      outputTokens: 100,
+      reasoningTokens: 20,
+      cacheReadTokens: 50,
+      cacheWriteTokens: 10,
+    };
+    const events = [
+      ev("request/header", {
+        turn: "t",
+        step: 1,
+        model: "p/m",
+        params: {},
+        toolNames: [],
+        systemPromptHash: "x",
+      }),
+      ev("assistant/message", {
+        turn: "t",
+        step: 1,
+        content: "a",
+        model: "p/m",
+        finishReason: "stop",
+      }),
+      ev("step/end", { turn: "t", step: 1, usage }),
+    ];
+    const result = measureContext({
+      events,
+      surface: [entry(events[1].seq, { role: "assistant", content: "a" })],
+      tools: [],
+      model: "p/m",
+      budget,
+      k: 1,
+    });
+    expect(result.reading.used).toBe(580); // 500 + (100 − 20)
+    expect(result.reading.cacheHitRate).toBe(0.1);
+  });
+});

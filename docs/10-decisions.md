@@ -1202,3 +1202,21 @@
   - **缓存形状门（审查补修）**：缓存信封加 `version: 2`。旧缓存（无 `status`/`type`/`sdk` 字段）合并后会让投影判据失效——离线启动时 13 个下架模型复活；读到非第 2 代缓存直接丢弃（文件删除），快照兜底，refresh 成功后重写。
   - **结果**：opencode-go 44 → 19 个可调，与网关 `chat-completions` 清单严格相等；`step-5-preview` 在、`space-bunny` / `step-5-preview-free` 不在；厂商 deprecated 不误删。
   - **教训**：三次「最后一米」丢字段（endpoint → reasoning_options → status）同因——裁剪发生在快照生成（按当时 UI 需要）而不是投影层。快照层按上游 schema 保真，裁剪只住投影层（有测试兜住）。
+
+## D-091 上下文压缩：计量住 loop、压缩住外圈插件、四层一次交齐（R208）
+
+- **状态**：已定 · 2026-11-26 · 用户裁定「一次做到位」（不切交付版本）后四层落码；设计页 [compaction.md](./20-architecture/compaction.md)（工作稿，含 §16 实施回写）。
+- **背景**：会话撞窗口即废——溢出落一条看不懂的 `PROVIDER_ERROR`，下一条照样溢出，出路只有 fork 或新开会话；`contextWindow` 在引擎里没有消费者，`loop/pre-step` 只写在文档里、代码从未派发；usage 落账时被收成两个字段（cache / reasoning 明细丢失）。旧压缩文档参数经源码核对有误（「窗口 × 0.8」不成立）。
+- **取证（四家源码 + 真 key 采样 + 真实账本定标）**：检查时机（每步请求前）、阈值按即将请求的模型、usage 锚点 + 锚后估算、摘要请求与主循环同形、工具对永不拆、溢出后保留原始错误、连续失败熔断——dsh / OpenCode / ZCode 结构来源，闭源产品补预警线与溢出解析；估算器用 93 份真实账本 / 934 对可比步定标为五类码点计价（数字最贵），回放估算不低于实际 97.8%、中位高估 21%；四端点采样确立 usage 口径（`prompt_tokens` 含缓存命中）、摘要请求形状（工具表 + `tool_choice:auto` + 同思考档）、三种超限形状（①输入超窗 ②输入 + max_tokens 超窗 ③max_tokens 参数错）与静默截断端点。
+- **决定**：
+  1. **计量与阈值住 loop/protocol，压缩住 `@henira/plugin-compaction`（外圈、进默认预设、可停用）**：谁发请求谁保证请求装得下（I-14）；停用插件后余量显示与输出封顶照常。停用后带压缩事件的账本照常打开（`compaction/*` 由 session 包注册为基础事件，写时标 `ignorable`）。
+  2. **阈值**：`window = contextWindow ?? 128K`，`上限 = min(window, 观测上限)`，`reserve = clamp(floor(上限×15%), min(8K, 上限/4), 64K)`，压力线 = 上限 − reserve，硬线 = 上限 − 1K；输出基线 = `min(maxOutputTokens ?? 32K, 观测输出上限)`；摘要预算 = `min(20K, reserve − 2K)`；保留尾 = `clamp(12%, 4K, 32K)`。主请求只在 `0 < 剩余 < 基线` 时带 `maxTokens`。
+  3. **触发**：每步 `loop/pre-step` 压力检查（≥压力线压缩）；`loop/request-failed` 溢出兜底（压缩后原步重发，最多两次：模型摘要 + 无模型阶梯）；手动（闲时立即、忙时排队到步边界）。
+  4. **摘要**：与主循环同形（同模型 / 工具表 / 思考档 / 会话头；整段表面 + 末尾一条用户指令，装不下先裁尾部）；四档降档（尾部 → 工具结果头尾摘录 → 头部后一半 → 后 35%），先估后发；成功判据 = finish stop + 正文非空 + 无工具调用 + 摘要小于被遮蔽量；替换 = 一条 `user/message{source:"compaction", surfaceOp:replace}`，写后核对返回类型。
+  5. **失败语义**：压力阶段失败非致命（可见 warning，主请求照发）；连续失败 3 次 / 快速回填连续 3 次熔断（活态横幅，手动成功解除）；无模型阶梯把工具结果超长的整步单元替换为 `compaction-digest` 摘要；到达硬线拒绝发送（`CONTEXT_UNCOMPACTABLE`，致命）；截断嫌疑（读数不涨 / 涨幅不足一半）单次提示，连续两次且持平才学成观测上限。
+  6. **手动入口**：余量面板按钮 + 说明输入（≤2000 码点）+ REST `POST /api/sessions/:id/compact` + SDK `compact()`；响应 `{state:"accepted"|"queued"|"skipped"|"rejected", reason?}`；停止 = 输入栏停止钮（`LoopService.interrupt` 广播 `compaction/stop`）。
+  7. **呈现**：输入栏 14px 圆环（进度 = used÷size，栏内无数字；预警转 warn 色）；面板含精确/估算、按来源分段、缓存命中率（≥78%）、距压力线 N%、手动压缩；压缩行四态（自动随回合折叠、闲时手动挂 `m-…` 维护回合、独立成格），摘要默认折叠；替换记录不投影成用户气泡；非致命错误不进回合正文。
+- **理由**：计量放 loop 是「停用插件后保护仍在」的唯一摆法；压缩行为放外圈插件守 P8；替换用单事件 = 原子性天然成立（崩溃不留半截）；摘要同形保前缀缓存；先估后发是对会静默截断端点的唯一可靠防线（厂商报错不能当发现超限的手段）。
+- **代价 / 已知限制**：摘要质量只能靠真会话人工核对；四档降档的实际效果与摘要请求首发成功率待多端点真 key 验收；67% 的模型缺输出上限、1430 个声明低于 32K——封顶可能触发第③类，恢复 = 去封顶重发 + 记观测输出上限；观测上限/输出上限住进程内存，重启重学；`/compact` 文本命令仍等命令机制定稿。**活体（2026-11-26，DeepSeek，测试脚本覆盖窗口 32K）**：7 轮真实对话跨压力线 → 1 次自动压缩 completed（before≈30K / after≈8.3K / omittedTurns=3），摘要保留纳入区事实并披露未纳入轮次；抓到并修掉浮点 `maxOutputTokens` 被 AI SDK 拒收的整型 bug。智谱配额 429、网关静默截断/溢出兜底未在活体覆盖（单测/采样兜住）。
+- **非目标**：旧工具结果日常微压缩（另立默认关闭官方件）、预计算摘要、厂商原生压缩端点、部分压缩、会话记忆压缩、图片卸载、压缩后重注入（`compaction/applied` 已留口）。
+- **备注**：落点 = protocol（`context-budget` / `context-meter` / `token-estimate` / `compaction` 槽 / `PreStepValue` / `RequestFailedValue` / `Row` / `SessionState`）、plugins/session（派生表面 + 滚动摘要修订 + 三个基础事件）、plugins/llm（错误判定表 + 状态/响应体 + 空 `onError`）、plugins/loop（计量器 + 缝 + 封顶 + 重发 + 硬线）、plugins/compaction（新包：选区 / 摘要 / 落账 / 无模型阶梯 / 熔断 / 手动）、server/sdk（REST + 门面 + 活态并线）、web-ui（圆环 / 面板 / 压缩行 / 横幅）；测试 = 协议预算/计量/判定表单测、session 滚动摘要、loop 缝/重发/硬线、compaction 选区/摘要/四层集成、web-ui 圆环/压缩行/横幅；活体验收待真 key（§7）。

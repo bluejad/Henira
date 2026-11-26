@@ -34,6 +34,13 @@ export type ModelMessage =
     }
   | { role: "tool"; callId: string; name: string; content: string; isError: boolean };
 
+/** 派生表面的一条消息：seq = 账本锚点（替换摘要在区间起点、孤儿结果在 call 处）。
+ *  计量器靠它切「锚点之后」的增量（compaction.md §4.2、I-1） */
+export interface SurfaceEntry {
+  seq: number;
+  message: ModelMessage;
+}
+
 /** 会话槽位契约（interfaces.md protocol 段，2026-11-16 定稿） */
 export interface SessionService {
   /** 文件第 1 行的不可变身份（含 version） */
@@ -46,6 +53,8 @@ export interface SessionService {
   events(): readonly SessionEvent[];
   /** 应用 surfaceOp 后的模型历史（session.md §4 派生规则） */
   deriveMessages(): ModelMessage[];
+  /** 同一次折叠，每条带 seq（计量器读数来源——与 deriveMessages() 共用一份实现，I-1） */
+  deriveSurface(): SurfaceEntry[];
   /** 复制前缀；半回合切点补 turn/end{forked}（session.md §6） */
   fork(atSeq?: number): Promise<SessionService>;
   /** 把日志重放给消费者（UI 回放、调试、未来的评测输入） */

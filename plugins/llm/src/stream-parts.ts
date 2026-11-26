@@ -5,13 +5,14 @@
 // ③tool-call 流末集中（deltas 只攒不吐，tool-call part 到达才发）。
 // 截断 / 不可解析的 tool 调用不产 tool-call 事件（dsh max-tokens 丢块难题在我们契约下不存在）。
 
-import { type FinishReason, LlmError, type StreamEvent, type TokenUsage } from "@henira/protocol";
+import type { FinishReason, StreamEvent, TokenUsage } from "@henira/protocol";
 import type {
   FinishReason as AiFinishReason,
   LanguageModelUsage,
   TextStreamPart,
   ToolSet,
 } from "ai";
+import { toLlmError } from "./provider-error.js";
 
 /** 工具调用原始参数装配器（[dsh] BlockAssembler 同构）：tool-input-start/delta/end 攒 argsText */
 export class ToolCallAssembler {
@@ -61,15 +62,6 @@ export function mapUsage(usage: LanguageModelUsage): TokenUsage | undefined {
     cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens ?? undefined,
     reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? undefined,
   };
-}
-
-function toLlmError(error: unknown): LlmError {
-  if (error instanceof LlmError) return error;
-  if (error instanceof Error) {
-    if (error.name === "AbortError") return new LlmError("ABORTED", error.message);
-    return new LlmError("PROVIDER_ERROR", error.message);
-  }
-  return new LlmError("PROVIDER_ERROR", String(error));
 }
 
 /** 事件映射器：一次 stream() 一个实例（装配器状态随请求走） */

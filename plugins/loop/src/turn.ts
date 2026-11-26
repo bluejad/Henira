@@ -16,6 +16,7 @@ import type {
   TurnEndReason,
 } from "@henira/protocol";
 import { DeltaBatcher } from "./batcher.js";
+import type { ContextMeter } from "./meter.js";
 import { BASE_SYSTEM_KEY, BASE_SYSTEM_PROMPT } from "./prompts.js";
 import type { PromptQueue } from "./queue.js";
 import { runStep } from "./step.js";
@@ -40,6 +41,7 @@ export interface LoopDeps {
   approval: ApprovalService;
   config: ConfigService;
   queue: PromptQueue;
+  meter: ContextMeter;
   maxStepsPerTurn?: number; // 步数上限：机制可选、默认不设（D-045）
 }
 

@@ -11,6 +11,7 @@ import type { ReasoningEffort, TokenUsage } from "./llm.js";
 import type {
   ApprovalRow,
   AssistantRow,
+  CompactionRow,
   Delta,
   QuestionRow,
   Row,
@@ -28,6 +29,7 @@ const rowId = {
   tool: (turn: string, step: number, callId: string): RowId => `t:${turn}:${step}:${callId}`,
   approval: (requestId: string): RowId => `p:${requestId}`,
   question: (requestId: string): RowId => `q:${requestId}`,
+  compaction: (id: string): RowId => `c:${id}`,
   error: (seq: number): RowId => `e:${seq}`,
 };
 
@@ -64,13 +66,17 @@ export class Projection {
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
       case "user/message": {
+        const source = data.source as string;
+        // 压缩替换记录不投影成用户气泡（compaction.md §4.11）：痕迹由压缩行承载，
+        // 历史不消失的保证由被遮蔽区间的原行继续提供
+        if (source === "compaction" || source === "compaction-digest") return [];
         const row: UserRow = {
           kind: "user",
           rowId: rowId.user(event.seq),
           rowSeq: event.seq,
           turn: data.turn as string,
           text: data.content as string,
-          source: data.source as string,
+          source,
           // D-086：排队回执对账键（只在队列冲刷回合出现；旧账本无字段同义）
           ...(typeof data.queueId === "string" ? { queueId: data.queueId } : {}),
           time: event.time,
@@ -378,6 +384,66 @@ export class Projection {
         };
         return [this.upsert(row)];
       }
+      case "compaction/start": {
+        const row: CompactionRow = {
+          kind: "compaction",
+          rowId: rowId.compaction(data.id as string),
+          rowSeq: event.seq,
+          turn: data.turn as string,
+          step: data.step as number,
+          trigger: data.trigger as CompactionRow["trigger"],
+          state: "running",
+          before: data.before as number,
+          ...(typeof data.omittedTurns === "number" ? { omittedTurns: data.omittedTurns } : {}),
+          ...(typeof data.digestUnits === "number" ? { digestUnits: data.digestUnits } : {}),
+        };
+        this.push(row);
+        return [{ op: "row.appended", row }];
+      }
+      case "compaction/summary": {
+        const existing = this.byId.get(rowId.compaction(data.id as string));
+        if (existing?.kind !== "compaction") return [];
+        const row: CompactionRow = {
+          ...existing,
+          rowSeq: event.seq,
+          model: data.model as string,
+          summary: data.summary as string,
+        };
+        return [this.upsert(row)];
+      }
+      case "compaction/end": {
+        const id = rowId.compaction(data.id as string);
+        const existing = this.byId.get(id);
+        const error = data.error as { code?: string; message?: string } | undefined;
+        const base: CompactionRow =
+          existing?.kind === "compaction"
+            ? existing
+            : {
+                kind: "compaction",
+                rowId: id,
+                rowSeq: event.seq,
+                turn: data.turn as string,
+                step: data.step as number,
+                trigger: "auto",
+                state: "running",
+              };
+        const row: CompactionRow = {
+          ...base,
+          rowSeq: event.seq,
+          state: data.state as CompactionRow["state"],
+          ...(typeof data.after === "number" ? { after: data.after } : {}),
+          ...(typeof data.omittedTurns === "number" ? { omittedTurns: data.omittedTurns } : {}),
+          ...(error !== undefined
+            ? {
+                error:
+                  error.code !== undefined
+                    ? `${error.code}: ${error.message ?? ""}`
+                    : (error.message ?? ""),
+              }
+            : {}),
+        };
+        return [this.upsert(row)];
+      }
       case "error": {
         const row: Row = {
           kind: "error",
@@ -386,6 +452,10 @@ export class Projection {
           turn: data.turn as string | undefined,
           code: data.code as string | undefined,
           message: data.message as string,
+          ...(typeof data.status === "number" ? { status: data.status } : {}),
+          ...(typeof data.limit === "number" ? { limit: data.limit } : {}),
+          ...(typeof data.actual === "number" ? { actual: data.actual } : {}),
+          ...(typeof data.fatal === "boolean" ? { fatal: data.fatal } : {}),
         };
         this.push(row);
         return [{ op: "row.appended", row }];
@@ -435,6 +505,19 @@ export class Projection {
     this.push(row);
     this.markStreaming(turn, id);
     return [{ op: "row.appended", row }];
+  }
+
+  /** 悬挂收口（compaction.md §4.7）：重放后仍 running 的压缩行 = 进程死亡/中断留下的
+   *  start 或半截 summary——显示「已中断」，不补写账本事件；活态 compacting 另走总线。 */
+  finalizeHangingCompactions(): Delta[] {
+    const deltas: Delta[] = [];
+    for (const row of this.byId.values()) {
+      if (row.kind === "compaction" && row.state === "running") {
+        row.state = "interrupted";
+        deltas.push({ op: "row.upserted", row: { ...row } });
+      }
+    }
+    return deltas;
   }
 
   /** 快照（初始渲染 + 断档重拉共用一出口）：rows 深拷贝 + 会话级状态；seq 由扇出层给当前水位。
@@ -534,5 +617,6 @@ export function sliceRowsPage(
 export function rebuildProjection(events: readonly SessionEvent[]): Projection {
   const projection = new Projection();
   for (const event of events) projection.ingest(event);
+  projection.finalizeHangingCompactions();
   return projection;
 }

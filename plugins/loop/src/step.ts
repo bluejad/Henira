@@ -1,12 +1,29 @@
-// 单步执行（loop.md §1 step 环）：请求头快照 → 流消费（增量攒批 + 纪律① 先查 aborted）
-// → 结算（纯文本收尾 / 工具回合落账）。与回合骨架（turn.ts）按职责分家（D-054）——
-// 两个变化原因：回合状态机怎么走 vs 一步内部怎么执行。
+// 单步执行（loop.md §1 step 环）：派生表面 → 计量 + loop/pre-step → 请求头快照 →
+// 流消费（增量攒批 + 纪律① 先查 aborted）→ 结算（纯文本收尾 / 工具回合落账）。
+// 与回合骨架（turn.ts）按职责分家（D-054）——两个变化原因：回合状态机怎么走 vs
+// 一步内部怎么执行。缝落在本文件：runStep 有两个调用方（回合主循环 / 熔断续跑），
+// 只有落在里面两条路径才都经过（compaction.md §3.1）。
 // 纪律②（绝不留孤儿 tool/call）在结算段；纪律③（工具与信号竞速）委托 tools.run。
 
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { ModelMessage, PromptOptions, ToolContext, TurnEndReason } from "@henira/protocol";
+import {
+  capOutputTokens,
+  LLM_ERROR_CONTEXT_OVERFLOW,
+  LLM_ERROR_OUTPUT_LIMIT_EXCEEDED,
+  LlmError,
+  type LlmRequest,
+  type ModelMessage,
+  type PreStepValue,
+  type PromptOptions,
+  type RequestFailedValue,
+  reasoningEchoField,
+  type TokenUsage,
+  type ToolContext,
+  type TurnEndReason,
+} from "@henira/protocol";
 import type { DeltaBatcher } from "./batcher.js";
+import type { ContextMeter } from "./meter.js";
 import type { LoopDeps } from "./turn.js"; // 仅类型引用（type import 擦除，无运行时环）
 
 export function systemPromptHash(messages: readonly ModelMessage[]): string {
@@ -31,45 +48,150 @@ interface StepArgs {
 
 interface StepResult {
   outcome: StepOutcome;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;
+}
+
+interface TypedLlmError {
+  code: string;
+  status?: number;
+  limit?: number;
+  actual?: number;
+}
+
+/** 跨包 name 判别（不把 fs / 系统 errno 的 code 混进模型错误） */
+function asTypedLlmError(err: unknown): TypedLlmError | undefined {
+  if (!(err instanceof Error) || err.name !== "LlmError") return undefined;
+  const shaped = err as Error & {
+    code?: unknown;
+    status?: unknown;
+    limit?: unknown;
+    actual?: unknown;
+  };
+  if (typeof shaped.code !== "string") return undefined;
+  return {
+    code: shaped.code,
+    ...(typeof shaped.status === "number" ? { status: shaped.status } : {}),
+    ...(typeof shaped.limit === "number" ? { limit: shaped.limit } : {}),
+    ...(typeof shaped.actual === "number" ? { actual: shaped.actual } : {}),
+  };
+}
+
+function emptyUsage(): TokenUsage {
+  return { inputTokens: 0, outputTokens: 0 };
 }
 
 export async function runStep(args: StepArgs): Promise<StepResult> {
   const { turn, step, deps, batcher, signal, opts } = args;
-  const { session, llm, tools, approval, config } = deps; // ctx.events 只在 runTurnCore 用
-  const messages = session.deriveMessages();
+  const { session, llm, tools, approval, config, meter } = deps; // ctx.events 只在 runTurnCore 用
   const wireTools = tools.project();
   // 显式覆盖缝（config.model(id) 既有参数，首次生产消费）：按次 modelId 优先，缺省回落
   // settings.model 全局默认。解析失败（未知 id / 无默认）照常抛错——回合落 error 事件收尾。
   const modelConfig = await config.model(opts?.modelId);
   const model = `${modelConfig.provider}/${modelConfig.model}`;
-  const request = {
-    model: modelConfig,
-    messages,
+
+  // 派生一次表面：messages 与计量读数共用同一份折叠（I-1）
+  const surface = session.deriveSurface();
+  const measurement: ReturnType<ContextMeter["measure"]> = meter.measure({
+    events: session.events(),
+    surface,
     tools: wireTools,
+    modelConfig,
+    model,
+  });
+
+  // loop/pre-step（waterfall）：派生之后、request/header 之前——压缩插件在此做压力检查与压缩
+  const effort = opts?.reasoningEffort;
+  const preStep: PreStepValue = {
+    messages: surface.map((entry) => entry.message),
+    tools: wireTools,
+    model: modelConfig,
+    ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    sessionId: session.header().id,
+    turn,
+    step,
+    context: measurement.reading,
+    budget: measurement.budget,
+    signal,
+  };
+  const effective = await deps.ctx.events.waterfall<PreStepValue>("loop/pre-step", preStep);
+  const effectiveModel = effective.model;
+  const effectiveModelId = `${effectiveModel.provider}/${effectiveModel.model}`;
+
+  // 缝之后按可能已被压缩的表面重算读数（只读 peek，不动 k）：输出封顶与下游读数
+  // 必须基于压缩后的表面——否则刚压完的主请求会按压缩前的余量被无故截断输出
+  const postSurface = session.deriveSurface();
+  const post = meter.peek({
+    events: session.events(),
+    surface: postSurface,
+    tools: effective.tools,
+    modelConfig: effectiveModel,
+    model: effectiveModelId,
+  });
+  if (effective.messages !== preStep.messages) meter.setReading(post.reading);
+
+  // 思维链回传与否：与适配器同一判定（开思考 + interleaved 声明）——写进 request/header，
+  // 计量器据此扣减不进下一条 prompt 的思考 token（compaction.md §4.2）
+  const echoReasoning =
+    effort !== undefined &&
+    effort !== "off" &&
+    reasoningEchoField(effectiveModel.interleaved) === "reasoning_content";
+
+  // 主请求按剩余窗口封顶（§4.3）：只在 0 < 剩余 < 输出基线时带 max_tokens
+  const cap = capOutputTokens(post.reading.used, post.budget);
+  const baseRequest: LlmRequest = {
+    model: effectiveModel,
+    messages: effective.messages,
+    tools: effective.tools,
     // 会话 id 只给适配器做厂商路由头（opencode 家族要求每对话稳定值；语义决策不归它）
     sessionId: session.header().id,
-    ...(opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
+    ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    ...(cap !== undefined ? { maxTokens: cap } : {}),
   };
-  await session.append({
-    type: "request/header",
-    data: {
-      turn,
-      step,
-      model,
-      // 实际生效思考档进账本（审计：回放可见每回合用什么档跑；未指定 = 空对象）
-      params: opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {},
-      toolNames: wireTools.map((t) => t.name),
-      systemPromptHash: systemPromptHash(messages),
-    },
-  });
+  // 硬线（I-13 / F-6）：压缩后仍到硬线，拒绝发送——落致命 error，不把必败请求发出去
+  if (post.reading.used >= post.budget.hardLimit) {
+    const message = `context usage ${post.reading.used} reached hard limit ${post.budget.hardLimit}; request not sent`;
+    await session.append({
+      type: "error",
+      data: { turn, step, code: "CONTEXT_UNCOMPACTABLE", message, fatal: true },
+    });
+    batcher.pushStructural({ type: "error", message });
+    return { outcome: "error", usage: emptyUsage() };
+  }
+
+  const headerParams = {
+    ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    ...(echoReasoning ? { echoReasoning: true } : {}),
+  };
+  const writeHeader = async (
+    messages: readonly ModelMessage[],
+    toolNames: readonly string[],
+  ): Promise<void> => {
+    await session.append({
+      type: "request/header",
+      data: {
+        turn,
+        step,
+        model: effectiveModelId,
+        params: headerParams,
+        toolNames: [...toolNames],
+        systemPromptHash: systemPromptHash(messages),
+      },
+    });
+  };
 
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
   const calls: { callId: string; name: string; argsText: string }[] = [];
   let finishReason = "unknown";
-  let usage = { inputTokens: 0, outputTokens: 0 };
-  try {
+  let usage: TokenUsage = emptyUsage();
+
+  /** 单次请求周期（重试用时重置累积——错峰重发不把半截文本当结果） */
+  const consumeOnce = async (request: LlmRequest): Promise<void> => {
+    textParts.length = 0;
+    reasoningParts.length = 0;
+    calls.length = 0;
+    finishReason = "unknown";
+    usage = emptyUsage();
     for await (const event of llm.stream(request, signal)) {
       if (signal.aborted) break; // 纪律 1：先查 aborted，不再消费
       switch (event.type) {
@@ -85,9 +207,19 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
           calls.push(event);
           break;
         case "usage":
+          // 五字段全收（cache / reasoning 明细随 step/end 落账——计量锚点与缓存命中率要用）
           usage = {
             inputTokens: event.usage.inputTokens ?? 0,
             outputTokens: event.usage.outputTokens ?? 0,
+            ...(event.usage.cacheReadTokens !== undefined
+              ? { cacheReadTokens: event.usage.cacheReadTokens }
+              : {}),
+            ...(event.usage.cacheWriteTokens !== undefined
+              ? { cacheWriteTokens: event.usage.cacheWriteTokens }
+              : {}),
+            ...(event.usage.reasoningTokens !== undefined
+              ? { reasoningTokens: event.usage.reasoningTokens }
+              : {}),
           };
           break;
         case "finish":
@@ -95,19 +227,115 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
           break;
       }
     }
-  } catch (err) {
-    if (signal.aborted) return { outcome: "aborted", usage }; // 纪律 1：掐流不是 retryable 错误
-    // 纪律 5：错误落盘为事件（报错的回合也要有收尾）。类型化 code 原样进 ErrorRow
-    // （R193：LlmError 的 LLM_STREAM_IDLE_TIMEOUT 是 provider 静默超时——UI 据此本地化）
-    const message = err instanceof Error ? err.message : String(err);
-    // 仅收 llm 自己的类型化错误（name 判别跨包恒等；不把 fs/系统 errno 的 code 混进模型错误）
-    const typedCode =
-      err instanceof Error && err.name === "LlmError"
-        ? (err as { code?: unknown }).code
-        : undefined;
-    const code = typeof typedCode === "string" ? typedCode : "LLM_STREAM";
-    await session.append({ type: "error", data: { turn, step, code, message } });
-    batcher.pushStructural({ type: "error", message });
+  };
+
+  let request = baseRequest;
+  let retries = 0;
+  let failure: TypedLlmError | undefined;
+  let failureMessage = "";
+  let original: TypedLlmError | undefined;
+  let originalMessage: string | undefined;
+
+  while (true) {
+    await writeHeader(
+      request.messages,
+      request.tools.map((tool) => tool.name),
+    );
+    try {
+      await consumeOnce(request);
+      break;
+    } catch (err) {
+      if (signal.aborted) return { outcome: "aborted", usage }; // 纪律 1：掐流不是 retryable 错误
+      const typed = asTypedLlmError(err) ?? { code: "LLM_STREAM" };
+      const message = err instanceof Error ? err.message : String(err);
+
+      // 封顶引起的第③类（§4.3）：去掉封顶原步重发一次，并记下报错自报的输出上限。
+      // 只认「本次确实带了 maxTokens」——无封顶的参数错不是我们造成的，不走这条恢复。
+      if (typed.code === LLM_ERROR_OUTPUT_LIMIT_EXCEEDED && request.maxTokens !== undefined) {
+        meter.recordOutputLimit(effectiveModelId, typed.limit);
+        const retryRequest: LlmRequest = { ...request };
+        delete retryRequest.maxTokens;
+        request = retryRequest;
+        continue;
+      }
+
+      // 失败后缝（compaction.md §4.1）：监听器可以压缩后置 retry，原步重发（不新开 step）。
+      // 溢出路径上报原始错误（F-1）——重试仍失败时不用第二次的错误覆盖第一次的。
+      if (typed.code === LLM_ERROR_CONTEXT_OVERFLOW) {
+        meter.recordContextLimit(effectiveModelId, typed.limit); // 报错自报上限回灌（§4.2）
+      }
+      const llmError =
+        err instanceof Error && err.name === "LlmError"
+          ? (err as LlmError)
+          : new LlmError(typed.code, message, typed.status, {
+              ...(typed.limit !== undefined ? { limit: typed.limit } : {}),
+              ...(typed.actual !== undefined ? { actual: typed.actual } : {}),
+            });
+      let dispatched: RequestFailedValue | undefined;
+      try {
+        dispatched = await deps.ctx.events.waterfall<RequestFailedValue>("loop/request-failed", {
+          error: llmError,
+          turn,
+          step,
+          retries,
+          messages: request.messages,
+          tools: request.tools,
+          model: effectiveModel,
+          ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+          sessionId: session.header().id,
+          context: post.reading,
+          budget: post.budget,
+          signal,
+          retry: false,
+        });
+      } catch {
+        dispatched = undefined; // 监听器异常不吞掉原始错误（压缩自己的失败另有 error 行）
+      }
+      if (dispatched?.retry === true && retries < 2) {
+        retries += 1;
+        original ??= typed;
+        originalMessage ??= message;
+        // 压缩可能刚改写了表面：重新派生 + 重算封顶，再发
+        const nextSurface = session.deriveSurface();
+        const nextPost = meter.peek({
+          events: session.events(),
+          surface: nextSurface,
+          tools: request.tools,
+          modelConfig: effectiveModel,
+          model: effectiveModelId,
+        });
+        meter.setReading(nextPost.reading);
+        const nextCap = capOutputTokens(nextPost.reading.used, nextPost.budget);
+        const nextRequest: LlmRequest = {
+          ...request,
+          messages: nextSurface.map((entry) => entry.message),
+        };
+        if (nextCap !== undefined) nextRequest.maxTokens = nextCap;
+        else delete nextRequest.maxTokens;
+        request = nextRequest;
+        continue;
+      }
+      failure = original ?? typed;
+      failureMessage = original !== undefined ? (originalMessage ?? message) : message;
+      break;
+    }
+  }
+  if (failure !== undefined) {
+    // 纪律 5：错误落盘为事件（报错的回合也要有收尾）。状态 / 自报上限与实际数一并落账
+    // （溢出错误翻可行动中文要用；compaction.md §4.11）
+    await session.append({
+      type: "error",
+      data: {
+        turn,
+        step,
+        code: failure.code,
+        message: failureMessage,
+        ...(failure.status !== undefined ? { status: failure.status } : {}),
+        ...(failure.limit !== undefined ? { limit: failure.limit } : {}),
+        ...(failure.actual !== undefined ? { actual: failure.actual } : {}),
+      },
+    });
+    batcher.pushStructural({ type: "error", message: failureMessage });
     return { outcome: "error", usage };
   }
   if (signal.aborted) return { outcome: "aborted", usage };
@@ -118,7 +346,7 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     // 纯文本收尾：结算 assistant/message
     await session.append({
       type: "assistant/message",
-      data: { turn, step, content, reasoning, model, finishReason },
+      data: { turn, step, content, reasoning, model: effectiveModelId, finishReason },
     });
     const outcome: StepOutcome = finishReason === "length" ? "max-tokens" : "completed";
     return { outcome, usage };
@@ -129,7 +357,7 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
   // 的历史 assistant 消息回传 reasoning_content 是续轮硬要求——不落账本则无法回传）
   await session.append({
     type: "assistant/message",
-    data: { turn, step, content, reasoning, model, finishReason },
+    data: { turn, step, content, reasoning, model: effectiveModelId, finishReason },
   });
   const toolCtx: ToolContext = {
     cwd: config.cwd,

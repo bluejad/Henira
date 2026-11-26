@@ -205,4 +205,59 @@ describe("buildTurnLayout（轮布局）", () => {
     expect(layout.final).toBeUndefined();
     expect(layout.process).toHaveLength(1);
   });
+
+  it("含压缩行的回合可折叠，压缩行在组里独立成格（compaction.md §4.11）", () => {
+    const layout = buildTurnLayout([
+      user("干活"),
+      thinking(),
+      {
+        kind: "compaction",
+        ...nextId("c"),
+        turn: "t-1",
+        trigger: "auto",
+        state: "completed",
+        before: 110_000,
+        after: 20_000,
+        summary: "摘要",
+      },
+      tool("read", { file_path: "a.ts" }),
+      text("完成"),
+    ]);
+    expect(layout.foldable).toBe(true);
+    expect(
+      layout.process.some((item) => item.kind === "row" && item.row.kind === "compaction"),
+    ).toBe(true);
+  });
+
+  it("压缩失败的非致命 error 行不进正文，不破坏折叠", () => {
+    const layout = buildTurnLayout([
+      user("干活"),
+      {
+        kind: "compaction",
+        ...nextId("c"),
+        turn: "t-1",
+        trigger: "auto",
+        state: "failed",
+        error: "boom",
+      },
+      {
+        kind: "error",
+        ...nextId("e"),
+        turn: "t-1",
+        code: "COMPACTION_FAILED",
+        message: "boom",
+        fatal: false,
+      },
+      text("完成"),
+    ]);
+    expect(layout.foldable).toBe(true);
+    expect(layout.abnormal).toBe(false); // 非致命错误不算异常终态
+    const all = [
+      ...layout.leading,
+      ...layout.process.flatMap((item) => (item.kind === "row" ? [item.row] : item.rows)),
+      ...(layout.final !== undefined ? [layout.final] : []),
+      ...layout.trailing,
+    ];
+    expect(all.some((row) => row.kind === "error")).toBe(false);
+  });
 });

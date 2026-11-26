@@ -86,9 +86,9 @@
 
 ## M5 官方插件二批
 
-**前置**：plugin-compaction / plugin-subagent 设计文档定稿（[50-open.md](./50-open.md) 🟡，成熟参数已取证；plugin-tasks 设计文档同批定稿）
+**前置**：plugin-subagent 设计文档定稿（[50-open.md](./50-open.md) 🟡，成熟参数已取证；plugin-tasks 设计文档同批定稿）；**plugin-compaction 已提前落码（2026-11-26，D-091，不再等 M5）**
 
-**内容**：plugin-fetch / plugin-compaction / plugin-subagent / 任务族三件（tasks / plan / todo）（D-041；服务化拆包 D-049——tasks / subagent / fetch 服务契约随本批设计文档定稿）
+**内容**：plugin-fetch / plugin-subagent / 任务族三件（tasks / plan / todo）（D-041；服务化拆包 D-049——tasks / subagent / fetch 服务契约随本批设计文档定稿；plugin-compaction 已提前落码，D-091）
 
 **完成判据**：
 

@@ -20,6 +20,8 @@ import {
 } from "@henira/plugin-session";
 import {
   APPROVAL_FEEDBACK_MAX,
+  COMPACTION_INSTRUCTIONS_MAX,
+  type CompactionService,
   DECISIONS,
   decodeUtf8Prefix,
   deriveSessionTitle,
@@ -305,6 +307,35 @@ export function createApp(deps: AppDeps): Hono {
     if (entry === undefined) return c.json({ error: "session not found" }, 404);
     await entry.ctx.get("loop").interrupt();
     return c.json({ ok: true });
+  });
+
+  // 手动压缩（compaction.md §4.10）：说明可空、上限 2 000 码点；响应四态
+  // { state, reason? }（skipped / rejected 带原因）。未装压缩件 = 404。
+  app.post("/api/sessions/:id/compact", async (c) => {
+    const entry = await requireEntry(c, deps);
+    if (entry === undefined) return c.json({ error: "session not found" }, 404);
+    const parsed = z
+      .object({ instructions: z.string().optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "invalid body" }, 400);
+    if (
+      parsed.data.instructions !== undefined &&
+      [...parsed.data.instructions].length > COMPACTION_INSTRUCTIONS_MAX
+    ) {
+      return c.json({ error: "instructions too long" }, 400);
+    }
+    let service: CompactionService;
+    try {
+      service = entry.ctx.get("compaction");
+    } catch {
+      return c.json({ error: "compaction unavailable" }, 404);
+    }
+    const response = await service.request(
+      parsed.data.instructions !== undefined
+        ? { instructions: parsed.data.instructions }
+        : undefined,
+    );
+    return c.json(response);
   });
 
   // 轮尾分叉（E4；session.md §6）：按 seq 前缀复制出新会话并装配入册，返回子会话 id；

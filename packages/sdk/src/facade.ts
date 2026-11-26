@@ -4,6 +4,7 @@
 
 import type { PluginState, UiAssets } from "@henira/config-loader";
 import type {
+  CompactionResponse,
   Decision,
   DirBrowse,
   GlobalUiState,
@@ -126,6 +127,9 @@ export interface HeniraFacade {
   /** 恢复中断冻结的队列冲刷（取队头开新回合）；无冻结/无条目/忙时返回 false */
   resumeQueue(sessionId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
+  /** 手动压缩（compaction.md §4.10）：说明可空（≤2000 码点）；返回四态
+   *  { state, reason? }。未装压缩件 → rejected/compaction-unavailable */
+  compact(sessionId: string, instructions?: string): Promise<CompactionResponse>;
   /** 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话（parentSession 指源，
    *  半回合切点补写 turn/end{forked}），子会话装配入册；返回子会话 id。atSeq 缺省 = 复制到最新 */
   fork(sessionId: string, atSeq?: number): Promise<string>;

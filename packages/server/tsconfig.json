@@ -29,7 +29,8 @@
     { "path": "../../plugins/shell" },
     { "path": "../../plugins/shell-tools" },
     { "path": "../../plugins/breaker" },
-    { "path": "../../plugins/ask-user" }
+    { "path": "../../plugins/ask-user" },
+    { "path": "../../plugins/compaction" }
   ],
   "include": ["src"]
 }

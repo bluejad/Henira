@@ -141,9 +141,15 @@ function findFinalIndex(rows: readonly Row[]): number {
 }
 
 /** 轮布局：完成轮把「最终回答之前的过程」折出；运行中/无最终回答不折。
- *  审批/提问行不进官方对话流（参照实现的行模型无这两种交互行；data 仍留在 store）。 */
+ *  审批/提问行不进官方对话流（参照实现的行模型无这两种交互行；data 仍留在 store）；
+ *  压缩失败的非致命 error 行同理不进正文（痕迹由压缩行承载，compaction.md §4.11）。 */
 export function buildTurnLayout(rawRows: readonly Row[]): TurnLayout {
-  const rows = rawRows.filter((row) => row.kind !== "approval" && row.kind !== "question");
+  const rows = rawRows.filter(
+    (row) =>
+      row.kind !== "approval" &&
+      row.kind !== "question" &&
+      !(row.kind === "error" && row.fatal === false),
+  );
   // 前置用户行（可有多条 steer）不进过程容器
   let leadEnd = 0;
   while (leadEnd < rows.length && rows[leadEnd]?.kind === "user") leadEnd += 1;
@@ -166,7 +172,11 @@ export function buildTurnLayout(rawRows: readonly Row[]): TurnLayout {
   const finalRow = bodyRows[finalIndex];
   const finalHasReasoning =
     finalRow?.kind === "assistant" && finalRow.reasoning !== undefined && finalRow.reasoning !== "";
-  const allProcess = candidate.every((row) => row.kind === "assistant" || row.kind === "tool");
+  // 压缩行是这一回合工作的一部分：显式接纳（否则含压缩行的长回合永远折不起来），
+  // 且不是 groupable——在「已工作」组里单独占一格
+  const allProcess = candidate.every(
+    (row) => row.kind === "assistant" || row.kind === "tool" || row.kind === "compaction",
+  );
   if ((candidate.length > 0 || finalHasReasoning) && allProcess) {
     return {
       leading,

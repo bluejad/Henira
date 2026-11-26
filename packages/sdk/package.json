@@ -24,6 +24,7 @@
     "@henira/plugin-approval": "workspace:*",
     "@henira/plugin-ask-user": "workspace:*",
     "@henira/plugin-breaker": "workspace:*",
+    "@henira/plugin-compaction": "workspace:*",
     "@henira/plugin-fs": "workspace:*",
     "@henira/plugin-fs-search": "workspace:*",
     "@henira/plugin-fs-tools": "workspace:*",

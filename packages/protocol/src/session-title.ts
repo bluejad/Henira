@@ -16,11 +16,19 @@ export function formatSessionTitle(text: string, maxChars = SESSION_TITLE_MAX): 
   return `${chars.slice(0, maxChars).join("")}…`;
 }
 
-/** 从投影行派生标题：首条有文本的非 breaker 用户消息。 */
+/** 合成来源（不进标题）：breaker = 熔断续跑；compaction / compaction-digest = 压缩替换记录
+ *  （compaction.md §4.7——否则压缩摘要可能成为会话标题） */
+export const SYNTHETIC_USER_SOURCES: ReadonlySet<string> = new Set([
+  "breaker",
+  "compaction",
+  "compaction-digest",
+]);
+
+/** 从投影行派生标题：首条有文本的非合成来源用户消息。 */
 export function deriveSessionTitle(rows: readonly Row[]): string | undefined {
   for (const row of rows) {
     if (row.kind !== "user") continue;
-    if (row.source === "breaker") continue;
+    if (SYNTHETIC_USER_SOURCES.has(row.source)) continue;
     const title = formatSessionTitle(row.text);
     if (title !== undefined) return title;
   }

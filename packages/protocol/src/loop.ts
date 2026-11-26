@@ -1,7 +1,10 @@
 // loop 槽位契约（interfaces.md protocol 段，2026-11-16 定稿）。
 // turn/step 状态机与中断纪律见 loop.md（P6）；忙时投递唯一化见 D-045。
 
-import type { ReasoningEffort } from "./llm.js";
+import type { ContextBudget } from "./context-budget.js";
+import type { ContextReading } from "./context-meter.js";
+import type { LlmError, ModelConfig, ReasoningEffort, WireToolSchema } from "./llm.js";
+import type { ModelMessage } from "./services.js";
 
 /** 权限模式两值（D-080）：ask = 改动前询问（默认、fail-closed）；full = 完全访问
  * （审批水瀑之后自动放行；硬拒清单 / deny 规则 / hook deny 不受影响） */
@@ -44,6 +47,49 @@ export interface QueuedPrompt {
   permissionMode?: PermissionMode;
 }
 
+/** loop/pre-step 载荷（waterfall；compaction.md §4.1）：在 runStep 内、派生之后
+ *  request/header 之前派发（回合主循环与熔断续跑两条路径都经过）。监听器可替换
+ *  messages / tools（压缩后重新派生），context = 本次请求前的计量读数。 */
+export interface PreStepValue {
+  messages: ModelMessage[];
+  tools: WireToolSchema[];
+  model: ModelConfig;
+  reasoningEffort?: ReasoningEffort;
+  sessionId: string;
+  turn: string;
+  step: number;
+  context: ContextReading;
+  /** 本次请求的预算（压缩插件选区/摘要预算用，与 loop 同一份公式） */
+  budget: ContextBudget;
+  /** 回合中断信号（摘要请求随之取消） */
+  signal: AbortSignal;
+}
+
+/** loop/request-failed 载荷（waterfall；compaction.md §4.1）：请求失败后派发。
+ *  监听器置 `retry: true` = 已处理（如压缩完成），原步重发（不新开 step、不写 error 行）。
+ *  载荷带当前请求面（messages / model / tools / budget / signal），压缩不需要重新猜环境。 */
+export interface RequestFailedValue {
+  error: LlmError;
+  turn: string;
+  step: number;
+  /** 本步已重试次数（0 = 首次失败） */
+  retries: number;
+  messages: ModelMessage[];
+  tools: WireToolSchema[];
+  model: ModelConfig;
+  reasoningEffort?: ReasoningEffort;
+  sessionId: string;
+  context: ContextReading;
+  budget: ContextBudget;
+  signal: AbortSignal;
+  /** 监听器置 true = 已处理，原步重发 */
+  retry?: boolean;
+}
+
+export interface RequestFailedResult {
+  retry?: boolean;
+}
+
 // run() 产出的回合事件流（增量变体走 16ms 攒批；结构事件永不攒批——[opencode]
 // `publish-llm-event.ts:289` "block starts are not batched" 同规）。
 export type LoopEvent =
@@ -78,6 +124,10 @@ export interface LoopService {
   remove(entryId: string): Promise<boolean>;
   /** 队列是否处于「中断冻结」态（中断后不自动冲刷，等显式恢复；UI 暂停横幅判据） */
   paused(): boolean;
+  /** 本会话当前余量读数（每步重算；尚无读数时 undefined）。停用压缩插件照常成立 */
+  contextUsage(): ContextReading | undefined;
+  /** 是否忙（回合或冲刷链在跑，含回合间空窗）——手动压缩互斥判据（compaction.md §4.10） */
+  isBusy(): boolean;
   /** 恢复被中断冻结的队列冲刷：取队头开新回合（闲时才可；无冻结/无条目返回 false） */
   resume(): Promise<boolean>;
   /** 中止当前回合（turn/end{aborted, cause:'user'}；队列非空时中断 = 队列冻结不冲刷） */

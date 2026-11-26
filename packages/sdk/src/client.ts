@@ -3,6 +3,7 @@
 // 重连后 server 重发 connected + 全量快照，水位自然重置。
 
 import type {
+  CompactionResponse,
   DirBrowse,
   GlobalUiState,
   PermissionProjectsView,
@@ -167,6 +168,16 @@ export function createClient(opts: ClientOptions): HeniraFacade {
 
     async interrupt(sessionId) {
       await requestJson(`/api/sessions/${sessionId}/interrupt`, { method: "POST" });
+    },
+
+    async compact(sessionId, instructions) {
+      return requestJson<CompactionResponse>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/compact`,
+        {
+          method: "POST",
+          body: JSON.stringify(instructions !== undefined ? { instructions } : {}),
+        },
+      );
     },
 
     async fork(sessionId, atSeq) {

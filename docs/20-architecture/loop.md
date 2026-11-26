@@ -37,21 +37,46 @@ turn（用户回合）
 
 ## 4. 暴露的缝（P8 插件挂载点；waterfall / bail）
 
-| 缝                   | 时机                                        | 典型插件                                        |
-| -------------------- | ------------------------------------------- | ----------------------------------------------- |
-| `loop/pre-step`      | 每步请求前                                  | 压缩（预算检查 + 投影）、注入提醒               |
-| `loop/request`       | 请求配置定稿前                              | 改写温度/截断/工具清单投影                      |
-| `tools/pre-execute`  | 工具执行前（归 plugin-tools，D-027）        | 权限闸、沙箱闸（见 tools-approval.md）          |
-| `tools/post-execute` | 工具执行后（归 plugin-tools，D-027）        | 结果剪枝、检查点捕获                            |
-| `loop/turn-stopping` | 回合将结束（**bail** 模式，可否决，D-012①） | 熔断续跑（`plugin-breaker`，✓ D-065）、排队消费 |
+| 缝                    | 时机                                         | 典型插件                                        |
+| --------------------- | -------------------------------------------- | ----------------------------------------------- |
+| `loop/pre-step`       | 每步请求前（已派发，2026-11-26）             | 压缩（压力检查 + 投影）、注入提醒               |
+| `loop/request-failed` | 请求失败后（已派发，2026-11-26）             | 溢出恢复（压缩后原步重发）                      |
+| `loop/request`        | 请求配置定稿前（文档位；暂无派发、无消费者） | 改写温度/截断/工具清单投影                      |
+| `tools/pre-execute`   | 工具执行前（归 plugin-tools，D-027）         | 权限闸、沙箱闸（见 tools-approval.md）          |
+| `tools/post-execute`  | 工具执行后（归 plugin-tools，D-027）         | 结果剪枝、检查点捕获                            |
+| `loop/turn-stopping`  | 回合将结束（**bail** 模式，可否决，D-012①）  | 熔断续跑（`plugin-breaker`，✓ D-065）、排队消费 |
 
-**缝载荷类型（定稿 · 2026-11-16，接口形状同 [interfaces.md](./interfaces.md) protocol 段）**：
+**缝载荷类型（定稿 · 2026-11-16；2026-11-26 压缩批扩载，接口形状同 [interfaces.md](./interfaces.md) protocol 段）**：
 
 ```ts
 // loop/pre-step（waterfall）：每步请求前——压缩预算投影与提醒注入在此改写
 interface PreStepValue {
   messages: ModelMessage[]; // 本步将发送的派生历史
   tools: WireToolSchema[]; // 本步工具清单投影
+  model: ModelConfig; // 即将请求的模型（阈值按它算）
+  reasoningEffort?: ReasoningEffort;
+  sessionId: string;
+  turn: string;
+  step: number;
+  context: ContextReading; // 计量读数（used / size / pressure / hardLimit / estimated / parts / suspicion）
+  budget: ContextBudget; // 本次请求的预算（retain / headMin / summaryOut / outputBase…）
+  signal: AbortSignal; // 回合中断信号（摘要请求随之中断）
+}
+// loop/request-failed（waterfall）：请求失败后——置 retry:true = 已处理，原步重发
+interface RequestFailedValue {
+  error: LlmError;
+  turn: string;
+  step: number;
+  retries: number; // 本步已重试次数
+  messages: ModelMessage[];
+  tools: WireToolSchema[];
+  model: ModelConfig;
+  reasoningEffort?: ReasoningEffort;
+  sessionId: string;
+  context: ContextReading;
+  budget: ContextBudget;
+  signal: AbortSignal;
+  retry?: boolean; // 监听器置 true
 }
 // loop/request（waterfall）：请求对象定稿前——温度 / 上限 / 投影改写
 interface RequestValue {

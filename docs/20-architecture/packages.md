@@ -36,7 +36,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 │                                              C1 薄客户端连本地 server，终端自身不起服务
 ├── plugins\                        ← 全部官方插件（与社区插件同权、同一条注册路径，
 │   │                                  任何包可被整包替换——位置即宣言，D-012③）；
-│   │                                  当前已落码 14 个，下列 fetch / compaction / subagent /
+│   │                                  当前已落码 15 个，下列 fetch / subagent /
 │   │                                  tasks / plan / todo / skills / hooks / commands 为计划件（M5/M6）
 │   ├── session\          @henira/plugin-session       事件溯源会话（官方默认实现）
 │   ├── llm\              @henira/plugin-llm           StreamEvent 实现 + AI SDK 适配器
@@ -53,7 +53,7 @@ henira\                              ← 仓库根（仓库根目录名即 Henir
 │   ├── shell\            @henira/plugin-shell         shell 服务件（D-049）：命令执行能力
 │   ├── shell-tools\      @henira/plugin-shell-tools   bash / powershell 工具件（注入 shell 服务）
 │   ├── fetch\            @henira/plugin-fetch         web 抓取（服务化随 M5 设计文档，D-049）
-│   ├── compaction\       @henira/plugin-compaction    上下文压缩（摘要 + 投影 + 热尾巴；提供压缩服务）
+│   ├── compaction\       @henira/plugin-compaction    上下文压缩（✓ 已落码 2026-11-26：压力触发/同形摘要/四档降档/原子替换/无模型阶梯/熔断/手动入口；占 compaction 槽）
 │   ├── subagent\         @henira/plugin-subagent      子智能体派发与报告回灌（服务化随 M5）
 │   ├── tasks\            @henira/plugin-tasks         任务服务件（D-049）：plans/ tasks/ 唯一写者、
 │   │                                                 "同一时刻只有一条主线"规则

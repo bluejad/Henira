@@ -47,28 +47,31 @@ interface SessionHeader {
 - `turn` / `step` 放在 `data` 里、**每条事件都带**：一行即一个自足的事实，派生不必维护游标；`error` 可以不带（会话级错误）。
 - `user`：云端部署写入的归属字段（D-036），本地会话缺省；属会话级身份，放 header 不放事件（归属不变，事件不必每条背）。
 
-### 2.2 事件表（18 个）
+### 2.2 事件表（21 个）
 
-| 事件                   | `data` 载荷                                                                                                                                                                  | 进派生       |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `turn/start`           | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）                                                                                                     | —            |
-| `turn/end`             | `turn`, `reason`, `usage?`, `error?`                                                                                                                                         | —            |
-| `step/start`           | `turn`, `step`                                                                                                                                                               | —            |
-| `step/end`             | `turn`, `step`, `usage`, `interrupted?`                                                                                                                                      | —            |
-| `request/header`       | `turn`, `step`, `model`, `params`, `toolNames[]`, `systemPromptHash`                                                                                                         | 跳过         |
-| `user/message`         | `turn`, `step`, `content`, `attachments?`, `source`, `surfaceOp?`, `queueId?`（D-086：队列冲刷产生的回合带排队条目 id，直接发送/插话不带）                                   | ✅           |
-| `system/message`       | `turn`, `step`, `content`, `key?`, `surfaceOp?`                                                                                                                              | ✅           |
-| `assistant/message`    | `turn`, `step`, `content`, `reasoning?`, `model`, `finishReason`, `surfaceOp?`                                                                                               | ✅           |
-| `assistant/attempt`    | `turn`, `step`, `content?`, `error`                                                                                                                                          | 跳过         |
-| `tool/call`            | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                                                                                                                     | ✅（配对后） |
-| `tool/result`          | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?`                                                                                              | ✅（配对后） |
-| `approval/asked`       | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                                                                                                                  | 跳过         |
-| `approval/decided`     | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080）, `rule?`（R198 命令级 / D-087 路径级允许）, `feedback?`（D-087 用户拒绝说明） | 跳过         |
-| `approval/revoked`     | `turn?`, `step?`, `scope`, `tool?`, `rule?`（R198 设置动作：可发生在回合之外）                                                                                               | 跳过         |
-| `approval/invalidated` | `turn`, `step`, `requestId`（R175 修理专用：重启收口补写，loop/客户端不发）                                                                                                  | 跳过         |
-| `question/asked`       | `turn`, `step`, `requestId`, `callId`, `questions[]`（id / question / header? / options?[{label,description?}] / multiSelect?；R184）                                        | 跳过         |
-| `question/settled`     | `turn`, `step`, `requestId`, `outcome`（answered / cancelled / invalidated）, `answers?[]`（id / selected[] / custom?）                                                      | 跳过         |
-| `error`                | `turn?`, `step?`, `code`, `message`, `fatal?`                                                                                                                                | 跳过         |
+| 事件                   | `data` 载荷                                                                                                                                                                               | 进派生       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `turn/start`           | `turn`, `permissionMode?`（D-080：ask/full，缺省 ask——旧账本无字段同义）                                                                                                                  | —            |
+| `turn/end`             | `turn`, `reason`, `usage?`, `error?`                                                                                                                                                      | —            |
+| `step/start`           | `turn`, `step`                                                                                                                                                                            | —            |
+| `step/end`             | `turn`, `step`, `usage`, `interrupted?`                                                                                                                                                   | —            |
+| `request/header`       | `turn`, `step`, `model`, `params`, `toolNames[]`, `systemPromptHash`                                                                                                                      | 跳过         |
+| `user/message`         | `turn`, `step`, `content`, `attachments?`, `source`, `surfaceOp?`, `queueId?`（D-086：队列冲刷产生的回合带排队条目 id，直接发送/插话不带）                                                | ✅           |
+| `system/message`       | `turn`, `step`, `content`, `key?`, `surfaceOp?`                                                                                                                                           | ✅           |
+| `assistant/message`    | `turn`, `step`, `content`, `reasoning?`, `model`, `finishReason`, `surfaceOp?`                                                                                                            | ✅           |
+| `assistant/attempt`    | `turn`, `step`, `content?`, `error`                                                                                                                                                       | 跳过         |
+| `tool/call`            | `turn`, `step`, `callId`, `name`, `arguments`, `origin?`                                                                                                                                  | ✅（配对后） |
+| `tool/result`          | `turn`, `step`, `callId`, `isError`, `content`, `error?`, `durationMs`, `meta?`                                                                                                           | ✅（配对后） |
+| `approval/asked`       | `turn`, `step`, `requestId`, `callId`, `tool`, `argsDigest`                                                                                                                               | 跳过         |
+| `approval/decided`     | `turn`, `step`, `requestId`, `decision`, `scope?`, `mode?`（"full" = 完全访问自动放行，D-080）, `rule?`（R198 命令级 / D-087 路径级允许）, `feedback?`（D-087 用户拒绝说明）              | 跳过         |
+| `approval/revoked`     | `turn?`, `step?`, `scope`, `tool?`, `rule?`（R198 设置动作：可发生在回合之外）                                                                                                            | 跳过         |
+| `approval/invalidated` | `turn`, `step`, `requestId`（R175 修理专用：重启收口补写，loop/客户端不发）                                                                                                               | 跳过         |
+| `question/asked`       | `turn`, `step`, `requestId`, `callId`, `questions[]`（id / question / header? / options?[{label,description?}] / multiSelect?；R184）                                                     | 跳过         |
+| `question/settled`     | `turn`, `step`, `requestId`, `outcome`（answered / cancelled / invalidated）, `answers?[]`（id / selected[] / custom?）                                                                   | 跳过         |
+| `error`                | `turn?`, `step?`, `code`, `message`, `fatal?`, `status?`, `limit?`, `actual?`（后三项：溢出报错自报的读数）                                                                               | 跳过         |
+| `compaction/start`     | `id`, `trigger`（auto/manual）, `turn`, `step`, `before`, `plan{startSeq,endSeq,units,maskedTokens}`, `omittedTurns?`, `digestUnits?`, `cause?`（溢出路径的原始错误；compaction.md §4.7） | 跳过         |
+| `compaction/summary`   | `id`, `turn`, `step`, `model`, `usage`, `summary`, `maskedTokens`                                                                                                                         | 跳过         |
+| `compaction/end`       | `id`, `turn`, `step`, `state`（completed/failed/interrupted）, `after?`, `omittedTurns?`, `error?`                                                                                        | 跳过         |
 
 - **`request/header`** 是**每次模型请求**的快照：`model`（实际能力字段取值）、`params`（温度 / maxTokens 等）、`toolNames`（这次投影给模型的工具名）、`systemPromptHash`（系统消息内容的哈希）。它让 P1 的"任何请求都可重建"成为字面事实；**不含任何凭据**；
 - `assistant/attempt` 记**每次失败 / 中断的流残余**（`content` 是已收到的部分），重试各留一条；永不进模型历史；
@@ -101,12 +104,12 @@ interface SessionHeader {
 
 ### 2.5 `ignorable` 与 `surfaceOp` 的边界
 
-- `ignorable` 只回答"不认识这个事件时能不能跳过"，**不表示事件不重要**——对话事实与审计事实**永不**标 `true`；默认 false 就是 fail-closed 在事件层的形态；
+- `ignorable` 只回答"不认识这个事件时能不能跳过"，**不表示事件不重要**——对话事实与审计事实**永不**标 `true`；默认 false 就是 fail-closed 在事件层的形态。`compaction/*` 是唯一例外：它们由 session 包注册为基础事件、但写作时标 `ignorable: true`（观测值/界面状态，不是审计事实；停用压缩插件后旧账本仍可打开，compaction.md I-11）；
 - `surfaceOp` 只出现在三个消息类事件上：缺省 `'append'`，或 `{op:'replace', startSeq, endSeq}`。它是**压缩唯一的机制入口**（§4），也是插件唯一能影响派生历史的合法方式。
 
 ## 3. 注册表与派生清单（已定）
 
-- 开放注册表：`SessionEventRegistry = Map<type, EventValidator>`（protocol 导出；校验器 = 最小 duck 接口，D-051——protocol 零依赖、不认 schema 库牌子，官方 18 个变体由 session 包用 zod 实现并注册）；官方 session 插件注册基础 18 个变体，插件可追加；
+- 开放注册表：`SessionEventRegistry = Map<type, EventValidator>`（protocol 导出；校验器 = 最小 duck 接口，D-051——protocol 零依赖、不认 schema 库牌子，官方 21 个变体由 session 包用 zod 实现并注册）；官方 session 插件注册基础 21 个变体，插件可追加；
 - 消费端封闭处用 `assertNever` 收尾；
 - `KNOWN_EVENT_TYPES`、schema 反查表、客户端事件清单**全部从注册表派生**，禁止手抄（P9 红线 5）；
 - 未知类型只有两条路：`ignorable: true` → 跳过；否则抛 `UnknownEventTypeError` 并**拒绝重建会话**。
@@ -119,15 +122,16 @@ interface SessionHeader {
 - `assistant/message.reasoning` 保留给 UI；**开思考且模型声明 `interleaved`（reasoning_content）时随派生消息回传 provider**（DeepSeek V4.1+ 带 tool_calls 不回传 400——思考档批 2026-11-19；关思考 / 未声明 = 全剥不回传）；工具轮 reasoning 与纯文本轮同形落账本（回传的数据来源）；
 - **`key` 去重（先于 `surfaceOp`）**：在**原始日志**上按 `key` 取 `seq` 最大的一条作为候选，其余同名事件一律跳过；候选留在自己的位置（靠近末尾——注意力最强的位置）。候选若落在被替换区间内，则随区间一起被替换，**不会"复活"更早的同名旧消息**；
 - **`surfaceOp` 应用**：按 `seq` 升序处理；遇到 `{op:'replace', startSeq, endSeq}` 时跳过该区间内的全部事件、在区间起点插入本条消息；区间外原样输出。
+- **滚动摘要（compaction.md §4.5 修订）**：替换记录自身的 `seq` 落在更晚被接受的区间内时，它插入的摘要同样退出表面——否则后到的区间罩不掉先前的摘要，摘要会一份份累积；
 
 **压缩的派生规则（已定 · 2026-11-12）**：
 
-- 压缩插件在一次 `step/end` 之后、下一次 `step/start` 之前，追加**一条消息类事件并带 `surfaceOp:{op:'replace', startSeq, endSeq}`**（角色由插件选，通常是 `system` 或 `user` 的摘要消息）；
+- 压缩插件在**本次请求的 `step/start` 之后、`request/header` 之前**（自动）或本步第一条 `request/header` 之后（溢出路径）追加**一条消息类事件并带 `surfaceOp:{op:'replace', startSeq, endSeq}`**（角色 = `user`：适配器把 system 块并进顶层指令，system 角色无法插在区间起点；`source` = `compaction` / `compaction-digest`）；
 - **机制只有一处**：session 懂 `surfaceOp`，压缩策略全在插件——session 包不知道"压缩"这个概念（P8）；
 - **区间只向前推进、不重叠**：新记录从上次压缩的终点之后开始。重叠视为插件 bug：**先写入的记录生效，后到的整条忽略**，并补一条非致命 `error`——派生结果因此永远可复现；不采用"后来者覆盖"，那会让同一份日志在不同版本重放出不同历史；
 - 四个属性：压缩可重做（再追加一条更好的替换记录）、可审计（原事件还在）、可换插件（旧会话按当时记录重放）、**不可伪造历史**（插件只能声明替换哪一段，"怎么替换"由 session 保证）；
 - **压缩后重注入**：压缩插件落下替换记录后，在总线上发 `compaction/applied`（serial；总线事件，不是会话事件）；持有持久状态的插件（如计划 / 任务）监听它，追加一条带 `key` 的 `system/message` 精确快照。摘要里的转述只是兜底——**不赌模型的记性**；
-- 插件如需记录压缩前后的 token 等观测值，另发 `compaction/*` 事件并标 `ignorable: true`。
+- 插件如需记录压缩前后的 token 等观测值，使用 session 包注册的 `compaction/*` 三个基础事件并标 `ignorable: true`（旧读者回滚兼容；事件形状见 §2.2）。
 
 **系统提示的组装（定稿 · 2026-11-13）**：
 

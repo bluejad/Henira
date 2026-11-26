@@ -4,6 +4,7 @@
 
 import type { HarnessContext } from "@henira/kernel";
 import type { ApprovalService } from "./approval.js";
+import type { CompactionService } from "./compaction.js";
 import type { ConfigService } from "./config.js";
 import type { FsService } from "./fs.js";
 import type { InteractionService } from "./interaction.js";
@@ -26,6 +27,7 @@ export interface SlotMap {
   mcp: McpService;
   fs: FsService;
   shell: ShellService;
+  compaction: CompactionService;
 }
 
 export type HeniraContext = Omit<HarnessContext, "get"> & {

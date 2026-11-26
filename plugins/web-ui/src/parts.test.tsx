@@ -7,6 +7,7 @@ import type {
   QuestionRow,
   Row,
   ServerFrame,
+  SessionState,
   SessionSummary,
   ToolRow,
 } from "@henira/protocol";
@@ -24,7 +25,9 @@ import {
   pruneAnswered,
   questionTakeover,
 } from "./parts/composer-dock.js";
+import { ContextUsageButton } from "./parts/context-usage.js";
 import { ReasoningView } from "./parts/conversation/reasoning.js";
+import { CompactionView } from "./parts/conversation/rows.js";
 import { Conversation } from "./parts/conversation.js";
 import { HeniraSelect } from "./parts/dropdown.js";
 import { LayoutFrame } from "./parts/layout-frame.js";
@@ -5379,5 +5382,198 @@ describe("外壳操作栏（E4）", () => {
     } as unknown as Partial<WebPartContext>);
     const { container } = render(<Conversation {...ctx} />);
     expect(container.querySelector(".henira-turn-actions")).toBeNull();
+  });
+});
+
+describe("压缩行（compaction.md §4.11）", () => {
+  const row = {
+    kind: "compaction" as const,
+    rowId: "c:c1",
+    rowSeq: 9,
+    turn: "t-1",
+    trigger: "auto" as const,
+    state: "completed" as const,
+    before: 110_000,
+    after: 20_000,
+    model: "deepseek/deepseek-v4-flash",
+    summary: "decisions and files",
+  };
+
+  it("分隔线标题 = 触发因 · 状态 · 前后用量；摘要默认折叠", () => {
+    const { container } = render(<CompactionView row={row} ctx={fixtureCtx()} />);
+    expect(screen.getByText("自动压缩 · 已压缩 · 110K → 20K")).not.toBeNull();
+    expect(container.querySelector(".henira-compaction-summary")).toBeNull();
+  });
+
+  it("展开后显示摘要 / 模型；失败态带原因", () => {
+    const { rerender } = render(<CompactionView row={row} ctx={fixtureCtx()} />);
+    fireEvent.click(screen.getByRole("button", { name: /自动压缩/ }));
+    expect(screen.getByText("decisions and files")).not.toBeNull();
+    expect(screen.getByText("模型 deepseek/deepseek-v4-flash")).not.toBeNull();
+
+    rerender(
+      <CompactionView
+        row={{ ...row, state: "failed", after: undefined, summary: undefined, error: "boom" }}
+        ctx={fixtureCtx()}
+      />,
+    );
+    expect(screen.getByText("自动压缩 · 压缩失败 · 110K")).not.toBeNull();
+    // 同一组件实例：展开态保留，失败原因直接可见
+    expect(screen.getByText("原因 boom")).not.toBeNull();
+  });
+});
+
+describe("ContextUsageButton（compaction.md §4.11）", () => {
+  type Context = NonNullable<SessionState["context"]>;
+
+  function contextCtx(context: Context | undefined, compacting = false): WebPartContext {
+    const store: RowStoreLike = {
+      getSession: () => ({
+        rows: [],
+        state: {
+          busy: false,
+          ...(context !== undefined ? { context } : {}),
+          ...(compacting ? { compacting: true } : {}),
+        },
+      }),
+      subscribe: () => () => {},
+    };
+    return fixtureCtx({ store });
+  }
+
+  const normal: Context = {
+    used: 80_000,
+    size: 128_000,
+    pressure: 108_800,
+    hardLimit: 127_000,
+    estimated: false,
+    cacheHitRate: 0.82,
+    parts: { system: 10_000, tools: 6_000, messages: 64_000 },
+  };
+
+  it("用量为 0 / 无读数 / 非法时不渲染", () => {
+    for (const context of [undefined, { ...normal, used: 0 }, { ...normal, size: 0 }]) {
+      const { container } = render(<ContextUsageButton ctx={contextCtx(context)} />);
+      expect(container.querySelector(".henira-context-entry")).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("圆环入口无数字；aria-label/ title 带完整读数", () => {
+    const { container, getByRole } = render(<ContextUsageButton ctx={contextCtx(normal)} />);
+    const button = getByRole("button", { name: /上下文用量/ });
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect(button.textContent).toBe("");
+    expect(button.getAttribute("aria-label")).toBe("上下文用量 80K/128K (63%)");
+    expect(button.getAttribute("title")).toBe("上下文用量 80K/128K (63%)");
+    expect(button.getAttribute("data-warning")).toBeNull();
+    expect(container.querySelector(".henira-context-pop")).toBeNull();
+  });
+
+  it("点击开面板：分段 + 精确/估算 + 缓存命中率（低于 78% 不显示）", () => {
+    const { getByRole, queryByText, rerender } = render(
+      <ContextUsageButton ctx={contextCtx(normal)} />,
+    );
+    fireEvent.click(getByRole("button", { name: /上下文用量/ }));
+    expect(screen.getByText("上下文用量")).not.toBeNull();
+    expect(screen.getByText("80K/128K (63%)")).not.toBeNull();
+    expect(screen.getByText("精确")).not.toBeNull();
+    expect(screen.getByText("系统提示")).not.toBeNull();
+    expect(screen.getByText("工具表")).not.toBeNull();
+    expect(screen.getByText("消息")).not.toBeNull();
+    expect(screen.getByText("缓存命中率 82%")).not.toBeNull();
+    expect(queryByText(/距自动压缩还差/)).toBeNull();
+
+    rerender(
+      <ContextUsageButton ctx={contextCtx({ ...normal, estimated: true, cacheHitRate: 0.5 })} />,
+    );
+    expect(screen.getByText("估算")).not.toBeNull();
+    expect(queryByText(/缓存命中率/)).toBeNull();
+  });
+
+  it("预警窗口：圆环警示色 + 写明距自动压缩还差 N%", () => {
+    const { getByRole } = render(
+      <ContextUsageButton ctx={contextCtx({ ...normal, used: 100_000 })} />,
+    );
+    const button = getByRole("button", { name: /上下文用量/ });
+    expect(button.getAttribute("data-warning")).toBe("true");
+    fireEvent.click(button);
+    expect(screen.getByText("距自动压缩还差 6%")).not.toBeNull();
+  });
+
+  it("N 为 0 换文案；悬停开合（指针移入面板不收起）", async () => {
+    const { container, getByRole } = render(
+      <ContextUsageButton ctx={contextCtx({ ...normal, used: 108_800 })} />,
+    );
+    const trigger = getByRole("button", { name: /上下文用量/ });
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByText("下一步请求前自动压缩")).not.toBeNull();
+    fireEvent.mouseLeave(trigger);
+    await waitFor(() => {
+      expect(container.querySelector(".henira-context-pop")).toBeNull();
+    });
+  });
+
+  it("压缩进行中：入口禁用（40% 态由 data 属性驱动）", () => {
+    const { getByRole } = render(<ContextUsageButton ctx={contextCtx(normal, true)} />);
+    const button = getByRole("button", { name: /上下文用量/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("data-compacting")).toBe("true");
+  });
+
+  it("手动压缩：说明输入 → compact(sessionId, instructions)；排队反馈当场显示", async () => {
+    const compact = vi.fn(async () => ({ state: "queued" as const }));
+    const base = fixtureCtx({ store: contextCtx(normal).store });
+    const ctx: WebPartContext = {
+      ...base,
+      client: { ...base.client, compact },
+    };
+    const { getByRole, getByPlaceholderText } = render(<ContextUsageButton ctx={ctx} />);
+    fireEvent.click(getByRole("button", { name: /上下文用量/ }));
+    fireEvent.change(getByPlaceholderText("压缩说明（可选，最多 2000 字）"), {
+      target: { value: "  保留决定与文件  " },
+    });
+    fireEvent.click(getByRole("button", { name: "压缩" }));
+    await waitFor(() => {
+      expect(compact).toHaveBeenCalledWith("s-1", "保留决定与文件");
+    });
+    expect(await screen.findByText("将在下一步请求前压缩")).not.toBeNull();
+  });
+});
+
+describe("压缩活态与熔断横幅（composer）", () => {
+  function stateCtx(
+    state: Partial<SessionState>,
+    overrides: Partial<WebPartContext> = {},
+  ): WebPartContext {
+    const base = fixtureCtx();
+    const snapshot = { rows: [], state: { busy: false, ...state } };
+    return {
+      ...base,
+      ...overrides,
+      store: {
+        getSession: () => snapshot,
+        subscribe: () => () => {},
+      },
+    };
+  }
+
+  it("压缩中（忙或闲）：空草稿显示停止钮，点击走 interrupt", () => {
+    const ctx = stateCtx({ compacting: true });
+    const interrupt = vi.spyOn(ctx.client, "interrupt");
+    renderComposer(ctx);
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+    expect(interrupt).toHaveBeenCalledWith("s-1");
+  });
+
+  it("熔断横幅：失败原因 + 重试压缩 / 新开会话", () => {
+    const compact = vi.fn(async () => ({ state: "accepted" as const }));
+    const base = stateCtx({ compactionBreaker: "failures" });
+    const ctx: WebPartContext = { ...base, client: { ...base.client, compact } };
+    renderComposer(ctx);
+    expect(screen.getByText("自动压缩已暂停：连续失败 3 次。")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "重试压缩" }));
+    expect(compact).toHaveBeenCalledWith("s-1");
+    expect(screen.getByRole("button", { name: "新开会话" })).not.toBeNull();
   });
 });

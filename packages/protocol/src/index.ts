@@ -1,6 +1,9 @@
 export * from "./approval.js";
+export * from "./compaction.js";
 export * from "./config.js";
 export * from "./context.js";
+export * from "./context-budget.js";
+export * from "./context-meter.js";
 export * from "./envelope.js";
 export * from "./fs.js";
 export * from "./interaction.js";
@@ -14,5 +17,6 @@ export * from "./server-events.js";
 export * from "./services.js";
 export * from "./session-title.js";
 export * from "./shell.js";
+export * from "./token-estimate.js";
 export * from "./tools.js";
 export * from "./workspace-file.js";

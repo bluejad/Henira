@@ -1,0 +1,70 @@
+/* 压缩行（compaction.md §4.11）：两侧细线夹住文案的分隔线，不是气泡。
+   展开区放摘要正文与失败原因；摘要默认折叠。色调跟状态：失败 danger、中断/进行中次要、
+   完成走常规。行在「已工作」组里单独占一格（turn-items 显式接纳）。 */
+
+.henira-compaction {
+  margin: var(--henira-space-2) 0;
+}
+.henira-compaction-head {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--henira-space-2);
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--henira-text-subtle);
+  font-size: var(--henira-fs-sm);
+}
+.henira-compaction-head:disabled {
+  cursor: default;
+}
+.henira-compaction-head:not(:disabled):hover {
+  color: var(--henira-text);
+}
+.henira-compaction-line {
+  flex: 1;
+  height: 1px;
+  background: var(--henira-border);
+}
+.henira-compaction-label {
+  white-space: nowrap;
+  font-family: var(--henira-mono);
+}
+.henira-compaction[data-state="failed"] .henira-compaction-head {
+  color: var(--henira-danger-text);
+}
+.henira-compaction[data-state="running"] .henira-compaction-head {
+  color: var(--henira-text-subtle);
+}
+.henira-compaction-details {
+  padding: var(--henira-space-2) var(--henira-space-3);
+  border-left: 2px solid var(--henira-border);
+  margin-left: var(--henira-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--henira-space-1);
+}
+.henira-compaction-meta {
+  margin: 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+.henira-compaction-error {
+  margin: 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-danger-text);
+}
+.henira-compaction-summary {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+  background: var(--henira-code-bg);
+  border-radius: var(--henira-radius);
+  padding: var(--henira-space-2);
+}

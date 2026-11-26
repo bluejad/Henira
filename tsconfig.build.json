@@ -68,6 +68,9 @@
       "path": "plugins/ask-user"
     },
     {
+      "path": "plugins/compaction"
+    },
+    {
       "path": "plugins/web-ui"
     }
   ]

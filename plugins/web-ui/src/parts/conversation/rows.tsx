@@ -2,14 +2,18 @@
 //（中间区零内联布局样式——参照实现 层级：正文裸排、用户右气泡、错误语义底）。
 import {
   type AssistantRow,
+  type CompactionRow,
   type ErrorRow,
+  LLM_ERROR_CONTEXT_OVERFLOW,
   LLM_STREAM_IDLE_TIMEOUT_CODE,
   type Row,
   type UserRow,
 } from "@henira/protocol";
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { WebPart, WebPartContext } from "../../types.js";
+import { formatTokens } from "../context-usage.js";
 import { CopyButton } from "../copy-button.js";
+import { CaretDownGlyph } from "../icons.js";
 import { Pill } from "../row-chrome.js";
 import { SlotBoundary } from "../slot-boundary.js";
 import { formatTurnClock } from "./format.js";
@@ -40,6 +44,8 @@ const RowView = memo(
       case "question":
         // 提问行同理不进正文流：挂起卡在输入区 dock，痕迹由 ask_user 工具卡承载（R184）
         return null;
+      case "compaction":
+        return <CompactionView row={row} ctx={ctx} />;
       case "error":
         return <ErrorView row={row} ctx={ctx} />;
     }
@@ -109,17 +115,92 @@ function AssistantView({
   );
 }
 
+/** 压缩行（compaction.md §4.11）：分隔线而非气泡；标题 = 触发因 · 状态 · 前后用量。
+ *  摘要正文默认折叠、可展开（dsh / 闭源产品同款）；失败与降档信息在展开区。 */
+export function CompactionView({ row, ctx }: { row: CompactionRow; ctx: WebPartContext }) {
+  const [open, setOpen] = useState(false);
+  const trigger = ctx.t(`compaction.trigger.${row.trigger}`);
+  const state = ctx.t(`compaction.state.${row.state}`);
+  const amounts =
+    row.before !== undefined && row.after !== undefined
+      ? `${formatTokens(row.before)} → ${formatTokens(row.after)}`
+      : row.before !== undefined
+        ? formatTokens(row.before)
+        : undefined;
+  const title = [trigger, state, amounts].filter((part) => part !== undefined).join(" · ");
+  const expandable =
+    row.summary !== undefined ||
+    row.error !== undefined ||
+    row.omittedTurns !== undefined ||
+    row.digestUnits !== undefined;
+
+  return (
+    <div className="henira-compaction" data-state={row.state}>
+      <button
+        type="button"
+        className="henira-compaction-head"
+        disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
+        onClick={() => {
+          setOpen((value) => !value);
+        }}
+      >
+        <span className="henira-compaction-line" aria-hidden="true" />
+        <span className="henira-compaction-label">{title}</span>
+        {expandable ? <CaretDownGlyph size={10} /> : null}
+        <span className="henira-compaction-line" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="henira-compaction-details">
+          {row.model !== undefined ? (
+            <p className="henira-compaction-meta">
+              {ctx.t("compaction.model")} {row.model}
+            </p>
+          ) : null}
+          {row.omittedTurns !== undefined ? (
+            <p className="henira-compaction-meta">
+              {ctx.t("compaction.omitted")} {row.omittedTurns}
+            </p>
+          ) : null}
+          {row.digestUnits !== undefined ? (
+            <p className="henira-compaction-meta">
+              {ctx.t("compaction.digest")} {row.digestUnits}
+            </p>
+          ) : null}
+          {row.error !== undefined ? (
+            <p className="henira-compaction-error">
+              {ctx.t("compaction.error")} {row.error}
+            </p>
+          ) : null}
+          {row.summary !== undefined ? (
+            <pre className="henira-compaction-summary">{row.summary}</pre>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
   // 已知配置类错误翻成可行动中文（模型目录收敛批：闸门后用户本不该走到这——兜底），
   // 原文折叠保留（排障仍要英文原文）；其余错误照旧直出
   const hint =
     row.code === LLM_STREAM_IDLE_TIMEOUT_CODE
       ? ctx.t("error.idleTimeoutHint") // R193：provider 静默超时——可行动中文，英文原文仍可展开
-      : row.message.includes("no credential for provider")
-        ? ctx.t("error.noCredentialHint")
-        : row.message.includes("has no baseUrl")
-          ? ctx.t("error.noBaseUrlHint")
-          : undefined;
+      : row.code === LLM_ERROR_CONTEXT_OVERFLOW
+        ? // 溢出（compaction.md §4.11）：报错自带读数就带上；解析不出只给行动建议
+          `${ctx.t("error.contextOverflowHint")}${
+            row.limit !== undefined && row.actual !== undefined
+              ? ` (${row.actual} / ${row.limit})`
+              : ""
+          }`
+        : row.code === "CONTEXT_UNCOMPACTABLE"
+          ? ctx.t("error.contextUncompactableHint")
+          : row.message.includes("no credential for provider")
+            ? ctx.t("error.noCredentialHint")
+            : row.message.includes("has no baseUrl")
+              ? ctx.t("error.noBaseUrlHint")
+              : undefined;
   return (
     <div role="alert" className="henira-error-row">
       <strong>{ctx.t("error.title")}</strong>

@@ -9,8 +9,9 @@
 // 本件必须在 ComposerDock 内渲染（需要 ctx.composer）；单独装配请用 ComposerDock 整座。
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComposerApi, WebPart, WebPartContext } from "../types.js";
+import { ContextUsageButton } from "./context-usage.js";
 import { SendGlyph, StopGlyph } from "./icons.js";
 import { PermissionChip } from "./permission-menu.js";
 import { SlotBoundary } from "./slot-boundary.js";
@@ -32,6 +33,44 @@ function ComposerSeats({ ctx, name }: { ctx: WebPartContext; name: string }): Re
   );
 }
 
+/** 压缩熔断横幅（F-7/F-8）：自动压缩已停；重试 = 手动压缩（成功即解除），
+ *  或新开会话。常驻到手动成功 / 插件广播解除。 */
+function CompactionBanner({ ctx }: { ctx: WebPartContext }): ReactNode {
+  const reason = useSyncExternalStore(
+    ctx.store.subscribe,
+    () => ctx.store.getSession(ctx.sessionId).state.compactionBreaker,
+    () => undefined,
+  );
+  if (reason === undefined || ctx.sessionId === null) return null;
+  const retry = (): void => {
+    void ctx.client.compact?.(ctx.sessionId as string).catch(() => {});
+  };
+  const createNew = (): void => {
+    const cwd = ctx.host.getSession()?.cwd;
+    void ctx.client
+      .createSession(cwd !== undefined ? { cwd } : undefined)
+      .then((created) => {
+        ctx.selectSession(created.id);
+      })
+      .catch(() => {});
+  };
+  return (
+    <div className="henira-compaction-banner" role="status">
+      <span className="henira-compaction-banner-text">
+        {ctx.t(`composer.compactionBreaker.${reason}`)}
+      </span>
+      <span className="henira-compaction-banner-actions">
+        <button type="button" onClick={retry} disabled={ctx.client.compact === undefined}>
+          {ctx.t("composer.compactionRetry")}
+        </button>
+        <button type="button" onClick={createNew}>
+          {ctx.t("composer.compactionNewSession")}
+        </button>
+      </span>
+    </div>
+  );
+}
+
 export const Composer: WebPart = (ctx) => {
   const api = ctx.composer;
   if (api === undefined) {
@@ -44,6 +83,12 @@ export const Composer: WebPart = (ctx) => {
 function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): ReactNode {
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const { draft, registerInput } = api;
+  // 压缩是会话级活动（活态总线）：闲时手动压缩也占用停止钮（compaction.md §4.11）
+  const compacting = useSyncExternalStore(
+    ctx.store.subscribe,
+    () => ctx.store.getSession(ctx.sessionId).state.compacting === true,
+    () => false,
+  );
 
   const setArea = useCallback(
     (el: HTMLTextAreaElement | null): void => {
@@ -65,7 +110,7 @@ function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): R
   };
 
   const hasDraft = draft.trim() !== "";
-  const showStop = api.busy && !hasDraft; // ZCode 语义：流式中空草稿才是停止；有草稿恒为发送（排队）
+  const showStop = (api.busy || compacting) && !hasDraft; // 有草稿恒为发送（排队）；压缩中空草稿 = 停止
   // 忙+有草稿：发送=排队、Ctrl+Enter=插话（E1 发送模式 UI——按钮文案同步切换）
   const sendLabel = api.busy ? ctx.t("composer.queueSend") : ctx.t("composer.send");
 
@@ -84,6 +129,7 @@ function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): R
           {ctx.t("composer.sendFailed")}
         </p>
       ) : null}
+      <CompactionBanner ctx={ctx} />
       <div className="henira-composer-card">
         <textarea
           ref={setArea}
@@ -112,6 +158,8 @@ function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): R
           <span className="henira-composer-spacer" />
           {/* 工具排右追加位（官方空；发送/停止之前的插件按钮区） */}
           <ComposerSeats ctx={ctx} name="composer.right" />
+          {/* 余量入口（compaction.md §4.11）：常驻圆环，不是槽——引擎计量活态的直通控件 */}
+          <ContextUsageButton ctx={ctx} />
           {showStop ? (
             <button
               type="button"

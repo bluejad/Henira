@@ -27,6 +27,7 @@ import { createHarness } from "@henira/kernel";
 import { approvalPlugin } from "@henira/plugin-approval";
 import { askUserPlugin } from "@henira/plugin-ask-user";
 import { breakerPlugin } from "@henira/plugin-breaker";
+import { compactionPlugin } from "@henira/plugin-compaction";
 import { fsPlugin } from "@henira/plugin-fs";
 import { fsSearchPlugin } from "@henira/plugin-fs-search";
 import { fsToolsPlugin } from "@henira/plugin-fs-tools";
@@ -58,6 +59,7 @@ import {
   type SessionPendingInteraction,
   type SessionState,
   type SessionSummary,
+  SYNTHETIC_USER_SOURCES,
   sliceRowsPage,
 } from "@henira/protocol";
 import type { Fanout } from "./fanout.js";
@@ -399,6 +401,8 @@ export class SessionRegistry {
         return entry.definition ?? breakerPlugin();
       case "plugin-ask-user":
         return entry.definition ?? askUserPlugin();
+      case "plugin-compaction":
+        return entry.definition ?? compactionPlugin();
       case "plugin-mcp":
         // 外圈读者（D-064）：servers 空时也装配（McpService 恒在场，useResource 报"未声明"
         // 而非"服务缺失"）；opts.plugins 显式替换 = 听它的
@@ -536,7 +540,12 @@ export class SessionRegistry {
           continue; // 截断尾行/坏行跳过
         }
         if (event.type !== "user/message") continue;
-        if (event.data?.source === "breaker") continue;
+        if (
+          typeof event.data?.source === "string" &&
+          SYNTHETIC_USER_SOURCES.has(event.data.source)
+        ) {
+          continue;
+        }
         if (typeof event.data?.content !== "string") continue;
         const title = formatSessionTitle(event.data.content);
         if (title !== undefined) {
@@ -677,6 +686,8 @@ export class SessionRegistry {
     const events = await this.ledgerEvents(id);
     if (events !== undefined) {
       for (const event of events) entry.projection.ingest(event);
+      // 悬挂压缩收口（compaction.md §4.7）：重放后仍 running 的压缩行显示「已中断」
+      entry.projection.finalizeHangingCompactions();
     }
     this.#entries.set(id, entry);
     this.#announce(entry);
@@ -787,24 +798,53 @@ export class SessionRegistry {
       ]);
     });
 
+    // 余量读数（每步重算，compaction.md §4.11）→ state.updated 推余量入口
+    entry.ctx.events.on("context/changed", () => {
+      this.#opts.fanout.publish(id, [
+        { op: "state.updated", state: this.#stateWithQueue(entry, projection.state) },
+      ]);
+    });
+
+    // 压缩活态（compaction.md §4.11）：进行中可停止、入口置灰；不落账本（悬挂 start
+    // 由投影收口为「已中断」），随进程存亡
+    entry.ctx.events.on("compaction/active", (payload) => {
+      projection.state.compacting = (payload as { active?: unknown }).active === true || undefined;
+      this.#opts.fanout.publish(id, [
+        { op: "state.updated", state: this.#stateWithQueue(entry, projection.state) },
+      ]);
+    });
+
+    // 自动压缩熔断（F-7/F-8）→ 常驻横幅数据源；手动压缩成功由插件广播 reason:null 解除
+    entry.ctx.events.on("compaction/breaker", (payload) => {
+      const reason = (payload as { reason?: unknown }).reason;
+      projection.state.compactionBreaker =
+        reason === "failures" || reason === "refill" ? reason : undefined;
+      this.#opts.fanout.publish(id, [
+        { op: "state.updated", state: this.#stateWithQueue(entry, projection.state) },
+      ]);
+    });
+
     return entry;
   }
 
-  /** 投影态并入队列活态（排队卡数据源）：loop 服务在册才并线；无 loop（自定义清单——
-   *  get 缺槽抛 MissingSlotError）或未挂载（磁盘历史会话）时 queue 键缺省 = 无队列语义 */
+  /** 投影态并入队列与余量活态（排队卡 / 余量入口数据源）：loop 服务在册才并线；无 loop
+   *  （自定义清单——get 缺槽抛 MissingSlotError）或未挂载（磁盘历史会话）时两键缺省 */
   #stateWithQueue(entry: SessionEntry, base: SessionState): SessionState {
     let pending: QueuedPrompt[] | undefined;
     let paused: boolean | undefined;
+    let context: SessionState["context"];
     try {
       const loop = entry.ctx?.get("loop");
       pending = loop.pending();
       paused = loop.paused();
+      context = loop.contextUsage();
     } catch {
       pending = undefined; // 清单没列 loop = 听清单的（无队列面）
     }
-    if (pending === undefined) return { ...base };
+    const merged: SessionState = context !== undefined ? { ...base, context } : { ...base };
+    if (pending === undefined) return merged;
     return {
-      ...base,
+      ...merged,
       queue: pending.map(({ id, text, steer, modelId, reasoningEffort }) => ({
         id,
         text,
@@ -1071,6 +1111,7 @@ function observedSession(
         },
         events: () => handle.events(),
         deriveMessages: () => handle.deriveMessages(),
+        deriveSurface: () => handle.deriveSurface(),
         fork: async (atSeq) => handle.fork(atSeq),
         replay: async (visitor) => handle.replay(visitor),
         close: () => handle.close(),

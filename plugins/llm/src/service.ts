@@ -84,6 +84,8 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
               : {}),
             maxRetries: 0, // 重试政策机归引擎侧（M2 = 错误落盘收尾，M2 计划边界）
             stopWhen: () => true, // 单步：一次请求周期，不进 SDK 侧循环
+            // 缺省 onError = console.error(整个请求体 + 响应头)——对话内容不进服务端 stderr（compaction.md §3.1）
+            onError: () => {},
           });
           try {
             for await (const part of withIdleTimeout(result.fullStream, {

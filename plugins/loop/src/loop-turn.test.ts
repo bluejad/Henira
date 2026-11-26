@@ -12,7 +12,14 @@ import {
 } from "@henira/llm-mock";
 import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
-import { asHeniraContext, type Decision, type LlmRequest, type LlmService } from "@henira/protocol";
+import {
+  asHeniraContext,
+  type Decision,
+  LlmError,
+  type LlmRequest,
+  type LlmService,
+  type PreStepValue,
+} from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 整链装配的真实插件只有 session / tools / loop 自身；llm = mockLlm（脚本驱动），
@@ -87,17 +94,19 @@ async function startedLoop(
   maxStepsPerTurn?: number,
   toolOverride?: ToolDefinition,
   seen?: LlmRequest[],
+  llmOverride?: LlmService,
 ) {
   const mock = mockLlm(script);
   const llm: LlmService =
-    seen === undefined
+    llmOverride ??
+    (seen === undefined
       ? mock.service
       : {
           async *stream(req, signal) {
             seen.push(req);
             yield* mock.service.stream(req, signal);
           },
-        };
+        });
   const sessionDir = path.join(root, "sess");
   const harness = createHarness()
     .use(sessionPlugin({ directory: sessionDir, cwd: root }))
@@ -518,6 +527,150 @@ describe("turn/step 状态机（loop.md §1）", () => {
     expect(end === undefined ? undefined : (end.data as { reason: string }).reason).toBe(
       "max-tokens",
     );
+    await harness.dispose();
+  });
+});
+
+describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（compaction.md §6.1）", () => {
+  it("usage 五字段原样落 step/end 与 turn/end", async () => {
+    const usage = {
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 1,
+      reasoningTokens: 2,
+    };
+    const { harness, loop, session } = await startedLoop([
+      [mockText("hi"), mockUsage(usage), mockFinish("stop")],
+    ]);
+    await collect(loop.run("五字段"));
+    const stepEnd = session.events().find((e) => e.type === "step/end");
+    expect((stepEnd?.data as { usage?: unknown } | undefined)?.usage).toMatchObject(usage);
+    const turnEnd = session.events().find((e) => e.type === "turn/end");
+    expect((turnEnd?.data as { usage?: unknown } | undefined)?.usage).toMatchObject(usage);
+    await harness.dispose();
+  });
+
+  it("loop/pre-step 派发：载荷带模型/会话/回合/步/余量读数，监听器可替换 messages", async () => {
+    const seen: LlmRequest[] = [];
+    const { harness, ctx, loop, session } = await startedLoop(
+      [[mockText("ok"), mockUsage(USAGE), mockFinish("stop")]],
+      undefined,
+      undefined,
+      seen,
+    );
+    let captured: PreStepValue | undefined;
+    ctx.events.onWaterfall("loop/pre-step", (value, next) => {
+      captured = value as PreStepValue;
+      return next({
+        ...(value as PreStepValue),
+        messages: [
+          ...(value as PreStepValue).messages,
+          { role: "user", content: "injected-by-hook" },
+        ],
+      });
+    });
+    await collect(loop.run("看看余量"));
+    expect(captured).toBeDefined();
+    expect(captured?.sessionId).toBe(session.header().id);
+    expect(captured?.turn).toMatch(/^t-/);
+    expect(captured?.step).toBe(1);
+    expect(captured?.model.provider).toBe("mock");
+    expect(captured?.context.size).toBe(128_000);
+    expect(captured?.context.estimated).toBe(true); // 首步无锚点
+    expect(captured?.context.used).toBeGreaterThan(0);
+    // 替换后的 messages 真的进了请求
+    const last = seen[0]?.messages.at(-1);
+    expect(last).toEqual({ role: "user", content: "injected-by-hook" });
+    await harness.dispose();
+  });
+
+  it("余量活态：contextUsage() 有读数、context/changed 已广播；闲时 isBusy 为假", async () => {
+    const { harness, ctx, loop } = await startedLoop([
+      [mockText("ok"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const readings: number[] = [];
+    ctx.events.on("context/changed", (payload) => {
+      readings.push((payload as { context: { used: number } }).context.used);
+    });
+    await collect(loop.run("量一下"));
+    const usage = loop.contextUsage();
+    expect(usage?.size).toBe(128_000);
+    expect(usage?.used).toBeGreaterThan(0);
+    expect(readings.length).toBeGreaterThanOrEqual(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loop.isBusy()).toBe(false);
+    await harness.dispose();
+  });
+
+  it("主请求按剩余窗口封顶：只在 0 < 剩余 < 基线时带 maxTokens（§4.3）", async () => {
+    // 190K 字母 ≈ 95K token（字母 0.5/token）+ 系统/工具 → 剩余约 31K < 32K 基线
+    const seenSmall: LlmRequest[] = [];
+    const small = await startedLoop(
+      [[mockText("ok"), mockUsage(USAGE), mockFinish("stop")]],
+      undefined,
+      undefined,
+      seenSmall,
+    );
+    await collect(small.loop.run("短"));
+    expect(seenSmall[0]?.maxTokens).toBeUndefined(); // 远离窗口不封顶
+    await small.harness.dispose();
+
+    const seenBig: LlmRequest[] = [];
+    const big = await startedLoop(
+      [[mockText("ok"), mockUsage(USAGE), mockFinish("stop")]],
+      undefined,
+      undefined,
+      seenBig,
+    );
+    await collect(big.loop.run("a".repeat(190_000)));
+    const cap = seenBig[0]?.maxTokens;
+    expect(cap).toBeDefined();
+    expect(cap).toBeGreaterThan(0);
+    expect(cap).toBeLessThan(32_000);
+    await big.harness.dispose();
+  });
+
+  it("loop/request-failed：监听器置 retry → 原步重发、不落 error 行、两条 request/header", async () => {
+    let calls = 0;
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([[mockText("ok"), mockUsage(USAGE), mockFinish("stop")]]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        calls += 1;
+        seen.push(req);
+        if (calls === 1) throw new LlmError("CONTEXT_OVERFLOW", "overflow", 400);
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, loop, session } = await startedLoop(
+      [],
+      undefined,
+      undefined,
+      undefined,
+      llm,
+    );
+    const attempts: number[] = [];
+    ctx.events.onWaterfall("loop/request-failed", (value, next) => {
+      attempts.push((value as { retries: number }).retries);
+      return next({ ...(value as object), retry: true });
+    });
+    await collect(loop.run("重发一次"));
+    expect(seen).toHaveLength(2);
+    expect(attempts).toEqual([0]);
+    expect(session.events().filter((event) => event.type === "request/header")).toHaveLength(2);
+    expect(session.events().filter((event) => event.type === "error")).toHaveLength(0);
+    expect(session.events().filter((event) => event.type === "assistant/message")).toHaveLength(1);
+    await harness.dispose();
+  });
+
+  it("硬线：压缩后仍到硬线 → 拒绝发送（无 LLM 调用，fatal error CONTEXT_UNCOMPACTABLE）", async () => {
+    const seen: LlmRequest[] = [];
+    const { harness, loop, session } = await startedLoop([], undefined, undefined, seen);
+    await collect(loop.run("a".repeat(300_000))); // ≈150K token > 127K 硬线
+    expect(seen).toHaveLength(0);
+    const error = session.events().find((event) => event.type === "error");
+    expect(error?.data).toMatchObject({ code: "CONTEXT_UNCOMPACTABLE", fatal: true });
     await harness.dispose();
   });
 });

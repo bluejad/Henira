@@ -44,15 +44,38 @@ export const FINISH_REASONS = [
 ] as const;
 export type FinishReason = (typeof FINISH_REASONS)[number];
 
+/** 溢出类错误码（compaction.md §4.12）：上下文超窗走压缩恢复；max_tokens 参数错是
+ *  封顶引起的另一类，压缩救不了，恢复 = 去掉封顶原步重发一次 */
+export const LLM_ERROR_CONTEXT_OVERFLOW = "CONTEXT_OVERFLOW";
+export const LLM_ERROR_OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED";
+
+/** 适配器边界上值得带到引擎的附加信息（报错原文自带精确读数，§3.2） */
+export interface LlmErrorInfo {
+  /** 已解析的响应体（APICallError.data）或原始文本（responseBody） */
+  body?: unknown;
+  /** 报错里自报的上限（窗口或输出上限） */
+  limit?: number;
+  /** 报错里自报的实际数（请求的输入 / max_tokens） */
+  actual?: number;
+}
+
 /** llm 流失败的类型化错误（rejection 通道，不进 StreamEvent） */
 export class LlmError extends Error {
+  readonly body?: unknown;
+  readonly limit?: number;
+  readonly actual?: number;
+
   constructor(
     readonly code: string,
     message: string,
     readonly status?: number,
+    info?: LlmErrorInfo,
   ) {
     super(message);
     this.name = "LlmError";
+    if (info?.body !== undefined) this.body = info.body;
+    if (info?.limit !== undefined) this.limit = info.limit;
+    if (info?.actual !== undefined) this.actual = info.actual;
   }
 }
 

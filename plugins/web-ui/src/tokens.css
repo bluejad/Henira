@@ -10,6 +10,7 @@
 @import "./styles/conversation/20-actions.css";
 @import "./styles/conversation/30-rows.css";
 @import "./styles/conversation/40-turn.css";
+@import "./styles/conversation/45-compaction.css";
 @import "./styles/conversation/50-empty.css";
 @import "./styles/06-controls.css";
 @import "./styles/07-conversation-shell.css";
@@ -18,6 +19,7 @@
 @import "./styles/controls/10-select.css";
 @import "./styles/composer/20-queue.css";
 @import "./styles/composer/30-approval.css";
+@import "./styles/composer/35-context.css";
 @import "./styles/composer/40-question.css";
 @import "./styles/composer/50-trace.css";
 @import "./styles/composer/60-permission.css";

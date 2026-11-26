@@ -6,12 +6,14 @@
 // 纯 DTO：运行时零依赖（packages.md 规则 1）；Decision 复用 approval 词表。
 
 import type { Decision } from "./approval.js";
+import type { CompactionState, CompactionTrigger } from "./compaction.js";
+import type { ContextReading } from "./context-meter.js";
 import type { QuestionAnswer, QuestionSpec } from "./interaction.js";
 import type { ReasoningEffort, TokenUsage } from "./llm.js";
 import type { PermissionMode, QueuedPrompt } from "./loop.js";
 
 /** 行标识：`a:{turn}:{step}` / `t:{turn}:{step}:{callId}` / `u:{seq}` / `p:{requestId}` /
- *  `q:{requestId}` / `e:{seq}` */
+ *  `q:{requestId}` / `c:{compactionId}` / `e:{seq}` */
 export type RowId = string;
 
 export interface UserRow {
@@ -138,9 +140,46 @@ export interface ErrorRow {
   turn?: string;
   code?: string;
   message: string;
+  /** HTTP 状态（LlmError.status 投影；非模型错误缺省） */
+  status?: number;
+  /** 溢出报错自报的上限 / 实际数（compaction.md §4.11：可行动中文用） */
+  limit?: number;
+  actual?: number;
+  /** false = 非致命（压缩失败等；痕迹由压缩行承载，不进回合正文——§4.11） */
+  fatal?: boolean;
 }
 
-export type Row = UserRow | AssistantRow | ToolRow | ApprovalRow | QuestionRow | ErrorRow;
+export interface CompactionRow {
+  kind: "compaction";
+  rowId: RowId;
+  rowSeq: number;
+  /** 自动压缩随当前回合；闲时手动压缩为维护回合（m-…），行上不挂回合头 */
+  turn?: string;
+  step?: number;
+  trigger: CompactionTrigger;
+  state: CompactionState;
+  /** 压缩前后用量（completed 才有 after） */
+  before?: number;
+  after?: number;
+  model?: string;
+  /** 失败码 / 说明（failed 时带） */
+  error?: string;
+  /** 摘要正文（默认折叠，可展开） */
+  summary?: string;
+  /** 未纳入摘要的轮次数（第 3/4 档降档时） */
+  omittedTurns?: number;
+  /** 无模型摘要替换的步单元数 */
+  digestUnits?: number;
+}
+
+export type Row =
+  | UserRow
+  | AssistantRow
+  | ToolRow
+  | ApprovalRow
+  | QuestionRow
+  | CompactionRow
+  | ErrorRow;
 /** 会话级状态（键级整体替换，键内绝不深合并——封闭增量语法的 state.updated 载荷） */
 export interface SessionState {
   /** turn/start … turn/end 之间 */
@@ -157,6 +196,14 @@ export interface SessionState {
    * 重放重建/重载后仍在；保留最近 50 轮，键 = turn id。endedAt = turn/end 时刻（轮尾
    * 时间戳）；forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive） */
   turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>;
+  /** 上下文余量活态（compaction.md §4.11）：loop 每步重算，宿主从同一并线口并入
+   *  state.updated / 快照；清单里没有 loop 时不带该键 */
+  context?: ContextReading;
+  /** 进行中的压缩（活态，不从账本推导——悬挂 start 由投影收口为「已中断」） */
+  compacting?: boolean;
+  /** 自动压缩熔断（活态，compaction.md F-7/F-8）：failures = 连续失败 3 次；
+   *  refill = 快速回填连续第 3 次。手动压缩成功即清除 */
+  compactionBreaker?: "failures" | "refill";
 }
 
 export interface SessionSnapshot {

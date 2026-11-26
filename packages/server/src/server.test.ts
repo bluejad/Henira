@@ -3202,7 +3202,7 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
       const list = (await (await fetch(`${base}/api/plugins`)).json()) as {
         plugins: { id: string; enabled: boolean; state: string }[];
       };
-      expect(list.plugins).toHaveLength(13); // defaultPreset：引擎 5 + fs 族 3 + shell 族 2 + breaker + ask-user + mcp
+      expect(list.plugins).toHaveLength(14); // defaultPreset：引擎 5 + fs 族 3 + shell 族 2 + breaker + ask-user + compaction + mcp
       const ids = list.plugins.map((p) => p.id);
       for (const id of [
         "plugin-fs",
@@ -3212,6 +3212,7 @@ describe("能力件（D-065 批 B：fs / shell 服务 + 工具件 + breaker 默�
         "plugin-shell-tools",
         "plugin-breaker",
         "plugin-ask-user",
+        "plugin-compaction",
       ]) {
         expect(ids).toContain(id);
       }
@@ -3784,6 +3785,34 @@ describe("重启收口（R175）：settle 分型 + 启动账本修理", () => {
     } finally {
       await server.stop();
       await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+describe("手动压缩端点（compaction.md §4.10）", () => {
+  it("空历史 → skipped(reason)；说明超 2000 码点 → 400", async () => {
+    const { base, cleanup } = await makeServer([]);
+    try {
+      const id = await createSession(base);
+      const ok = await fetch(`${base}/api/sessions/${id}/compact`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({
+        state: "skipped",
+        reason: "history-insufficient",
+      });
+
+      const tooLong = await fetch(`${base}/api/sessions/${id}/compact`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ instructions: "x".repeat(2_001) }),
+      });
+      expect(tooLong.status).toBe(400);
+    } finally {
+      await cleanup();
     }
   });
 });

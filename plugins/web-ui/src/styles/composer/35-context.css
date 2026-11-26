@@ -1,0 +1,228 @@
+/* 上下文余量入口（compaction.md §4.11）：工具排右侧 28px 圆环钮 + 向上弹出的面板。
+   圆环几何同 zcode ai-elements/context.tsx：viewBox 24 / r=10 / stroke 4，14px 渲染；
+   进度只表示 used ÷ size，不画压力线刻度。面板复用 .henira-pop（实底 + border-strong +
+   shadow-pop，z-65 与模型弹层同档）。悬停开合：面板下方留透明桥（::after），指针跨过
+   8px 间隙时不触发 wrapper 的 mouseleave。预警用现有 warn token（01-tokens.css 已有
+   --henira-warn-*，设计页「只有 accent/danger」的旧描述不成立）。 */
+
+.henira-app .henira-context {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.henira-app button.henira-context-entry {
+  color: var(--henira-text-muted);
+}
+.henira-app button.henira-context-entry:hover:not(:disabled) {
+  color: var(--henira-text);
+}
+.henira-app button.henira-context-entry[data-warning="true"] {
+  color: var(--henira-warn-text);
+}
+.henira-app button.henira-context-entry[data-compacting="true"] {
+  opacity: 0.4;
+  cursor: progress;
+}
+
+.henira-pop.henira-context-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 65;
+  width: 280px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  white-space: normal;
+}
+/* 透明桥：面板下沿到触发钮之间的 8px 空隙仍属于面板（悬停不收起） */
+.henira-pop.henira-context-pop::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+.henira-context-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.henira-context-title {
+  font-size: var(--henira-fs-md);
+  color: var(--henira-text);
+  font-weight: 500;
+}
+.henira-context-summary {
+  font-family: var(--henira-mono);
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+  white-space: nowrap;
+}
+
+.henira-context-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--henira-surface);
+}
+.henira-context-seg {
+  display: block;
+  height: 100%;
+}
+.henira-context-seg-system {
+  background: var(--henira-text-subtle);
+}
+.henira-context-seg-tools {
+  background: var(--henira-text-subtlest);
+}
+.henira-context-seg-messages {
+  background: color-mix(in srgb, var(--henira-text) 28%, transparent);
+}
+
+.henira-context-parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.henira-context-part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+.henira-context-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.henira-context-part-label {
+  flex: 1;
+}
+.henira-context-part-value {
+  font-family: var(--henira-mono);
+  color: var(--henira-text-muted);
+  white-space: nowrap;
+}
+
+.henira-context-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+.henira-context-mode {
+  border: 1px solid var(--henira-border);
+  border-radius: 9999px;
+  padding: 0 6px;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-muted);
+}
+.henira-context-warn {
+  color: var(--henira-warn-text);
+}
+.henira-context-remaining,
+.henira-context-cache {
+  font-family: var(--henira-mono);
+  color: var(--henira-text-muted);
+}
+.henira-context-cache {
+  font-size: var(--henira-fs-sm);
+  border-top: 1px solid var(--henira-border);
+  padding-top: 8px;
+}
+.henira-context-suspicion {
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-warn-text);
+  font-family: var(--henira-mono);
+}
+.henira-context-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border-top: 1px solid var(--henira-border);
+  padding-top: 8px;
+}
+.henira-context-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--henira-border);
+  border-radius: var(--henira-radius);
+  background: var(--henira-panel);
+  color: var(--henira-text);
+  font-size: var(--henira-fs-sm);
+  padding: 4px 8px;
+}
+.henira-context-input:focus {
+  outline: none;
+  border-color: var(--henira-border-strong);
+}
+.henira-app button.henira-context-compact-btn {
+  border: 1px solid var(--henira-border-strong);
+  border-radius: var(--henira-radius);
+  background: var(--henira-surface);
+  color: var(--henira-text);
+  font-size: var(--henira-fs-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.henira-app button.henira-context-compact-btn:hover:not(:disabled) {
+  background: var(--henira-surface-hover);
+}
+.henira-context-compacting {
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+.henira-context-feedback {
+  margin: 0;
+  flex-basis: 100%;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
+
+/* 压缩熔断横幅（composer 之上常驻；重试 = 手动压缩，新开会话） */
+.henira-compaction-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--henira-space-2);
+  margin-bottom: var(--henira-space-2);
+  padding: 6px 10px;
+  border-radius: var(--henira-radius);
+  background: var(--henira-warn-bg);
+  color: var(--henira-warn-text);
+  font-size: var(--henira-fs-sm);
+}
+.henira-compaction-banner-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.henira-app .henira-compaction-banner button {
+  appearance: none;
+  border: 1px solid currentcolor;
+  border-radius: var(--henira-radius);
+  background: transparent;
+  color: inherit;
+  font-size: var(--henira-fs-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.henira-app .henira-compaction-banner button:hover:not(:disabled) {
+  background: color-mix(in srgb, currentcolor 12%, transparent);
+}

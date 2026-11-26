@@ -7,8 +7,9 @@ import type {
   SessionEvent,
   SessionEventInput,
   SessionService,
+  SurfaceEntry,
 } from "@henira/protocol";
-import { deriveMessages } from "./derive.js";
+import { deriveMessages, deriveSurface } from "./derive.js";
 import { forkSession } from "./fork.js";
 import { type CreateSessionOptions, SessionStore } from "./store.js";
 
@@ -31,6 +32,7 @@ function wrapStore(store: SessionStore): SessionHandle {
     append: (input: SessionEventInput) => store.append(input),
     events: () => store.events(),
     deriveMessages: (): ModelMessage[] => deriveMessages(store.events()),
+    deriveSurface: (): SurfaceEntry[] => deriveSurface(store.events()),
     fork: async (atSeq?: number) =>
       wrapStore(
         await forkSession({

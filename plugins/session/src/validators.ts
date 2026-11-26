@@ -249,6 +249,45 @@ const schemas: Record<string, z.ZodType> = {
     code: z.string().min(1),
     message: z.string().min(1),
     fatal: z.boolean().optional(),
+    status: z.number().int().optional(),
+    limit: z.number().int().positive().optional(),
+    actual: z.number().int().positive().optional(),
+  }),
+  // 压缩三事件（compaction.md §4.7）：session 包注册为基础事件（I-11——停用压缩插件后
+  // 带压缩事件的账本照常打开）。只承载观测值与界面状态，审计事实（失败）另落 error；
+  // 写入方一律带 ignorable: true（旧读者 fail-closed 闸的豁免通道）。
+  "compaction/start": z.object({
+    id: z.string().min(1),
+    trigger: z.enum(["auto", "manual"]),
+    turn: z.string().min(1),
+    step: z.number().int().nonnegative(),
+    before: z.number().nonnegative(),
+    plan: z.looseObject({
+      startSeq: z.number().int().positive(),
+      endSeq: z.number().int().positive(),
+      units: z.number().int().nonnegative(),
+    }),
+    omittedTurns: z.number().int().nonnegative().optional(),
+    digestUnits: z.number().int().nonnegative().optional(),
+    cause: z.looseObject({ code: z.string(), message: z.string() }).optional(),
+  }),
+  "compaction/summary": z.object({
+    id: z.string().min(1),
+    turn: z.string().min(1),
+    step: z.number().int().nonnegative(),
+    model: z.string().min(1),
+    usage: usageSchema,
+    summary: z.string(),
+    maskedTokens: z.number().nonnegative(),
+  }),
+  "compaction/end": z.object({
+    id: z.string().min(1),
+    turn: z.string().min(1),
+    step: z.number().int().nonnegative(),
+    state: z.enum(["completed", "failed", "interrupted"]),
+    after: z.number().nonnegative().optional(),
+    omittedTurns: z.number().int().nonnegative().optional(),
+    error: z.looseObject({ code: z.string(), message: z.string() }).optional(),
   }),
 };
 

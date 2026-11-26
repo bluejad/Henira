@@ -186,6 +186,9 @@ importers:
       '@henira/plugin-breaker':
         specifier: workspace:*
         version: link:../../plugins/breaker
+      '@henira/plugin-compaction':
+        specifier: workspace:*
+        version: link:../../plugins/compaction
       '@henira/plugin-fs':
         specifier: workspace:*
         version: link:../../plugins/fs
@@ -247,6 +250,9 @@ importers:
       '@henira/plugin-breaker':
         specifier: workspace:*
         version: link:../../plugins/breaker
+      '@henira/plugin-compaction':
+        specifier: workspace:*
+        version: link:../../plugins/compaction
       '@henira/plugin-fs':
         specifier: workspace:*
         version: link:../../plugins/fs
@@ -393,6 +399,31 @@ importers:
       '@henira/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+
+  plugins/compaction:
+    dependencies:
+      '@henira/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@henira/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@henira/llm-mock':
+        specifier: workspace:*
+        version: link:../../test-support/llm-mock
+      '@henira/plugin-loop':
+        specifier: workspace:*
+        version: link:../loop
+      '@henira/plugin-session':
+        specifier: workspace:*
+        version: link:../session
+      '@henira/plugin-tools':
+        specifier: workspace:*
+        version: link:../tools
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2

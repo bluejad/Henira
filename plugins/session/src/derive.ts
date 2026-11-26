@@ -7,6 +7,7 @@ import type {
   ModelMessage,
   SessionAttachment,
   SessionEvent,
+  SurfaceEntry,
   ToolCallDraft,
 } from "@henira/protocol";
 import { overlaps, type ReplaceInterval, readSurfaceOp } from "./surface-op.js";
@@ -26,7 +27,7 @@ interface Anchor {
   message: ModelMessage;
 }
 
-export function deriveMessages(events: readonly SessionEvent[]): ModelMessage[] {
+export function deriveSurface(events: readonly SessionEvent[]): SurfaceEntry[] {
   const latestByKey = latestKeySeqs(events);
   const { intervals, acceptedByRecordSeq } = collectAcceptedIntervals(events);
   const isReplaced = (seq: number): boolean =>
@@ -46,6 +47,9 @@ export function deriveMessages(events: readonly SessionEvent[]): ModelMessage[] 
     if (surfaceOp !== null) {
       const interval = acceptedByRecordSeq.get(event.seq);
       if (interval === undefined) continue; // 重叠败者：整条忽略（与写入裁决一致）
+      // 滚动摘要（compaction.md §4.5 修订）：替换记录自身 seq 落在更晚被接受的区间内时，
+      // 它同样退出表面——否则后到的区间罩不掉先前的摘要，摘要会一份份累积
+      if (isReplaced(event.seq)) continue;
       // 替换：区间内全部事件被跳过（isReplaced），摘要消息插在区间起点
       currentAssistant = null;
       anchors.push({ seq: interval.startSeq, order: anchors.length, message: toMessage(event) });
@@ -106,7 +110,12 @@ export function deriveMessages(events: readonly SessionEvent[]): ModelMessage[] 
   }
 
   anchors.sort((a, b) => a.seq - b.seq || a.order - b.order);
-  return anchors.map((anchor) => anchor.message);
+  return anchors.map((anchor) => ({ seq: anchor.seq, message: anchor.message }));
+}
+
+/** 模型历史（session.md §4）：表面的去 seq 投影——deriveMessages 与计量器共用同一份折叠（I-1） */
+export function deriveMessages(events: readonly SessionEvent[]): ModelMessage[] {
+  return deriveSurface(events).map((entry) => entry.message);
 }
 
 interface ToolCallEventData {

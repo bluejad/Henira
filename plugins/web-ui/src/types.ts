@@ -57,6 +57,11 @@ export interface HeniraClientLike {
   /** 恢复中断冻结的队列冲刷（可选——旧嵌入方缺省时「继续发送」钮禁用） */
   resumeQueue?(sessionId: string): Promise<boolean>;
   interrupt(sessionId: string): Promise<void>;
+  /** 手动压缩（可选，compaction.md §4.10）：说明可空（≤2000 码点）；四态回执 */
+  compact?(
+    sessionId: string,
+    instructions?: string,
+  ): Promise<{ state: "accepted" | "queued" | "skipped" | "rejected"; reason?: string }>;
   /** 轮尾分叉（可选，E4）：按账本 seq 前缀复制出新会话，返回子会话 id；宿主缺方法 = 轮尾 fork 钮不渲染 */
   fork?(sessionId: string, atSeq?: number): Promise<string>;
   /** scope:'session'/'project' = 允许范围（E6/R198：decided{scope,rule} 落账 → 同命令免 ask）；

@@ -32,6 +32,7 @@ import { createHarness } from "@henira/kernel";
 import { approvalPlugin, sessionAllowance } from "@henira/plugin-approval";
 import { askUserPlugin } from "@henira/plugin-ask-user";
 import { breakerPlugin } from "@henira/plugin-breaker";
+import { compactionPlugin } from "@henira/plugin-compaction";
 import { fsPlugin } from "@henira/plugin-fs";
 import { fsSearchPlugin } from "@henira/plugin-fs-search";
 import { fsToolsPlugin } from "@henira/plugin-fs-tools";
@@ -54,6 +55,8 @@ import { shellToolsPlugin } from "@henira/plugin-shell-tools";
 import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
+  type CompactionResponse,
+  type CompactionService,
   type Delta,
   decodeUtf8Prefix,
   deriveSessionTitle,
@@ -203,6 +206,8 @@ function builtinDefinition(
       return entry.definition ?? breakerPlugin();
     case "plugin-ask-user":
       return entry.definition ?? askUserPlugin();
+    case "plugin-compaction":
+      return entry.definition ?? compactionPlugin();
     case "plugin-mcp":
       // 外圈读者（D-064）：与 server 同构——servers 空也装配（McpService 恒在场）
       return (
@@ -223,24 +228,36 @@ function builtinDefinition(
 /** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符；与 server 同值） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
 
-/** 投影态并入队列活态（排队卡数据源；与 server session-registry #stateWithQueue 同构）：
- *  state.updated 键级整体替换语义要求发布/快照载荷都带全量队列，否则 busy 翻转抹掉客户端
- *  queue 键。loop 不在册（自定义清单无 loop——get 缺槽抛 MissingSlotError）→ queue 键缺省 */
+/** 投影态并入队列与余量活态（排队卡 / 余量入口数据源；与 server session-registry
+ *  #stateWithQueue 同构）：state.updated 键级整体替换语义要求发布/快照载荷都带全量队列，
+ *  否则 busy 翻转抹掉客户端 queue 键。loop 不在册（自定义清单无 loop——get 缺槽抛
+ *  MissingSlotError）→ queue / context 键缺省 */
 function stateWithQueue(state: SessionState, ctx: unknown): SessionState {
   let pending: QueuedPrompt[] | undefined;
   let paused: boolean | undefined;
+  let context: SessionState["context"];
   try {
     const loop = (
-      ctx as { get(slot: "loop"): { pending(): QueuedPrompt[]; paused(): boolean } } | undefined
+      ctx as
+        | {
+            get(slot: "loop"): {
+              pending(): QueuedPrompt[];
+              paused(): boolean;
+              contextUsage(): SessionState["context"];
+            };
+          }
+        | undefined
     )?.get("loop");
     pending = loop?.pending();
     paused = loop?.paused();
+    context = loop?.contextUsage();
   } catch {
     pending = undefined; // 清单没列 loop = 听清单的（无队列面）
   }
-  if (pending === undefined) return { ...state };
+  const merged: SessionState = context !== undefined ? { ...state, context } : { ...state };
+  if (pending === undefined) return merged;
   return {
-    ...state,
+    ...merged,
     queue: pending.map(({ id, text, steer, modelId, reasoningEffort }) => ({
       id,
       text,
@@ -547,6 +564,7 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     // 投影补账（server #attach 同款）：装配后的装载不走 onAppend——从账本重放补历史行
     // （fork 子会话带前缀；新建空账本 = 零事件 no-op）
     for (const event of session.ctx.get("session").events()) session.projection.ingest(event);
+    session.projection.finalizeHangingCompactions();
     // 流式碎片（刻意不落账）经总线进投影：text / reasoning delta 挂当前游标行
     session.ctx.events.on("loop/event", (payload: unknown) => {
       const event = payload as LoopEvent;
@@ -561,6 +579,37 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     });
     // 队列变更（入队/升格/删除/claim/冲刷）→ state.updated 推排队卡数据（非账本通道）
     session.ctx.events.on("queue/changed", () => {
+      publish(id, [
+        {
+          op: "state.updated",
+          state: stateWithQueue(projection.state, session.ctx),
+        },
+      ]);
+    });
+    // 余量读数（每步重算）→ state.updated 推余量入口（与 server 同形）
+    session.ctx.events.on("context/changed", () => {
+      publish(id, [
+        {
+          op: "state.updated",
+          state: stateWithQueue(projection.state, session.ctx),
+        },
+      ]);
+    });
+    // 压缩活态（与 server 同形）：进行中入口置灰；不落账本
+    session.ctx.events.on("compaction/active", (payload) => {
+      projection.state.compacting = (payload as { active?: unknown }).active === true || undefined;
+      publish(id, [
+        {
+          op: "state.updated",
+          state: stateWithQueue(projection.state, session.ctx),
+        },
+      ]);
+    });
+    // 自动压缩熔断（F-7/F-8）→ 横幅数据源
+    session.ctx.events.on("compaction/breaker", (payload) => {
+      const reason = (payload as { reason?: unknown }).reason;
+      projection.state.compactionBreaker =
+        reason === "failures" || reason === "refill" ? reason : undefined;
       publish(id, [
         {
           op: "state.updated",
@@ -637,6 +686,17 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
 
     async interrupt(sessionId) {
       await requireSession(sessions, sessionId).ctx.get("loop").interrupt();
+    },
+
+    async compact(sessionId, instructions) {
+      const session = requireSession(sessions, sessionId);
+      let service: CompactionService;
+      try {
+        service = session.ctx.get("compaction");
+      } catch {
+        return { state: "rejected", reason: "compaction-unavailable" } satisfies CompactionResponse;
+      }
+      return service.request(instructions !== undefined ? { instructions } : undefined);
     },
 
     async fork(sessionId, atSeq) {
@@ -1369,6 +1429,7 @@ function observedSession(
         },
         events: () => handle.events(),
         deriveMessages: () => handle.deriveMessages(),
+        deriveSurface: () => handle.deriveSurface(),
         fork: async (atSeq) => handle.fork(atSeq),
         replay: async (visitor) => handle.replay(visitor),
         close: () => handle.close(),

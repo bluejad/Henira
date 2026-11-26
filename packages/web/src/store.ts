@@ -5,7 +5,7 @@
 // getSession 返回缓存对象（版本化）——useSyncExternalStore 要求引用稳定。
 
 import type { Delta, Row, ServerFrame, SessionSnapshot, SessionState } from "@henira/protocol";
-import { deriveSessionTitle, formatSessionTitle } from "@henira/protocol";
+import { deriveSessionTitle, formatSessionTitle, SYNTHETIC_USER_SOURCES } from "@henira/protocol";
 
 export interface SessionView {
   rows: readonly Row[];
@@ -135,7 +135,11 @@ export class RowStore {
         session.byId.set(row.rowId, row);
         session.totalRows += 1; // 全序行数客户端自持（新行 = 新账本事实）
         // 首条用户消息即标题：header 不等下一次快照（R188；与 protocol 派生同一规则）
-        if (session.title === undefined && row.kind === "user" && row.source !== "breaker") {
+        if (
+          session.title === undefined &&
+          row.kind === "user" &&
+          !SYNTHETIC_USER_SOURCES.has(row.source)
+        ) {
           const title = formatSessionTitle(row.text);
           if (title !== undefined) session.title = title;
         }
@@ -172,7 +176,7 @@ export class RowStore {
         if (
           session.title === undefined &&
           delta.row.kind === "user" &&
-          delta.row.source !== "breaker"
+          !SYNTHETIC_USER_SOURCES.has(delta.row.source)
         ) {
           const title = formatSessionTitle(delta.row.text);
           if (title !== undefined) session.title = title;

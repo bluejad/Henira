@@ -100,6 +100,7 @@ interface SlotMap {
   mcp: McpService; // ✓ 落码（D-064）
   fs: FsService; // ✓ 落码（D-065）
   shell: ShellService; // ✓ 落码（D-065）
+  compaction: CompactionService; // ✓ 落码（压缩批；占槽官方件，可停用）
 }
 // commands 槽随 plugin-commands 落码（M6）进入 SlotMap（D-025；接口形状已定稿于 protocol 段）
 type HeniraContext = Omit<HarnessContext, "get"> & {
@@ -122,6 +123,7 @@ interface SessionService {
   append(input: SessionEventInput): Promise<SessionEvent>;   // 校验 → 分配 seq → 追加 → fsync
   events(): readonly SessionEvent[];
   deriveMessages(): ModelMessage[];                          // 应用 surfaceOp 后的模型历史
+  deriveSurface(): SurfaceEntry[];                           // 同一次折叠，每条带 seq（{seq,message}；计量器读数来源，I-1）
   fork(atSeq?: number): Promise<SessionService>;             // 复制前缀；半回合切点补 turn/end{forked}
   replay(visitor: (e: SessionEvent) => void | Promise<void>): Promise<void>;
 }
@@ -211,6 +213,9 @@ interface LlmService {
 // 工具调用）就不触发——慢不猜；模型活性归引擎层，链路活性归传输层（见 SSE 传输形状）。
 // prepareCall 从 M2 契约移除（无消费者；M1 纪律：只有定稿契约进 protocol）——
 // contextWindow 经 ModelConfig 解析（P3），压缩预算接口随 M5 压缩设计文档回归。
+// 溢出/参数错的类型化码（compaction.md §4.12）：LlmError.code = CONTEXT_OVERFLOW（压缩恢复）
+// 或 OUTPUT_LIMIT_EXCEEDED（max_tokens 参数错：去掉封顶原步重发一次）；LlmError 同时带
+// status / body / limit / actual（报错自报的读数，回灌计量与观测上限）。
 
 /** 引擎侧工具调用（与 StreamEvent 同源）；日志侧对偶 = ToolCallDraft.arguments */
 interface ToolCall {
@@ -463,7 +468,9 @@ interface LoopService {
   remove(entryId: string): Promise<boolean>; // 删除排队条目（排队卡行级操作）；不存在 false
   paused(): boolean; // 队列是否处于「中断冻结」态（UI 暂停横幅判据；投影态非账本事实）
   resume(): Promise<boolean>; // 恢复冻结队列冲刷：取队头开新回合；闲时才可，无事可做 false
-  interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}；队列非空 = 冻结不冲刷）
+  interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}；队列非空 = 冻结不冲刷）；同时广播 compaction/stop 中断在途手动压缩
+  contextUsage(): ContextReading | undefined; // 本会话余量读数（每步重算；停用压缩件照常成立）
+  isBusy(): boolean; // 回合/冲刷链在跑（含回合间空窗）——手动压缩互斥判据
 }
 
 // 命令收集（D-025）：官方 plugin-commands 实现并占 `commands` 槽位；宿主只消费
@@ -479,7 +486,7 @@ interface CommandService {
 }
 
 // 事件注册表：开放 map（P1）；校验器 = 最小 duck 接口（D-051：protocol 零依赖、
-// 只认"会 safeParse 的校验器"，不认 schema 库牌子；官方 15 变体由 session 包用 zod 实现）
+// 只认"会 safeParse 的校验器"，不认 schema 库牌子；官方 21 变体由 session 包用 zod 实现）
 interface EventValidator {
   safeParse(data: unknown):
     | { success: true; data: unknown }
@@ -717,7 +724,8 @@ POST /api/sessions/:id/steer                { entryId } → { ok: boolean }     
 DELETE /api/sessions/:id/queue/:entryId     → { ok } | 404                                        // 排队条目删除（E1 排队卡行级操作）
 POST /api/sessions/:id/queue/resume                     → { ok: boolean }                         // 恢复中断冻结的队列冲刷（取队头开新回合；无事可做 ok:false）
 POST /api/sessions/:id/queue/:entryId/promote           → { ok } | 404                            // 立即发送（抢占式）：停止当前回合并以该条开新回合（排队卡行级操作）
-POST /api/sessions/:id/interrupt                        → { ok: true }
+POST /api/sessions/:id/interrupt                        → { ok: true }   // 同时广播 compaction/stop（在途手动压缩可停）
+POST /api/sessions/:id/compact              { instructions? } → { state: "accepted"|"queued"|"skipped"|"rejected", reason? }  // 手动压缩（compaction.md §4.10）：说明 ≤2000 码点（超限 400）；skipped/rejected 带原因；未装压缩件 404
 POST /api/sessions/:id/fork                 { atSeq? }  → { ok: true; id }   // 轮尾分叉（E4；session.md §6）：按账本 seq 前缀复制出新会话并装配入册，返回子会话 id（parentSession 指源；半回合切点补写 turn/end{forked}）；atSeq 缺省 = 复制到最新；越界切点 400
 POST /api/sessions/:id/approvals/:requestId { decision: Decision, scope?: "session" | "project", feedback?: string } → { applied: boolean }  // settle 幂等，先答者赢（重复答 applied:false）；feedback = 拒绝说明（≤4096 码点；仅 decision:"rejected" 可带，其他值携带 400，D-087）；scope:'session' = 会话级允许（E6：decided{scope,rule} 落账 → 同命令/同工具后续调用免 ask）；scope:'project' = 写项目 permissions.json 的精确规则——命令类 commandExact / write·edit 类 pathExact（D-087）；requestId 从不存在（服务重启收口/重启前死亡）→ 404 { error: "approval not found" }（R175——前端把 404 当已解决收卡不回滚）
 GET  /api/sessions/:id/permissions                         → PermissionSnapshot  // 权限规则快照（R198）：会话级 = 账本折叠，项目/全局 = 配置文件；404 session not found
@@ -1004,8 +1012,28 @@ interface ErrorRow {
   turn?: string;
   code?: string;
   message: string;
+  status?: number; // HTTP 状态（LlmError.status）
+  limit?: number; // 溢出报错自报的上限
+  actual?: number; // 溢出报错自报的实际数
+  fatal?: boolean; // false = 非致命（压缩失败等；不进回合正文，痕迹由压缩行承载）
 }
-type Row = UserRow | AssistantRow | ToolRow | ApprovalRow | QuestionRow | ErrorRow;
+interface CompactionRow {
+  kind: "compaction";
+  rowId: RowId; // c:{compactionId}
+  rowSeq: number;
+  turn?: string; // 自动压缩随当前回合；闲时手动为 m-…（不挂回合头）
+  step?: number;
+  trigger: "auto" | "manual";
+  state: "running" | "completed" | "failed" | "interrupted"; // running 只活态；悬挂 start 重放收口为 interrupted
+  before?: number;
+  after?: number;
+  model?: string;
+  error?: string;
+  summary?: string; // 默认折叠，可展开
+  omittedTurns?: number; // 第 3/4 档未纳入摘要的轮次
+  digestUnits?: number; // 无模型摘要替换的步单元数
+}
+type Row = UserRow | AssistantRow | ToolRow | ApprovalRow | QuestionRow | CompactionRow | ErrorRow;
 
 interface SessionState {
   busy: boolean;
@@ -1014,6 +1042,9 @@ interface SessionState {
   queuePaused?: boolean; // 中断冻结（队列非空时中断不冲刷等 resume；投影态非账本事实，与 queue 键同批并线）
   busySince?: number; // 当前 busy 段真实起点（R173：turn/start 事件 time；turn/end 清除；重放重建自愈——刷新/重连计时续表，前端无此字段兜底本地起表）
   turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>; // 回合耗时（E3 回合头：`Math.max(1000, turn/end.time - turn/start.time)`——亚秒回合抬到 1s）+ endedAt = turn/end 时刻（E4 轮尾时间戳）+ forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive；事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
+  context?: ContextReading; // 上下文余量活态（loop 每步重算 → context/changed → state.updated；清单无 loop 缺省）
+  compacting?: boolean; // 进行中的压缩（活态；停用插件 / 重开不残留）
+  compactionBreaker?: "failures" | "refill"; // 自动压缩熔断（连续失败 / 快速回填；手动成功清除）
 } // turn/start…turn/end 之间 = busy（账本事实派生）
 interface SessionSnapshot {
   sessionId: string;
