@@ -64,13 +64,18 @@ function interactionStub(): ServiceDefinition {
   };
 }
 
-function configStub(): ServiceDefinition {
+function configStub(contextWindow?: number): ServiceDefinition {
   return {
     name: "config",
     start() {
       return {
         cwd: root,
-        model: () => ({ provider: "mock", model: "mock-1" }),
+        // 窗口未声明 = 未知（§4.3：阈值仍按缺省 128K，输出不封顶）
+        model: () => ({
+          provider: "mock",
+          model: "mock-1",
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+        }),
         credential: async () => "k",
         get: () => undefined,
         permissionRules: async () => [],
@@ -95,6 +100,7 @@ async function startedLoop(
   toolOverride?: ToolDefinition,
   seen?: LlmRequest[],
   llmOverride?: LlmService,
+  contextWindow?: number,
 ) {
   const mock = mockLlm(script);
   const llm: LlmService =
@@ -114,7 +120,7 @@ async function startedLoop(
     .use(llmStub(llm))
     .use(approvalStub())
     .use(interactionStub())
-    .use(configStub())
+    .use(configStub(contextWindow))
     .use((await import("./service.js")).loopPlugin({ maxStepsPerTurn }));
   await harness.start();
   const ctx = asHeniraContext(harness.context);
@@ -611,6 +617,8 @@ describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（
       undefined,
       undefined,
       seenSmall,
+      undefined,
+      128_000,
     );
     await collect(small.loop.run("短"));
     expect(seenSmall[0]?.maxTokens).toBeUndefined(); // 远离窗口不封顶
@@ -622,6 +630,8 @@ describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（
       undefined,
       undefined,
       seenBig,
+      undefined,
+      128_000,
     );
     await collect(big.loop.run("a".repeat(190_000)));
     const cap = seenBig[0]?.maxTokens;
@@ -629,6 +639,19 @@ describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（
     expect(cap).toBeGreaterThan(0);
     expect(cap).toBeLessThan(32_000);
     await big.harness.dispose();
+  });
+
+  it("窗口未知（模型未声明）不封顶：剩余再小也不带 maxTokens（§4.3）", async () => {
+    const seen: LlmRequest[] = [];
+    const { harness, loop } = await startedLoop(
+      [[mockText("ok"), mockUsage(USAGE), mockFinish("stop")]],
+      undefined,
+      undefined,
+      seen,
+    );
+    await collect(loop.run("a".repeat(190_000))); // 同样的用量：已知窗口会封顶
+    expect(seen[0]?.maxTokens).toBeUndefined();
+    await harness.dispose();
   });
 
   it("loop/request-failed：监听器置 retry → 原步重发、不落 error 行、两条 request/header", async () => {

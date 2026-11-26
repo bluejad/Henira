@@ -46,12 +46,18 @@ export interface DigestInput {
   step: number;
   trigger: "auto" | "manual";
   before: number;
+  /** 当前仍在跑的回合：只有它的未闭合调用算「在途」（崩溃遗留的孤儿按已结算处理） */
+  currentTurn?: string;
+  /** 停止信号：aborted 后不再改写表面（§4.11 停止 = 全停） */
+  signal?: AbortSignal;
 }
 
 export interface DigestResult {
   applied: boolean;
   units: number;
   after: number;
+  /** 被停止信号中断：已落的替换保留，未落的不再落（§4.11 停止 = 全停） */
+  interrupted?: boolean;
 }
 
 function newId(): string {
@@ -69,7 +75,11 @@ function unitKey(turn: unknown, step: unknown): string | undefined {
 }
 
 /** 扫描可见的步单元（assistant + tool/call + tool/result），按表面估算量排序 */
-function scanUnits(events: readonly SessionEvent[], surface: readonly SurfaceEntry[]): StepUnit[] {
+function scanUnits(
+  events: readonly SessionEvent[],
+  surface: readonly SurfaceEntry[],
+  currentTurn?: string,
+): StepUnit[] {
   const units = new Map<string, StepUnit>();
   const callNames = new Map<string, string>();
   const callArgs = new Map<string, string>();
@@ -141,7 +151,12 @@ function scanUnits(events: readonly SessionEvent[], surface: readonly SurfaceEnt
   }
 
   return [...units.values()]
-    .filter((unit) => unit.results.length > 0 && unit.pendingCalls.size === 0 && unit.estimate > 0)
+    .filter(
+      (unit) =>
+        unit.results.length > 0 &&
+        unit.estimate > 0 &&
+        (unit.pendingCalls.size === 0 || (currentTurn !== undefined && unit.turn !== currentTurn)),
+    )
     .sort((a, b) => b.estimate - a.estimate)
     .filter((unit) => ![...systemSeqs].some((seq) => seq >= unit.firstSeq && seq <= unit.lastSeq));
 }
@@ -163,11 +178,16 @@ export function isOversized(estimate: number, budget: ContextBudget): boolean {
 
 export async function digestOversizedUnits(input: DigestInput): Promise<DigestResult> {
   const { session, events, surface, budget } = input;
-  const candidates = scanUnits(events, surface).filter((unit) =>
+  const candidates = scanUnits(events, surface, input.currentTurn).filter((unit) =>
     isOversized(unit.estimate, budget),
   );
   const after = (): number => estimateSurface(session.deriveSurface(), input.tools).total;
+  // 用函数读取：直接比较会被前面的早退窄化成 false，循环里的复检就报「不可达」
+  const stopped = (): boolean => input.signal?.aborted === true;
   if (candidates.length === 0) return { applied: false, units: 0, after: after() };
+  if (stopped()) {
+    return { applied: false, units: 0, after: after(), interrupted: true };
+  }
 
   const id = newId();
   await session.append({
@@ -189,7 +209,12 @@ export async function digestOversizedUnits(input: DigestInput): Promise<DigestRe
   });
 
   let applied = 0;
+  let interrupted = false;
   for (const unit of candidates) {
+    if (stopped()) {
+      interrupted = true; // 停止后不再改写表面：已落的替换保留，未落的到此为止
+      break;
+    }
     const replaced = await session.append({
       type: "user/message",
       data: {
@@ -210,13 +235,20 @@ export async function digestOversizedUnits(input: DigestInput): Promise<DigestRe
       id,
       turn: input.turn,
       step: input.step,
-      state: applied > 0 ? "completed" : "failed",
+      state: interrupted ? "interrupted" : applied > 0 ? "completed" : "failed",
       after: finalAfter,
-      ...(applied === 0
-        ? { error: { code: "DIGEST_REJECTED", message: "all digest replacements were rejected" } }
-        : {}),
+      ...(interrupted
+        ? {}
+        : applied === 0
+          ? { error: { code: "DIGEST_REJECTED", message: "all digest replacements were rejected" } }
+          : {}),
     },
     ignorable: true,
   });
-  return { applied: applied > 0, units: applied, after: finalAfter };
+  return {
+    applied: applied > 0,
+    units: applied,
+    after: finalAfter,
+    ...(interrupted ? { interrupted: true } : {}),
+  };
 }

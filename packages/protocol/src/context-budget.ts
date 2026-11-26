@@ -37,6 +37,8 @@ export const WARNING_WINDOW_RATIO = 0.1;
 export interface ContextBudget {
   /** 字典窗口（未声明 = 128K） */
   window: number;
+  /** 窗口是否来自模型声明：未知时阈值仍按缺省 128K 算，但输出封顶不介入（§4.3） */
+  windowKnown: boolean;
   /** 上限 = min(window, 观测上限) */
   limit: number;
   /** 输出 + 估算误差预留 */
@@ -80,6 +82,10 @@ export interface ContextBudgetInput {
 }
 
 export function contextBudget(input: ContextBudgetInput = {}): ContextBudget {
+  const windowKnown =
+    input.contextWindow !== undefined &&
+    Number.isFinite(input.contextWindow) &&
+    input.contextWindow > 0;
   const limit = contextLimit(input.contextWindow, input.observedLimit);
   const reserve = clamp(
     Math.floor(limit * CONTEXT_RESERVE_RATIO),
@@ -92,6 +98,7 @@ export function contextBudget(input: ContextBudgetInput = {}): ContextBudget {
   );
   return {
     window: positiveInt(input.contextWindow, DEFAULT_CONTEXT_WINDOW),
+    windowKnown,
     limit,
     reserve,
     pressure: limit - reserve,
@@ -106,6 +113,7 @@ export function contextBudget(input: ContextBudgetInput = {}): ContextBudget {
 /** 主请求的输出封顶（§4.3）：只在剩余窗口小于基线时带 max_tokens；剩余非正 / 窗口未知不带。
  *  必须取整：估算器是浮点，AI SDK 的 maxOutputTokens 只接受整数（真 key 验收抓到）。 */
 export function capOutputTokens(used: number, budget: ContextBudget): number | undefined {
+  if (!budget.windowKnown) return undefined;
   const remaining = Math.floor(budget.hardLimit - used);
   if (remaining > 0 && remaining < budget.outputBase) return remaining;
   return undefined;

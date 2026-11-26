@@ -7,6 +7,7 @@ import {
   estimateText,
   type LlmRequest,
   type LlmService,
+  type ModelMessage,
   type StreamEvent,
 } from "@henira/protocol";
 import { describe, expect, it } from "vitest";
@@ -153,5 +154,64 @@ describe("requestSummary（compaction.md §4.6）", () => {
       signal: controller.signal,
     });
     expect(result).toMatchObject({ ok: false, interrupted: true });
+  });
+
+  it("第 1 档按单元裁尾：不会留下没有结果的 toolCalls（悬空调用端点必 400）", async () => {
+    const { service, seen } = scripted([
+      { type: "text-delta", text: "short summary" },
+      { type: "finish", reason: "stop" },
+    ]);
+    const messages: ModelMessage[] = [
+      { role: "user", content: `head ${"h".repeat(4_000)}` },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ callId: "c1", name: "read", arguments: "{}" }],
+      },
+      { role: "tool", callId: "c1", name: "read", content: "t".repeat(30_000), isError: false },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ callId: "c2", name: "read", arguments: "{}" }],
+      },
+      { role: "tool", callId: "c2", name: "read", content: "t".repeat(30_000), isError: false },
+    ];
+    const result = await requestSummary({
+      ...baseInput,
+      llm: service,
+      messages,
+      hardLimit: 10_000,
+      summaryOut: 1_000,
+      trimLimit: 4,
+    });
+    expect(result.ok).toBe(true);
+    const sent = seen[0]?.messages.slice(0, -1) ?? [];
+    const called = new Set<string>();
+    for (const message of sent) {
+      if (message.role === "assistant" && message.toolCalls !== undefined) {
+        for (const call of message.toolCalls) called.add(call.callId);
+      }
+    }
+    const answered = new Set(
+      sent.filter((message) => message.role === "tool").map((message) => message.callId),
+    );
+    for (const callId of called) expect(answered.has(callId)).toBe(true);
+  });
+
+  it("预算检查计入工具表（同形请求）：工具表太大 → SUMMARY_TOO_LARGE，不发必败请求", async () => {
+    const { service, seen } = scripted([
+      { type: "text-delta", text: "summary" },
+      { type: "finish", reason: "stop" },
+    ]);
+    const result = await requestSummary({
+      ...baseInput,
+      llm: service,
+      tools: [{ name: "big", description: "d".repeat(40_000), inputSchema: { type: "object" } }],
+      messages: [{ role: "user", content: "hi" }],
+      hardLimit: 10_000,
+      summaryOut: 1_000,
+    });
+    expect(result).toMatchObject({ ok: false, code: "SUMMARY_TOO_LARGE" });
+    expect(seen).toHaveLength(0);
   });
 });

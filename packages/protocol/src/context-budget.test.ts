@@ -69,12 +69,17 @@ describe("contextBudget（compaction.md §4.3）", () => {
     ).toBe(39_216);
   });
 
-  it("封顶只在 0 < 剩余 < 基线时带（compaction.md §4.3）；浮点用量取整", () => {
-    const budget = contextBudget();
+  it("封顶只在 0 < 剩余 < 基线时带（compaction.md §4.3）；浮点用量取整；窗口未知不封顶", () => {
+    const budget = contextBudget({ contextWindow: 128_000 });
     expect(capOutputTokens(budget.pressure, budget)).toBe(127_000 - 108_800); // 18.2K
     expect(capOutputTokens(90_000, budget)).toBeUndefined(); // 剩余 37K ≥ 32K
     expect(capOutputTokens(130_000, budget)).toBeUndefined(); // 剩余非正
     expect(capOutputTokens(0, contextBudget({ contextWindow: 1_000_000 }))).toBeUndefined();
+    // 窗口未知（模型未声明）：阈值仍按缺省 128K，但不封顶（§4.3 / §8 第 3 条）
+    const unknown = contextBudget();
+    expect(unknown.windowKnown).toBe(false);
+    expect(unknown.limit).toBe(128_000); // 阈值口径不变
+    expect(capOutputTokens(unknown.pressure, unknown)).toBeUndefined();
     // 估算器是浮点：AI SDK 只收整数（真 key 验收抓到 maxOutputTokens 非整数报错）
     expect(capOutputTokens(119_999.7, budget)).toBe(7_000); // floor(127000 − 119999.7)
     const fractional = capOutputTokens(119_999.2, budget);

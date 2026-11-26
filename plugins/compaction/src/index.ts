@@ -28,7 +28,7 @@ import { requestSummary } from "./summarizer.js";
 /** 压力/溢出阶段失败的可见错误码（F-2 / F-1：非致命时痕迹由压缩行承载） */
 export const COMPACTION_FAILED_CODE = "COMPACTION_FAILED";
 
-type CompactStatus = "completed" | "failed" | "skipped";
+type CompactStatus = "completed" | "failed" | "interrupted" | "skipped";
 type BreakerReason = "failures" | "refill";
 
 function newId(prefix: string): string {
@@ -105,7 +105,15 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         failures += 1;
         if (failures >= 3) setBreaker("failures");
       };
-      const noteSuccess = (): void => {
+      /** 自动压缩取得进展（摘要或阶梯）：清失败计数与步距，但保留连续快速回填计数
+       *  （F-8：成功不重置连续计数，只有「距上次成功 ≥3 步」的那次尝试才归零） */
+      const noteAutoProgress = (): void => {
+        failures = 0;
+        stepsSinceSuccess = 0;
+        setBreaker(undefined);
+      };
+      /** 手动压缩成功：用户主动介入——失败、步距与快速回填计数一起清零（§4.8/§4.10） */
+      const noteManualSuccess = (): void => {
         failures = 0;
         refillStreak = 0;
         stepsSinceSuccess = 0;
@@ -177,7 +185,12 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         cause?: { code: string; message: string },
       ): Promise<CompactStatus> => {
         const surface = session.deriveSurface();
-        const plan = selectInterval({ events: session.events(), surface, budget: value.budget });
+        const plan = selectInterval({
+          events: session.events(),
+          surface,
+          budget: value.budget,
+          currentTurn: value.turn,
+        });
         if (plan === undefined) return "skipped"; // 历史不足：不计失败、不计触发（F-8）
 
         const id = newId("c");
@@ -238,7 +251,8 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
             { code: result.code, message: result.message },
             result.interrupted === true,
           );
-          return "failed";
+          // 中断不是失败（F-7）：不记失败计数，也不进阶梯（调用方据状态跳过 digest）
+          return result.interrupted === true ? "interrupted" : "failed";
         }
 
         await session.append({
@@ -305,9 +319,13 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         return "completed";
       };
 
-      /** 无模型阶梯（§4.9 第 2 步）：替换工具结果超长的整步单元 */
-      const digest = async (value: PreStepValue): Promise<boolean> => {
-        return withActive("auto", async () => {
+      /** 无模型阶梯（§4.9 第 2 步）：替换工具结果超长的整步单元。返回是否落账与是否被停止 */
+      const digest = async (
+        value: PreStepValue,
+        trigger: "auto" | "manual" = "auto",
+      ): Promise<{ applied: boolean; interrupted: boolean }> => {
+        return withActive(trigger, async () => {
+          if (value.signal.aborted) return { applied: false, interrupted: true };
           const result = await digestOversizedUnits({
             session,
             events: session.events(),
@@ -316,55 +334,65 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
             tools: value.tools,
             turn: value.turn,
             step: value.step,
-            trigger: "auto",
+            trigger,
             before: value.context.used,
+            currentTurn: value.turn,
+            signal: value.signal,
           });
-          if (!result.applied) return false;
+          if (!result.applied) {
+            return { applied: false, interrupted: result.interrupted === true };
+          }
           try {
             await cx.events.serial("compaction/applied", {
-              trigger: "auto",
+              trigger,
               before: value.context.used,
               after: result.after,
             });
           } catch {
             // 同 compact：监听器异常不回灌
           }
-          return true;
+          return { applied: true, interrupted: result.interrupted === true };
         });
       };
 
       /** 压力路径的一次自动压缩尝试（熔断/快速回填/小窗口都在这里收口） */
       const autoOnce = async (value: PreStepValue): Promise<boolean> => {
         if (breaker !== undefined) return false;
-        stepsSinceSuccess += 1;
-        if (value.budget.limit < 32_000) {
-          // 小窗口不做模型摘要（§4.6）；无模型阶梯落地同样算进展（清熔断与计数）
-          const ok = await digest(value);
-          if (ok) noteSuccess();
-          return ok;
+        // F-8：距上次成功不足 3 步 = 快速回填，连续第 3 次熔断。连续计数按「尝试」提交
+        //（跳过/中断不提交），成功也不清零——只有「距上次成功 ≥3 步」的那次尝试才归零
+        const rapid = stepsSinceSuccess < 3;
+        const nextRefill = rapid ? refillStreak + 1 : 0;
+        if (rapid && nextRefill >= 3) {
+          setBreaker("refill");
+          return false;
         }
 
-        if (stepsSinceSuccess < 3) {
-          refillStreak += 1;
-          if (refillStreak >= 3) {
-            setBreaker("refill"); // F-8：连续第 3 次快速回填
-            return false;
-          }
-        } else {
-          refillStreak = 0;
+        if (value.budget.limit < 32_000) {
+          // 小窗口不做模型摘要（§4.6）；无模型阶梯落地同样算进展（清熔断与计数）
+          const stepped = await digest(value);
+          if (!stepped.applied) return false;
+          refillStreak = nextRefill;
+          noteAutoProgress();
+          return true;
         }
 
         const status = await withActive("auto", () => compact(value, "auto"));
+        if (status === "completed" || status === "failed") refillStreak = nextRefill;
         if (status === "completed") {
-          noteSuccess();
-          // 压完仍高于压力线 → 无模型阶梯（§4.9）
+          noteAutoProgress();
+          // 压完仍高于压力线 → 无模型阶梯（§4.9）；读数用压后的实际值，不陈回压缩前
           const after = estimateSurface(session.deriveSurface(), value.tools).total;
-          if (after >= value.budget.pressure) await digest(value);
+          if (after >= value.budget.pressure) {
+            await digest({ ...value, context: { ...value.context, used: after } });
+          }
           return true;
         }
         if (status === "failed") noteFailure();
-        if (await digest(value)) {
-          noteSuccess();
+        if (status === "interrupted") return false; // 用户中断：不记失败、不进阶梯、不改写表面
+        const stepped = await digest(value);
+        if (stepped.applied) {
+          if (status === "skipped") refillStreak = nextRefill;
+          noteAutoProgress();
           return true;
         }
         return false;
@@ -372,6 +400,7 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
 
       cx.events.onWaterfall("loop/pre-step", async (raw, next) => {
         const value = raw as PreStepValue;
+        stepsSinceSuccess += 1; // F-8 的距离按步算（不按尝试次数）：每步都走这里
         if (active !== undefined) {
           // I-8：手动压缩在途 → 回合在步边界等它结束，再按新表面派生
           await active.catch(() => {});
@@ -384,7 +413,7 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           const queuedStatus = await withActive("manual", () =>
             compact(value, "manual", pending.instructions),
           );
-          if (queuedStatus === "completed") noteSuccess();
+          if (queuedStatus === "completed") noteManualSuccess();
           return next({ ...value, messages: session.deriveMessages() });
         }
         if (value.signal.aborted || value.context.used < value.context.pressure) {
@@ -414,7 +443,8 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           signal: value.signal,
         };
         let progressed = false;
-        if (value.budget.limit >= 32_000) {
+        // §16：模型摘要一次 + 无模型阶梯一次——第二次溢出起不再跑模型摘要
+        if (value.budget.limit >= 32_000 && value.retries === 0) {
           const status = await withActive("auto", () =>
             compact(pre, "auto", undefined, {
               code: value.error.code,
@@ -423,10 +453,15 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           );
           progressed = status === "completed";
           if (status === "failed") noteFailure();
+          if (status === "interrupted") return next(value); // 停止后不重发
         }
-        if (!progressed) progressed = await digest(pre);
+        if (!progressed) {
+          const stepped = await digest(pre);
+          progressed = stepped.applied;
+          if (stepped.interrupted) return next(value);
+        }
         if (progressed) {
-          noteSuccess();
+          noteAutoProgress();
           return next({ ...value, retry: true });
         }
         return next(value);
@@ -478,10 +513,14 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
             }
             const tools = cx.get("tools").project();
             const surface = session.deriveSurface();
+            // 计量器已学到的观测上限一并带进来：静默截断端点上，手动摘要不能按声明
+            // 窗口硬发（§4.2；contextUsage().size = min(声明窗口, 观测上限)）
+            const observedSize = cx.get("loop").contextUsage()?.size;
             const budget = contextBudget({
               ...(modelConfig.contextWindow !== undefined
                 ? { contextWindow: modelConfig.contextWindow }
                 : {}),
+              ...(observedSize !== undefined ? { observedLimit: observedSize } : {}),
               ...(modelConfig.maxOutputTokens !== undefined
                 ? { maxOutputTokens: modelConfig.maxOutputTokens }
                 : {}),
@@ -515,23 +554,41 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           // 回合转忙）——此处到 withActive 之间无 await，重查后同步占位才算真正互斥
           if (active !== undefined || cx.get("loop").isBusy()) {
             manualController = undefined;
+            // 起步窗里用户按了停止：不再转投排队（停止 = 全停）
+            if (controller.signal.aborted) {
+              return { state: "rejected", reason: "interrupted" };
+            }
             if (cx.get("loop").isBusy()) {
               queued = { ...(carried !== undefined ? { instructions: carried } : {}) };
               return { state: "queued" };
             }
             return { state: "rejected", reason: "compaction-in-progress" };
           }
+          if (controller.signal.aborted) {
+            manualController = undefined;
+            return { state: "rejected", reason: "interrupted" };
+          }
 
           try {
+            // 小窗口（<32K）不做模型摘要（§4.6）：直接走无模型阶梯，不发必败的摘要请求
+            if (value.budget.limit < 32_000) {
+              const stepped = await digest(value, "manual");
+              if (stepped.applied) {
+                noteManualSuccess();
+                return { state: "accepted" };
+              }
+              if (stepped.interrupted) return { state: "rejected", reason: "interrupted" };
+              return { state: "skipped", reason: "history-insufficient" };
+            }
             const status = await withActive("manual", () => compact(value, "manual", carried));
             if (status === "completed") {
-              noteSuccess();
+              noteManualSuccess();
               return { state: "accepted" };
             }
             if (status === "skipped") {
               return { state: "skipped", reason: "history-insufficient" };
             }
-            if (controller.signal.aborted) {
+            if (status === "interrupted") {
               return { state: "rejected", reason: "interrupted" };
             }
             return { state: "rejected", reason: "compaction-failed" };

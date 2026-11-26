@@ -6,6 +6,7 @@
 import {
   estimateMessages,
   estimateText,
+  estimateTools,
   type LlmService,
   type ModelConfig,
   type ModelMessage,
@@ -52,8 +53,10 @@ function fits(
   instructionTokens: number,
   summaryOut: number,
   hardLimit: number,
+  toolsTokens: number,
 ): boolean {
-  return estimateMessages(messages) + instructionTokens + summaryOut <= hardLimit;
+  // 摘要请求带同款工具表（§4.6 同形）——预算不算它，压力线上就可能超窗
+  return estimateMessages(messages) + instructionTokens + summaryOut + toolsTokens <= hardLimit;
 }
 
 /** 第 2 档：转写里的超长工具结果换成头尾摘录（无模型） */
@@ -105,6 +108,7 @@ function dropLeading(
 export async function requestSummary(input: SummaryRequestInput): Promise<SummaryResult> {
   const messages = [...input.messages];
   const instructionTokens = estimateText(input.instruction);
+  const toolsTokens = estimateTools(input.tools);
   // 第 1 档：装不下就从转写尾部裁（尾部不被遮蔽，也不依赖摘要）。
   // 只裁尾部消息（trimLimit 限定），头部留给第 3/4 档；系统提示永不裁（I-4）。
   let trimBudget = input.trimLimit ?? Number.POSITIVE_INFINITY;
@@ -114,28 +118,38 @@ export async function requestSummary(input: SummaryRequestInput): Promise<Summar
     }
     return -1;
   };
-  while (
-    messages.length > 1 &&
-    trimBudget > 0 &&
-    estimateMessages(messages) + instructionTokens + input.summaryOut > input.hardLimit
-  ) {
+  const overBudget = (): boolean =>
+    estimateMessages(messages) + instructionTokens + input.summaryOut + toolsTokens >
+    input.hardLimit;
+  while (messages.length > 1 && trimBudget > 0 && overBudget()) {
     const index = lastTrimmable();
     if (index < 0) break;
-    messages.splice(index, 1);
-    trimBudget -= 1;
+    // 按单元边界裁：tool 消息必须连同所属 assistant（带 toolCalls）一起裁——
+    // 只裁结果会留下悬空调用，端点直接 400
+    let start = index;
+    if (messages[index]?.role === "tool") {
+      while (start > 0 && messages[start - 1]?.role === "tool") start -= 1;
+      const owner = messages[start - 1];
+      if (owner?.role !== "assistant" || owner.toolCalls === undefined) break;
+      start -= 1;
+    }
+    const count = index - start + 1;
+    if (count > trimBudget) break;
+    messages.splice(start, count);
+    trimBudget -= count;
   }
 
   // 第 2 档：超长工具结果换头尾摘录；第 3/4 档：头部只留后一半 / 后 35%。
   // 降的是转写，替换区间不变（compaction.md §4.6）。
   let omittedTurns = 0;
-  if (!fits(messages, instructionTokens, input.summaryOut, input.hardLimit)) {
+  if (!fits(messages, instructionTokens, input.summaryOut, input.hardLimit, toolsTokens)) {
     shrinkToolResults(messages);
   }
-  if (!fits(messages, instructionTokens, input.summaryOut, input.hardLimit)) {
+  if (!fits(messages, instructionTokens, input.summaryOut, input.hardLimit, toolsTokens)) {
     const dropped = dropLeading(messages, 0.5);
     omittedTurns += Math.max(dropped.assistants, dropped.users);
   }
-  if (!fits(messages, instructionTokens, input.summaryOut, input.hardLimit)) {
+  if (!fits(messages, instructionTokens, input.summaryOut, input.hardLimit, toolsTokens)) {
     const dropped = dropLeading(messages, 0.35);
     omittedTurns += Math.max(dropped.assistants, dropped.users);
   }
@@ -146,7 +160,7 @@ export async function requestSummary(input: SummaryRequestInput): Promise<Summar
     instruction = `${input.instruction}\n\nNote: the earliest ${omittedTurns} turns were not included in this transcript; do not claim to cover them.`;
     finalInstructionTokens = estimateText(instruction);
   }
-  const inputEstimate = estimateMessages(messages) + finalInstructionTokens;
+  const inputEstimate = estimateMessages(messages) + finalInstructionTokens + toolsTokens;
   if (inputEstimate + input.summaryOut > input.hardLimit) {
     return {
       ok: false,

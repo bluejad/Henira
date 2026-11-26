@@ -67,7 +67,7 @@ describe("selectInterval（compaction.md §4.5）", () => {
     expect(tiny).toBeUndefined(); // 2 对 ≈ 4K，尾部吃满 → 无头部
   });
 
-  it("有在途工具调用的单元不可压缩（I-2）", () => {
+  it("有在途工具调用的单元不可压缩（I-2）；当前回合的未闭合调用才是在途", () => {
     reset();
     const events: SessionEvent[] = [];
     const surface: SurfaceEntry[] = [];
@@ -93,7 +93,60 @@ describe("selectInterval（compaction.md §4.5）", () => {
           ev("tool/call", { turn: "t-0", step: 1, callId: "c1", name: "read", arguments: "{}" }),
         );
     }
-    expect(selectInterval({ events, surface, budget })).toBeUndefined();
+    // 当前回合 = t-0：调用的结果还可能来 → 整段不可压
+    expect(selectInterval({ events, surface, budget, currentTurn: "t-0" })).toBeUndefined();
+    // 回合已结束（崩溃遗留的孤儿）：结果永远不会来，派生已合成错误结果 → 可压
+    expect(selectInterval({ events, surface, budget, currentTurn: "t-live" })).toBeDefined();
+    expect(selectInterval({ events, surface, budget })).toBeDefined(); // 闲时手动：无在途回合
+  });
+
+  it("digest 替换不挡后续模型摘要（P1）：不计前推/滚动，只在区间重叠处截断", () => {
+    reset();
+    const { events, surface } = pairs(10);
+    // 无模型摘要替换了尾部最后一对（§4.9 允许摘最新一步）：记录 seq 21，区间 [19,20]
+    const digest = ev("user/message", {
+      turn: "t-digest",
+      step: 0,
+      content: "[compacted tool step]",
+      source: "compaction-digest",
+      surfaceOp: { op: "replace", startSeq: 19, endSeq: 20 },
+    });
+    const tailSurface = [
+      ...surface.filter((item) => item.seq < 19),
+      entry(19, "user", "[compacted tool step]"), // 摘要插在区间起点（记录 seq 21）
+    ];
+    const first = selectInterval({
+      events: [...events, digest],
+      surface: tailSurface,
+      budget,
+    });
+    // 无修复时 previousEnd = 20 → 起点 1 ≤ 20 直接判不选
+    expect(first).toBeDefined();
+    expect(first?.startSeq).toBe(1);
+    expect(first?.endSeq).toBeLessThan(19); // 区间不碰 digest 区间 [19,20]
+
+    // 落在头部中间（区间 [9,10]）：新区间截到它之前，绝不允许重叠（store 先写生效）
+    reset();
+    const middle = pairs(10);
+    const midDigest = ev("user/message", {
+      turn: "t-digest",
+      step: 0,
+      content: "[compacted tool step]",
+      source: "compaction-digest",
+      surfaceOp: { op: "replace", startSeq: 9, endSeq: 10 },
+    });
+    const midSurface = [
+      ...middle.surface.filter((item) => !(item.seq >= 9 && item.seq <= 10)),
+      entry(9, "user", "[compacted tool step]"),
+    ];
+    const second = selectInterval({
+      events: [...middle.events, midDigest],
+      surface: midSurface,
+      budget,
+    });
+    expect(second).toBeDefined();
+    expect(second?.startSeq).toBe(1);
+    expect(second?.endSeq).toBe(8); // 截在 digest 区间 [9,10] 之前
   });
 
   it("系统消息夹在头部中间：区间截到系统消息之前（I-3）", () => {

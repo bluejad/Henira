@@ -720,4 +720,223 @@ describe("plugin-compaction 主体（compaction.md §4.4–§4.7）", () => {
     expect(seen[1]?.model).toMatchObject({ provider: "mock", model: "mock-1" });
     await harness.dispose();
   });
+
+  it("无模型摘要之后仍能做模型摘要（P1：digest 区间不进前推/滚动记账）", async () => {
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([
+      [mockText("summary after digest"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("reply"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, session } = await assemble(llm);
+    await seedHistory(session, 10); // ≈120K：压力线上、硬线下
+    const last = session
+      .events()
+      .filter((event) => event.type === "assistant/message")
+      .at(-1);
+    expect(last).toBeDefined();
+    // 模拟溢出恢复路径的无模型摘要：替换最新一对（§4.9 允许摘最新一步）
+    await session.append({
+      type: "user/message",
+      data: {
+        turn: "t-dig",
+        step: 0,
+        content: "[compacted tool step] keep going",
+        source: "compaction-digest",
+        surfaceOp: { op: "replace", startSeq: (last?.seq ?? 0) - 1, endSeq: last?.seq ?? 0 },
+      },
+    });
+
+    await collect(ctx.get("loop").run("继续"));
+    const summary = session.events().find((event) => event.type === "compaction/summary");
+    expect(summary).toBeDefined(); // 无修复时选区被「只向前」挡死，直接判 skipped
+    const end = session
+      .events()
+      .find(
+        (event) =>
+          event.type === "compaction/end" &&
+          (event.data as { state?: string }).state === "completed",
+      );
+    expect(end).toBeDefined();
+    await harness.dispose();
+  });
+
+  it("自动压缩被停止：end{interrupted}、不计失败、不进阶梯（F-7）", async () => {
+    const llm: LlmService = {
+      async *stream(_req, signal) {
+        await new Promise<void>((done) => {
+          if (signal.aborted) done();
+          else signal.addEventListener("abort", () => done(), { once: true });
+        });
+        throw new LlmError("ABORTED", "stopped");
+      },
+    };
+    const { harness, ctx, session } = await assemble(llm);
+    await seedHistory(session, 10);
+    const breaker: (string | null)[] = [];
+    ctx.events.on("compaction/breaker", (payload) =>
+      breaker.push((payload as { reason?: string | null }).reason ?? null),
+    );
+    const waitFor = async (predicate: () => boolean): Promise<void> => {
+      for (let index = 0; index < 400; index += 1) {
+        if (predicate()) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error("timeout waiting for compaction");
+    };
+    for (let index = 0; index < 3; index += 1) {
+      const controller = new AbortController();
+      const turn = collect(ctx.get("loop").run(`停止${index}`, controller.signal));
+      await waitFor(
+        () =>
+          session.events().filter((event) => event.type === "compaction/start").length ===
+          index + 1,
+      );
+      controller.abort();
+      await turn;
+    }
+    const ends = session.events().filter((event) => event.type === "compaction/end");
+    expect(ends).toHaveLength(3);
+    expect(ends.every((event) => (event.data as { state?: string }).state === "interrupted")).toBe(
+      true,
+    );
+    expect(session.events().filter((event) => event.type === "compaction/summary")).toHaveLength(0);
+    expect(session.events().filter((event) => event.type === "error")).toHaveLength(0);
+    expect(breaker).not.toContain("failures"); // 三次中断不熔断
+    await harness.dispose();
+  });
+
+  it("F-8 快速回填：成功后一步内又触发，连续第 3 次 → 熔断（成功不重置连续计数）", async () => {
+    const noUsage = { inputTokens: 0, outputTokens: 0 };
+    const mock = mockLlm(
+      Array.from({ length: 4 }, () => [mockText("ok"), mockUsage(noUsage), mockFinish("stop")]),
+    );
+    const { harness, ctx, session } = await assemble(mock.service, 16_000);
+    const breaker: (string | null)[] = [];
+    ctx.events.on("compaction/breaker", (payload) =>
+      breaker.push((payload as { reason?: string | null }).reason ?? null),
+    );
+    for (let index = 0; index < 4; index += 1) {
+      const turn = `t-big-${index}`;
+      await session.append({
+        type: "user/message",
+        data: { turn, step: 0, content: "run the tool", source: "send" },
+      });
+      await session.append({
+        type: "assistant/message",
+        data: {
+          turn,
+          step: 1,
+          content: "calling",
+          model: "mock/mock-1",
+          finishReason: "tool-calls",
+        },
+      });
+      await session.append({
+        type: "tool/call",
+        data: { turn, step: 1, callId: `c-${index}`, name: "read", arguments: "{}" },
+      });
+      await session.append({
+        type: "tool/result",
+        data: {
+          turn,
+          step: 1,
+          callId: `c-${index}`,
+          isError: false,
+          content: "x".repeat(100_000),
+          durationMs: 1,
+        },
+      });
+      await collect(ctx.get("loop").run(`继续${index}`));
+    }
+    expect(breaker).toContain("refill");
+    const completed = session
+      .events()
+      .filter(
+        (event) =>
+          event.type === "compaction/end" &&
+          (event.data as { state?: string }).state === "completed",
+      );
+    expect(completed).toHaveLength(3); // 第三次快速回填成功，第四次被熔断挡住
+    await harness.dispose();
+  });
+
+  it("手动压缩在 <32K 窗口走无模型阶梯：不发必败的摘要请求（§4.6）", async () => {
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([[mockText("never"), mockUsage(USAGE), mockFinish("stop")]]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, session } = await assemble(llm, 16_000);
+    await session.append({
+      type: "user/message",
+      data: { turn: "t-big", step: 0, content: "run the big tool", source: "send" },
+    });
+    await session.append({
+      type: "assistant/message",
+      data: {
+        turn: "t-big",
+        step: 1,
+        content: "calling",
+        model: "mock/mock-1",
+        finishReason: "tool-calls",
+      },
+    });
+    await session.append({
+      type: "tool/call",
+      data: { turn: "t-big", step: 1, callId: "c-big", name: "read", arguments: "{}" },
+    });
+    await session.append({
+      type: "tool/result",
+      data: {
+        turn: "t-big",
+        step: 1,
+        callId: "c-big",
+        isError: false,
+        content: "x".repeat(100_000),
+        durationMs: 1,
+      },
+    });
+    const response = await ctx.get("compaction").request();
+    expect(response.state).toBe("accepted");
+    expect(seen).toHaveLength(0); // 没有摘要请求
+    const start = session.events().find((event) => event.type === "compaction/start");
+    expect(start?.data).toMatchObject({ trigger: "manual", digestUnits: 1 });
+    await harness.dispose();
+  });
+
+  it("第二次溢出只走无模型阶梯：模型摘要最多一次（§16）", async () => {
+    let summaryCalls = 0;
+    const llm: LlmService = {
+      async *stream(req) {
+        const last = req.messages.at(-1);
+        if (
+          last?.role === "user" &&
+          typeof last.content === "string" &&
+          last.content.includes("Compress the conversation above")
+        ) {
+          summaryCalls += 1;
+          yield { type: "text-delta", text: "brief summary" };
+          yield { type: "finish", reason: "stop" };
+          return;
+        }
+        throw new LlmError("CONTEXT_OVERFLOW", "maximum context length exceeded", 400);
+      },
+    };
+    const { harness, ctx, session } = await assemble(llm);
+    await seedHistory(session, 8); // 低于压力线：只有溢出路径
+    await collect(ctx.get("loop").run("继续"));
+    expect(summaryCalls).toBe(1);
+    const error = session.events().find((event) => event.type === "error");
+    expect((error?.data as { code?: string } | undefined)?.code).toBe("CONTEXT_OVERFLOW");
+    await harness.dispose();
+  });
 });

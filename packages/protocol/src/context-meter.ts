@@ -173,12 +173,15 @@ function resolveAnchor(
   if (typeof headerData.model !== "string" || headerData.model === "") return undefined;
   const usage = usageOf(lastPositive.event);
   const assistant = assistants.get(lastPositive.key);
+  // 锚点步没有落 assistant/message（被掐）→ 携带量记 0（§4.2）：那一步的输出不在表面里，
+  // 锚后只从 request/header 起算增量
+  const landed = assistant !== undefined;
   return {
     headerSeq: header.seq,
     cutSeq: assistant?.seq ?? header.seq,
     input: usage.inputTokens ?? 0,
-    output: usage.outputTokens ?? 0,
-    reasoning: usage.reasoningTokens ?? 0,
+    output: landed ? (usage.outputTokens ?? 0) : 0,
+    reasoning: landed ? (usage.reasoningTokens ?? 0) : 0,
     echo: headerData.params?.echoReasoning === true,
     model: headerData.model,
     ...(usage.cacheReadTokens !== undefined ? { cacheRead: usage.cacheReadTokens } : {}),
