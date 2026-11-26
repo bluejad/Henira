@@ -5,7 +5,7 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHarness, type ServiceDefinition } from "@henira/kernel";
-import { mockFinish, mockLlm, mockText, mockUsage } from "@henira/llm-mock";
+import { mockFinish, mockLlm, mockText, mockToolCall, mockUsage } from "@henira/llm-mock";
 import { loopPlugin } from "@henira/plugin-loop";
 import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
@@ -17,6 +17,7 @@ import {
   LlmError,
   type LlmRequest,
   type LlmService,
+  type ModelConfig,
   rebuildProjection,
   type SessionEvent,
   type ToolDefinition,
@@ -58,13 +59,22 @@ function interactionStub(): ServiceDefinition {
     }),
   };
 }
-function configStub(contextWindow = 128_000): ServiceDefinition {
+function configStub(
+  contextWindow = 128_000,
+  models?: Record<string, ModelConfig>,
+): ServiceDefinition {
+  const fallback: ModelConfig = { provider: "mock", model: "mock-1", contextWindow };
   return {
     name: "config",
     start: () => ({
       cwd: root,
-      // 关键：窗口在场（阈值按即将请求的模型算）
-      model: () => ({ provider: "mock", model: "mock-1", contextWindow }),
+      // 关键：窗口在场（阈值按即将请求的模型算）；显式 id 走表，表里没有 = 不可解析
+      model: (id?: string) => {
+        if (id === undefined || models === undefined) return fallback;
+        const hit = models[id];
+        if (hit === undefined) throw new Error(`unknown model ${id}`);
+        return hit;
+      },
       credential: async () => "k",
       get: () => undefined,
       permissionRules: async () => [],
@@ -80,14 +90,18 @@ const readTool: ToolDefinition = {
   execute: async () => ({ content: "file body" }),
 };
 
-async function assemble(llm: LlmService, contextWindow = 128_000) {
+async function assemble(
+  llm: LlmService,
+  contextWindow = 128_000,
+  models?: Record<string, ModelConfig>,
+) {
   const harness = createHarness()
     .use(sessionPlugin({ directory: path.join(root, "sess"), cwd: root }))
     .use(toolsPlugin({}))
     .use(llmStub(llm))
     .use(approvalStub())
     .use(interactionStub())
-    .use(configStub(contextWindow))
+    .use(configStub(contextWindow, models))
     .use(loopPlugin())
     .use(compactionPlugin());
   await harness.start();
@@ -124,20 +138,23 @@ async function collect(iterable: AsyncIterable<unknown>): Promise<void> {
   }
 }
 
-/** 预置 20 对旧历史（每条约 6K token）：总用量远超 128K 的压力线 */
+/** 预置 20 对旧历史（每条约 6K token）：总用量远超 128K 的压力线。
+ *  offset：补历史时换一批 turn id——派生按 key 去重，同 id 的第二批会被丢掉 */
 async function seedHistory(
   events: { append(input: { type: string; data: unknown }): Promise<SessionEvent> },
   count = 20,
+  offset = 0,
 ) {
   for (let index = 0; index < count; index += 1) {
+    const turn = `t-old-${offset + index}`;
     await events.append({
       type: "user/message",
-      data: { turn: `t-old-${index}`, step: 0, content: "x".repeat(12_000), source: "send" },
+      data: { turn, step: 0, content: "x".repeat(12_000), source: "send" },
     });
     await events.append({
       type: "assistant/message",
       data: {
-        turn: `t-old-${index}`,
+        turn,
         step: 1,
         content: "y".repeat(12_000),
         model: "mock/mock-1",
@@ -442,6 +459,265 @@ describe("plugin-compaction 主体（compaction.md §4.4–§4.7）", () => {
     const end = session.events().find((event) => event.type === "compaction/end");
     expect((end?.data as { state?: string } | undefined)?.state).toBe("interrupted");
     expect(session.events().filter((event) => event.type === "error")).toHaveLength(0);
+    await harness.dispose();
+  });
+
+  it("手动压缩起步窗：取模型期间第二个请求即拒，停止仍能中断真正在跑的压缩", async () => {
+    let summaryStarted!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      summaryStarted = resolve;
+    });
+    const llm: LlmService = {
+      async *stream(_req, signal) {
+        summaryStarted();
+        await new Promise<void>((done) => {
+          if (signal.aborted) done();
+          else signal.addEventListener("abort", () => done(), { once: true });
+        });
+        if (signal.aborted) throw new LlmError("ABORTED", "stopped");
+        yield { type: "text-delta", text: "late summary" };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const { harness, ctx, session } = await assemble(llm);
+    await seedHistory(session, 20);
+    const service = ctx.get("compaction");
+    // 第一次请求此刻停在取模型/派生阶段：active 未置位、控制器已占位
+    const first = service.request();
+    // 起步窗内的第二个请求：入口即拒。无修复时间接清掉控制器，后面的停止对 first 失效
+    expect(await service.request()).toMatchObject({
+      state: "rejected",
+      reason: "compaction-in-progress",
+    });
+    await entered;
+    ctx.events.emit("compaction/stop", {});
+    expect((await first).state).toBe("rejected");
+    const end = session.events().find((event) => event.type === "compaction/end");
+    expect((end?.data as { state?: string } | undefined)?.state).toBe("interrupted");
+    await harness.dispose();
+  });
+
+  it("手动压缩：忙时排队 → 步边界执行；成功清熔断（F-7 解除）", async () => {
+    let summaryCalls = 0;
+    const seen: LlmRequest[] = [];
+    // usage 归零 = 永不建锚点：每步都按整面估算（否则第二轮 used 塌回增量，压力线不再触发）
+    const noUsage = { inputTokens: 0, outputTokens: 0 };
+    const mock = mockLlm([
+      [mockText("ok"), mockUsage(noUsage), mockFinish("stop")],
+      [mockText("ok"), mockUsage(noUsage), mockFinish("stop")],
+      [mockText("ok"), mockUsage(noUsage), mockFinish("stop")],
+      [mockToolCall("c-slow", "slow", "{}"), mockUsage(noUsage), mockFinish("stop")],
+      [
+        mockText("queued summary: the slow tool call finished"),
+        mockUsage(noUsage),
+        mockFinish("stop"),
+      ],
+      [mockText("done after compaction"), mockUsage(noUsage), mockFinish("stop")],
+    ]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        const last = req.messages.at(-1);
+        const isSummary =
+          last?.role === "user" &&
+          typeof last.content === "string" &&
+          last.content.includes("Compress the conversation above");
+        if (isSummary) {
+          summaryCalls += 1;
+          if (summaryCalls <= 3) throw new Error("summary boom"); // 前三次摘要必败
+        }
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, loop, session } = await assemble(llm);
+    let toolEntered!: () => void;
+    const toolIn = new Promise<void>((resolve) => {
+      toolEntered = resolve;
+    });
+    ctx.get("tools").register({
+      name: "slow",
+      description: "slow",
+      inputSchema: { type: "object" },
+      isConcurrencySafe: true,
+      execute: async () => {
+        toolEntered(); // 步 1 工具执行中 = 步 1 pre-step 已过、步 2 pre-step 未到
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        return { content: "slow body" };
+      },
+    });
+    await seedHistory(session, 10); // ≈120K：压力线上、硬线下（主请求照发）
+    const breakerEvents: { reason?: string | null }[] = [];
+    ctx.events.on("compaction/breaker", (payload) =>
+      breakerEvents.push(payload as { reason?: string | null }),
+    );
+
+    // 前三轮：摘要各败一次 → 第 3 次触发熔断
+    for (let index = 0; index < 3; index += 1) {
+      await collect(loop.run(`预热${index}`));
+    }
+    const failureAt = breakerEvents.findIndex((event) => event.reason === "failures");
+    expect(failureAt).toBeGreaterThanOrEqual(0);
+
+    // 第 4 回合：忙时投手动 → 排队；到步边界执行，成功清熔断
+    const turn4 = collect(loop.run("第四轮"));
+    await toolIn; // 钉在步 1 工具执行窗口内投递——queued 必然在步 2 pre-step 才执行
+    const response = await ctx.get("compaction").request({ instructions: "keep slow tool facts" });
+    expect(response.state).toBe("queued");
+    await turn4;
+
+    expect(summaryCalls).toBe(4); // 3 败 + 排队手动 1 成
+    const clearAt = breakerEvents.findIndex((event) => event.reason === null);
+    expect(clearAt).toBeGreaterThan(failureAt); // 手动成功解除熔断
+    const starts = session.events().filter((event) => event.type === "compaction/start");
+    const manualStart = starts.find(
+      (event) => (event.data as { trigger?: string }).trigger === "manual",
+    );
+    const manualId = (manualStart?.data as { id?: string } | undefined)?.id;
+    expect(manualId).toBeDefined();
+    const end = session
+      .events()
+      .find(
+        (event) =>
+          event.type === "compaction/end" && (event.data as { id?: string }).id === manualId,
+      );
+    expect((end?.data as { state?: string } | undefined)?.state).toBe("completed");
+    const summaryRequest = seen.find((req) => {
+      const last = req.messages.at(-1);
+      return (
+        last?.role === "user" &&
+        typeof last.content === "string" &&
+        last.content.includes("keep slow tool facts")
+      );
+    });
+    expect(summaryRequest).toBeDefined();
+    expect(session.deriveMessages()[0]?.content ?? "").toContain(
+      "queued summary: the slow tool call finished",
+    );
+    await harness.dispose();
+  });
+
+  it("停止撤销排队中的手动压缩（compaction/stop 一并清待办）", async () => {
+    const noUsage = { inputTokens: 0, outputTokens: 0 };
+    let toolEntered!: () => void;
+    const toolIn = new Promise<void>((resolve) => {
+      toolEntered = resolve;
+    });
+    let releaseTool!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseTool = resolve;
+    });
+    const mock = mockLlm([
+      [mockToolCall("c-slow", "slow", "{}"), mockUsage(noUsage), mockFinish("stop")],
+      [mockText("after slow tool"), mockUsage(noUsage), mockFinish("stop")],
+    ]);
+    const { harness, ctx, loop, session } = await assemble(mock.service);
+    ctx.get("tools").register({
+      name: "slow",
+      description: "slow",
+      inputSchema: { type: "object" },
+      isConcurrencySafe: true,
+      execute: async () => {
+        toolEntered(); // 步 1 工具执行中：步 2 pre-step 未到，此刻投递必排队
+        await gate;
+        return { content: "slow body" };
+      },
+    });
+    await seedHistory(session, 8); // 低于压力线：回合本身不触发自动压缩
+    const turn = collect(loop.run("排队后停止"));
+    await toolIn;
+    expect((await ctx.get("compaction").request({ instructions: "keep stranded" })).state).toBe(
+      "queued",
+    );
+    ctx.events.emit("compaction/stop", {});
+    releaseTool();
+    await turn;
+    // 无修复时待办会在步 2 的 pre-step 执行（compaction/start 落账）；停止应把它一并撤销
+    expect(session.events().filter((event) => event.type === "compaction/start")).toHaveLength(0);
+    await harness.dispose();
+  });
+
+  it("回合结束后残留的排队请求由下一次手动请求接替执行（空闲不再误拒）", async () => {
+    const noUsage = { inputTokens: 0, outputTokens: 0 };
+    let mainEntered!: () => void;
+    const mainIn = new Promise<void>((resolve) => {
+      mainEntered = resolve;
+    });
+    let releaseMain!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseMain = resolve;
+    });
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([
+      [mockText("turn reply"), mockUsage(noUsage), mockFinish("stop")],
+      [mockText("takeover summary"), mockUsage(noUsage), mockFinish("stop")],
+    ]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        mainEntered();
+        await gate;
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, loop, session } = await assemble(llm);
+    await seedHistory(session, 8);
+    const turn = collect(loop.run("单步回合"));
+    await mainIn; // 单步回合：排队后没有下一个步边界，待办残留在插件里
+    expect((await ctx.get("compaction").request({ instructions: "keep stranded" })).state).toBe(
+      "queued",
+    );
+    releaseMain();
+    await turn;
+    expect(loop.isBusy()).toBe(false);
+
+    // 空闲后再点压缩：不再回 compaction-in-progress；接替待办立即执行，说明沿用
+    const second = await ctx.get("compaction").request();
+    expect(second.state).toBe("accepted");
+    const summary = seen.find((req) => {
+      const last = req.messages.at(-1);
+      return (
+        last?.role === "user" &&
+        typeof last.content === "string" &&
+        last.content.includes("Compress the conversation above")
+      );
+    });
+    expect((summary?.messages.at(-1) as { content?: string } | undefined)?.content).toContain(
+      "keep stranded",
+    );
+    await harness.dispose();
+  });
+
+  it("闲时手动压缩的模型口径：跟随最近一次请求；已不可解析才回落默认", async () => {
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([
+      [mockText("alt summary"), mockUsage(USAGE), mockFinish("stop")],
+      [mockText("default summary"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, session } = await assemble(llm, 128_000, {
+      "alt/alt-1": { provider: "alt", model: "alt-1", contextWindow: 128_000 },
+    });
+    await seedHistory(session, 20);
+    const header = (model: string) => ({
+      type: "request/header" as const,
+      data: { turn: "t-model", step: 1, model, params: {}, toolNames: [], systemPromptHash: "x" },
+    });
+
+    await session.append(header("alt/alt-1"));
+    expect((await ctx.get("compaction").request()).state).toBe("accepted");
+    expect(seen[0]?.model).toMatchObject({ provider: "alt", model: "alt-1" });
+    const summaryEvent = session.events().find((event) => event.type === "compaction/summary");
+    expect((summaryEvent?.data as { model?: string } | undefined)?.model).toBe("alt/alt-1");
+
+    await seedHistory(session, 20, 20); // 第一次压缩后头部已被遮蔽：补历史再压一次（换 turn id）
+    await session.append(header("gone/gone-1")); // 表里没有 = 不可解析 → 回落全局默认
+    expect((await ctx.get("compaction").request()).state).toBe("accepted");
+    expect(seen[1]?.model).toMatchObject({ provider: "mock", model: "mock-1" });
     await harness.dispose();
   });
 });

@@ -128,6 +128,8 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     model: effectiveModelId,
   });
   if (effective.messages !== preStep.messages) meter.setReading(post.reading);
+  // request-failed 重试后再派发时的读数口径：跟表面走（重试前重算），不陈回首次
+  let latestPost = post;
 
   // 思维链回传与否：与适配器同一判定（开思考 + interleaved 声明）——写进 request/header，
   // 计量器据此扣减不进下一条 prompt 的思考 token（compaction.md §4.2）
@@ -283,8 +285,8 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
           model: effectiveModel,
           ...(effort !== undefined ? { reasoningEffort: effort } : {}),
           sessionId: session.header().id,
-          context: post.reading,
-          budget: post.budget,
+          context: latestPost.reading,
+          budget: latestPost.budget,
           signal,
           retry: false,
         });
@@ -305,6 +307,18 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
           model: effectiveModelId,
         });
         meter.setReading(nextPost.reading);
+        latestPost = nextPost;
+        // 重发前硬线复检（I-13 / F-6）：两次尝试之间表面可能又被顶回硬线上——同样拒绝
+        // 发送，不把必败请求发出去（终局与首查同形：fatal CONTEXT_UNCOMPACTABLE）
+        if (nextPost.reading.used >= nextPost.budget.hardLimit) {
+          const hardMessage = `context usage ${nextPost.reading.used} reached hard limit ${nextPost.budget.hardLimit}; request not sent`;
+          await session.append({
+            type: "error",
+            data: { turn, step, code: "CONTEXT_UNCOMPACTABLE", message: hardMessage, fatal: true },
+          });
+          batcher.pushStructural({ type: "error", message: hardMessage });
+          return { outcome: "error", usage };
+        }
         const nextCap = capOutputTokens(nextPost.reading.used, nextPost.budget);
         const nextRequest: LlmRequest = {
           ...request,

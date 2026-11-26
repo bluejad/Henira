@@ -353,10 +353,11 @@ compaction/end      { state: completed | failed | interrupted, 压缩后用量, 
 - `CompactionService.request({ instructions? })`：
   - 回合空闲（`!isBusy()`：冲刷链已死；回合间空窗算忙）→ 立即执行；`turn` 用维护 id（`m-…`），不包回合——这是本批新引入的约定（`user/message` 的 `turn` / `step` 必填），维护行在界面上不挂回合头。
   - 回合忙碌 → 登记一个待办，下一个步边界的 `loop/pre-step` 里执行（触发因记「手动」）。
-  - 已有一个在排队或执行 → 拒绝。
+  - 已有一个在排队或执行 → 拒绝（忙碌时排队本身也在此列；起步窗——控制器已占位、压缩尚未开始——同样算在途）；但回合结束后残留的排队请求不再拒绝——本次请求接替它立即执行（本次带的说明优先，缺省沿用排队时的说明），不把待办挂在没有步边界的挂起态。
   - 闲时起跑的手动压缩还没结束，用户又发了消息：新回合在 `loop/pre-step` 处等它结束，再重新派生（同一个会话一次只有一个压缩，I-8）。
   - 可压缩的历史不足 → 返回「已跳过」及原因。
 - 手动压缩不受熔断限制，成功即解除熔断。
+- 闲时手动压缩的模型口径：取最近一条 `request/header` 里的模型（摘要请求会把整段表面发给它，不能落到另一家）；没有历史或该模型已不可解析才回落全局默认。REST / SDK 不带模型参数。
 - 排队的手动压缩到点执行失败：按 F-2 处理（上屏、不致命），**不冻结排队中的消息**。[zcode] 在这个情形会把后续队列转为暂停（`apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/goal-compact.ts:196-208`，防止后续输入越过用户的维护意图）；本仓不采用——手动压缩在本仓不是队列条目，失败已经上屏，超硬线另有拒绝发送兜底。
 - 入口：余量面板里的按钮（点开带一个可空的「说明」输入——等价于闭源产品的 `/compact [说明]`，说明并入摘要指令，空说明直接压）+ REST `POST /api/sessions/:id/compact`（请求体 `{ instructions? }`；`trim()` 后空串按缺省处理，长度上限 2 000 字符——与 `summaryOut` 里留给指令的 2 千同一量级，超出部分由发送前估算的降档兜住——超限 400）+ SDK 门面方法（server 与 SDK runtime 两套宿主面同批落，同一校验；界面输入同 `maxLength`）。响应 `{ state: "accepted" | "queued" | "skipped" | "rejected", reason? }`；`skipped` 与 `rejected` 带 `reason`，另两态不带。说明计入摘要请求的输入，受 §4.6 的发送前估算约束。
 - **`/compact` 文本命令本批不做**：输入框命令机制尚未定稿，清单里明确「定稿前命令部分不动工」。本批不开内置命令口（§8：已有裁定管着）；功能面由按钮（含说明）+ REST + SDK 覆盖，缺的只是文本别名，不是能力。
@@ -369,7 +370,7 @@ compaction/end      { state: completed | failed | interrupted, 压缩后用量, 
   - 本仓的折叠判据要显式接纳它：`plugins/web-ui/src/parts/conversation/turn-items.ts:169` 现在只认助手行与工具行，不接纳的话含压缩行的回合永远折不起来。
   - 压缩失败另落的那条非致命 `error` 行不进回合正文——与审批、提问的痕迹行同一处理（`plugins/web-ui/src/parts/conversation/turn-items.ts:146`）。痕迹由压缩行承载；进了正文既重复，又因为同文件 `:153-155` 把含 error 行的回合判成异常而破坏折叠。
   - 闲时的手动压缩只有一条压缩行、不挂回合头——现状已成立（`plugins/web-ui/src/parts/conversation/turn.tsx:71` 只在回合有计时或被中断时才显示回合头），不改。
-- **进行中的压缩**：可停止（停止 = 中断，写 `end{interrupted}`，同 ZCode 的可停止活动）；期间不显示通用的「仍在等待模型响应」。停止入口 = 输入栏的停止钮（`LoopService` 增加对在途手动压缩的停止路径）。
+- **进行中的压缩**：可停止（停止 = 中断，写 `end{interrupted}`，同 ZCode 的可停止活动）；期间不显示通用的「仍在等待模型响应」。停止入口 = 输入栏的停止钮（`LoopService` 增加对在途手动压缩的停止路径）；停止钮同时撤销仍在排队的手动压缩（排队没有独立取消入口，停止 = 全停）。
 - **排队反馈**：忙时请求手动压缩被排队，要当场可见（ZCode 弹提示、OpenCode 有一条「排队中」分隔线）——余量入口上出「将在下一步请求前压缩」的提示；重复请求被拒、历史不足被跳过，也都在余量入口当场说明原因。跳过与拒绝不留行——ZCode 的「无需」态在本仓是即时反馈，不是常驻标记。
 - **上下文余量**：`SessionState.context { used, size, pressure, estimated, cacheHitRate, parts }`（`size` = 上限；`parts` = `{ system, tools, messages }`，按整面估算的占比折算、恒为估算——`estimated` 只描述 `used`；三段按 `used` 折算后之和等于 `used`，舍入差额并入 `messages`，任一段不为负；`cacheHitRate` 见 §4.2，取不到就不带），loop 每步重算并广播 `context/changed`，宿主并入活态（与队列活态同一出口 `LoopService.contextUsage()`）。输入栏工具排右侧一个常驻圆环入口（14px，圆环进度 = `used ÷ size`，栏内不放数字；完整读数在面板头、`aria-label` 与 tooltip 里；形态同 [zcode] `packages/ui/src/components/ai-elements/context.tsx:74-110`），悬停展开（指针移入面板不收起；触屏与键盘用点击开合）：精确读数还是估算、按来源分段（系统提示 / 工具表 / 消息）、距压力线还剩多少、缓存命中率（低于 78% 不显示）；预警区间圆环转警示色（本批补 `--henira-warning-text` / `--henira-warning-bg` 两个 token，现有 token 只有 accent / danger）；用量为 0 或非法时不渲染（同 ZCode：`packages/ui/src/chat-input-toolbar/contextUsage.tsx:83`、`:216-235`）。
 - **溢出错误的呈现**：`CONTEXT_OVERFLOW` 错误行翻成可行动中文——请求了多少 token、上限多少（从报错解析，解析不出就不带数字）、现在该怎么办；英文原文折叠保留。

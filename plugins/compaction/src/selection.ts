@@ -159,7 +159,8 @@ export function selectInterval(input: SelectionInput): IntervalPlan | undefined 
     const cutoff = systemInside[0];
     const kept = headUnits.filter((unit) => unit.lastSeq < cutoff);
     if (kept.length === 0) return undefined;
-    return finish(kept);
+    // 滚动起点照传：kept 终点 < cutoff，延伸出来的 [startSeq..kept 末尾] 罩不到系统消息
+    return finish(kept, startSeq);
   }
 
   return finish(headUnits, startSeq);

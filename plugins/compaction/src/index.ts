@@ -14,6 +14,7 @@ import {
   contextBudget,
   estimateSurface,
   LLM_ERROR_CONTEXT_OVERFLOW,
+  type ModelConfig,
   measureContext,
   type PreStepValue,
   type RequestFailedValue,
@@ -40,6 +41,18 @@ function latestSummary(events: readonly SessionEvent[]): string | undefined {
     if (event.type !== "compaction/summary") continue;
     const summary = (event.data as { summary?: unknown }).summary;
     if (typeof summary === "string" && summary.trim() !== "") return summary;
+  }
+  return undefined;
+}
+
+/** 会话最近一次请求解析出的模型 id（手动压缩闲时路径的模型口径：摘要会把整段表面
+ * 发给它，不能落到另一家；没有历史或该模型已不可解析才回落全局默认） */
+function lastRequestModel(events: readonly SessionEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type !== "request/header") continue;
+    const model = (event.data as { model?: unknown }).model;
+    if (typeof model === "string" && model.includes("/")) return model;
   }
   return undefined;
 }
@@ -99,8 +112,10 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         setBreaker(undefined);
       };
 
-      // 停止入口（输入栏停止钮 → LoopService.interrupt 广播）：中断在途的手动压缩
+      // 停止入口（输入栏停止钮 → LoopService.interrupt 广播）：中断在途的手动压缩；
+      // 还在排队的直接撤销（排队没有独立取消入口——停止 = 全停）
       cx.events.on("compaction/stop", () => {
+        queued = undefined;
         manualController?.abort();
       });
 
@@ -322,7 +337,12 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
       const autoOnce = async (value: PreStepValue): Promise<boolean> => {
         if (breaker !== undefined) return false;
         stepsSinceSuccess += 1;
-        if (value.budget.limit < 32_000) return digest(value); // 小窗口不做模型摘要（§4.6）
+        if (value.budget.limit < 32_000) {
+          // 小窗口不做模型摘要（§4.6）；无模型阶梯落地同样算进展（清熔断与计数）
+          const ok = await digest(value);
+          if (ok) noteSuccess();
+          return ok;
+        }
 
         if (stepsSinceSuccess < 3) {
           refillStreak += 1;
@@ -358,10 +378,13 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           return next({ ...value, messages: session.deriveMessages() });
         }
         if (queued !== undefined) {
-          // 忙时排队的压缩：到步边界执行（触发因记 manual）
+          // 忙时排队的压缩：到步边界执行（触发因记 manual）；成功清熔断（与闲时手动同规）
           const pending = queued;
           queued = undefined;
-          await withActive("manual", () => compact(value, "manual", pending.instructions));
+          const queuedStatus = await withActive("manual", () =>
+            compact(value, "manual", pending.instructions),
+          );
+          if (queuedStatus === "completed") noteSuccess();
           return next({ ...value, messages: session.deriveMessages() });
         }
         if (value.signal.aborted || value.context.used < value.context.pressure) {
@@ -419,21 +442,40 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           ) {
             return { state: "rejected", reason: "instructions-too-long" };
           }
-          if (active !== undefined || queued !== undefined) {
+          // 起步窗也算在途：取模型/派生期间 active 还没置位，但控制器已占位——放第二个请求
+          // 进来会抢走 manualController，停止钮就管不到真正在跑的压缩（排队回执也会被回写覆盖）
+          if (active !== undefined || manualController !== undefined) {
             return { state: "rejected", reason: "compaction-in-progress" };
           }
           if (cx.get("loop").isBusy()) {
-            // 忙时投递唯一 = 排队（D-045 同规）；到下一个步边界执行
+            // 忙时投递唯一 = 排队（D-045 同规）；已有待办/在跑才拒绝
+            if (queued !== undefined) {
+              return { state: "rejected", reason: "compaction-in-progress" };
+            }
             queued = { ...(instructions !== undefined ? { instructions } : {}) };
             return { state: "queued" };
           }
+          // 回合已收尾：残留的排队请求再没有步边界可等——由本次请求接替执行
+          //（本次说明优先，缺省沿用排队时的说明，不把用户意图挂在挂起态）
+          const carried = instructions ?? queued?.instructions;
+          queued = undefined;
 
           // 闲时立即执行：维护回合（m-…），界面不挂回合头
           const controller = new AbortController();
           manualController = controller;
           let value: PreStepValue;
           try {
-            const modelConfig = await cx.get("config").model();
+            const configService = cx.get("config");
+            // 模型口径：摘要请求会把整段表面发给模型——跟随会话最近一次请求，不落
+            // 到另一家；没有历史或该模型已不可解析才回落全局默认
+            const lastModel = lastRequestModel(session.events());
+            let modelConfig: ModelConfig;
+            try {
+              modelConfig = await configService.model(lastModel);
+            } catch (err) {
+              if (lastModel === undefined) throw err;
+              modelConfig = await configService.model();
+            }
             const tools = cx.get("tools").project();
             const surface = session.deriveSurface();
             const budget = contextBudget({
@@ -469,8 +511,19 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
             return { state: "rejected", reason: "no-model" };
           }
 
+          // 竞窗收口（I-8）：上面取模型/工具期间回合可能已开跑（自动压缩占住 active 或
+          // 回合转忙）——此处到 withActive 之间无 await，重查后同步占位才算真正互斥
+          if (active !== undefined || cx.get("loop").isBusy()) {
+            manualController = undefined;
+            if (cx.get("loop").isBusy()) {
+              queued = { ...(carried !== undefined ? { instructions: carried } : {}) };
+              return { state: "queued" };
+            }
+            return { state: "rejected", reason: "compaction-in-progress" };
+          }
+
           try {
-            const status = await withActive("manual", () => compact(value, "manual", instructions));
+            const status = await withActive("manual", () => compact(value, "manual", carried));
             if (status === "completed") {
               noteSuccess();
               return { state: "accepted" };

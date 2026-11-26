@@ -673,4 +673,70 @@ describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（
     expect(error?.data).toMatchObject({ code: "CONTEXT_UNCOMPACTABLE", fatal: true });
     await harness.dispose();
   });
+
+  it("重试前硬线复检：request-failed 与重发之间表面涨回硬线上 → 同样拒绝（I-13）", async () => {
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([[mockText("ok"), mockUsage(USAGE), mockFinish("stop")]]);
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        if (seen.length === 1) throw new LlmError("CONTEXT_OVERFLOW", "overflow", 400);
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, loop, session } = await startedLoop(
+      [],
+      undefined,
+      undefined,
+      undefined,
+      llm,
+    );
+    ctx.events.onWaterfall("loop/request-failed", async (value, next) => {
+      // 模拟两次尝试之间表面暴涨（如巨型插话/工具结果落账）越过硬线
+      await ctx.get("session").append({
+        type: "user/message",
+        data: { turn: "t-surge", step: 0, content: "a".repeat(300_000), source: "send" },
+      });
+      return next({ ...(value as object), retry: true });
+    });
+    await collect(loop.run("重试遇硬线"));
+    expect(seen).toHaveLength(1); // 第二次请求从未发出
+    const error = session.events().find((event) => event.type === "error");
+    expect(error?.data).toMatchObject({ code: "CONTEXT_UNCOMPACTABLE", fatal: true });
+    await harness.dispose();
+  });
+
+  it("request-failed 重试后再派发：context 用重试前重算的新读数（不陈回首次）", async () => {
+    const seen: LlmRequest[] = [];
+    const mock = mockLlm([[mockText("never"), mockUsage(USAGE), mockFinish("stop")]]);
+    let calls = 0;
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        calls += 1;
+        seen.push(req);
+        if (calls <= 2) throw new LlmError("CONTEXT_OVERFLOW", "overflow", 400); // 两次都溢出
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, loop } = await startedLoop([], undefined, undefined, undefined, llm);
+    const readings: number[] = [];
+    ctx.events.onWaterfall("loop/request-failed", async (value, next) => {
+      const typed = value as { retries: number; context: { used: number } };
+      readings.push(Math.round(typed.context.used));
+      if (typed.retries === 0) {
+        // 两次尝试之间表面变大：重试前实测读数应当跟着涨，不被陈回首次
+        await ctx.get("session").append({
+          type: "user/message",
+          data: { turn: "t-grow", step: 0, content: "a".repeat(100_000), source: "send" },
+        });
+        return next({ ...(value as object), retry: true });
+      }
+      return next(value);
+    });
+    await collect(loop.run("两次溢出"));
+    expect(seen).toHaveLength(2); // 重算后未到硬线，第二次真发出
+    expect(readings).toHaveLength(2);
+    expect(readings[1]).toBeGreaterThan(readings[0] + 40_000); // 100K 字母 ≈ 50K token
+    await harness.dispose();
+  });
 });
