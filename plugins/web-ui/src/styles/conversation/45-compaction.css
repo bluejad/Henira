@@ -5,7 +5,9 @@
 .henira-compaction {
   margin: var(--henira-space-2) 0;
 }
-.henira-compaction-head {
+/* .henira-app 前缀压过全局按钮基线（.henira-app button 特异性 0-1-1）——裸类名输给它，
+   基线的 1px 边框/底色/内衬会涂满整行（2026-11-28 用户截图「压缩行带框」的实因） */
+.henira-app .henira-compaction-head {
   appearance: none;
   border: none;
   background: none;
