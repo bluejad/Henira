@@ -60,7 +60,7 @@ function CompactionBanner({ ctx }: { ctx: WebPartContext }): ReactNode {
       .catch(() => {});
   };
   return (
-    <div className="henria-compaction-banner" role="status">
+    <div className="henira-compaction-banner" role="status">
       <span className="henira-compaction-banner-text">
         {ctx.t(`composer.compactionBreaker.${reason}`)}
       </span>
