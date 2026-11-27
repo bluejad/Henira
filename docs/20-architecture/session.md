@@ -146,7 +146,7 @@ interface SessionHeader {
 - **追加写入**：每行一个完整事件，写入后 `fsync`；`tmp + rename` **只用于** `meta.json` / `projects.json` 这类整体重写的小文件——对只追加日志用 rename 等于整文件重写，语义错误；
 - **崩溃恢复**：读取时若最后一行不完整（半行 JSON），**丢弃该行**，从最后一个完整事件继续；不因一个半行丢掉整段会话。此外开档时若发现最后一个回合有 `turn/start` 无 `turn/end`，补写 `turn/end{reason:'interrupted'}`——崩溃也要有收尾；
 - 读取：全量加载入内存；**版本检查 + 拒读未来版本**（不做迁移链，过度设计）；
-- 单写者：同一会话同时只有一个进程可写（文件锁或启动登记）。
+- 单写者：同一会话同时只有一个进程可写。**仲裁权交给内核命名对象**（2026-11-27 修订）：持有 = 一个活着的倾听句柄，进程一死内核立即回收、下一个进程立即可接管——没有 pid 探活、没有过期接管（[dsh] `lease.ts` 同语义：过期没收一个卡住的活写者，它恢复后的续写会撕日志）。[dsh] 用原生 flock / Windows 命名信号量实现；本仓用 `node:net` 内置等价物，零原生依赖：win32 = 命名管道 `\\.\pipe\henira-lock-<sha1(会话目录)>`（重名 `listen` 报 `EADDRINUSE`，进程死管道名即释放）；其他平台 = `<tmp>/henira-locks/<sha1>.sock`（哈希短路径，`sun_path` 108 字节装不下真实会话路径），绑定占名、`EEXIST` 时 connect 探测（连上 = 活持有者；`ECONNREFUSED`/`ENOENT` = 已死 → 清残留后重绑，有限重试收敛出一个赢家）。会话目录里的 `session.lock` **降级为诊断文件**（pid / 时刻 / 端点，供人看「谁挂着」），不参与判决——旧实现拿它探活，Windows pid 复用让死锁看起来活着，曾把全部会话误判 409。
 
 存储根路径、项目目录命名与两层结构见 [data-directory.md](./data-directory.md)（D-014）。
 
