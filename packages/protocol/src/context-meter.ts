@@ -35,6 +35,9 @@ export interface ContextReading {
   size: number;
   pressure: number;
   hardLimit: number;
+  /** 有效输出上限 = ContextBudget.outputBase（min(声明, 观测输出上限)）——摘要请求的
+   *  maxTokens 与主循环封顶同源取它（compaction.md §4.3/§4.6）；恢复读数缺工具表时也带 */
+  outputBase?: number;
   /** true = 无可用锚点，整面都是估算 */
   estimated: boolean;
   /** 缓存命中率 = cacheRead ÷ input（取不到不带） */
@@ -132,6 +135,7 @@ export function measureContext(input: MeasureInput): MeasureResult {
         size: budget.limit,
         pressure: budget.pressure,
         hardLimit: budget.hardLimit,
+        outputBase: budget.outputBase,
         estimated: true,
         parts: { system: full.system, tools: full.tools, messages: full.messages },
       },
@@ -151,6 +155,7 @@ export function measureContext(input: MeasureInput): MeasureResult {
     size: budget.limit,
     pressure: budget.pressure,
     hardLimit: budget.hardLimit,
+    outputBase: budget.outputBase,
     estimated: false,
     ...(anchor.cacheRead !== undefined && anchor.input > 0
       ? { cacheHitRate: anchor.cacheRead / anchor.input }
@@ -317,6 +322,9 @@ export function restoreContextReading(input: RestoreContextInput): ContextReadin
       size: measured.reading.size,
       pressure: measured.reading.pressure,
       hardLimit: measured.reading.hardLimit,
+      ...(measured.reading.outputBase !== undefined
+        ? { outputBase: measured.reading.outputBase }
+        : {}),
       estimated: true,
       partial: true,
       parts: { system, tools, messages: Math.max(0, used - system - tools) },

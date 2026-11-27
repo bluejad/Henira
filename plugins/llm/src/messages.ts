@@ -3,7 +3,9 @@
 // 的 instructions 选项（toAiInstructions）；这是真模型 smoke 揪出的映射层缺陷（mock 不经此层）。
 // 思维链回传（思考档批 2026-11-19）：本次请求开思考且模型声明 interleaved（reasoning_content）
 // 时，历史 assistant 消息拼一个 reasoning part——AI SDK openai-compatible 会自动发
-// reasoning_content（DeepSeek V4.1+ 带 tool_calls 不回传 400）；关思考 = 全剥（严格网关安全）。
+// reasoning_content；关思考 = 全剥（严格网关安全）。2026-11-26 真 key 采样未复现
+// 「带 tool_calls 不回传 400」（deepseek-v4-flash 思考开 / 网关 deepseek-v4.1-flash 均 200）——
+// 回传保留为多轮一致性，非端点硬要求。
 
 import type { ModelMessage } from "@henira/protocol";
 import type { ModelMessage as AiModelMessage, ToolResultPart } from "ai";

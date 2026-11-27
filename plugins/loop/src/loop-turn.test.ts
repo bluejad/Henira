@@ -17,6 +17,7 @@ import {
   type CompactQueueWorker,
   type ContextReading,
   type Decision,
+  LLM_ERROR_EMPTY_COMPLETION,
   LlmError,
   type LlmRequest,
   type LlmService,
@@ -238,8 +239,8 @@ describe("turn/step 状态机（loop.md §1）", () => {
     expect(types).toContain("tool/call");
     expect(types).toContain("tool/result");
     expect(types.filter((t) => t === "step/start")).toHaveLength(2); // 两个 step
-    // 思考档批（2026-11-19）：工具轮 reasoning 与纯文本轮同形落账本——DeepSeek V4.1+
-    // 带 tool_calls 的历史 assistant 回传 reasoning_content 是续轮硬要求，不落账无法回传
+    // 思考档批（2026-11-19）：工具轮 reasoning 与纯文本轮同形落账本（2026-11-26 采样
+    // 未复现「带 tool_calls 不回传 400」——回传保留为多轮一致性，非端点硬要求）
     const firstAssistant = session.events().find((e) => e.type === "assistant/message");
     expect(
       firstAssistant === undefined
@@ -942,6 +943,81 @@ describe("队列意图分型（D-092：手动压缩与消息同一条 FIFO）", 
     const queued = await loop.send("后续消息");
     await waitUntil(() => !loop.isBusy() && loop.pending().length === 0);
     expect(queued.id).not.toBe(""); // 提交时链在跑 → 入队；冲刷链继续消费
+    await harness.dispose();
+  });
+});
+
+describe("空完成重试（D-095：loop.md §1）", () => {
+  it("空完成原步重发一次：次轮有正文 → 正常收尾；两条 request/header、一条 assistant", async () => {
+    const { harness, loop, session } = await startedLoop([
+      [mockUsage(USAGE), mockFinish("stop")], // 第一次：空完成
+      [mockText("这次有内容了"), mockUsage(USAGE), mockFinish("stop")], // 重试成功
+    ]);
+    const events = await collect(loop.run("hi"));
+    expect(events.at(-1)?.type).toBe("turn-ended");
+    expect(events.at(-1)).toMatchObject({ reason: "completed" });
+    const types = session.events().map((e) => e.type);
+    expect(types.filter((t) => t === "request/header")).toHaveLength(2);
+    expect(types.filter((t) => t === "assistant/message")).toHaveLength(1);
+    expect(types).not.toContain("error");
+    const assistant = session.events().find((e) => e.type === "assistant/message");
+    expect(
+      assistant === undefined ? undefined : (assistant.data as { content: string }).content,
+    ).toBe("这次有内容了");
+    await harness.dispose();
+  });
+
+  it("两连空：EMPTY_COMPLETION 错误行收尾，不落 assistant/message，回合 error", async () => {
+    const { harness, loop, session } = await startedLoop([
+      [mockUsage(USAGE), mockFinish("stop")],
+      [mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const events = await collect(loop.run("hi"));
+    const types = session.events().map((e) => e.type);
+    expect(types).not.toContain("assistant/message");
+    const error = session.events().find((e) => e.type === "error");
+    expect(error === undefined ? undefined : (error.data as { code: string }).code).toBe(
+      LLM_ERROR_EMPTY_COMPLETION,
+    );
+    const turnEnd = session.events().find((e) => e.type === "turn/end");
+    expect(turnEnd === undefined ? undefined : (turnEnd.data as { reason: string }).reason).toBe(
+      "error",
+    );
+    expect(events.at(-1)).toMatchObject({ reason: "error" });
+    await harness.dispose();
+  });
+
+  it("正文空但有 tool_calls：工具轮合法形态，不触发空完成重试", async () => {
+    const { harness, loop, session } = await startedLoop([
+      [mockToolCall("c1", "read", '{"path":"a.txt"}'), mockUsage(USAGE), mockFinish("tool-calls")],
+      [mockText("done"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    await collect(loop.run("hi"));
+    const types = session.events().map((e) => e.type);
+    expect(types).not.toContain("error");
+    // 步 1 只有一条 header = 没有原地重发
+    const step1Headers = session
+      .events()
+      .filter((e) => e.type === "request/header" && (e.data as { step: number }).step === 1);
+    expect(step1Headers).toHaveLength(1);
+    await harness.dispose();
+  });
+
+  it("length + 空正文：不重试（思考吃满输出预算，重发无益），按 max-tokens 收尾", async () => {
+    const { harness, loop, session } = await startedLoop([
+      [mockUsage(USAGE), mockFinish("length")],
+    ]);
+    const events = await collect(loop.run("hi"));
+    const types = session.events().map((e) => e.type);
+    expect(types.filter((t) => t === "request/header")).toHaveLength(1);
+    expect(types).not.toContain("error");
+    const assistant = session.events().find((e) => e.type === "assistant/message");
+    expect(
+      assistant === undefined
+        ? undefined
+        : (assistant.data as { finishReason: string }).finishReason,
+    ).toBe("length");
+    expect(events.at(-1)).toMatchObject({ reason: "max-tokens" });
     await harness.dispose();
   });
 });

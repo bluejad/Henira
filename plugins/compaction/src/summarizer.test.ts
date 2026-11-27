@@ -57,6 +57,25 @@ describe("requestSummary（compaction.md §4.6）", () => {
     expect(seen[0]?.maxTokens).toBe(20_000); // min(20K, hardLimit − 输入估算)
   });
 
+  it("观测输出上限进 maxTokens（outputBase = min(声明, 观测)，R216 §4.6）", async () => {
+    const { service, seen } = scripted([
+      { type: "usage", usage: { inputTokens: 120, outputTokens: 30 } },
+      { type: "text-delta", text: "summary" },
+      { type: "finish", reason: "stop" },
+    ]);
+    const messages = [{ role: "user" as const, content: "earlier history" }];
+    // 模型声明 64K、meter 学到观测输出 6K → maxTokens 取 6K（不顶到端点真实输出上限）
+    const result = await requestSummary({
+      ...baseInput,
+      llm: service,
+      messages,
+      outputBase: 6_000,
+      model: { provider: "p", model: "m", maxOutputTokens: 64_000 },
+    });
+    expect(result.ok).toBe(true);
+    expect(seen[0]?.maxTokens).toBe(6_000);
+  });
+
   it("装不下先裁转写尾部（第 1 档），不发送必败请求（I-14）", async () => {
     const { service, seen } = scripted([
       { type: "text-delta", text: "short summary" },

@@ -10,6 +10,7 @@ import path from "node:path";
 import {
   capOutputTokens,
   LLM_ERROR_CONTEXT_OVERFLOW,
+  LLM_ERROR_EMPTY_COMPLETION,
   LLM_ERROR_OUTPUT_LIMIT_EXCEEDED,
   LlmError,
   type LlmRequest,
@@ -233,6 +234,7 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
 
   let request = baseRequest;
   let retries = 0;
+  let emptyRetries = 0;
   let failure: TypedLlmError | undefined;
   let failureMessage = "";
   let original: TypedLlmError | undefined;
@@ -245,7 +247,6 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
     );
     try {
       await consumeOnce(request);
-      break;
     } catch (err) {
       if (signal.aborted) return { outcome: "aborted", usage }; // 纪律 1：掐流不是 retryable 错误
       const typed = asTypedLlmError(err) ?? { code: "LLM_STREAM" };
@@ -333,6 +334,26 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
       failureMessage = original !== undefined ? (originalMessage ?? message) : message;
       break;
     }
+
+    // 空完成重试一次（D-095）：正文空白、无工具调用、finish stop（reasoning 有值也算）。
+    // 与溢出监听器重试（retries）并列的独立计数器；重发重写 request/header 留审计痕，
+    // consumeOnce 自带清零累加器（只有最终尝试的 usage 落 step/end，锚点不受影响）。
+    // 不重试：length（思考吃满输出预算，同参重发无益）/ content-filter / 有 tool_calls
+    // 的空正文（工具轮合法形态）；aborted 时走既有中止路径（纪律 1）。
+    const emptyStop =
+      calls.length === 0 && textParts.join("").trim() === "" && finishReason === "stop";
+    if (emptyStop && !signal.aborted) {
+      if (emptyRetries === 0) {
+        emptyRetries += 1;
+        continue;
+      }
+      // 二次仍空：EMPTY_COMPLETION 错误行收尾，不落空 assistant 行（派生层 D-094 已把
+      // 该形态剔出模型历史；这里补「用户看得到什么」）——零新事件类型，回合按 error 收束
+      failure = { code: LLM_ERROR_EMPTY_COMPLETION };
+      failureMessage = "model returned an empty response (retried once)";
+      break;
+    }
+    break;
   }
   if (failure !== undefined) {
     // 纪律 5：错误落盘为事件（报错的回合也要有收尾）。状态 / 自报上限与实际数一并落账
@@ -367,8 +388,8 @@ export async function runStep(args: StepArgs): Promise<StepResult> {
   }
 
   // 工具回合：assistant/message → 逐调用 tool/call → 执行 → tool/result → 续步。
-  // reasoning 与纯文本轮同形落账本（思考档批 2026-11-19：DeepSeek V4.1+ 带 tool_calls
-  // 的历史 assistant 消息回传 reasoning_content 是续轮硬要求——不落账本则无法回传）
+  // reasoning 与纯文本轮同形落账本（思考档批 2026-11-19；2026-11-26 真 key 采样未复现
+  // 「带 tool_calls 不回传 reasoning_content 会 400」——回传保留为多轮一致性，非硬要求）
   await session.append({
     type: "assistant/message",
     data: { turn, step, content, reasoning, model: effectiveModelId, finishReason },

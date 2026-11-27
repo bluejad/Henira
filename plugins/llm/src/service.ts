@@ -55,7 +55,8 @@ export function llmPlugin(): ServiceDefinition<LlmService> {
               ? reasoningParams(reasoningCapability(req.model.provider), req.reasoningEffort)
               : undefined;
           // 思维链回传（思考档批 2026-11-19）：开思考 + 模型声明 interleaved(reasoning_content)
-          // → 历史 assistant 消息带 reasoning part（DeepSeek V4.1+ 带 tool_calls 不回传 400）
+          // → 历史 assistant 消息带 reasoning part。2026-11-26 真 key 采样未复现
+          // 「带 tool_calls 不回传 400」——回传保留为多轮一致性，非端点硬要求。
           const echoReasoning =
             req.reasoningEffort !== undefined &&
             req.reasoningEffort !== "off" &&

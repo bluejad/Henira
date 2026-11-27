@@ -16,6 +16,7 @@ turn（用户回合）
 ```
 
 - **Phase**：`idle | running`，per-phase AbortController；取消原因闭合计入 `turn/end.reason`（[session.md](./session.md) §2.4）；
+- **空完成重试一次（D-095）**：模型返回「正文空白、无工具调用、`finishReason: "stop"`」的空完成时，原步重发一次（再落一条 `request/header` 留审计痕）；二次仍空 = `EMPTY_COMPLETION` 错误行收尾（**不落空 assistant/message**，派生历史无痕）+ 回合以 `error` 收束。不重试：`finishReason: "length"`（思考吃满输出预算，重发无益）、`"content-filter"`、正文空但有 `tool_calls`（工具轮合法形态）。此前空完成照常落一条空 assistant 行、回合 `completed`——用户零反馈，且正是 D-094（Kimi 切模型后 400）事故的源头形态；派生层的剔除（session.md §4）兜住模型历史，本条把「用户看得到什么」补齐。
 - **inbox 唯一投递 = 排队（D-045）**：运行中 `send(prompt)` 进队列（闲时直接开新回合；回合结束后队列头部依次自动开新回合；**D-086：冲刷产生的回合在 `user/message` 带 `queueId` = 条目 id**——客户端把排队回执对回回合，直接发送 / 插话 / promote 不带）；队列条目可**"立即发送"（插话）**——该条在**下一个 step 边界**进场（工具结果落定后、下一次模型请求前，不打断正在执行的工具），落 `user/message` 按同轮时间线记账，**不新增账本事件类型**（队列状态不进事件账本，P9-1）；每条插话落账后广播 bus 事件 `user/steer`（观察者据此重置回合内状态——D-065 插话重置的观察口）；排队条目持久化在会话目录 `queue.json`（tmp+rename 原子重写），重启恢复。**队列可见面（E1，2026-11-20）**：`LoopService.pending()/remove(entryId)` 读删两能力 + 每次队列变更（入队/升格/删除/claim/冲刷）广播 bus 事件 `queue/changed`（载荷 = 当前条目快照）——server/sdk 经既有 `state.updated` 帧并线 `SessionState.queue` 推排队卡 UI（投影态非账本事实，P9-1 不变）；REST 面 `DELETE /api/sessions/:id/queue/:entryId` 与 prompt `steer` 参数同批落码。**中断冻结（2026-11-20）**：队列非空时中断 = 冲刷守卫接住不带走队列（否则 abort 信号传入冲刷循环，条目「生而为 abort」——user 行落账、零回复）；`LoopService.paused()/resume()` 冻结判据与显式恢复（resume 取队头开新回合，回合末照常自动续冲；冻结期间 `send()` 新消息 = 解冻开跑），UI 暂停横幅判据经 `SessionState.queuePaused` 同批并线；REST 面 `POST /api/sessions/:id/queue/resume`。**立即发送 = 抢占式升格（2026-11-20，`LoopService.promote(entryId)`）**：停止当前回合并等待收尾（abort 带 promote 标记——守卫据此不置冻结态，抢占不产生暂停横幅）+ 以该条原文开新回合（模型/思考覆盖随行）+ 此刻才从队列摘除（条目不存在直接 false，不 abort 任何在跑回合）；剩余条目原位不动、原序保留，提升回合结束后照常自动续冲；闲时可点（preempt 变 no-op）。与插话分工：`steer()` 不打断当前（step 边界进场，steer 徽章），`promote()` 打断 + 独占新回合；REST 面 `POST /api/sessions/:id/queue/:entryId/promote`。
 
 ## 2. 中断纪律全家桶（已定，测试逐条锁定）
@@ -58,7 +59,7 @@ interface PreStepValue {
   sessionId: string;
   turn: string;
   step: number;
-  context: ContextReading; // 计量读数（used / size / pressure / hardLimit / estimated / parts / suspicion）
+  context: ContextReading; // 计量读数（used / size / pressure / hardLimit / outputBase / estimated / parts / suspicion）
   budget: ContextBudget; // 本次请求的预算（retain / headMin / summaryOut / outputBase…）
   signal: AbortSignal; // 回合中断信号（摘要请求随之中断）
 }

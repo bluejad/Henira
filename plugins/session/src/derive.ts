@@ -162,8 +162,9 @@ function toMessage(event: SessionEvent): ModelMessage {
     case "system/message":
       return { role: "system", content: data.content };
     case "assistant/message":
-      // 思维链随消息带上（llm 层按「本次开思考 + 模型 interleaved 声明」条件回传——
-      // DeepSeek V4.1+ 带 tool_calls 不回传 reasoning_content 会 400；2026-11-19 思考档批）
+      // 思维链随消息带上（llm 层按「本次开思考 + 模型 interleaved 声明」条件回传；
+      // 2026-11-19 思考档批。2026-11-26 真 key 采样未复现「带 tool_calls 不回传
+      // reasoning_content 会 400」——回传保留为多轮一致性，非端点硬要求）
       return {
         role: "assistant",
         content: data.content,

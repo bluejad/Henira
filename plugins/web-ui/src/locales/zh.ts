@@ -308,6 +308,8 @@ export const zh = {
     "这次请求超过了模型的上下文窗口——下一步会自动压缩后重试；若仍失败，请新开会话或换窗口更大的模型。",
   "error.contextUncompactableHint":
     "上下文已到硬线，压缩也降不下来——请新开会话，或换一个窗口更大的模型。",
+  "error.emptyCompletionHint":
+    "模型返回了空回复（已自动重试一次仍未成功）——可直接重发；若反复出现，试试换模型或服务商标。",
   "error.rawDetail": "原始错误信息",
   "settings.title": "设置",
   "settings.model": "默认模型",

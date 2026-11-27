@@ -5,6 +5,7 @@ import {
   type CompactionRow,
   type ErrorRow,
   LLM_ERROR_CONTEXT_OVERFLOW,
+  LLM_ERROR_EMPTY_COMPLETION,
   LLM_STREAM_IDLE_TIMEOUT_CODE,
   type Row,
   type UserRow,
@@ -197,11 +198,13 @@ function ErrorView({ row, ctx }: { row: ErrorRow; ctx: WebPartContext }) {
           }`
         : row.code === "CONTEXT_UNCOMPACTABLE"
           ? ctx.t("error.contextUncompactableHint")
-          : row.message.includes("no credential for provider")
-            ? ctx.t("error.noCredentialHint")
-            : row.message.includes("has no baseUrl")
-              ? ctx.t("error.noBaseUrlHint")
-              : undefined;
+          : row.code === LLM_ERROR_EMPTY_COMPLETION
+            ? ctx.t("error.emptyCompletionHint") // D-095：空完成重试一次仍空——可行动中文，原文折叠保留
+            : row.message.includes("no credential for provider")
+              ? ctx.t("error.noCredentialHint")
+              : row.message.includes("has no baseUrl")
+                ? ctx.t("error.noBaseUrlHint")
+                : undefined;
   return (
     <div role="alert" className="henira-error-row">
       <strong>{ctx.t("error.title")}</strong>

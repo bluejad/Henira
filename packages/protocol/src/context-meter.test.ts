@@ -62,6 +62,22 @@ describe("measureContext（compaction.md §4.2）", () => {
     ).toBe(result.reading.used);
   });
 
+  it("读数透出 outputBase（= budget.outputBase，观测输出上限随读数走，R216）", () => {
+    reset();
+    const observed = contextBudget({ observedOutputLimit: 8_000 });
+    expect(observed.outputBase).toBe(8_000); // min(缺省基线 32K, 观测 8K)
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const result = measureContext({
+      events: [user],
+      surface: [entry(user.seq, { role: "user", content: "hello" })],
+      tools: [],
+      model: "p/m",
+      budget: observed,
+      k: 1,
+    });
+    expect(result.reading.outputBase).toBe(8_000);
+  });
+
   it("锚点 + 携带量：推理不回传时扣掉思考 token；缓存命中率取 cacheRead ÷ input", () => {
     reset();
     const events = [

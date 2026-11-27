@@ -239,6 +239,9 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           instruction,
           hardLimit: value.budget.hardLimit,
           summaryOut: value.budget.summaryOut,
+          // 观测输出上限同源（§4.3/§4.6）：meter 学到的 outputBase 随预算走，摘要
+          // maxTokens 不顶到端点真实输出上限（R216；手动路径在 buildManualValue 并入）
+          outputBase: value.budget.outputBase,
           trimLimit,
           maskedTokens: plan.maskedTokens,
           signal: value.signal,
@@ -475,8 +478,11 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         const tools = cx.get("tools").project();
         const surface = session.deriveSurface();
         // 计量器已学到的观测上限一并带进来：静默截断端点上，手动摘要不能按声明
-        // 窗口硬发（§4.2；contextUsage().size = min(声明窗口, 观测上限)）
-        const observedSize = cx.get("loop").contextUsage()?.size;
+        // 窗口硬发（§4.2；contextUsage().size = min(声明窗口, 观测上限)）；输出侧同理
+        // （contextUsage().outputBase = min(声明, 观测输出上限)，R216）
+        const usage = cx.get("loop").contextUsage();
+        const observedSize = usage?.size;
+        const observedOutput = usage?.outputBase;
         const budget = contextBudget({
           ...(modelConfig.contextWindow !== undefined
             ? { contextWindow: modelConfig.contextWindow }
@@ -485,6 +491,7 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           ...(modelConfig.maxOutputTokens !== undefined
             ? { maxOutputTokens: modelConfig.maxOutputTokens }
             : {}),
+          ...(observedOutput !== undefined ? { observedOutputLimit: observedOutput } : {}),
         });
         const modelId = `${modelConfig.provider}/${modelConfig.model}`;
         const reading = measureContext({

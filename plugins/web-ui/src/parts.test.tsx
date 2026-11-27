@@ -5080,6 +5080,24 @@ describe("生命感（E3）", () => {
     expect(container.querySelector(".henira-error-details")).not.toBeNull();
   });
 
+  it("D-095：空完成（EMPTY_COMPLETION）错误行 → 可行动中文提示 + 原始信息折叠", () => {
+    const ctx = ctxWithState(
+      [
+        {
+          kind: "error",
+          rowId: "e:2",
+          rowSeq: 2,
+          code: "EMPTY_COMPLETION",
+          message: "model returned an empty response (retried once)",
+        },
+      ],
+      { busy: false },
+    );
+    const { container } = render(<Conversation {...ctx} />);
+    expect(container.textContent).toContain(t("error.emptyCompletionHint"));
+    expect(container.querySelector(".henira-error-details")).not.toBeNull();
+  });
+
   // 审查批（2026-11-21）：空文本步级行分两档——纯空行剔除；带可视内容（步级 usage/
   // reasoning/中断徽章）为透明行随组携带不拆组，展开按原序可见
   const mkStep = (

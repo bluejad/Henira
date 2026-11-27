@@ -29,6 +29,9 @@ export interface SummaryRequestInput {
   instruction: string;
   hardLimit: number;
   summaryOut: number;
+  /** 有效输出上限 = ContextBudget.outputBase（min(声明, 观测输出上限)）：第③类参数错
+   *  学到的观测输出上限经读数透出（R216），摘要 maxTokens 与主循环封顶同源取它 */
+  outputBase?: number;
   /** 第 1 档最多可从尾部移除的非系统消息数（= 保留段消息数；头部不在这里丢） */
   trimLimit?: number;
   /** 被遮蔽内容的估算量（I-7 比较基准） */
@@ -108,10 +111,15 @@ function dropLeading(
 
 export async function requestSummary(input: SummaryRequestInput): Promise<SummaryResult> {
   const toolsTokens = estimateTools(input.tools);
-  const declaredOutput =
+  const declaredOutput = Math.min(
     input.model.maxOutputTokens !== undefined && input.model.maxOutputTokens > 0
       ? input.model.maxOutputTokens
-      : Number.POSITIVE_INFINITY;
+      : Number.POSITIVE_INFINITY,
+    // 观测输出上限（meter 从第③类报错学来，经读数透出）；缺省不参与
+    input.outputBase !== undefined && input.outputBase > 0
+      ? input.outputBase
+      : Number.POSITIVE_INFINITY,
+  );
 
   /** 发送前的降档（§4.6 四档）：scale = 端点读数与本地估算的偏差倍数（首试 1）。
    *  ceiling = 硬线；端点自报上限更小时取它。装不下返回 undefined。 */

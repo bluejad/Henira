@@ -1267,3 +1267,15 @@
 - **理由**：provider 对空 assistant 的容忍度不一（agnes 接受，Kimi 400）；让最底层的派生规则统一产出「可发给任何 provider 的历史」，比逐家适配器打补丁稳定。ZCode 同位置同做法。
 - **非目标**：空完成的重试/可见错误（ZCode 有 retry；另批）；空 user 消息清理；改动 `toAiMessages`（派生层已保证）。
 - **备注**：落点 = `plugins/session/src/derive.ts`（末尾过滤 + 头注释）、`plugins/session/src/derive.test.ts`（空/纯空白/只有 reasoning 剔除；工具轮保留）、`docs/20-architecture/session.md` §4；活体验收 = 受影响会话重新发一句确认不再 400。
+
+## D-095 空完成自动重试一次；二次仍空 = 错误行收尾（R216）
+
+- **状态**：已定 · 2026-11-28 · 压缩收尾小批（D-094 非目标转正，用户选定该批）；✓ 同日落码。
+- **背景**：`runStep` 对空完成零处理——`content: ""`、`finishReason:"stop"`、无工具调用的响应照常落一条空 assistant 行、回合 `completed`，用户看不到任何输出（D-094 事故的源头形态 seq 1621）。派生层剔除（D-094）只兜住模型历史，没补「用户看得到什么」。
+- **决定**：
+  1. 空完成（正文空白 + 无 `tool_calls` + `finishReason:"stop"`，reasoning 有值也算）**原步重发一次**：与溢出监听器重试（`retries`，上限 2）并列的独立计数器 `emptyRetries`，互不挤占；重试重写 `request/header`（审计自然留痕），`consumeOnce` 自带清零累加器。
+  2. **二次仍空** = `EMPTY_COMPLETION` 错误行收尾：走既有 failure 通道（落 `error` 事件 + 广播 + 回合 `endReason:"error"`），**不落空 assistant/message**；错误行翻可行动中文（`error.emptyCompletionHint`），原文折叠保留。零新事件类型、零新回合词表。
+  3. **不重试**：`finishReason:"length"`（思考吃满输出预算，同参重发无益——采样实锤的失败形态）、`"content-filter"`、正文空但有 `tool_calls`（工具轮合法形态）；`signal.aborted` 时不重试（掐流不是可重试错误，纪律 1）。
+- **理由**：四家参照没有「空完成重试」先例（ZCode 只在投影层删除），这是本仓对活体事故的最小发明：一次重试覆盖瞬时性空回复（网络抖动 / 推理-only 停止），成本是罕见路径上的一次额外请求；二次仍空说明端点稳定产出空回复，报错比无声空白轮诚实——错误行有收尾（纪律 5），用户可直接重发或换模型。重试发生在结算前，只有最终尝试的 usage 落 `step/end`，计量锚点不受影响。
+- **非目标**：429/限流自动退避（分类与压缩熔断已覆盖，无参照先例，挂账）；摘要器空摘要（`SUMMARY_EMPTY`）原地重发（F-4 不变：压力路径下一个步边界自然再试）；`length`+空正文的重试；空 user 消息清理。
+- **备注**：落点 = `plugins/loop/src/step.ts`（while 循环结算前检查 + failure 通道）、`plugins/web-ui/src/parts/conversation/rows.tsx`（ErrorView hint 分支）+ `locales/zh.ts`、`docs/20-architecture/loop.md` §1；测试 = `loop-turn.test.ts` 四用例（重试成功 / 两连空错误行 / 工具轮不重试 / length 不重试）。同批顺带：观测输出上限接通摘要器（compaction.md §17 P3 残留销账，`ContextReading.outputBase` + summarizer `outputBase`）与四处过时注释更正（50-open ⑤）。**活体（2026-11-28 凌晨，32K 覆盖窗布景）**：DeepSeek / 智谱 / Agnes 三端点自动压缩 completed、摘要首发成功、`outputBase` 随读数透出；网关两条（溢出兜底、hy3 静默截断活体）仍欠——需 ~10 万 token 级输入，语义已被单测锁住。

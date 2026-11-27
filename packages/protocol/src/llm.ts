@@ -48,6 +48,8 @@ export type FinishReason = (typeof FINISH_REASONS)[number];
  *  封顶引起的另一类，压缩救不了，恢复 = 去掉封顶原步重发一次 */
 export const LLM_ERROR_CONTEXT_OVERFLOW = "CONTEXT_OVERFLOW";
 export const LLM_ERROR_OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED";
+/** 空完成（D-095）：正文空白、无工具调用、finish stop——重试一次仍空时按此码落错误行 */
+export const LLM_ERROR_EMPTY_COMPLETION = "EMPTY_COMPLETION";
 
 /** 适配器边界上值得带到引擎的附加信息（报错原文自带精确读数，§3.2） */
 export interface LlmErrorInfo {
