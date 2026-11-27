@@ -1645,6 +1645,56 @@ describe("REST 面与设置", () => {
     }
   });
 
+  it("历史会话快照带余量恢复（§4.11）：重启后磁盘快照从账本锚点重建 context", async () => {
+    const first = await makeServer([
+      [mockText("好"), mockUsage({ inputTokens: 1_200, outputTokens: 40 }), mockFinish("stop")],
+    ]);
+    const { dataDir, globalDir } = first;
+    let id: string;
+    try {
+      id = await createSession(first.base);
+      await fetch(`${first.base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "老问" }),
+      });
+      // 挂载路径：loop 每步重算，余量读数已在（重启后磁盘路径的对照）
+      await waitFor(async () => {
+        const snap = (await (await fetch(`${first.base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: { kind: string }[];
+          state?: { context?: { estimated: boolean } };
+        };
+        return snap.rows.some((row) => row.kind === "assistant") &&
+          snap.state?.context !== undefined
+          ? true
+          : undefined;
+      });
+    } finally {
+      await first.server.stop(); // 保留磁盘：下一实例同 dataDir = 重启
+    }
+    const second = await createServer({
+      dataDir,
+      globalDir,
+      llm: llmStub({ stream: async function* () {} } as unknown as LlmService),
+    });
+    try {
+      const snap = (await (await fetch(`${second.url}/api/sessions/${id}/snapshot`)).json()) as {
+        state?: {
+          context?: { used: number; size: number; partial?: boolean; estimated?: boolean };
+        };
+      };
+      // 磁盘路径（未装配）：锚点 1,200 + 携带输出 40；partial（拆分不可得）；
+      // mock 不在字典 → 窗口按缺省 128K
+      expect(snap.state?.context?.used).toBe(1_240);
+      expect(snap.state?.context?.partial).toBe(true);
+      expect(snap.state?.context?.estimated).toBe(false);
+      expect(snap.state?.context?.size).toBe(128_000);
+    } finally {
+      await second.stop();
+      await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
   it("磁盘快照带 title（R202/D-085）：重启后未装配会话从投影行派生", async () => {
     const dataDir = path.join(root, `history-title-${Math.random().toString(36).slice(2, 8)}`);
     const globalDir = path.join(dataDir, "config");
@@ -2462,6 +2512,8 @@ describe("模型管理面（四视图服务端半边）", () => {
             models: { m1: { name: "M One", contextWindow: 4096 } },
           },
         }),
+        lookup: (provider: string, model: string) =>
+          provider === "fakeprov" && model === "m1" ? { contextWindow: 4096 } : {},
       },
     });
     try {

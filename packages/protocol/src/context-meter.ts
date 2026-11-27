@@ -3,9 +3,9 @@
 // deriveMessages() 走同一份表面（I-1），所以替换、key 去重、孤儿合成都自动反映。
 // k（会话自校正）与观测上限是运行态，由调用方（loop）持有；本文件只给纯计算与单侧更新。
 
-import type { ContextBudget } from "./context-budget.js";
+import { type ContextBudget, contextBudget } from "./context-budget.js";
 import type { SessionEvent } from "./envelope.js";
-import type { TokenUsage, WireToolSchema } from "./llm.js";
+import type { ModelConfig, TokenUsage, WireToolSchema } from "./llm.js";
 import type { SurfaceEntry } from "./services.js";
 import { estimateMessage, estimateTools } from "./token-estimate.js";
 
@@ -44,6 +44,9 @@ export interface ContextReading {
   /** 截断嫌疑（compaction.md §4.2 / F-13）：厂商读数低于预期——只提示，不学上限；
    *  连续两次嫌疑且读数持平才确认（确认后 size 变成本次读数学出的观测上限） */
   suspicion?: { expected: number; actual: number };
+  /** true = 三段拆分不可得（磁盘快照恢复：只有账本、没有工具表，总量有锚点）。
+   *  UI 隐藏分段明细，只显示总量与剩余（§4.11 重启恢复） */
+  partial?: boolean;
 }
 
 export interface MeasureInput {
@@ -229,4 +232,52 @@ export function nextK(k: number, actualDelta: number, estimatedDelta: number): n
   const smoothed = k + 0.3 * (ratio - k);
   const next = Math.min(1.5, Math.max(1, smoothed));
   return next > k + 1e-9 ? next : undefined;
+}
+
+export interface RestoreContextInput {
+  events: readonly SessionEvent[];
+  surface: readonly SurfaceEntry[];
+  /** 账本最近一条 request/header 的模型（`provider/model`，锚点比对用） */
+  model: string;
+  /** 该模型的窗口/输出声明（取不到 = 缺省 128K 且不封顶——与 loop 同规） */
+  modelConfig?: Pick<ModelConfig, "contextWindow" | "maxOutputTokens">;
+}
+
+/** 磁盘快照的轻量恢复（compaction.md §4.11）：宿主重启后打开历史会话、运行体尚未装配——
+ *  只有账本可用，没有工具表。锚点 input 已是完整请求上下文（系统+工具+消息），所以
+ *  **总量可信**（锚点 + 锚后估算），三段里工具表体积用差值反推；无锚点（从未请求过 /
+ *  首步失败）返回 undefined——不猜。
+ *  partial = true 告知 UI 拆分不可得（隐藏明细，只显示总量与剩余）。 */
+export function restoreContextReading(input: RestoreContextInput): ContextReading | undefined {
+  const budget = contextBudget({
+    ...(input.modelConfig?.contextWindow !== undefined
+      ? { contextWindow: input.modelConfig.contextWindow }
+      : {}),
+    ...(input.modelConfig?.maxOutputTokens !== undefined
+      ? { maxOutputTokens: input.modelConfig.maxOutputTokens }
+      : {}),
+  });
+  const measured = measureContext({
+    events: input.events,
+    surface: input.surface,
+    tools: [],
+    model: input.model,
+    budget,
+    k: 1,
+  });
+  const anchor = measured.anchor;
+  if (anchor === undefined) return undefined;
+  // 拆分：系统/消息按账本表面估算（锚点切点前），工具表 = 锚点 input 里扣掉两者
+  const atAnchor = estimateSurface(
+    input.surface.filter((entry) => entry.seq <= anchor.cutSeq),
+    [],
+  );
+  const system = atAnchor.system;
+  const tools = Math.max(0, anchor.input - system - atAnchor.messages);
+  const messages = Math.max(0, measured.reading.used - system - tools);
+  return {
+    ...measured.reading,
+    partial: true,
+    parts: { system, tools, messages },
+  };
 }

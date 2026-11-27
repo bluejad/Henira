@@ -689,6 +689,8 @@ export class SessionRegistry {
       // 悬挂压缩收口（compaction.md §4.7）：重放后仍 running 的压缩行显示「已中断」
       entry.projection.finalizeHangingCompactions();
     }
+    // 余量恢复（compaction.md §4.11）：重启后从账本重算一次——监听已挂，读数随快照送达
+    await this.#restoreContext(entry);
     this.#entries.set(id, entry);
     this.#announce(entry);
     return entry;
@@ -825,6 +827,16 @@ export class SessionRegistry {
     });
 
     return entry;
+  }
+
+  /** 余量恢复（compaction.md §4.11）：增强项——缺 loop / 查不到模型时静默跳过，
+   *  装载照常（余量入口保持空，不显示假数字） */
+  async #restoreContext(entry: SessionEntry): Promise<void> {
+    try {
+      await entry.ctx?.get("loop").restoreContext?.();
+    } catch {
+      // 静默：恢复失败不影响会话装载
+    }
   }
 
   /** 投影态并入队列与余量活态（排队卡 / 余量入口数据源）：loop 服务在册才并线；无 loop

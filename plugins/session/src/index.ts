@@ -1,7 +1,7 @@
 import "./validators.js"; // 官方 15 变体随本包装载注册进开放注册表（session.md §3）
 
 export { atomicWriteFile } from "./atomic.js";
-export { deriveMessages } from "./derive.js";
+export { deriveMessages, deriveSurface } from "./derive.js";
 export {
   browseDirectories,
   DirRegistry,

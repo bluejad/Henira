@@ -5491,6 +5491,18 @@ describe("ContextUsageButton（compaction.md §4.11）", () => {
     expect(queryByText(/缓存命中率/)).toBeNull();
   });
 
+  it("磁盘快照恢复（partial）：只显示总量与恢复说明，不渲染三段明细（§4.11）", () => {
+    const { getByRole, queryByText } = render(
+      <ContextUsageButton ctx={contextCtx({ ...normal, partial: true })} />,
+    );
+    fireEvent.click(getByRole("button", { name: /上下文用量/ }));
+    expect(screen.getByText("80K/128K (63%)")).not.toBeNull();
+    expect(screen.getByText(/已按账本恢复/)).not.toBeNull();
+    expect(queryByText("系统提示")).toBeNull();
+    expect(queryByText("工具表")).toBeNull();
+    expect(queryByText("消息")).toBeNull();
+  });
+
   it("预警窗口：圆环警示色 + 写明距自动压缩还差 N%", () => {
     const { getByRole } = render(
       <ContextUsageButton ctx={contextCtx({ ...normal, used: 100_000 })} />,

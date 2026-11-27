@@ -117,6 +117,8 @@ export function ContextUsageButton({ ctx }: { ctx: WebPartContext }): ReactNode 
 
   const progress = Math.max(0, Math.min(1, used / size));
   const percent = Math.round(progress * 100);
+  // 磁盘快照恢复（§4.11）：总量有锚点、三段拆分不可得（未装配没有工具表）——隐藏明细
+  const partial = context.partial === true;
   const warningAt = pressure - Math.floor(size * WARNING_WINDOW_RATIO);
   const warning = used >= warningAt;
   const untilPressure = Math.max(0, Math.floor(((pressure - used) / size) * 100));
@@ -202,40 +204,46 @@ export function ContextUsageButton({ ctx }: { ctx: WebPartContext }): ReactNode 
             <span className="henira-context-title">{ctx.t("context.title")}</span>
             <span className="henira-context-summary">{summary}</span>
           </div>
-          <div className="henira-context-bar" aria-hidden="true">
-            <span
-              className="henira-context-seg henira-context-seg-system"
-              style={{ width: `${percentOf(parts.system, used)}%` }}
-            />
-            <span
-              className="henira-context-seg henira-context-seg-tools"
-              style={{ width: `${percentOf(parts.tools, used)}%` }}
-            />
-            <span
-              className="henira-context-seg henira-context-seg-messages"
-              style={{ width: `${percentOf(parts.messages, used)}%` }}
-            />
-          </div>
-          <ul className="henira-context-parts">
-            {(
-              [
-                ["system", ctx.t("context.system"), parts.system],
-                ["tools", ctx.t("context.tools"), parts.tools],
-                ["messages", ctx.t("context.messages"), parts.messages],
-              ] as const
-            ).map(([kind, text, value]) => (
-              <li key={kind} className="henira-context-part">
+          {partial ? (
+            <p className="henira-context-restored">{ctx.t("context.restored")}</p>
+          ) : (
+            <>
+              <div className="henira-context-bar" aria-hidden="true">
                 <span
-                  className={`henira-context-dot henira-context-seg-${kind}`}
-                  aria-hidden="true"
+                  className="henira-context-seg henira-context-seg-system"
+                  style={{ width: `${percentOf(parts.system, used)}%` }}
                 />
-                <span className="henira-context-part-label">{text}</span>
-                <span className="henira-context-part-value">
-                  {formatTokens(value)} · {percentOf(value, used)}%
-                </span>
-              </li>
-            ))}
-          </ul>
+                <span
+                  className="henira-context-seg henira-context-seg-tools"
+                  style={{ width: `${percentOf(parts.tools, used)}%` }}
+                />
+                <span
+                  className="henira-context-seg henira-context-seg-messages"
+                  style={{ width: `${percentOf(parts.messages, used)}%` }}
+                />
+              </div>
+              <ul className="henira-context-parts">
+                {(
+                  [
+                    ["system", ctx.t("context.system"), parts.system],
+                    ["tools", ctx.t("context.tools"), parts.tools],
+                    ["messages", ctx.t("context.messages"), parts.messages],
+                  ] as const
+                ).map(([kind, text, value]) => (
+                  <li key={kind} className="henira-context-part">
+                    <span
+                      className={`henira-context-dot henira-context-seg-${kind}`}
+                      aria-hidden="true"
+                    />
+                    <span className="henira-context-part-label">{text}</span>
+                    <span className="henira-context-part-value">
+                      {formatTokens(value)} · {percentOf(value, used)}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <div className="henira-context-foot">
             <span className="henira-context-mode">
               {estimated ? ctx.t("context.estimated") : ctx.t("context.exact")}

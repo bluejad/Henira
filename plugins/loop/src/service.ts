@@ -320,6 +320,36 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           return meter.reading();
         },
 
+        async restoreContext() {
+          // 重启恢复（compaction.md §4.11）：只在没有活态读数时重算（热路径不覆盖）。
+          // 模型取账本最近一条 request/header 的模型字符串 `provider/model`（按最后
+          // 一次请求的模型查窗口，与按消息归属模型的参照同规）；无 header（从未请求）
+          // 或模型配置查不到时不建读数——余量入口保持空，不显示假数字
+          if (meter.reading() !== undefined) return;
+          const session = cx.get("session");
+          const events = session.events();
+          let model: string | undefined;
+          for (let index = events.length - 1; index >= 0; index -= 1) {
+            const event = events[index];
+            if (event?.type !== "request/header") continue;
+            const value = (event.data as { model?: unknown }).model;
+            if (typeof value === "string" && value !== "") {
+              model = value;
+              break;
+            }
+          }
+          if (model === undefined) return;
+          const modelConfig = await cx.get("config").model(model);
+          const measured = meter.peek({
+            events,
+            surface: session.deriveSurface(),
+            tools: cx.get("tools").project(),
+            modelConfig,
+            model,
+          });
+          meter.setReading(measured.reading);
+        },
+
         isBusy() {
           return drainChainAlive;
         },

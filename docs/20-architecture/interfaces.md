@@ -470,6 +470,7 @@ interface LoopService {
   resume(): Promise<boolean>; // 恢复冻结队列冲刷：取队头开新回合；闲时才可，无事可做 false
   interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}；队列非空 = 冻结不冲刷）；同时广播 compaction/stop 中断在途手动压缩
   contextUsage(): ContextReading | undefined; // 本会话余量读数（每步重算；停用压缩件照常成立）
+  restoreContext?(): Promise<void>; // 重启恢复（§4.11）：宿主装载历史会话后调一次；无活态读数才按账本重算并广播（可选实现）
   isBusy(): boolean; // 回合/冲刷链在跑（含回合间空窗）——手动压缩互斥判据
 }
 
@@ -1042,7 +1043,7 @@ interface SessionState {
   queuePaused?: boolean; // 中断冻结（队列非空时中断不冲刷等 resume；投影态非账本事实，与 queue 键同批并线）
   busySince?: number; // 当前 busy 段真实起点（R173：turn/start 事件 time；turn/end 清除；重放重建自愈——刷新/重连计时续表，前端无此字段兜底本地起表）
   turnTimings?: Record<string, { durationMs: number; endedAt: number; forkSeq: number }>; // 回合耗时（E3 回合头：`Math.max(1000, turn/end.time - turn/start.time)`——亚秒回合抬到 1s）+ endedAt = turn/end 时刻（E4 轮尾时间戳）+ forkSeq = turn/end 事件 seq（E4 轮尾 fork 的账本切点——前缀复制 inclusive；事件时间戳取数，重放重建/重载后仍在；保留最近 50 轮）
-  context?: ContextReading; // 上下文余量活态（loop 每步重算 → context/changed → state.updated；清单无 loop 缺省）
+  context?: ContextReading; // 上下文余量活态（loop 每步重算 → context/changed → state.updated；清单无 loop 缺省；磁盘快照恢复带 partial=true，分段明细不可得）
   compacting?: boolean; // 进行中的压缩（活态；停用插件 / 重开不残留）
   compactionBreaker?: "failures" | "refill"; // 自动压缩熔断（连续失败 / 快速回填；手动成功清除）
 } // turn/start…turn/end 之间 = busy（账本事实派生）

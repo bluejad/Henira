@@ -15,6 +15,7 @@ import { sessionAllowance } from "@henira/plugin-approval";
 import {
   browseDirectories,
   type DirRegistry,
+  deriveSurface,
   SessionLockedError,
   sameCwd,
 } from "@henira/plugin-session";
@@ -22,6 +23,7 @@ import {
   APPROVAL_FEEDBACK_MAX,
   COMPACTION_INSTRUCTIONS_MAX,
   type CompactionService,
+  type ContextReading,
   DECISIONS,
   decodeUtf8Prefix,
   deriveSessionTitle,
@@ -36,7 +38,9 @@ import {
   type ReasoningOption,
   reasoningCapability,
   rebuildProjection,
+  restoreContextReading,
   type ServerFrame,
+  type SessionEvent,
   type SessionUiState,
   WORKSPACE_FILE_MAX_BYTES,
   type WorkspaceFileContent,
@@ -140,7 +144,7 @@ function isLoopbackHost(host: string | undefined): boolean {
 }
 
 /** 模型字典（config-loader Dictionary：快照 + 缓存 + 在线刷新；测试可注入桩） */
-export type ModelDictionary = Pick<Dictionary, "loadCache" | "refresh" | "entries">;
+export type ModelDictionary = Pick<Dictionary, "loadCache" | "refresh" | "entries" | "lookup">;
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -223,7 +227,13 @@ export function createApp(deps: AppDeps): Hono {
     });
     // R202/D-085：磁盘快照与已装配会话同源派生标题（不再只靠前端 rows 兜底）
     const title = deriveSessionTitle(projection.rows);
-    return c.json({ ...snap, ...(title !== undefined ? { title } : {}) });
+    // 余量恢复（compaction.md §4.11）：未装配也要显示——从账本锚点重算（partial：明细不可得）
+    const context = await diskContext(events);
+    return c.json({
+      ...snap,
+      ...(title !== undefined ? { title } : {}),
+      ...(context !== undefined ? { state: { ...snap.state, context } } : {}),
+    });
   });
 
   // ── 行翻页（长会话历史：before = rowSeq 排他游标；轮边界补齐在 sliceRowsPage 共享实现）──
@@ -823,6 +833,43 @@ export function createApp(deps: AppDeps): Hono {
     })();
     return dictionaryReady;
   };
+
+  /** 磁盘快照的余量恢复（compaction.md §4.11）：模型取账本最近一条 request/header，
+   *  窗口取字典（models.json override 走不到——挂载后 loop 会按 config 重算覆盖）。
+   *  无请求头（从未请求过）或无锚点时返回 undefined——快照不带 context，余量入口不显示 */
+  async function diskContext(events: SessionEvent[]): Promise<ContextReading | undefined> {
+    let modelId: string | undefined;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type !== "request/header") continue;
+      const value = (event.data as { model?: unknown }).model;
+      if (typeof value === "string" && value !== "") {
+        modelId = value;
+        break;
+      }
+    }
+    if (modelId === undefined) return undefined;
+    const slash = modelId.indexOf("/");
+    if (slash <= 0) return undefined;
+    const capabilities = (await getDictionary()).lookup(
+      modelId.slice(0, slash),
+      modelId.slice(slash + 1),
+    );
+    const measured = restoreContextReading({
+      events,
+      surface: deriveSurface(events),
+      model: modelId,
+      modelConfig: {
+        ...(capabilities.contextWindow !== undefined
+          ? { contextWindow: capabilities.contextWindow }
+          : {}),
+        ...(capabilities.maxOutputTokens !== undefined
+          ? { maxOutputTokens: capabilities.maxOutputTokens }
+          : {}),
+      },
+    });
+    return measured;
+  }
 
   /** 厂商全集（凭据在册 ∪ models.json 在册）+ 两表原文——连接态与管理分组共用 */
   const providerUnion = async (): Promise<{

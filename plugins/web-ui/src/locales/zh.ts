@@ -268,6 +268,7 @@ export const zh = {
   "context.untilPressure": "距自动压缩还差",
   "context.autoNext": "下一步请求前自动压缩",
   "context.remaining": "距压力线还剩",
+  "context.restored": "已按账本恢复（发消息后重新计量细分）",
   "context.cacheHit": "缓存命中率",
   "context.suspicion": "厂商报告的用量比预期少",
   "context.compact": "压缩",

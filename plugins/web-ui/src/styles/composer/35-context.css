@@ -94,6 +94,12 @@
   flex-direction: column;
   gap: 4px;
 }
+/* 磁盘快照恢复（§4.11）：总量有锚点、拆分不可得——一句话替代三段明细 */
+.henira-context-restored {
+  margin: 0;
+  font-size: var(--henira-fs-sm);
+  color: var(--henira-text-subtle);
+}
 .henira-context-part {
   display: flex;
   align-items: center;

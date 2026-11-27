@@ -126,6 +126,10 @@ export interface LoopService {
   paused(): boolean;
   /** 本会话当前余量读数（每步重算；尚无读数时 undefined）。停用压缩插件照常成立 */
   contextUsage(): ContextReading | undefined;
+  /** 重启恢复（compaction.md §4.11）：装载历史会话后由宿主调用一次——无活态读数时
+   *  按账本最近一条 request/header 的模型 + 当前工具表重算余量并广播；从未请求过的
+   *  会话没有 header，读数保持缺省（余量入口不显示，不猜）。可选：自定义 loop 可实现 */
+  restoreContext?(): Promise<void>;
   /** 是否忙（回合或冲刷链在跑，含回合间空窗）——手动压缩互斥判据（compaction.md §4.10） */
   isBusy(): boolean;
   /** 恢复被中断冻结的队列冲刷：取队头开新回合（闲时才可；无冻结/无条目返回 false） */

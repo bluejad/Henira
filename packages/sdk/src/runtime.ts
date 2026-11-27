@@ -617,6 +617,12 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
         },
       ]);
     });
+    // 余量恢复（与 server 同形，compaction.md §4.11）：监听已挂，读数随快照送达
+    try {
+      await session.ctx.get("loop").restoreContext?.();
+    } catch {
+      // 恢复是增强：缺 loop / 查不到模型时装载照常（余量入口保持空）
+    }
     sessions.set(id, session);
     await dirs.upsert(cwd, id); // 带目录建会话 = 自动登记（与 server 同一语义）
     const title = deriveSessionTitle(projection.rows); // R202/D-085：快照帧与 snapshot() 同源派生

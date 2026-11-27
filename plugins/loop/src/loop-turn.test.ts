@@ -14,6 +14,7 @@ import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
+  type ContextReading,
   type Decision,
   LlmError,
   type LlmRequest,
@@ -606,6 +607,66 @@ describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（
     expect(readings.length).toBeGreaterThanOrEqual(1);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(loop.isBusy()).toBe(false);
+    await harness.dispose();
+  });
+
+  it("重启恢复：装载旧账本后 restoreContext() 按最近请求的模型重算余量并广播（§4.11）", async () => {
+    const sessionDir = path.join(root, "sess-restore");
+    // 第一实例：跑一轮落下 request/header + step/end usage
+    const first = createHarness()
+      .use(sessionPlugin({ directory: sessionDir, cwd: root }))
+      .use(toolsPlugin({}))
+      .use(llmStub(mockLlm([[mockText("hi"), mockUsage(USAGE), mockFinish("stop")]]).service))
+      .use(approvalStub())
+      .use(interactionStub())
+      .use(configStub())
+      .use((await import("./service.js")).loopPlugin());
+    await first.start();
+    const firstCtx = asHeniraContext(first.context);
+    firstCtx.get("tools").register(readTool);
+    await collect(firstCtx.get("loop").run("种账本"));
+    await first.dispose();
+
+    // 第二实例（同目录 = 重启）：装载后没有活态读数
+    const second = createHarness()
+      .use(sessionPlugin({ directory: sessionDir, cwd: root }))
+      .use(toolsPlugin({}))
+      .use(llmStub(mockLlm([[mockText("x"), mockUsage(USAGE), mockFinish("stop")]]).service))
+      .use(approvalStub())
+      .use(interactionStub())
+      .use(configStub())
+      .use((await import("./service.js")).loopPlugin());
+    await second.start();
+    const ctx2 = asHeniraContext(second.context);
+    ctx2.get("tools").register(readTool);
+    const loop2 = ctx2.get("loop");
+    expect(loop2.contextUsage()).toBeUndefined();
+    const readings: ContextReading[] = [];
+    ctx2.events.on("context/changed", (payload) => {
+      readings.push((payload as { context: ContextReading }).context);
+    });
+    await loop2.restoreContext?.();
+    const reading = loop2.contextUsage();
+    expect(reading).toBeDefined();
+    expect(reading?.estimated).toBe(false); // 账本有 usage → 锚点成立（不是整面估算）
+    expect(reading?.size).toBe(128_000);
+    // 锚点 input + 锚点步携带输出；锚后没有新消息
+    expect(reading?.used).toBe(USAGE.inputTokens + USAGE.outputTokens);
+    expect(readings).toHaveLength(1);
+    // 已有活态读数不覆盖（热路径语义）
+    const before = loop2.contextUsage()?.used;
+    await loop2.restoreContext?.();
+    expect(loop2.contextUsage()?.used).toBe(before);
+    await second.dispose();
+  });
+
+  it("从未请求过的会话 restoreContext() 不建读数（余量入口保持空，不猜）", async () => {
+    const { harness, loop } = await startedLoop([
+      [mockText("x"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    expect(loop.contextUsage()).toBeUndefined();
+    await loop.restoreContext?.();
+    expect(loop.contextUsage()).toBeUndefined();
     await harness.dispose();
   });
 

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { contextBudget } from "./context-budget.js";
-import { measureContext, nextK, scaleParts } from "./context-meter.js";
+import { measureContext, nextK, restoreContextReading, scaleParts } from "./context-meter.js";
 import type { SessionEvent } from "./envelope.js";
 import type { TokenUsage, WireToolSchema } from "./llm.js";
 import type { ModelMessage, SurfaceEntry } from "./services.js";
@@ -287,5 +287,70 @@ describe("measureContext（compaction.md §4.2）", () => {
     });
     expect(result.reading.used).toBe(580); // 500 + (100 − 20)
     expect(result.reading.cacheHitRate).toBe(0.1);
+  });
+});
+
+describe("restoreContextReading（compaction.md §4.11 重启恢复）", () => {
+  it("有锚点：总量 = 锚点 input + 携带输出；partial 标记、工具表体积按差值反推", () => {
+    reset();
+    const system = ev("system/message", { turn: "t", step: 0, content: "sys" });
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const header = ev("request/header", {
+      turn: "t",
+      step: 1,
+      model: "p/m",
+      params: {},
+      toolNames: ["bash"],
+      systemPromptHash: "x",
+    });
+    const assistant = ev("assistant/message", {
+      turn: "t",
+      step: 1,
+      content: "hi",
+      model: "p/m",
+      finishReason: "stop",
+    });
+    const end = ev("step/end", {
+      turn: "t",
+      step: 1,
+      usage: { inputTokens: 5_000, outputTokens: 120 },
+    });
+    const surface = [
+      entry(system.seq, { role: "system", content: "sys" }),
+      entry(user.seq, { role: "user", content: "hello" }),
+      entry(assistant.seq, { role: "assistant", content: "hi" }),
+    ];
+    const reading = restoreContextReading({
+      events: [system, user, header, assistant, end],
+      surface,
+      model: "p/m",
+      modelConfig: { contextWindow: 200_000 },
+    });
+    expect(reading).toBeDefined();
+    expect(reading?.partial).toBe(true); // 拆分不可得（磁盘路径没有工具表）
+    expect(reading?.estimated).toBe(false); // 有锚点
+    expect(reading?.size).toBe(200_000);
+    expect(reading?.used).toBe(5_000 + 120); // 锚点 + 携带（推理不回传、reasoning 0）
+    const systemEstimate = estimateMessage(surface[0].message);
+    const atAnchorMessages =
+      estimateMessage(surface[1].message) + estimateMessage(surface[2].message);
+    expect(reading?.parts.system).toBe(systemEstimate);
+    expect(reading?.parts.tools).toBe(5_000 - systemEstimate - atAnchorMessages);
+    expect(
+      (reading?.parts.system ?? 0) + (reading?.parts.tools ?? 0) + (reading?.parts.messages ?? 0),
+    ).toBe(reading?.used);
+  });
+
+  it("无锚点（从未请求过）：undefined——不猜", () => {
+    reset();
+    const system = ev("system/message", { turn: "t", step: 0, content: "sys" });
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const surface = [
+      entry(system.seq, { role: "system", content: "sys" }),
+      entry(user.seq, { role: "user", content: "hello" }),
+    ];
+    expect(
+      restoreContextReading({ events: [system, user], surface, model: "p/m" }),
+    ).toBeUndefined();
   });
 });
