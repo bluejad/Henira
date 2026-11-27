@@ -24,6 +24,7 @@ import {
 } from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compactionPlugin } from "./index.js";
+import { SUMMARY_MARKER } from "./prompt.js";
 
 let root: string;
 
@@ -200,7 +201,7 @@ describe("plugin-compaction 主体（compaction.md §4.4–§4.7）", () => {
 
     // 主请求拿到的是压缩后的表面：首条是替换摘要，旧历史只剩尾部保留段
     expect((main?.messages[0] as { content: string } | undefined)?.content).toContain(
-      "summary of the earlier conversation",
+      SUMMARY_MARKER,
     );
     expect(main?.messages.length).toBeLessThan(summary?.messages.length ?? 0);
 
@@ -278,7 +279,7 @@ describe("plugin-compaction 主体（compaction.md §4.4–§4.7）", () => {
       "Compress the conversation above",
     );
     expect((seen[2]?.messages[0] as { content: string } | undefined)?.content).toContain(
-      "summary of the earlier conversation",
+      SUMMARY_MARKER,
     );
     expect(session.events().filter((event) => event.type === "error")).toHaveLength(0);
     expect(session.events().filter((event) => event.type === "request/header")).toHaveLength(2); // 溢出原步 + 重发各一条
@@ -633,6 +634,54 @@ describe("plugin-compaction 主体（compaction.md §4.4–§4.7）", () => {
     await turn;
     // 无修复时待办会在步 2 的 pre-step 执行（compaction/start 落账）；停止应把它一并撤销
     expect(session.events().filter((event) => event.type === "compaction/start")).toHaveLength(0);
+    await harness.dispose();
+  });
+
+  it("排队的手动压缩同样走小窗口分支：<32K 不发模型摘要（§4.6/§4.10）", async () => {
+    const noUsage = { inputTokens: 0, outputTokens: 0 };
+    let toolEntered!: () => void;
+    const toolIn = new Promise<void>((resolve) => {
+      toolEntered = resolve;
+    });
+    const mock = mockLlm([
+      [mockToolCall("c-slow", "slow", "{}"), mockUsage(noUsage), mockFinish("stop")],
+      [mockText("after slow tool"), mockUsage(noUsage), mockFinish("stop")],
+    ]);
+    const seen: LlmRequest[] = [];
+    const llm: LlmService = {
+      async *stream(req, signal) {
+        seen.push(req);
+        yield* mock.service.stream(req, signal);
+      },
+    };
+    const { harness, ctx, loop, session } = await assemble(llm, 16_000);
+    ctx.get("tools").register({
+      name: "slow",
+      description: "slow",
+      inputSchema: { type: "object" },
+      isConcurrencySafe: true,
+      execute: async () => {
+        toolEntered();
+        return { content: "slow body" };
+      },
+    });
+    await seedHistory(session, 1); // ≈12K：16K 窗口的压力线上、硬线下
+    const turn = collect(loop.run("小窗口排队"));
+    await toolIn;
+    expect((await ctx.get("compaction").request({})).state).toBe("queued");
+    await turn;
+    // 旧行为：排队分支总走模型摘要 → 落一条 compaction/start 再 SUMMARY_TOO_LARGE
+    expect(session.events().filter((event) => event.type === "compaction/start")).toHaveLength(0);
+    expect(
+      seen.some((req) => {
+        const last = req.messages.at(-1);
+        return (
+          last?.role === "user" &&
+          typeof last.content === "string" &&
+          last.content.includes("Compress the conversation above")
+        );
+      }),
+    ).toBe(false);
     await harness.dispose();
   });
 

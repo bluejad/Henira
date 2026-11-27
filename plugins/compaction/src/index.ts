@@ -401,22 +401,29 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
       cx.events.onWaterfall("loop/pre-step", async (raw, next) => {
         const value = raw as PreStepValue;
         stepsSinceSuccess += 1; // F-8 的距离按步算（不按尝试次数）：每步都走这里
+        if (value.signal.aborted) return next(value); // 已停止：不压缩、不改表面
         if (active !== undefined) {
           // I-8：手动压缩在途 → 回合在步边界等它结束，再按新表面派生
           await active.catch(() => {});
           return next({ ...value, messages: session.deriveMessages() });
         }
         if (queued !== undefined) {
-          // 忙时排队的压缩：到步边界执行（触发因记 manual）；成功清熔断（与闲时手动同规）
+          // 忙时排队的压缩：到步边界执行（触发因记 manual）；成功清熔断（与闲时手动同规）。
+          // 小窗口与闲时手动同规：不做模型摘要，直接走无模型阶梯（§4.6/§4.10）
           const pending = queued;
           queued = undefined;
-          const queuedStatus = await withActive("manual", () =>
-            compact(value, "manual", pending.instructions),
-          );
-          if (queuedStatus === "completed") noteManualSuccess();
+          if (value.budget.limit < 32_000) {
+            const stepped = await digest(value, "manual");
+            if (stepped.applied) noteManualSuccess();
+          } else {
+            const queuedStatus = await withActive("manual", () =>
+              compact(value, "manual", pending.instructions),
+            );
+            if (queuedStatus === "completed") noteManualSuccess();
+          }
           return next({ ...value, messages: session.deriveMessages() });
         }
-        if (value.signal.aborted || value.context.used < value.context.pressure) {
+        if (value.context.used < value.context.pressure) {
           return next(value);
         }
         const ok = await autoOnce(value);

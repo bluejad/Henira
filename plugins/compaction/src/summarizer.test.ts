@@ -5,6 +5,7 @@ import {
   contextBudget,
   estimateMessages,
   estimateText,
+  LlmError,
   type LlmRequest,
   type LlmService,
   type ModelMessage,
@@ -72,6 +73,47 @@ describe("requestSummary（compaction.md §4.6）", () => {
     expect(
       estimateMessages(sent) + estimateText(baseInput.instruction) + budget.summaryOut,
     ).toBeLessThanOrEqual(budget.hardLimit);
+  });
+
+  it("端点自报溢出：按 actual/limit 重算预算、裁掉更老的转写后重发一次（§4.6）", async () => {
+    const calls: LlmRequest[] = [];
+    let attempt = 0;
+    const service: LlmService = {
+      async *stream(req) {
+        calls.push(req);
+        attempt += 1;
+        if (attempt === 1) {
+          throw new LlmError(
+            "CONTEXT_OVERFLOW",
+            "This model's maximum context length is 40000 tokens. However, you requested 100000 tokens",
+            400,
+            { limit: 40_000, actual: 100_000 },
+          );
+        }
+        yield { type: "text-delta", text: "short summary" };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const messages = Array.from({ length: 10 }, (_, index) => ({
+      role: "user" as const,
+      content: `m${index}-${"x".repeat(10_000)}`,
+    }));
+    const result = await requestSummary({
+      ...baseInput,
+      llm: service,
+      messages,
+      hardLimit: 40_000,
+      summaryOut: 1_000,
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    // 第二次：转写被裁短、输出预算也压低（端点口径 count 与实际差 2.5 倍）
+    expect(calls[1]?.messages.length).toBeLessThan(calls[0]?.messages.length ?? 0);
+    expect(calls[1]?.maxTokens).toBeLessThan(calls[0]?.maxTokens ?? 0);
+    // 裁的是尾部：重发的转写仍是原转写的前缀（指令在各自末尾，不参与比较）
+    const retryTranscript = calls[1]?.messages.slice(0, -1) ?? [];
+    expect(retryTranscript).toEqual(calls[0]?.messages.slice(0, retryTranscript.length));
+    expect(calls[1]?.messages.at(-1)).toEqual(calls[0]?.messages.at(-1));
   });
 
   it("摘要期工具调用 → 失败（F-9）", async () => {

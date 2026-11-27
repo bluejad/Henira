@@ -4,6 +4,9 @@
 // 三条护栏：系统消息永不进区间（I-3）；有在途调用的单元不可压缩（I-2）；
 // 区间只向前推进、不与已接受区间重叠。滚动摘要：新区间把上一次替换记录自身的 seq
 // 纳入区间（不重叠旧区间），派生规则据此让旧摘要退出表面。
+// 前沿与分段：上次模型摘要终点之前的可见单元是残留碎片，不进区间也不参与起点；
+// 截断点（系统消息 / 无模型区间）把窗口切成连续段，最早一段不足 headMin 时取下一段——
+// 只从后往前截会让中段一次无模型摘要留下的短碎片把后面的历史永久挡死（§17）。
 
 import {
   type ContextBudget,
@@ -168,37 +171,57 @@ export function selectInterval(input: SelectionInput): IntervalPlan | undefined 
   }
   const headUnits = visibleUnits.slice(0, tailStart);
   if (headUnits.length === 0) return undefined;
-  if (headUnits.some((unit) => !unit.eligible)) return undefined; // I-2：有在途调用的步整段不可压
 
-  let startSeq = Math.min(...headUnits.map((unit) => unit.firstSeq));
-  const endSeq = Math.max(...headUnits.map((unit) => unit.lastSeq));
-  if (startSeq <= previousEnd) return undefined; // 只向前推进（session.md §4）
+  // 前沿：上一次模型摘要终点之前的可见单元是「残留碎片」——被系统消息 / 无模型区间截下来的
+  // 老历史，不能再进新区间（会与旧区间重叠），但也不能挡住它后面的单元
+  const windowUnits = headUnits.filter((unit) => unit.firstSeq > previousEnd);
+  if (windowUnits.length === 0) return undefined;
 
-  // 滚动摘要：把上一次替换记录自身的 seq 纳入新区间（记录在旧区间之后，因此不重叠）
-  if (latestRecordSeq > previousEnd && latestRecordSeq < startSeq) {
-    const blocked = systemSeqs.some((seq) => seq >= latestRecordSeq && seq <= startSeq);
-    if (!blocked) startSeq = latestRecordSeq;
+  // 截断点（系统消息 / 无模型摘要区间）把窗口切成若干连续段。优先取最早一段（先压老历史）；
+  // 该段不足 headMin 时取下一段——否则中段一次无模型摘要留下的短碎片就能让模型摘要
+  // 永久判「历史不足」，会话一路走到硬线（P1，2026-11-26 复审）
+  const runs: Unit[][] = [];
+  let run: Unit[] = [];
+  for (const unit of windowUnits) {
+    const previous = run[run.length - 1];
+    if (previous !== undefined && splitsBetween(previous, unit)) {
+      runs.push(run);
+      run = [];
+    }
+    run.push(unit);
+  }
+  if (run.length > 0) runs.push(run);
+
+  for (let index = 0; index < runs.length; index += 1) {
+    const chosen = runs[index] as Unit[];
+    if (chosen.some((unit) => !unit.eligible)) continue; // I-2：有在途调用的步整段不可压
+    // 滚动摘要：只对最早一段下探（段前有截断点时不行——下探区间会把它罩进来）
+    const first = chosen[0] as Unit;
+    const rolling =
+      index === 0 &&
+      latestRecordSeq > previousEnd &&
+      latestRecordSeq < first.firstSeq &&
+      !blockedInRange(latestRecordSeq, first.firstSeq)
+        ? latestRecordSeq
+        : undefined;
+    const plan = finish(chosen, rolling);
+    if (plan !== undefined) return plan;
+  }
+  return undefined;
+
+  /** 两个相邻可见单元之间是否隔着截断点（系统消息或已接受的无模型区间） */
+  function splitsBetween(left: Unit, right: Unit): boolean {
+    if (systemSeqs.some((seq) => seq > left.lastSeq && seq < right.firstSeq)) return true;
+    return digestIntervals.some(
+      (interval) => interval.endSeq > left.lastSeq && interval.startSeq < right.firstSeq,
+    );
   }
 
-  // I-3：区间内出现系统消息 → 截到该系统消息之前；截不出头部则放弃。
-  // 无模型摘要的替换区间同理：与模型摘要的区间不许重叠（store 先写生效，跨越即整条被拒），
-  // 截到它之前——比它更早的历史照常可压，摘要记录本身留给下一轮头部
-  const cuts = [
-    ...systemSeqs.filter((seq) => seq >= startSeq && seq <= endSeq),
-    ...digestIntervals
-      .filter((interval) => interval.endSeq >= startSeq && interval.startSeq <= endSeq)
-      .map((interval) => interval.startSeq),
-  ];
-  if (cuts.length > 0) {
-    const cutoff = Math.min(...cuts);
-    if (cutoff <= startSeq) return undefined; // 起点已在不可重叠区间内：本轮放弃
-    const kept = headUnits.filter((unit) => unit.lastSeq < cutoff);
-    if (kept.length === 0) return undefined;
-    // 滚动起点照传：kept 终点 < cutoff，延伸出来的 [startSeq..kept 末尾] 罩不到截断点
-    return finish(kept, startSeq);
+  /** [from..to] 内含截断点（滚动摘要下探前检查） */
+  function blockedInRange(from: number, to: number): boolean {
+    if (systemSeqs.some((seq) => seq >= from && seq <= to)) return true;
+    return digestIntervals.some((interval) => interval.endSeq >= from && interval.startSeq <= to);
   }
-
-  return finish(headUnits, startSeq);
 
   /** 组装计划；startAt = 滚动摘要下探到替换记录 seq 的起点（不传则取选中单元的最小 seq） */
   function finish(chosen: Unit[], startAt?: number): IntervalPlan | undefined {

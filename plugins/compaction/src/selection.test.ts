@@ -149,6 +149,109 @@ describe("selectInterval（compaction.md §4.5）", () => {
     expect(second?.endSeq).toBe(8); // 截在 digest 区间 [9,10] 之前
   });
 
+  it("已压区间前的残留碎片不再挡住后续摘要（前沿过滤）", () => {
+    reset();
+    const fragment = ev("user/message", {
+      turn: "t-frag",
+      step: 0,
+      content: "f".repeat(200),
+      source: "send",
+    });
+    const oldUser = ev("user/message", {
+      turn: "t-old",
+      step: 0,
+      content: "o".repeat(20_000),
+      source: "send",
+    });
+    const oldAssistant = ev("assistant/message", {
+      turn: "t-old",
+      step: 1,
+      content: "p".repeat(20_000),
+      model: "p/m",
+      finishReason: "stop",
+    });
+    const record = ev("user/message", {
+      turn: "t-old",
+      step: 2,
+      content: "old summary",
+      source: "compaction",
+      surfaceOp: { op: "replace", startSeq: oldUser.seq, endSeq: oldAssistant.seq },
+    });
+    const { events, surface } = pairs(8);
+    const all = [fragment, oldUser, oldAssistant, record, ...events];
+    // 碎片在旧区间之前且永远可见（新区间截断时被留下），旧区间只遮住 oldUser/oldAssistant
+    const allSurface = [
+      entry(fragment.seq, "user", "f".repeat(200)),
+      entry(oldUser.seq, "user", "old summary"),
+      ...surface,
+    ];
+    const plan = selectInterval({ events: all, surface: allSurface, budget });
+    expect(plan).toBeDefined();
+    // 起点 = 旧摘要记录自身（滚动吸收），不碰旧区间；碎片在区间之外
+    expect(plan?.startSeq).toBe(record.seq);
+    expect(plan?.startSeq).toBeGreaterThan(oldAssistant.seq);
+  });
+
+  it("中段 digest 前段不足 headMin：改从截断点之后起算（不永久判历史不足）", () => {
+    reset();
+    const events: SessionEvent[] = [];
+    const surface: SurfaceEntry[] = [];
+    // 前段两个很小的单元（≈280 token < headMin 4K）：一次中段无模型摘要之后，
+    // 它们成了永远进不了区间、也永远长不大的残留碎片
+    const u0 = ev("user/message", {
+      turn: "t-pre",
+      step: 0,
+      content: "s".repeat(200),
+      source: "send",
+    });
+    const a0 = ev("assistant/message", {
+      turn: "t-pre",
+      step: 1,
+      content: "a".repeat(200),
+      model: "p/m",
+      finishReason: "stop",
+    });
+    events.push(u0, a0);
+    surface.push(
+      entry(u0.seq, "user", "s".repeat(200)),
+      entry(a0.seq, "assistant", "a".repeat(200)),
+    );
+    // 之后 9 对（每单元 1000 token）；digest 替换第 1 对（seq 3,4）——紧挨着前段碎片
+    for (let index = 0; index < 9; index += 1) {
+      const user = ev("user/message", {
+        turn: `t-${index}`,
+        step: 0,
+        content: "x".repeat(2_000),
+        source: "send",
+      });
+      const assistant = ev("assistant/message", {
+        turn: `t-${index}`,
+        step: 1,
+        content: "y".repeat(2_000),
+        model: "p/m",
+        finishReason: "stop",
+      });
+      events.push(user, assistant);
+      if (index !== 0) {
+        surface.push(entry(user.seq, "user", "x".repeat(2_000)));
+        surface.push(entry(assistant.seq, "assistant", "y".repeat(2_000)));
+      }
+    }
+    surface.push(entry(3, "user", "[compacted tool step]")); // 摘要插在区间起点
+    const digest = ev("user/message", {
+      turn: "t-digest",
+      step: 0,
+      content: "[compacted tool step]",
+      source: "compaction-digest",
+      surfaceOp: { op: "replace", startSeq: 3, endSeq: 4 },
+    });
+    const plan = selectInterval({ events: [...events, digest], surface, budget });
+    // 旧行为：截到 digest 之前只剩前段 280 token < headMin → 整次返回 undefined（永久卡死）
+    expect(plan).toBeDefined();
+    expect(plan?.startSeq).toBeGreaterThan(4); // 从截断点之后起算
+    expect(plan?.maskedTokens).toBeGreaterThanOrEqual(budget.headMin);
+  });
+
   it("系统消息夹在头部中间：区间截到系统消息之前（I-3）", () => {
     reset();
     const first = ev("user/message", {

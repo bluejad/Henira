@@ -85,6 +85,9 @@ function scanUnits(
   const callArgs = new Map<string, string>();
   const seqToUnit = new Map<number, StepUnit>();
   const systemSeqs = new Set<number>();
+  /** 替换记录的锚点 seq：表面在该位置放的是摘要正文，不是被遮蔽单元的内容——
+   *  统计时必须跳过，否则摘要正文会被算到旧单元头上，造出「幽灵候选」（替换必被重叠裁决拒绝） */
+  const anchorSeqs = new Set<number>();
 
   const unitFor = (turn: unknown, step: unknown, seq: number): StepUnit | undefined => {
     const key = unitKey(turn, step);
@@ -116,6 +119,11 @@ function scanUnits(
       case "system/message":
         systemSeqs.add(event.seq);
         break;
+      case "user/message": {
+        const op = data.surfaceOp as { op?: unknown; startSeq?: unknown } | undefined;
+        if (op?.op === "replace" && typeof op.startSeq === "number") anchorSeqs.add(op.startSeq);
+        break;
+      }
       case "assistant/message":
         unitFor(data.turn, data.step, event.seq);
         break;
@@ -146,6 +154,7 @@ function scanUnits(
   }
 
   for (const entry of surface) {
+    if (anchorSeqs.has(entry.seq)) continue; // 锚点是摘要正文，归记录不归被遮蔽单元
     const unit = seqToUnit.get(entry.seq);
     if (unit !== undefined) unit.estimate += estimateMessage(entry.message);
   }
