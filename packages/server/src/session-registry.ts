@@ -147,6 +147,9 @@ const CORE_SLOT_NAMES = new Set([
 /** useResource 数据泵单跳的截断上限（plugins.md §4：200 × 1024 字符） */
 const RESOURCE_MAX_CHARS = 200 * 1024;
 
+/** 会话 id 形态（删会话的路径安全闸）：create 的 `s-<slug>-<6hex>`，或 fork 子会话的 UUID */
+const SESSION_ID_RE = /^(?:s-[0-9a-z]+-[0-9a-f]{6}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/;
+
 /** 可能改变左列表「等待确认」徽标的账本事件（出现/收口的候选）——onAppend 前后比对
  *  投影摘要，只有挂起集真的变了才发 sessions.changed。自动 decided（规则 allow / 只读默认
  *  放行 / hook / full）没有配对 asked，不改变徽标，不能按事件类型无脑发；普通 tool/assistant
@@ -810,7 +813,21 @@ export class SessionRegistry {
     // 压缩活态（compaction.md §4.11）：进行中可停止、入口置灰；不落账本（悬挂 start
     // 由投影收口为「已中断」），随进程存亡
     entry.ctx.events.on("compaction/active", (payload) => {
-      projection.state.compacting = (payload as { active?: unknown }).active === true || undefined;
+      const active = (payload as { active?: unknown }).active === true;
+      projection.state.compacting = active || undefined;
+      if (active) projection.state.compactionNotice = undefined; // 新压缩开始：上一条「已跳过」回执退场
+      this.#opts.fanout.publish(id, [
+        { op: "state.updated", state: this.#stateWithQueue(entry, projection.state) },
+      ]);
+    });
+
+    // 手动压缩被跳过的即时回执（D-092）：消费时历史不足才知道——受理响应早已返回，走活态
+    entry.ctx.events.on("compaction/skipped", (payload) => {
+      const notice = payload as { id?: unknown };
+      projection.state.compactionNotice =
+        typeof notice.id === "string"
+          ? { id: notice.id, reason: "history-insufficient" }
+          : undefined;
       this.#opts.fanout.publish(id, [
         { op: "state.updated", state: this.#stateWithQueue(entry, projection.state) },
       ]);
@@ -857,12 +874,14 @@ export class SessionRegistry {
     if (pending === undefined) return merged;
     return {
       ...merged,
-      queue: pending.map(({ id, text, steer, modelId, reasoningEffort }) => ({
+      queue: pending.map(({ id, kind, text, steer, modelId, reasoningEffort, instructions }) => ({
         id,
+        kind,
         text,
         steer,
         modelId,
         reasoningEffort,
+        ...(instructions !== undefined ? { instructions } : {}),
       })),
       queuePaused: paused === true ? true : undefined,
     };
@@ -980,7 +999,9 @@ export class SessionRegistry {
 
   /** 删单个会话（data-directory §7 删除会话语义）：账本目录整删 + 在订收尾；不在册 = false */
   async deleteSession(id: string): Promise<boolean> {
-    if (!/^s-[0-9a-z]+-[0-9a-f]{6}$/.test(id)) return false; // id 形态闸（防路径段滥用）
+    // id 形态闸（防路径段滥用）：create 的 `s-<slug>-<6hex>`，或 fork 子会话的 UUID
+    //（plugins/session fork.ts randomUUID）。此前只认前者——fork 会话删不掉（404）
+    if (!SESSION_ID_RE.test(id)) return false;
     const entry = this.#entries.get(id);
     const dir = entry?.directory ?? (await this.#findSessionDir(id));
     if (dir === undefined) return false;

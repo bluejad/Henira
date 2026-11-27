@@ -4,13 +4,55 @@
 // 与 R182 相同：接管期间 bar 保持挂载（display:none），草稿/DOM 态不丢；草稿随会话走
 // （D-063：宿主加载好的 uiState 到位后按会话回填一次，此后本地态直跑，输入经 updateUiState
 // 交宿主合并防抖落盘）。模型目录重拉三触发：mount / 设置关闭 / 设置内写操作广播。
+// D-092：手动压缩只从输入框出去——提交函数识别首词 /compact（与消息同一个 submit，终点换成
+// 压缩入队）；宿主 prefill 请求（面板「压缩」/ 横幅「重试」交来的命令）在这里回填草稿，只回填不发送。
 
-import type { PermissionMode, ReasoningEffort, Row } from "@henira/protocol";
+import {
+  COMPACT_COMMAND,
+  COMPACTION_INSTRUCTIONS_MAX,
+  type PermissionMode,
+  type ReasoningEffort,
+  type Row,
+} from "@henira/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { ComposerApi, ModelCatalog, SettingsSection, WebPartContext } from "../types.js";
+import type {
+  ComposerApi,
+  ModelCatalog,
+  PrefillRequest,
+  SettingsSection,
+  WebPartContext,
+} from "../types.js";
 
 const EMPTY_ROWS: readonly Row[] = [];
 const EMPTY_CATALOG: ModelCatalog = {};
+
+/** 手动压缩命令（D-092）：去首尾空白后首词为 COMPACT_COMMAND（大小写不敏感），其后为说明
+ *  （可空）。只认整条输入的首词——正文里出现的 `/compact` 不是命令，照常当消息发。
+ *  返回 undefined = 不是压缩命令。 */
+export function parseCompactCommand(text: string): { instructions?: string } | undefined {
+  const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (match?.[1]?.toLowerCase() !== COMPACT_COMMAND.slice(1)) return undefined;
+  const instructions = match[2]?.trim();
+  return instructions === undefined || instructions === "" ? {} : { instructions };
+}
+
+/** 压缩提交被拒的原因文案键（D-092；键集沿用 context.compact*——与余量面板同一批词） */
+function compactRejectKey(reason: string | undefined): string {
+  switch (reason) {
+    case "compaction-in-progress":
+      return "context.compactBusy";
+    case "compaction-unavailable":
+      return "context.compactUnavailable";
+    case "instructions-too-long":
+      return "context.compactTooLong";
+    case "interrupted":
+      return "context.compactInterrupted";
+    case "no-model":
+      return "context.compactNoModel";
+    default:
+      return "context.compactFailed";
+  }
+}
 
 /** 运行时 = ComposerApi 去掉交互面（审批/提问由 ComposerDock 的乐观集合与 chain owner 提供） */
 export type ComposerRuntime = Omit<
@@ -34,6 +76,35 @@ export function useComposerRuntime(
 ): ComposerRuntime {
   const [draft, setDraftState] = useState("");
   const [sendFailed, setSendFailed] = useState(false);
+  const [sendErrorText, setSendErrorText] = useState<string | undefined>(undefined);
+  const [sendNotice, setSendNotice] = useState<string | undefined>(undefined);
+
+  // 手动压缩被跳过的即时回执（D-092）：历史不足要到消费时才知道，受理响应早已返回——走宿主
+  // 活态 SessionState.compactionNotice。按 id 变化提示一次；快照里带来的旧回执（刷新 / 重开 /
+  // 切会话）不重放；回执退场（下一次压缩开始）与切会话（回执属会话，不跟人走——2026-11-27
+  // 用户纠偏：旧实现切走不清，提示跟着到别的会话）时一并收起，连同 sendFailed / sendErrorText
+  // （同属上一会话的行内反馈）。
+  const compactionNoticeId = useSyncExternalStore(
+    ctx.store.subscribe,
+    () => ctx.store.getSession(ctx.sessionId).state.compactionNotice?.id,
+    () => undefined,
+  );
+  const shownNotice = useRef<{ session: string | null; id: string | undefined }>({
+    session: ctx.sessionId,
+    id: compactionNoticeId,
+  });
+  useEffect(() => {
+    if (shownNotice.current.session !== ctx.sessionId) {
+      shownNotice.current = { session: ctx.sessionId, id: compactionNoticeId };
+      setSendNotice(undefined);
+      setSendFailed(false);
+      setSendErrorText(undefined);
+      return;
+    }
+    if (compactionNoticeId === shownNotice.current.id) return;
+    shownNotice.current.id = compactionNoticeId;
+    setSendNotice(compactionNoticeId === undefined ? undefined : ctx.t("context.compactSkipped"));
+  }, [compactionNoticeId, ctx.sessionId, ctx]);
   const [model, setModelState] = useState("");
   const [effort, setEffortState] = useState<ReasoningEffort | null>(null);
   // 权限模式（D-080）：显式会话记忆（null = 本会话未设）+ settings 新会话默认，兜底 ask
@@ -160,6 +231,21 @@ export function useComposerRuntime(
     inputRef.current = el;
   }, []);
 
+  // 交给输入框（host.prefill → ctx.prefillRequest，D-092）：只回填不发送。请求常驻 ctx 直到被
+  // 消费——处理完（回填，或因已有草稿跳过）调 ack() 让宿主清除。草稿为空才回填并聚焦：已有
+  // 草稿不覆盖（入口要提示得自己先看 draft）。同一请求对象只处理一次：ack 后、宿主清除前的
+  // 重渲里请求仍在 ctx 上，回填引发的草稿变化不得让它二次生效。
+  const handledPrefill = useRef<PrefillRequest | undefined>(undefined);
+  useEffect(() => {
+    const request = ctx.prefillRequest;
+    if (request === undefined || handledPrefill.current === request) return;
+    handledPrefill.current = request;
+    request.ack();
+    if (draft.trim() !== "") return;
+    setDraft(request.text);
+    inputRef.current?.focus();
+  }, [ctx, draft, setDraft]);
+
   const setModel = useCallback(
     (next: string): void => {
       setModelState(next);
@@ -192,9 +278,47 @@ export function useComposerRuntime(
       //（可见态由 ComposerDock 管）。判据来自 answered 过滤结果——乐观已答不再拦
       //（卡已离场、输入栏已回来，拦 = 发送被静默吞掉，审查 P2）
       if (interactionPending) return;
-      setDraftState("");
-      ctx.updateUiState?.({ draft: "" }); // 持久层同步清空（否则重启还原出旧草稿）
       setSendFailed(false);
+      setSendErrorText(undefined);
+      setSendNotice(undefined);
+      const clearDraft = (): void => {
+        setDraftState("");
+        ctx.updateUiState?.({ draft: "" }); // 持久层同步清空（否则重启还原出旧草稿）
+      };
+      const restoreDraft = (message?: string): void => {
+        // 失败回填草稿（用户不丢输入）+ 行内可见提示（不静默，R125）；message 缺省回落
+        // composer.sendFailed 文案（消息 / 压缩命令同一套）
+        setDraftState(submitted);
+        ctx.updateUiState?.({ draft: submitted });
+        setSendFailed(true);
+        setSendErrorText(message);
+      };
+      // 首词 /compact = 手动压缩（D-092）：与消息同一个提交函数，只是终点换成压缩入队——
+      // 仍进同一条队列，忙时照常排队。steer 对压缩无意义，忽略。
+      const compact = parseCompactCommand(submitted);
+      if (compact !== undefined) {
+        if (ctx.client.compact === undefined) {
+          restoreDraft(ctx.t("context.compactUnavailable"));
+          return;
+        }
+        const instructions = compact.instructions;
+        if (instructions !== undefined && [...instructions].length > COMPACTION_INSTRUCTIONS_MAX) {
+          restoreDraft(ctx.t("context.compactTooLong")); // 提交前拦下，不等 REST 400
+          return;
+        }
+        clearDraft();
+        void ctx.client
+          .compact(ctx.sessionId, instructions)
+          .then((result) => {
+            if (result.state !== "rejected") return; // 已受理：进度看排队卡 / 压缩行（skipped 走活态）
+            restoreDraft(ctx.t(compactRejectKey(result.reason)));
+          })
+          .catch(() => {
+            restoreDraft(ctx.t("context.compactFailed"));
+          });
+        return;
+      }
+      clearDraft();
       void ctx.client
         .prompt(ctx.sessionId, submitted, {
           steer: opts?.steer || undefined, // E1：忙时 Ctrl+Enter = 插话入队（下一 step 边界进场）
@@ -204,10 +328,7 @@ export function useComposerRuntime(
           permissionMode: permission ?? defaultPermission,
         })
         .catch(() => {
-          // 发送失败回填草稿（用户不丢输入）+ 行内可见提示（不静默，R125）
-          setDraftState(submitted);
-          ctx.updateUiState?.({ draft: submitted });
-          setSendFailed(true);
+          restoreDraft();
         });
     },
     [ctx, draft, model, effort, permission, defaultPermission, interactionPending],
@@ -226,6 +347,8 @@ export function useComposerRuntime(
       busy,
       isEmpty: rows.length === 0,
       sendFailed,
+      sendErrorText,
+      sendNotice,
       model,
       setModel,
       effort,
@@ -246,6 +369,8 @@ export function useComposerRuntime(
       busy,
       rows.length,
       sendFailed,
+      sendErrorText,
+      sendNotice,
       model,
       setModel,
       effort,

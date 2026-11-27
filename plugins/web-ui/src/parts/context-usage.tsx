@@ -1,11 +1,14 @@
 // 官方件：上下文余量入口（compaction.md §4.11）——输入栏工具排右侧的常驻圆环，
 // 栏内不放数字；悬停展开面板（指针移入面板不收起；触屏与键盘用点击开合）。
 // 数据源 = store 快照 state.context（loop 每步重算 → server/sdk 经 context/changed
-// 并入 state.updated；快照携带 → 断线重连自洽）。圆环进度 = used ÷ size。
+// 并入 state.updated；快照携带 → 断线重连自洽）。圆环进度 = used ÷ size；面板三段条同口径
+// 按 size 折算（占用 + 构成二合一——按 used 折成占比会恒满格、用量不进条的几何，2026-11-27 用户纠偏）。
 // 预警 = used 进入压力线下方 10% 窗口：圆环转警示色，面板写明距自动压缩还差 N%。
 // 用量为 0 或非法时不渲染（同 zcode contextUsage 的取数守卫）。
+// 手动压缩入口（D-092）：面板里的「压缩」只把 /compact 交给输入框（宿主 prefill——只回填不
+// 发送），由用户在输入框点发送，与消息走同一个提交路径；本件不直发压缩请求。
 
-import { COMPACTION_INSTRUCTIONS_MAX } from "@henira/protocol";
+import { COMPACT_COMMAND } from "@henira/protocol";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { WebPartContext } from "../types.js";
@@ -82,8 +85,16 @@ export function ContextUsageButton({ ctx }: { ctx: WebPartContext }): ReactNode 
     () => ctx.store.getSession(ctx.sessionId).state.compacting === true,
     () => false,
   );
+  // D-092：压缩是队列意图——已排队（尚未轮到时）也算「已提交」，入口不再收第二次
+  const compactQueued = useSyncExternalStore(
+    ctx.store.subscribe,
+    () =>
+      (ctx.store.getSession(ctx.sessionId).state.queue ?? []).some(
+        (entry) => entry.kind === "compact",
+      ),
+    () => false,
+  );
   const [open, setOpen] = useState(false);
-  const [instructions, setInstructions] = useState("");
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -125,47 +136,16 @@ export function ContextUsageButton({ ctx }: { ctx: WebPartContext }): ReactNode 
   const summary = `${formatTokens(used)}/${formatTokens(size)} (${percent}%)`;
   const label = `${ctx.t("context.title")} ${summary}`;
 
-  const feedbackFor = (result: {
-    state: "accepted" | "queued" | "skipped" | "rejected";
-    reason?: string;
-  }): string => {
-    if (result.state === "accepted") return ctx.t("context.compactAccepted");
-    if (result.state === "queued") return ctx.t("context.compactQueued");
-    if (result.state === "skipped") return ctx.t("context.compactSkipped");
-    switch (result.reason) {
-      case "instructions-too-long":
-        return ctx.t("context.compactTooLong");
-      case "compaction-in-progress":
-        return ctx.t("context.compactBusy");
-      case "history-insufficient":
-        return ctx.t("context.compactSkipped");
-      case "no-model":
-        return ctx.t("context.compactNoModel");
-      case "interrupted":
-        return ctx.t("context.compactInterrupted");
-      case "compaction-unavailable":
-        return ctx.t("context.compactUnavailable");
-      default:
-        return ctx.t("context.compactFailed");
-    }
-  };
-
-  const submitCompact = (): void => {
-    setFeedback(undefined);
-    if (ctx.client.compact === undefined) {
-      setFeedback(ctx.t("context.compactUnavailable"));
+  // 交给输入框（D-092）：手动压缩只从输入框出去——本件不调 client.compact。输入框已有草稿时
+  // 宿主不覆盖，这里先看一眼就地提示（先发送或清空）。
+  const handOffCompact = (): void => {
+    if ((ctx.composer?.draft ?? "").trim() !== "") {
+      setFeedback(ctx.t("context.compactDraftBusy"));
       return;
     }
-    const trimmed = instructions.trim();
-    void ctx.client
-      .compact(ctx.sessionId as string, trimmed === "" ? undefined : trimmed)
-      .then((result) => {
-        setFeedback(feedbackFor(result));
-        if (result.state === "accepted" || result.state === "queued") setInstructions("");
-      })
-      .catch(() => {
-        setFeedback(ctx.t("context.compactFailed"));
-      });
+    setFeedback(undefined);
+    ctx.host.prefill({ text: COMPACT_COMMAND });
+    setOpen(false); // 收起面板，把视线交给输入框
   };
 
   return (
@@ -208,18 +188,19 @@ export function ContextUsageButton({ ctx }: { ctx: WebPartContext }): ReactNode 
             <p className="henira-context-restored">{ctx.t("context.restored")}</p>
           ) : (
             <>
+              {/* 段宽分母是 size 不是 used（见文件头）：条要回答「占了多少上限」，答「已用量里各占几成」恒满格 */}
               <div className="henira-context-bar" aria-hidden="true">
                 <span
                   className="henira-context-seg henira-context-seg-system"
-                  style={{ width: `${percentOf(parts.system, used)}%` }}
+                  style={{ width: `${percentOf(parts.system, size)}%` }}
                 />
                 <span
                   className="henira-context-seg henira-context-seg-tools"
-                  style={{ width: `${percentOf(parts.tools, used)}%` }}
+                  style={{ width: `${percentOf(parts.tools, size)}%` }}
                 />
                 <span
                   className="henira-context-seg henira-context-seg-messages"
-                  style={{ width: `${percentOf(parts.messages, used)}%` }}
+                  style={{ width: `${percentOf(parts.messages, size)}%` }}
                 />
               </div>
               <ul className="henira-context-parts">
@@ -274,33 +255,19 @@ export function ContextUsageButton({ ctx }: { ctx: WebPartContext }): ReactNode 
           <div className="henira-context-compact">
             {compacting ? (
               <span className="henira-context-compacting">{ctx.t("context.compacting")}</span>
+            ) : compactQueued ? (
+              <span className="henira-context-compacting">
+                {ctx.t("context.compactQueueNotice")}
+              </span>
             ) : (
-              <>
-                <input
-                  className="henira-context-input"
-                  type="text"
-                  value={instructions}
-                  maxLength={COMPACTION_INSTRUCTIONS_MAX}
-                  placeholder={ctx.t("context.compactPlaceholder")}
-                  aria-label={ctx.t("context.compactPlaceholder")}
-                  onChange={(event) => {
-                    setInstructions(event.target.value);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      submitCompact();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="henira-context-compact-btn"
-                  onClick={submitCompact}
-                >
-                  {ctx.t("context.compact")}
-                </button>
-              </>
+              <button
+                type="button"
+                className="henira-context-compact-btn"
+                title={ctx.t("context.compactHint")}
+                onClick={handOffCompact}
+              >
+                {ctx.t("context.compact")}
+              </button>
             )}
             {feedback !== undefined ? (
               <p className="henira-context-feedback" role="status">

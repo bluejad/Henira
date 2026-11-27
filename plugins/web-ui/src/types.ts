@@ -253,6 +253,13 @@ export interface CatalogProvider {
 /** 模型目录快照（listModels 的 providers 面，types 与件共用命名；R183 从内联形状提出） */
 export type ModelCatalog = Record<string, CatalogProvider>;
 
+/** 交给输入框的请求（host.prefill 的投递载体，D-092）：常驻 ctx.prefillRequest 直到被消费——
+ *  输入框运行时处理完（回填，或因已有草稿而跳过）必须调 ack() 让宿主清除。只回填不发送。 */
+export interface PrefillRequest {
+  text: string;
+  ack(): void;
+}
+
 /** 输入座位 API（R183，dsh owner props 行为层）：ComposerDock 构造、注入 composer.* 子树。
  *  草稿/焦点/按次模型绑定/审批回调的唯一真源——座位件（model/left/right/dock）不各自私存，
  *  第三方件同一入口拿同一份语义。草稿持久化走 ctx.updateUiState（D-063 会话级）。 */
@@ -267,6 +274,11 @@ export interface ComposerApi {
   /** 无历史（占位/空态判定；座位件可用） */
   readonly isEmpty: boolean;
   readonly sendFailed: boolean;
+  /** 已本地化的失败原因（消息 / 压缩命令同口径）：缺省回落 composer.sendFailed 文案；
+   *  与 sendFailed 同置同清（D-092） */
+  readonly sendErrorText?: string;
+  /** 已本地化的提交回执说明（非失败，草稿不回填——如手动压缩因历史不足被跳过）；下次提交清除（D-092） */
+  readonly sendNotice?: string;
   readonly model: string;
   /** 按次模型绑定（会话级记忆；全局默认归设置弹窗·模型管理页） */
   setModel(next: string): void;
@@ -281,7 +293,9 @@ export interface ComposerApi {
   readonly catalog: ModelCatalog;
   /** 宿主模型/设置方法齐备（缺 = 模型席不渲染控件） */
   readonly settingsReady: boolean;
-  /** 发送：缺省用当前草稿；steer=true 忙时插话入队（E1）。失败回填草稿并置 sendFailed */
+  /** 提交：缺省用当前草稿；steer=true 忙时插话入队（E1）。失败回填草稿并置 sendFailed。
+   *  首词 COMPACT_COMMAND = 手动压缩意图（其后为说明；D-092）——与消息同一个提交函数：经
+   *  client.compact() 入同一条队列，被拒 / 失败同样回填草稿；steer 对压缩无效 */
   submit(text?: string, opts?: { steer?: boolean }): void;
   stop(): void;
   readonly pendingApproval: ApprovalRow | undefined;
@@ -377,6 +391,10 @@ export interface WebPartContext {
   /** 界面态写（D-063）：部件只交 patch，宿主顶层合并 + 统一防抖落盘（部件不自己 PUT）；
    * 缺席 = 宿主未实装（件退化为纯内存态） */
   updateUiState?(patch: SessionUiState): void;
+  /** 交给输入框的文本请求（host.prefill 的投递通道，D-092 接线）：常驻到被消费——输入框运行时
+   *  处理完调 ack() 清除（草稿为空才回填并聚焦，已有草稿不覆盖）。只回填不发送——发送仍由
+   *  用户在输入框点发送 */
+  prefillRequest?: PrefillRequest;
   // ── 以下为宿主级关注面（框架件消费；全部可选——宿主缺省 = 对应 UI 不渲染，沿
   //    getSettings feature-detect 先例；packages/web 宿主 createWebApp 全量提供）──
   /** 整页布局选项（D-043 挑件；缺席按 full） */
@@ -516,6 +534,8 @@ export interface PluginUiHost {
   /** 行词表帧流（ServerFrame，D-042 双向事件流：opt-in、有界队列背压、终局必达） */
   subscribe(filter: EventFilter, cb: (e: ServerFrame) => void): Disposable;
   onTurnFinished(cb: (result: TurnResult) => void): Disposable;
+  /** 把文本回填输入框，不发送（D-092 起 web 宿主接线：经 ctx.prefillRequest 一次性投递，官方
+   *  输入框草稿为空才回填并聚焦，已有草稿不覆盖）。首个消费者 = 手动压缩入口（`/compact` 交输入框） */
   prefill(input: { text: string }): void;
   renderMarkdown(text: string, opts?: { streaming?: boolean }): ReactNode;
   /** 代码整段 token 化（差异卡高亮；可选——旧宿主缺 = 纯文本）。返回每行 token */

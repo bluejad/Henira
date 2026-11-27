@@ -35,16 +35,38 @@ export interface PromptOptions {
   permissionMode?: PermissionMode;
 }
 
+/** 队列条目类型（D-092）：prompt = 普通消息；compact = 手动压缩维护意图。
+ *  两者共用同一条 FIFO 与同一个冲刷链——压缩不是旁路 RPC。 */
+export const QUEUED_KINDS = ["prompt", "compact"] as const;
+export type QueuedKind = (typeof QUEUED_KINDS)[number];
+
+/** 手动压缩的提交形状（D-092）：输入框里的一行命令——首词即本串，其后为说明（可空）。
+ *  队列项 `text`、界面入口（宿主 prefill）与输入框提交路径的首词识别共用同一来源。 */
+export const COMPACT_COMMAND = "/compact";
+
+/** 压缩队列项的执行结果（worker 返回；决定冲刷链是否继续） */
+export type CompactQueueOutcome = "completed" | "skipped" | "failed" | "interrupted";
+
+/** 压缩队列项的执行口：由压缩插件在 start 时注册（loop 不依赖 compaction 包）。
+ *  `completed`/`skipped` → 队列继续；`failed`/`interrupted` → 剩余条目冻结等显式恢复。 */
+export type CompactQueueWorker = (entry: QueuedPrompt) => Promise<CompactQueueOutcome>;
+
 /** 排队条目（queue.json 持久化，重启恢复）；steer = "立即发送"插话条目（下一 step 边界进场，
  * D-045）。模型/思考覆盖随条目持久化——重启恢复后按原选择开新回合 */
 export interface QueuedPrompt {
   id: string;
+  /** prompt = 普通消息；compact = 手动压缩（D-092；与消息同一 FIFO，消费时进入压缩、
+   *  不投影 user row） */
+  kind: QueuedKind;
+  /** 展示文本：prompt = 正文；compact = COMPACT_COMMAND（排队卡一行） */
   text: string;
   steer: boolean;
   modelId?: string;
   reasoningEffort?: ReasoningEffort;
   /** 权限模式随条目持久化（重启恢复后按原选择开新回合） */
   permissionMode?: PermissionMode;
+  /** compact 项的用户说明（≤ COMPACTION_INSTRUCTIONS_MAX；prompt 不带） */
+  instructions?: string;
 }
 
 /** loop/pre-step 载荷（waterfall；compaction.md §4.1）：在 runStep 内、派生之后
@@ -111,7 +133,14 @@ export interface LoopService {
   send(prompt: string, opts?: { steer?: boolean } & PromptOptions): Promise<QueuedPrompt>;
   /** 当前排队条目快照（排队卡 UI 数据源；投影态——非账本事实，P9-1 不变） */
   pending(): QueuedPrompt[];
-  /** 队列条目"立即发送" = 插话升格；条目不存在返回 false */
+  /** 手动压缩作为队列意图入队（D-092，compaction.md §4.10）：追加队尾，与 send() 同一条
+   *  FIFO；队列空且冲刷链不在跑时入队即消费。重复检查/说明校验归 compaction 槽（本方法
+   *  只负责投递）。可选：自定义 loop 不实现时压缩槽返回 compaction-unavailable。 */
+  enqueueCompact?(instructions?: string): Promise<QueuedPrompt>;
+  /** 压缩队列项的执行口：压缩插件启动时注册；未注册时队头 compact 项被丢弃并广播
+   *  （持久队列跨插件启停的边角——不把队列悬死） */
+  registerCompactWorker?(worker: CompactQueueWorker): void;
+  /** 队列条目"立即发送" = 插话升格；compact 项不适用（返回 false） */
   steer(entryId: string): Promise<boolean>;
   /**
    * 立即发送（抢占式升格）：中止当前回合并等待其收尾，然后以该条原文（模型/思考覆盖随行）

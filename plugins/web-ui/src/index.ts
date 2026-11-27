@@ -30,7 +30,11 @@ export {
   type ComposerTakeoverOwner,
   questionTakeover,
 } from "./parts/composer-dock.js";
-export { type ComposerRuntime, useComposerRuntime } from "./parts/composer-state.js";
+export {
+  type ComposerRuntime,
+  parseCompactCommand,
+  useComposerRuntime,
+} from "./parts/composer-state.js";
 export { Conversation, CopyButton } from "./parts/conversation.js";
 export { CodeGlyph } from "./parts/icons.js";
 export { LayoutFrame } from "./parts/layout-frame.js";
@@ -75,6 +79,7 @@ export type {
   ModelCatalog,
   PluginInfo,
   PluginUiHost,
+  PrefillRequest,
   PreviewApi,
   PreviewTabPayload,
   PreviewTarget,

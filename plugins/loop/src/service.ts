@@ -10,12 +10,14 @@
 import type { ServiceDefinition } from "@henira/kernel";
 import {
   asHeniraContext,
+  type CompactQueueOutcome,
+  type CompactQueueWorker,
   type LoopEvent,
   type LoopService,
   type PromptOptions,
 } from "@henira/protocol";
 import { ContextMeter } from "./meter.js";
-import { PromptQueue } from "./queue.js";
+import { PromptQueue, type QueueEntry } from "./queue.js";
 import { systemPromptHash } from "./step.js";
 import { type LoopDeps, runTurnCore, type TurnHandle } from "./turn.js";
 
@@ -94,6 +96,18 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
       // 非空」时置位；resume()/冲刷成功/send 闲时开跑三处清除——不能由 !busy 推导
       // （回合末 busy 翻 false 与冲刷广播之间有真实窗口，推导会让横幅每对回合间闪烁）。
       let queuePaused = false;
+      /** 压缩队列项的执行口（D-092）：压缩插件 start 时注册；loop 不依赖 compaction 包。
+       *  未注册 = 压缩件缺席——队头 compact 项丢弃并广播，不悬死队列 */
+      let compactWorker: CompactQueueWorker | undefined;
+      /** 消费一个 compact 项：执行的压缩已经结束时返回 outcome（队列据它继续或冻结） */
+      const runCompactEntry = async (entry: QueueEntry): Promise<CompactQueueOutcome> => {
+        const worker = compactWorker;
+        if (worker === undefined) {
+          console.warn("[loop] compact queue item dropped: compaction plugin not installed");
+          return "skipped";
+        }
+        return worker(entry);
+      };
       /** promote 抢占的 abort 标记（标记位见 promoteArmed——reason 会被收尾兜底 abort
        * 覆盖不可作判据；常量保留给 abort 调用本身，语义自文档） */
       const PROMOTE_ABORT_REASON = "queue-promote";
@@ -122,9 +136,10 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         maxStepsPerTurn: options.maxStepsPerTurn,
       });
 
-      /** 一回合 + 回合末队列依次冲刷（D-045）；事件双喂：本生成器 + 总线 loop/event。
-       *  queueId = 队列条目 id（D-086：只由冲刷分支传入，落进 user/message 供客户端对账） */
-      async function* executeAndDrain(
+      /** 单回合执行（channel 包装；事件双喂：本生成器 + 总线 loop/event）。
+       *  queueId = 队列条目 id（D-086：只由冲刷分支传入，落进 user/message 供客户端对账）。
+       *  只管一个回合，队列续冲在 drainQueue（D-092：压缩与消息共用冲刷链）。 */
+      async function* executeTurn(
         prompt: string,
         signal: AbortSignal,
         opts?: PromptOptions,
@@ -153,24 +168,26 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         );
         yield* channel.stream();
         await settled;
-        // 中断冻结：abort 后不冲刷（信号已废，冲出的条目只会生而为 abort）——队列原地
-        // 留守，等 resume() 显式恢复；队列空则无事可冻。promote 抢占的 abort 不置冻结
-        // （剩余队列在其新回合结束后照常自动续冲）
-        if (signal.aborted) {
-          if (queue.pending.length > 0 && !promoteArmed) {
-            queuePaused = true;
-            broadcastQueue();
-          }
-          return;
-        }
-        // 回合末冲刷：队列头部依次自动开新回合（D-045；条目自带的模型/思考覆盖随行）
-        let next = await queue.drainNext();
-        queuePaused = false; // 自动续冲 = 冻结态解除（广播由下方统一发）
-        broadcastQueue();
-        while (next !== undefined) {
-          // 链取消落在「回合已结算、下一条已摘」的空隙：已摘条目塞回队头（不丢不乱序），
-          // 手动停止在此路径也走守卫同款冻结（promote 武装期间跳过）
+      }
+
+      /** 队列冲刷链（D-045 / D-092）：严格 FIFO，按队头类型派发。
+       *  prompt → 开回合；compact → 交给压缩插件注册的 worker（同一链上串行，一次只有一个
+       *  active work）。失败/中断 → 剩余条目原位冻结（queuePaused），显式 resume 才继续。 */
+      async function* drainQueue(signal: AbortSignal): AsyncGenerator<LoopEvent> {
+        while (true) {
+          // 中断冻结：abort 后不冲刷（信号已废，冲出的条目只会生而为 abort）——队列原地
+          // 留守，等 resume() 显式恢复；队列空则无事可冻。promote 抢占的 abort 不置冻结
+          // （剩余队列在其新回合结束后照常自动续冲）
           if (signal.aborted) {
+            if (queue.pending.length > 0 && !promoteArmed) {
+              queuePaused = true;
+              broadcastQueue();
+            }
+            return;
+          }
+          const next = await queue.drainNext();
+          if (next !== undefined && signal.aborted) {
+            // 摘条目与中断撞在同一拍（drain 的落盘 await 期间）：塞回队头，不丢不乱序
             await queue.pushBack(next);
             if (queue.pending.length > 0 && !promoteArmed) {
               queuePaused = true;
@@ -178,7 +195,33 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
             broadcastQueue();
             return;
           }
-          yield* executeAndDrain(
+          if (next === undefined) {
+            // 收口与入队撞拍：drainNext 返回空之后、链清标志之前可能有新条目入队
+            //（send 看到链活 → 选择入队）——此处重查一次，别把条目留在空链后
+            if (queue.pending.length > 0) continue;
+            queuePaused = false; // 队空 = 冻结态自然解除
+            broadcastQueue();
+            return;
+          }
+          queuePaused = false; // 自动续冲 = 冻结态解除（广播由下方统一发）
+          broadcastQueue();
+          if (next.kind === "compact") {
+            // worker 抛错按失败收口（不炸掉整条链、不把后续条目悬在无链队列里）
+            let outcome: CompactQueueOutcome;
+            try {
+              outcome = await runCompactEntry(next);
+            } catch {
+              outcome = "failed";
+            }
+            if (outcome === "failed" || outcome === "interrupted") {
+              // 压缩失败/被停止：后续队列不越过维护意图（[zcode] F07/F09 同规）
+              if (queue.pending.length > 0) queuePaused = true;
+              broadcastQueue();
+              return;
+            }
+            continue;
+          }
+          yield* executeTurn(
             next.text,
             signal,
             {
@@ -188,9 +231,25 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
             },
             next.id,
           );
-          next = await queue.drainNext();
-          broadcastQueue();
         }
+      }
+
+      /** 一回合 + 回合末队列依次冲刷（send / run 的直跑路径）；没有回合时直接走冲刷链 */
+      async function* executeAndDrain(
+        prompt: string,
+        signal: AbortSignal,
+        opts?: PromptOptions,
+        queueId?: string,
+      ): AsyncGenerator<LoopEvent> {
+        yield* executeTurn(prompt, signal, opts, queueId);
+        if (signal.aborted) {
+          if (queue.pending.length > 0 && !promoteArmed) {
+            queuePaused = true;
+            broadcastQueue();
+          }
+          return;
+        }
+        yield* drainQueue(signal);
       }
 
       async function drainQuietly(gen: AsyncGenerator<LoopEvent>): Promise<void> {
@@ -202,19 +261,29 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
         void count;
       }
 
-      /** 起后台冲刷链的唯一入口（send / promote / resume 三路共用）：链活标志在此置/清 */
-      const startChain = (prompt: string, opts?: PromptOptions): void => {
+      /** 起后台冲刷链的唯一入口（send / promote / resume / 压缩入队四路共用）：链活标志在此置/清 */
+      const startChainWith = (make: (signal: AbortSignal) => AsyncGenerator<LoopEvent>): void => {
         drainChainAlive = true;
         const controller = new AbortController();
         currentController = controller;
-        const gen = executeAndDrain(prompt, controller.signal, opts);
+        const gen = make(controller.signal);
         void drainQuietly(gen)
           .finally(() => {
             drainChainAlive = false;
             current = undefined;
             currentController = undefined;
+            // 收口竞态兜底：链清标志的同一拍已有新条目入队（send 看到链活而排队）——
+            // 直接续一条链消费，条目不会留在「无链的队列」里。promote 武装期间跳过
+            //（下一拍由 promote 自己开新链，不能抢跑）
+            if (!queuePaused && !promoteArmed && queue.pending.length > 0) {
+              startChainWith((signal) => drainQueue(signal));
+            }
           })
           .catch(() => {});
+      };
+
+      const startChain = (prompt: string, opts?: PromptOptions): void => {
+        startChainWith((signal) => executeAndDrain(prompt, signal, opts));
       };
 
       const service: LoopService = {
@@ -253,7 +322,22 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
             reasoningEffort: opts?.reasoningEffort,
             permissionMode: opts?.permissionMode,
           });
-          return { id: "", text: prompt, steer: false }; // id 空 = 未排队（直接开跑）
+          return { id: "", kind: "prompt", text: prompt, steer: false }; // id 空 = 未排队（直接开跑）
+        },
+
+        async enqueueCompact(instructions) {
+          // 手动压缩 = 队列意图（D-092）：与消息同一条 FIFO，队尾追加。队列空且冲刷链
+          // 不在跑（也不在冻结态）时入队即消费——与「闲时发消息立即开跑」同语义。
+          const entry = await queue.enqueueCompact(instructions);
+          broadcastQueue();
+          if (!drainChainAlive && !queuePaused) {
+            startChainWith((signal) => drainQueue(signal));
+          }
+          return entry;
+        },
+
+        registerCompactWorker(worker) {
+          compactWorker = worker;
         },
 
         async steer(entryId) {
@@ -267,6 +351,34 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           // 二次点击/重复 promote 误杀）
           const entry = queue.pending.find((e) => e.id === entryId);
           if (entry === undefined) return false;
+          // 压缩项提升 = 把它挪到队头后由冲刷链立即消费（D-092：与消息同一套「立即发送」）。
+          // 先挪队头再打断：旧链收尾时条目已在正确位置，新链从队头开跑（压缩或紧随其后）
+          if (entry.kind === "compact") {
+            await queue.moveToFront(entryId);
+            clearPause();
+            broadcastQueue();
+            if (!drainChainAlive) {
+              startChainWith((signal) => drainQueue(signal));
+              return true;
+            }
+            if (current === undefined) {
+              // 链活在首回合尚未起跑的微窗：没有回合可打断——旧链下一拍消费队头
+              return true;
+            }
+            promoteArmed = true;
+            currentController?.abort(PROMOTE_ABORT_REASON);
+            const deadline = Date.now() + 10_000;
+            while (drainChainAlive) {
+              if (Date.now() > deadline) {
+                promoteArmed = false;
+                return false;
+              }
+              await new Promise((r) => setTimeout(r, 25));
+            }
+            promoteArmed = false;
+            startChainWith((signal) => drainQueue(signal));
+            return true;
+          }
           if (drainChainAlive) {
             if (current === undefined) {
               // 链活在首回合尚未起跑的微窗（startChain 到 onTurnStart 之间）：没有回合
@@ -358,16 +470,16 @@ export function loopPlugin(options: LoopPluginOptions = {}): ServiceDefinition<L
           // 忙时判定从严：链在跑（含回合间空窗）一律拒绝——冻结态下 UI 横幅在场，
           // 点击间隔够不着该窗口；链彻底死透才允许显式恢复
           if (drainChainAlive) return false;
-          const next = await queue.drainNext();
+          if (queue.pending.length === 0) {
+            const hadPause = queuePaused;
+            queuePaused = false;
+            if (hadPause) broadcastQueue();
+            return false;
+          }
           queuePaused = false;
           broadcastQueue();
-          if (next === undefined) return false;
-          // 开新回合（fresh signal——冻结态本身就是旧 signal 已废的结果）
-          startChain(next.text, {
-            modelId: next.modelId,
-            reasoningEffort: next.reasoningEffort,
-            permissionMode: next.permissionMode,
-          });
+          // 从队头恢复冲刷（D-092：队头可能是消息也可能是压缩项，同一套 FIFO 消费）
+          startChainWith((signal) => drainQueue(signal));
           return true;
         },
 

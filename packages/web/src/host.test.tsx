@@ -207,6 +207,79 @@ describe("createWebApp", () => {
     el.remove();
   });
 
+  it("host.prefill 接线（D-092）：余量面板「压缩」→ /compact 进输入框并聚焦 → 回车走 compact() 不走 prompt()", async () => {
+    const compact = vi.fn(async () => ({
+      state: "skipped" as const,
+      reason: "history-insufficient" as const,
+    }));
+    const prompt = vi.fn(async () => ({ queued: false, id: null }));
+    const client = fakeClient({
+      prompt,
+      compact,
+      snapshot: async (id) =>
+        ({
+          sessionId: id,
+          seq: 0,
+          rows: [],
+          state: {
+            busy: false,
+            context: {
+              used: 80_000,
+              size: 128_000,
+              pressure: 108_800,
+              hardLimit: 127_000,
+              estimated: false,
+              parts: { system: 10_000, tools: 6_000, messages: 64_000 },
+            },
+          },
+          hasOlder: false,
+          totalRows: 0,
+        }) as Awaited<ReturnType<HeniraFacade["snapshot"]>>,
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    const app = createWebApp({ client });
+    app.mount(el);
+    try {
+      await vi.waitFor(
+        () => {
+          if (el.querySelector(".henira-context-entry") === null)
+            throw new Error("ring not rendered");
+        },
+        { timeout: 4000 },
+      );
+      fireEvent.click(el.querySelector(".henira-context-entry") as HTMLElement);
+      const compactBtn = el.querySelector(".henira-context-compact-btn");
+      expect(compactBtn).not.toBeNull();
+      fireEvent.click(compactBtn as HTMLElement);
+      const area = el.querySelector("textarea") as HTMLTextAreaElement;
+      await vi.waitFor(
+        () => {
+          if (area.value !== "/compact") throw new Error(`not prefilled: "${area.value}"`);
+        },
+        { timeout: 4000 },
+      );
+      // 只回填不发送：命令进输入框、焦点跟过去、面板收起；此刻还没有任何压缩请求
+      expect(document.activeElement).toBe(area);
+      expect(el.querySelector(".henira-context-pop")).toBeNull();
+      expect(compact).not.toHaveBeenCalled();
+      fireEvent.keyDown(area, { key: "Enter" });
+      await vi.waitFor(
+        () => {
+          if (compact.mock.calls.length === 0) throw new Error("compact not submitted");
+        },
+        { timeout: 4000 },
+      );
+      // 与消息同一个提交函数，终点换成压缩入队
+      expect(compact).toHaveBeenCalledWith("s-1", undefined);
+      expect(prompt).not.toHaveBeenCalled();
+      expect(area.value).toBe("");
+    } finally {
+      await app.dispose();
+      el.remove();
+    }
+  });
+
   it("设置浮层列已装主题包：选择即注入 <link> + 切 data-theme + 写盘 ui.theme；安全模式回落官方默认（D-059）", async () => {
     const el = document.createElement("div");
     document.body.append(el);

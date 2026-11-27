@@ -11,12 +11,14 @@ import {
   COMPACTION_INSTRUCTIONS_MAX,
   type CompactionService,
   type CompactionTrigger,
+  type CompactQueueOutcome,
   contextBudget,
   estimateSurface,
   LLM_ERROR_CONTEXT_OVERFLOW,
   type ModelConfig,
   measureContext,
   type PreStepValue,
+  type QueuedPrompt,
   type RequestFailedValue,
   type SessionEvent,
 } from "@henira/protocol";
@@ -67,8 +69,8 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
       const llm = cx.get("llm");
 
       let active: Promise<void> | undefined;
-      /** 忙时手动请求排到下一个步边界（I-8：同一会话一次只有一个压缩） */
-      let queued: { instructions?: string } | undefined;
+      /** 手动压缩受理中的去重闸（两次并发 request 不能各入一条队列项；D-092） */
+      let admissionPending = false;
       let manualController: AbortController | undefined;
       let failures = 0;
       let refillStreak = 0;
@@ -120,10 +122,9 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         setBreaker(undefined);
       };
 
-      // 停止入口（输入栏停止钮 → LoopService.interrupt 广播）：中断在途的手动压缩；
-      // 还在排队的直接撤销（排队没有独立取消入口——停止 = 全停）
+      // 停止入口（输入栏停止钮 → LoopService.interrupt 广播）：只中断在途的手动压缩。
+      // 队列里的条目是用户意图，原样保留并冻结（D-092；停止 ≠ 撤销排队）
       cx.events.on("compaction/stop", () => {
-        queued = undefined;
         manualController?.abort();
       });
 
@@ -403,24 +404,9 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         stepsSinceSuccess += 1; // F-8 的距离按步算（不按尝试次数）：每步都走这里
         if (value.signal.aborted) return next(value); // 已停止：不压缩、不改表面
         if (active !== undefined) {
-          // I-8：手动压缩在途 → 回合在步边界等它结束，再按新表面派生
+          // D-092：手动压缩作为队列意图在冲刷链上执行，正常不会与回合交错；防御性保留
+          // （自定义 loop / 未来的并发路径）——回合在步边界等它结束，再按新表面派生
           await active.catch(() => {});
-          return next({ ...value, messages: session.deriveMessages() });
-        }
-        if (queued !== undefined) {
-          // 忙时排队的压缩：到步边界执行（触发因记 manual）；成功清熔断（与闲时手动同规）。
-          // 小窗口与闲时手动同规：不做模型摘要，直接走无模型阶梯（§4.6/§4.10）
-          const pending = queued;
-          queued = undefined;
-          if (value.budget.limit < 32_000) {
-            const stepped = await digest(value, "manual");
-            if (stepped.applied) noteManualSuccess();
-          } else {
-            const queuedStatus = await withActive("manual", () =>
-              compact(value, "manual", pending.instructions),
-            );
-            if (queuedStatus === "completed") noteManualSuccess();
-          }
           return next({ ...value, messages: session.deriveMessages() });
         }
         if (value.context.used < value.context.pressure) {
@@ -474,6 +460,116 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
         return next(value);
       });
 
+      /** 手动压缩的请求面（维护回合 m-…，界面不挂回合头）：模型口径跟随会话最近一次
+       *  请求，预算取声明窗口与计量器观测上限的较小值（§4.2/§4.10）。 */
+      const buildManualValue = async (signal: AbortSignal): Promise<PreStepValue> => {
+        const configService = cx.get("config");
+        const lastModel = lastRequestModel(session.events());
+        let modelConfig: ModelConfig;
+        try {
+          modelConfig = await configService.model(lastModel);
+        } catch (err) {
+          if (lastModel === undefined) throw err;
+          modelConfig = await configService.model();
+        }
+        const tools = cx.get("tools").project();
+        const surface = session.deriveSurface();
+        // 计量器已学到的观测上限一并带进来：静默截断端点上，手动摘要不能按声明
+        // 窗口硬发（§4.2；contextUsage().size = min(声明窗口, 观测上限)）
+        const observedSize = cx.get("loop").contextUsage()?.size;
+        const budget = contextBudget({
+          ...(modelConfig.contextWindow !== undefined
+            ? { contextWindow: modelConfig.contextWindow }
+            : {}),
+          ...(observedSize !== undefined ? { observedLimit: observedSize } : {}),
+          ...(modelConfig.maxOutputTokens !== undefined
+            ? { maxOutputTokens: modelConfig.maxOutputTokens }
+            : {}),
+        });
+        const modelId = `${modelConfig.provider}/${modelConfig.model}`;
+        const reading = measureContext({
+          events: session.events(),
+          surface,
+          tools,
+          model: modelId,
+          budget,
+          k: 1,
+        }).reading;
+        return {
+          messages: surface.map((entry) => entry.message),
+          tools,
+          model: modelConfig,
+          sessionId: session.header().id,
+          turn: `m-${Date.now().toString(36)}`,
+          step: 0,
+          context: reading,
+          budget,
+          signal,
+        };
+      };
+
+      /** 手动压缩被跳过（历史不足）：不留压缩行、不占队列。结果经活态告诉界面——受理响应
+       *  早已返回（只有 accepted/queued/rejected），消费时才知道的结果不能走它（D-092 修订）。 */
+      const noteManualOutcome = (outcome: CompactQueueOutcome): CompactQueueOutcome => {
+        if (outcome === "skipped") {
+          cx.events.emit("compaction/skipped", {
+            id: newId("n"),
+            reason: "history-insufficient",
+          });
+        }
+        return outcome;
+      };
+
+      /** 队列里的手动压缩项执行（D-092）：由 loop 冲刷链在队头调用，与回合串行。
+       *  completed/skipped → 队列继续；failed/interrupted → 剩余条目冻结。 */
+      const runManualEntry = async (entry: QueuedPrompt): Promise<CompactQueueOutcome> => {
+        if (active !== undefined || manualController !== undefined) {
+          // 队列串行下不应发生；真发生就当失败，把后续队列冻结（宁可停，不交错）
+          return "failed";
+        }
+        const controller = new AbortController();
+        manualController = controller;
+        try {
+          let value: PreStepValue;
+          try {
+            value = await buildManualValue(controller.signal);
+          } catch (err) {
+            // 模型不可解析等起步失败：落一条非致命 error 上屏（旧实现用受理响应报 no-model，
+            // D-092 起消费在后台，响应已经先回了）——然后按失败冻结后续队列
+            await session
+              .append({
+                type: "error",
+                data: {
+                  turn: `m-${Date.now().toString(36)}`,
+                  step: 0,
+                  code: COMPACTION_FAILED_CODE,
+                  message: err instanceof Error ? err.message : String(err),
+                  fatal: false,
+                },
+              })
+              .catch(() => {});
+            return "failed";
+          }
+          // 小窗口（<32K）不做模型摘要（§4.6）：直接走无模型阶梯，不发必败的摘要请求
+          if (value.budget.limit < 32_000) {
+            const stepped = await digest(value, "manual");
+            if (stepped.applied) {
+              noteManualSuccess();
+              return "completed";
+            }
+            return noteManualOutcome(stepped.interrupted ? "interrupted" : "skipped");
+          }
+          const status = await withActive("manual", () =>
+            compact(value, "manual", entry.instructions),
+          );
+          if (status === "completed") noteManualSuccess();
+          return noteManualOutcome(status);
+        } finally {
+          manualController = undefined;
+        }
+      };
+      cx.get("loop").registerCompactWorker?.(runManualEntry);
+
       const service: CompactionService = {
         async request(req) {
           const raw = req?.instructions?.trim();
@@ -484,123 +580,29 @@ export function compactionPlugin(): ServiceDefinition<CompactionService> {
           ) {
             return { state: "rejected", reason: "instructions-too-long" };
           }
-          // 起步窗也算在途：取模型/派生期间 active 还没置位，但控制器已占位——放第二个请求
-          // 进来会抢走 manualController，停止钮就管不到真正在跑的压缩（排队回执也会被回写覆盖）
-          if (active !== undefined || manualController !== undefined) {
+          const loop = cx.get("loop");
+          if (loop.enqueueCompact === undefined || loop.registerCompactWorker === undefined) {
+            // 自定义 loop 未实现队列压缩（D-092）：能力缺失显性拒绝，不假装受理
+            return { state: "rejected", reason: "compaction-unavailable" };
+          }
+          // 重复检查：在途压缩（含起步窗：manualController 已占位）或队列里已有 compact 项
+          if (
+            active !== undefined ||
+            manualController !== undefined ||
+            admissionPending ||
+            loop.pending().some((entry) => entry.kind === "compact")
+          ) {
             return { state: "rejected", reason: "compaction-in-progress" };
           }
-          if (cx.get("loop").isBusy()) {
-            // 忙时投递唯一 = 排队（D-045 同规）；已有待办/在跑才拒绝
-            if (queued !== undefined) {
-              return { state: "rejected", reason: "compaction-in-progress" };
-            }
-            queued = { ...(instructions !== undefined ? { instructions } : {}) };
-            return { state: "queued" };
-          }
-          // 回合已收尾：残留的排队请求再没有步边界可等——由本次请求接替执行
-          //（本次说明优先，缺省沿用排队时的说明，不把用户意图挂在挂起态）
-          const carried = instructions ?? queued?.instructions;
-          queued = undefined;
-
-          // 闲时立即执行：维护回合（m-…），界面不挂回合头
-          const controller = new AbortController();
-          manualController = controller;
-          let value: PreStepValue;
+          admissionPending = true;
           try {
-            const configService = cx.get("config");
-            // 模型口径：摘要请求会把整段表面发给模型——跟随会话最近一次请求，不落
-            // 到另一家；没有历史或该模型已不可解析才回落全局默认
-            const lastModel = lastRequestModel(session.events());
-            let modelConfig: ModelConfig;
-            try {
-              modelConfig = await configService.model(lastModel);
-            } catch (err) {
-              if (lastModel === undefined) throw err;
-              modelConfig = await configService.model();
-            }
-            const tools = cx.get("tools").project();
-            const surface = session.deriveSurface();
-            // 计量器已学到的观测上限一并带进来：静默截断端点上，手动摘要不能按声明
-            // 窗口硬发（§4.2；contextUsage().size = min(声明窗口, 观测上限)）
-            const observedSize = cx.get("loop").contextUsage()?.size;
-            const budget = contextBudget({
-              ...(modelConfig.contextWindow !== undefined
-                ? { contextWindow: modelConfig.contextWindow }
-                : {}),
-              ...(observedSize !== undefined ? { observedLimit: observedSize } : {}),
-              ...(modelConfig.maxOutputTokens !== undefined
-                ? { maxOutputTokens: modelConfig.maxOutputTokens }
-                : {}),
-            });
-            const modelId = `${modelConfig.provider}/${modelConfig.model}`;
-            const reading = measureContext({
-              events: session.events(),
-              surface,
-              tools,
-              model: modelId,
-              budget,
-              k: 1,
-            }).reading;
-            value = {
-              messages: surface.map((entry) => entry.message),
-              tools,
-              model: modelConfig,
-              sessionId: session.header().id,
-              turn: `m-${Date.now().toString(36)}`,
-              step: 0,
-              context: reading,
-              budget,
-              signal: controller.signal,
-            };
-          } catch {
-            manualController = undefined;
-            return { state: "rejected", reason: "no-model" };
-          }
-
-          // 竞窗收口（I-8）：上面取模型/工具期间回合可能已开跑（自动压缩占住 active 或
-          // 回合转忙）——此处到 withActive 之间无 await，重查后同步占位才算真正互斥
-          if (active !== undefined || cx.get("loop").isBusy()) {
-            manualController = undefined;
-            // 起步窗里用户按了停止：不再转投排队（停止 = 全停）
-            if (controller.signal.aborted) {
-              return { state: "rejected", reason: "interrupted" };
-            }
-            if (cx.get("loop").isBusy()) {
-              queued = { ...(carried !== undefined ? { instructions: carried } : {}) };
-              return { state: "queued" };
-            }
-            return { state: "rejected", reason: "compaction-in-progress" };
-          }
-          if (controller.signal.aborted) {
-            manualController = undefined;
-            return { state: "rejected", reason: "interrupted" };
-          }
-
-          try {
-            // 小窗口（<32K）不做模型摘要（§4.6）：直接走无模型阶梯，不发必败的摘要请求
-            if (value.budget.limit < 32_000) {
-              const stepped = await digest(value, "manual");
-              if (stepped.applied) {
-                noteManualSuccess();
-                return { state: "accepted" };
-              }
-              if (stepped.interrupted) return { state: "rejected", reason: "interrupted" };
-              return { state: "skipped", reason: "history-insufficient" };
-            }
-            const status = await withActive("manual", () => compact(value, "manual", carried));
-            if (status === "completed") {
-              noteManualSuccess();
-              return { state: "accepted" };
-            }
-            if (status === "skipped") {
-              return { state: "skipped", reason: "history-insufficient" };
-            }
-            if (status === "interrupted") {
-              return { state: "rejected", reason: "interrupted" };
-            }
-            return { state: "rejected", reason: "compaction-failed" };
+            // 受理前先判「会不会马上执行」：队列空、链不在跑、也没冻结 → accepted；
+            // 否则声明为 queued（条目先排着，等前面的工作收口）
+            const startsNow = !loop.isBusy() && loop.pending().length === 0 && !loop.paused();
+            await loop.enqueueCompact(instructions);
+            return { state: startsNow ? "accepted" : "queued" };
           } finally {
-            manualController = undefined;
+            admissionPending = false;
           }
         },
       };

@@ -258,12 +258,14 @@ function stateWithQueue(state: SessionState, ctx: unknown): SessionState {
   if (pending === undefined) return merged;
   return {
     ...merged,
-    queue: pending.map(({ id, text, steer, modelId, reasoningEffort }) => ({
+    queue: pending.map(({ id, kind, text, steer, modelId, reasoningEffort, instructions }) => ({
       id,
+      kind,
       text,
       steer,
       modelId,
       reasoningEffort,
+      ...(instructions !== undefined ? { instructions } : {}),
     })),
     queuePaused: paused === true ? true : undefined,
   };
@@ -597,7 +599,23 @@ export async function createRuntime(opts: RuntimeOptions = {}): Promise<HeniraFa
     });
     // 压缩活态（与 server 同形）：进行中入口置灰；不落账本
     session.ctx.events.on("compaction/active", (payload) => {
-      projection.state.compacting = (payload as { active?: unknown }).active === true || undefined;
+      const active = (payload as { active?: unknown }).active === true;
+      projection.state.compacting = active || undefined;
+      if (active) projection.state.compactionNotice = undefined; // 与 server 同形
+      publish(id, [
+        {
+          op: "state.updated",
+          state: stateWithQueue(projection.state, session.ctx),
+        },
+      ]);
+    });
+    // 手动压缩被跳过的即时回执（与 server 同形，D-092）：消费时才知道的结果走活态
+    session.ctx.events.on("compaction/skipped", (payload) => {
+      const notice = payload as { id?: unknown };
+      projection.state.compactionNotice =
+        typeof notice.id === "string"
+          ? { id: notice.id, reason: "history-insufficient" }
+          : undefined;
       publish(id, [
         {
           op: "state.updated",

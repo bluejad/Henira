@@ -35,12 +35,18 @@ export function QueuePanel({
     () => ctx.store.getSession(ctx.sessionId).state.queuePaused === true,
     () => false,
   );
+  const compacting = useSyncExternalStore(
+    ctx.store.subscribe,
+    () => ctx.store.getSession(ctx.sessionId).state.compacting === true,
+    () => false,
+  );
   const queue = useSyncExternalStore(
     ctx.store.subscribe,
     () => ctx.store.getSession(ctx.sessionId).state.queue ?? EMPTY_QUEUE,
     () => EMPTY_QUEUE,
   );
-  if (ctx.sessionId === null || queue.length === 0 || !(busy || paused)) return null;
+  // D-092：压缩本身也是一条队列活动（没有回合 busy），排队卡要照常可见
+  if (ctx.sessionId === null || queue.length === 0 || !(busy || paused || compacting)) return null;
   const canRemove = ctx.client.removeQueueEntry !== undefined;
   const canResume = ctx.client.resumeQueue !== undefined;
   const canPromote = ctx.client.promoteQueueEntry !== undefined;
@@ -71,12 +77,16 @@ export function QueuePanel({
       <ul className="henira-queue-rows" aria-label={ctx.t("composer.queue.title")}>
         {queue.map((entry) => (
           <li className="henira-queue-row" key={entry.id}>
-            {entry.steer ? (
+            {entry.kind === "compact" ? (
+              <span className="henira-queue-badge" title={ctx.t("composer.queue.badgeCompact")}>
+                {ctx.t("composer.queue.badgeCompact")}
+              </span>
+            ) : entry.steer ? (
               <span className="henira-queue-badge" title={ctx.t("composer.queue.badgeSteer")}>
                 {ctx.t("composer.queue.badgeSteer")}
               </span>
             ) : null}
-            <span className="henira-queue-text" title={entry.text}>
+            <span className="henira-queue-text" title={entry.instructions ?? entry.text}>
               {entry.text}
             </span>
             <span className="henira-queue-actions">
@@ -92,21 +102,24 @@ export function QueuePanel({
               >
                 <SendNowGlyph size={14} />
               </button>
-              <button
-                type="button"
-                className="henira-iconbtn"
-                aria-label={ctx.t("composer.queue.edit")}
-                title={ctx.t("composer.queue.edit")}
-                // 无回填目标（审批接管中 bar 隐藏）时禁用——否则条目被删、文本进看不见的草稿
-                disabled={onEdit === undefined}
-                onClick={() => {
-                  if (onEdit === undefined) return;
-                  remove(entry.id);
-                  onEdit(entry.text);
-                }}
-              >
-                <PencilGlyph size={14} />
-              </button>
+              {/* D-092：压缩项不可编辑（没有可回填的正文；说明随条目原样执行）*/}
+              {entry.kind === "compact" ? null : (
+                <button
+                  type="button"
+                  className="henira-iconbtn"
+                  aria-label={ctx.t("composer.queue.edit")}
+                  title={ctx.t("composer.queue.edit")}
+                  // 无回填目标（审批接管中 bar 隐藏）时禁用——否则条目被删、文本进看不见的草稿
+                  disabled={onEdit === undefined}
+                  onClick={() => {
+                    if (onEdit === undefined) return;
+                    remove(entry.id);
+                    onEdit(entry.text);
+                  }}
+                >
+                  <PencilGlyph size={14} />
+                </button>
+              )}
               <button
                 type="button"
                 className="henira-iconbtn"

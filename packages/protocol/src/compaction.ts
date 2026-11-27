@@ -10,18 +10,20 @@ export interface CompactionRequest {
   instructions?: string;
 }
 
-/** 请求受理四态：accepted = 立即执行；queued = 下一步边界执行；skipped/rejected 带 reason */
+/** 请求受理四态：accepted = 已入队且立即消费；queued = 已入队、排在前面工作之后；
+ *  skipped/rejected 带 reason（D-092：手动压缩是队列意图，消费结果不再由本响应携带） */
 export const COMPACTION_REQUEST_STATES = ["accepted", "queued", "skipped", "rejected"] as const;
 export type CompactionRequestState = (typeof COMPACTION_REQUEST_STATES)[number];
 
 export interface CompactionResponse {
   state: CompactionRequestState;
-  /** 只在 skipped / rejected 时出现（历史不足 / 重复请求 / 熔断） */
+  /** 只在 skipped / rejected 时出现（历史不足 / 重复请求 / 压缩不可用） */
   reason?: string;
 }
 
 export interface CompactionService {
-  /** 手动压缩：闲时立即、忙时排队到下一个步边界；未装压缩插件时槽缺失 */
+  /** 手动压缩：校验/去重后作为 kind=compact 队列意图入队（D-092、compaction.md §4.10）；
+   *  未装压缩插件时槽缺失 */
   request(req?: CompactionRequest): Promise<CompactionResponse>;
 }
 

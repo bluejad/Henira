@@ -1105,6 +1105,19 @@ describe("轮尾分叉全链（E4：fork REST + 子会话装配）", () => {
       expect(childRows.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
       expect(childRows.rows[0]?.text).toBe("问");
 
+      // 子会话可删除：id 是 UUID 形态——删会话的形态闸此前只认 s-…，fork 会话永远删不掉（404）
+      expect(forked.id).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+      const delChild = await fetch(`${base}/api/sessions/${forked.id}`, { method: "DELETE" });
+      expect(delChild.status).toBe(200);
+      expect((await fetch(`${base}/api/sessions/${forked.id}/snapshot`)).status).toBe(404);
+      const afterDelete = (await (await fetch(`${base}/api/sessions`)).json()) as {
+        id: string;
+      }[];
+      expect(afterDelete.some((s) => s.id === forked.id)).toBe(false);
+      // 路径段滥用仍被闸拦下（不是把闸拆了）
+      const hostile = await fetch(`${base}/api/sessions/..%2F..%2Fetc`, { method: "DELETE" });
+      expect([400, 404]).toContain(hostile.status);
+
       // 越界切点 400（ForkCutOutOfRangeError 形状化）
       const bad = await fetch(`${base}/api/sessions/${id}/fork`, {
         method: "POST",
@@ -3841,8 +3854,8 @@ describe("重启收口（R175）：settle 分型 + 启动账本修理", () => {
   });
 });
 
-describe("手动压缩端点（compaction.md §4.10）", () => {
-  it("空历史 → skipped(reason)；说明超 2000 码点 → 400", async () => {
+describe("手动压缩端点（compaction.md §4.10 / D-092）", () => {
+  it("空历史 → accepted 入队、消费时跳过（不落压缩行）；说明超 2000 码点 → 400", async () => {
     const { base, cleanup } = await makeServer([]);
     try {
       const id = await createSession(base);
@@ -3852,10 +3865,26 @@ describe("手动压缩端点（compaction.md §4.10）", () => {
         body: "{}",
       });
       expect(ok.status).toBe(200);
-      expect(await ok.json()).toMatchObject({
-        state: "skipped",
-        reason: "history-insufficient",
+      // D-092：受理 = 队列意图入队（accepted = 队列空、入队即消费）；历史不足在消费时跳过
+      expect(await ok.json()).toMatchObject({ state: "accepted" });
+      const settled = await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          rows: { kind: string }[];
+          state: { queue?: unknown[]; compacting?: boolean };
+        };
+        if ((snap.state.queue?.length ?? 0) > 0 || snap.state.compacting === true) return undefined;
+        return snap;
       });
+      expect(settled.rows.some((row) => row.kind === "compaction")).toBe(false);
+      // 消费时才知道的「已跳过」走活态（受理响应早已返回 accepted）——快照 state 带即时回执
+      const noticed = await waitFor(async () => {
+        const snap = (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+          state: { compactionNotice?: { id: string; reason: string } };
+        };
+        return snap.state.compactionNotice;
+      });
+      expect(noticed).toMatchObject({ reason: "history-insufficient" });
+      expect(typeof noticed?.id).toBe("string");
 
       const tooLong = await fetch(`${base}/api/sessions/${id}/compact`, {
         method: "POST",
@@ -3863,6 +3892,54 @@ describe("手动压缩端点（compaction.md §4.10）", () => {
         body: JSON.stringify({ instructions: "x".repeat(2_001) }),
       });
       expect(tooLong.status).toBe(400);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("回合忙时压缩入队（state.queue 带 kind=compact）；停止后条目保留并冻结", async () => {
+    const { base, cleanup } = await makeServer(["hang"]);
+    const snapshot = async (id: string) =>
+      (await (await fetch(`${base}/api/sessions/${id}/snapshot`)).json()) as {
+        state: {
+          busy: boolean;
+          queue?: { kind: string; text: string; instructions?: string }[];
+          queuePaused?: boolean;
+        };
+      };
+    try {
+      const id = await createSession(base);
+      await fetch(`${base}/api/sessions/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "长回合" }),
+      });
+      await waitFor(async () => ((await snapshot(id)).state.busy ? true : undefined));
+
+      const compact = await fetch(`${base}/api/sessions/${id}/compact`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ instructions: "保留决定" }),
+      });
+      expect(await compact.json()).toMatchObject({ state: "queued" });
+      const queued = await waitFor(async () => {
+        const snap = await snapshot(id);
+        return snap.state.queue?.some((entry) => entry.kind === "compact") ? snap : undefined;
+      });
+      expect(queued.state.queue).toHaveLength(1);
+      expect(queued.state.queue?.[0]).toMatchObject({
+        kind: "compact",
+        text: "/compact",
+        instructions: "保留决定",
+      });
+
+      // 停止 = 中断当前回合；压缩条目是用户意图，原样保留并冻结（D-092）
+      await fetch(`${base}/api/sessions/${id}/interrupt`, { method: "POST" });
+      const paused = await waitFor(async () => {
+        const snap = await snapshot(id);
+        return snap.state.busy === false && snap.state.queuePaused === true ? snap : undefined;
+      });
+      expect(paused.state.queue?.[0]).toMatchObject({ kind: "compact" });
     } finally {
       await cleanup();
     }

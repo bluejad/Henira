@@ -158,3 +158,8 @@
   padding: var(--henira-space-1) var(--henira-space-3);
   font-size: var(--henira-fs-sm);
 }
+/* 提交回执说明（非失败，如手动压缩因历史不足被跳过；D-092）：同版式，中性配色 */
+.henira-send-error.henira-send-notice {
+  color: var(--henira-text-muted);
+  background: var(--henira-surface-hover);
+}

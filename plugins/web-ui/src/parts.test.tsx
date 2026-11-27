@@ -5,6 +5,7 @@ import type {
   ApprovalRow,
   AssistantRow,
   QuestionRow,
+  QueuedPrompt,
   Row,
   ServerFrame,
   SessionState,
@@ -25,6 +26,7 @@ import {
   pruneAnswered,
   questionTakeover,
 } from "./parts/composer-dock.js";
+import { parseCompactCommand } from "./parts/composer-state.js";
 import { ContextUsageButton } from "./parts/context-usage.js";
 import { ReasoningView } from "./parts/conversation/reasoning.js";
 import { CompactionView } from "./parts/conversation/rows.js";
@@ -43,6 +45,7 @@ import { SessionList } from "./parts/session-list.js";
 import { SettingsModal } from "./parts/settings-modal.js";
 import { AskUserCard, McpCard, ReadCard } from "./parts/tool-cards.js";
 import type {
+  ComposerApi,
   HeniraClientLike,
   PreviewViewArgs,
   RowStoreLike,
@@ -949,8 +952,8 @@ describe("Composer", () => {
 
   it("E1 排队卡：忙时队列可见（静音列表，无标题/计数头），steer 条目带插话徽章；空队列不渲染", () => {
     const queue = [
-      { id: "q1", text: "第一条排队", steer: false },
-      { id: "q2", text: "插话条目", steer: true },
+      { id: "q1", kind: "prompt" as const, text: "第一条排队", steer: false },
+      { id: "q2", kind: "prompt" as const, text: "插话条目", steer: true },
     ];
     const queueCtx = fixtureCtx({
       store: {
@@ -971,8 +974,29 @@ describe("Composer", () => {
     expect(empty.container.querySelector(".henira-queue")).toBeNull();
   });
 
+  it("D-092 压缩队列项：显示 /compact + 压缩徽章、不可编辑；压缩中（无回合 busy）面板照常可见", async () => {
+    const queue: QueuedPrompt[] = [
+      { id: "q-c", kind: "compact", text: "/compact", steer: false, instructions: "保留决定" },
+    ];
+    const ctx = fixtureCtx({
+      store: {
+        getSession: () => ({ rows: [], state: { busy: false, compacting: true, queue } }),
+        subscribe: () => () => {},
+      },
+    });
+    const { container } = render(<QueuePanel ctx={ctx} onEdit={vi.fn()} />);
+    expect(screen.getByText("/compact")).toBeDefined();
+    expect(screen.getByText(t("composer.queue.badgeCompact"))).toBeDefined();
+    // 压缩项没有可回填正文：编辑钮不渲染
+    expect(screen.queryByRole("button", { name: t("composer.queue.edit") })).toBeNull();
+    expect(container.querySelector(".henira-queue-row")).not.toBeNull();
+    // 删除/立即发送仍可用
+    expect(screen.getByRole("button", { name: t("composer.queue.sendNow") })).toBeDefined();
+    expect(screen.getByRole("button", { name: t("composer.queue.delete") })).toBeDefined();
+  });
+
   it("E1 排队卡操作：立即发送钮调 promoteQueueEntry；删除调 removeQueueEntry；编辑回填草稿并删条目", async () => {
-    const queue = [{ id: "q9", text: "被操作条目", steer: false }];
+    const queue = [{ id: "q9", kind: "prompt" as const, text: "被操作条目", steer: false }];
     const ctx = fixtureCtx();
     const promoteSpy = vi.spyOn(ctx.client, "promoteQueueEntry");
     const removeSpy = vi.spyOn(ctx.client, "removeQueueEntry");
@@ -1036,7 +1060,7 @@ describe("Composer", () => {
   });
 
   it("E1 中断冻结：头部切「队列已暂停」+「继续发送」钮（调 resumeQueue；client 缺方法时禁用）", async () => {
-    const queue = [{ id: "q1", text: "冻结条目", steer: false }];
+    const queue = [{ id: "q1", kind: "prompt" as const, text: "冻结条目", steer: false }];
     const ctx = fixtureCtx();
     const resumeSpy = vi.spyOn(ctx.client, "resumeQueue");
     const pausedCtx = fixtureCtx({
@@ -1227,7 +1251,7 @@ describe("输入座位四席 + Composer API（R183）", () => {
       toolName: "demo-write",
       status: "pending",
     } as ApprovalRow;
-    const queue = [{ id: "q1", text: "排队的话", steer: false }];
+    const queue = [{ id: "q1", kind: "prompt" as const, text: "排队的话", steer: false }];
     // 快照引用必须稳定（useSyncExternalStore 语义：每次新数组会死循环）
     const approvalRows: Row[] = [approvalRow];
     const sessionState = { busy: true, queue };
@@ -1265,7 +1289,10 @@ describe("输入座位四席 + Composer API（R183）", () => {
       status: "pending",
     } as ApprovalRow;
     const approvalRows: Row[] = [approvalRow];
-    const sessionState = { busy: true, queue: [{ id: "q1", text: "排队的话", steer: false }] };
+    const sessionState = {
+      busy: true,
+      queue: [{ id: "q1", kind: "prompt" as const, text: "排队的话", steer: false }],
+    };
     const ctx = dockCtx({
       store: {
         getSession: () => ({ rows: approvalRows, state: sessionState }),
@@ -1446,7 +1473,7 @@ describe("提问卡（R184）", () => {
 
   function questionCtx(
     rows: Row[],
-    state: { busy: boolean; queue?: { id: string; text: string; steer: boolean }[] } = {
+    state: { busy: boolean; queue?: QueuedPrompt[] } = {
       busy: true,
     },
   ) {
@@ -1846,7 +1873,7 @@ describe("提问卡（R184）", () => {
     const rows: Row[] = [questionRow];
     const ctx = questionCtx(rows, {
       busy: true,
-      queue: [{ id: "q-1", text: "排队的话", steer: false }],
+      queue: [{ id: "q-1", kind: "prompt" as const, text: "排队的话", steer: false }],
     });
     render(<ComposerDock {...ctx} />);
     expect(
@@ -4781,7 +4808,7 @@ describe("统一下拉基础件（基础件批 2026-11-20）", () => {
   });
 
   it("排队卡行操作钮 = henira-iconbtn 基类 + hover 浮现容器（浮现语义收口在 CSS，此处锁 class 结构）", () => {
-    const queue = [{ id: "q1", text: "第一条排队", steer: false }];
+    const queue = [{ id: "q1", kind: "prompt" as const, text: "第一条排队", steer: false }];
     const queueCtx = fixtureCtx({
       store: {
         getSession: () => ({ rows: [] as Row[], state: { busy: true, queue } }),
@@ -5426,7 +5453,11 @@ describe("压缩行（compaction.md §4.11）", () => {
 describe("ContextUsageButton（compaction.md §4.11）", () => {
   type Context = NonNullable<SessionState["context"]>;
 
-  function contextCtx(context: Context | undefined, compacting = false): WebPartContext {
+  function contextCtx(
+    context: Context | undefined,
+    compacting = false,
+    queue: QueuedPrompt[] = [],
+  ): WebPartContext {
     const store: RowStoreLike = {
       getSession: () => ({
         rows: [],
@@ -5434,6 +5465,7 @@ describe("ContextUsageButton（compaction.md §4.11）", () => {
           busy: false,
           ...(context !== undefined ? { context } : {}),
           ...(compacting ? { compacting: true } : {}),
+          ...(queue.length > 0 ? { queue } : {}),
         },
       }),
       subscribe: () => () => {},
@@ -5491,6 +5523,15 @@ describe("ContextUsageButton（compaction.md §4.11）", () => {
     expect(queryByText(/缓存命中率/)).toBeNull();
   });
 
+  it("三段条按上限折算（占用 + 构成二合一）：段宽分母是 size，用量 63% 就渲染 63% 宽", () => {
+    const { getByRole, container } = render(<ContextUsageButton ctx={contextCtx(normal)} />);
+    fireEvent.click(getByRole("button", { name: /上下文用量/ }));
+    const segs = container.querySelectorAll<HTMLElement>(".henira-context-seg");
+    expect(segs).toHaveLength(3);
+    // normal: used 80K / size 128K / parts 10K+6K+64K——按 used 折是恒满格的旧实现（2026-11-27 纠偏）
+    expect([...segs].map((el) => el.style.width)).toEqual(["8%", "5%", "50%"]);
+  });
+
   it("磁盘快照恢复（partial）：只显示总量与恢复说明，不渲染三段明细（§4.11）", () => {
     const { getByRole, queryByText } = render(
       <ContextUsageButton ctx={contextCtx({ ...normal, partial: true })} />,
@@ -5533,23 +5574,50 @@ describe("ContextUsageButton（compaction.md §4.11）", () => {
     expect(button.getAttribute("data-compacting")).toBe("true");
   });
 
-  it("手动压缩：说明输入 → compact(sessionId, instructions)；排队反馈当场显示", async () => {
-    const compact = vi.fn(async () => ({ state: "queued" as const }));
+  it("手动压缩入口（D-092）：「压缩」只把 /compact 交给输入框（host.prefill），不调 compact()", () => {
+    const compact = vi.fn(async () => ({ state: "accepted" as const }));
+    const prefill = vi.fn();
     const base = fixtureCtx({ store: contextCtx(normal).store });
     const ctx: WebPartContext = {
       ...base,
       client: { ...base.client, compact },
+      host: { ...base.host, prefill },
     };
-    const { getByRole, getByPlaceholderText } = render(<ContextUsageButton ctx={ctx} />);
+    const { getByRole, queryByRole } = render(<ContextUsageButton ctx={ctx} />);
     fireEvent.click(getByRole("button", { name: /上下文用量/ }));
-    fireEvent.change(getByPlaceholderText("压缩说明（可选，最多 2000 字）"), {
-      target: { value: "  保留决定与文件  " },
-    });
     fireEvent.click(getByRole("button", { name: "压缩" }));
-    await waitFor(() => {
-      expect(compact).toHaveBeenCalledWith("s-1", "保留决定与文件");
-    });
-    expect(await screen.findByText("将在下一步请求前压缩")).not.toBeNull();
+    expect(prefill).toHaveBeenCalledWith({ text: "/compact" });
+    expect(compact).not.toHaveBeenCalled();
+    // 命令交给输入框后面板收起——视线归输入框，发送由用户点
+    expect(queryByRole("dialog")).toBeNull();
+  });
+
+  it("输入框已有草稿：「压缩」不交给输入框（不覆盖），就地提示先发送或清空（D-092）", () => {
+    const prefill = vi.fn();
+    const base = fixtureCtx({ store: contextCtx(normal).store });
+    const ctx: WebPartContext = {
+      ...base,
+      host: { ...base.host, prefill },
+      composer: { draft: "还没发的话" } as ComposerApi,
+    };
+    const { getByRole } = render(<ContextUsageButton ctx={ctx} />);
+    fireEvent.click(getByRole("button", { name: /上下文用量/ }));
+    fireEvent.click(getByRole("button", { name: "压缩" }));
+    expect(prefill).not.toHaveBeenCalled();
+    expect(screen.getByText("输入框里有未发送的内容，先发送或清空再压缩")).not.toBeNull();
+  });
+
+  it("压缩已排队（state.queue 带 compact）：面板显示排队态、不再给第二次提交入口", () => {
+    const queued: QueuedPrompt = {
+      id: "q-c",
+      kind: "compact",
+      text: "/compact",
+      steer: false,
+    };
+    const { getByRole } = render(<ContextUsageButton ctx={contextCtx(normal, false, [queued])} />);
+    fireEvent.click(getByRole("button", { name: /上下文用量/ }));
+    expect(screen.getByText("压缩已排队（在排队卡中可删除或立即发送）")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "压缩" })).toBeNull();
   });
 });
 
@@ -5578,14 +5646,265 @@ describe("压缩活态与熔断横幅（composer）", () => {
     expect(interrupt).toHaveBeenCalledWith("s-1");
   });
 
-  it("熔断横幅：失败原因 + 重试压缩 / 新开会话", () => {
+  it("熔断横幅：失败原因 + 重试压缩 / 新开会话；重试只把 /compact 交给输入框（D-092）", () => {
     const compact = vi.fn(async () => ({ state: "accepted" as const }));
+    const prefill = vi.fn();
     const base = stateCtx({ compactionBreaker: "failures" });
-    const ctx: WebPartContext = { ...base, client: { ...base.client, compact } };
+    const ctx: WebPartContext = {
+      ...base,
+      client: { ...base.client, compact },
+      host: { ...base.host, prefill },
+    };
     renderComposer(ctx);
     expect(screen.getByText("自动压缩已暂停：连续失败 3 次。")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "重试压缩" }));
-    expect(compact).toHaveBeenCalledWith("s-1");
+    expect(prefill).toHaveBeenCalledWith({ text: "/compact" });
+    expect(compact).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "新开会话" })).not.toBeNull();
+  });
+});
+
+describe("手动压缩经输入框提交（D-092）", () => {
+  type CompactFn = NonNullable<HeniraClientLike["compact"]>;
+
+  function compactCtx(
+    compact: CompactFn | undefined,
+    state: Partial<SessionState> = {},
+  ): {
+    ctx: WebPartContext;
+    compact: CompactFn;
+  } {
+    const base = fixtureCtx();
+    const mock = compact ?? vi.fn(async () => ({ state: "queued" as const }));
+    const snapshot = { rows: [], state: { busy: false, ...state } };
+    return {
+      compact: mock,
+      ctx: {
+        ...base,
+        ...(compact === undefined ? {} : { client: { ...base.client, compact: mock } }),
+        store: {
+          getSession: () => snapshot,
+          subscribe: () => () => {},
+        },
+      },
+    };
+  }
+
+  function areaOf(container: HTMLElement): HTMLTextAreaElement {
+    return container.querySelector("textarea") as HTMLTextAreaElement;
+  }
+
+  it("parseCompactCommand：只认整条输入的首词（大小写不敏感），其后为说明", () => {
+    expect(parseCompactCommand("/compact")).toEqual({});
+    expect(parseCompactCommand("  /COMPACT \n 保留决定与文件 ")).toEqual({
+      instructions: "保留决定与文件",
+    });
+    expect(parseCompactCommand("/compactfoo")).toBeUndefined();
+    expect(parseCompactCommand("请执行 /compact")).toBeUndefined();
+    expect(parseCompactCommand("普通消息")).toBeUndefined();
+  });
+
+  it("输入框敲 /compact + 回车 → compact(sessionId, instructions)，不走 prompt，草稿清空", async () => {
+    const compact = vi.fn(async () => ({ state: "queued" as const }));
+    const { ctx } = compactCtx(compact);
+    const prompt = vi.spyOn(ctx.client, "prompt");
+    const { container } = renderComposer(ctx);
+    const area = areaOf(container);
+    fireEvent.change(area, { target: { value: "/compact 保留决定与文件" } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    await waitFor(() => {
+      expect(compact).toHaveBeenCalledWith("s-1", "保留决定与文件");
+    });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(areaOf(container).value).toBe("");
+  });
+
+  it("正文里的 /compact 不是命令：照常当消息发", async () => {
+    const { ctx, compact } = compactCtx(undefined);
+    const prompt = vi.spyOn(ctx.client, "prompt");
+    const { container } = renderComposer(ctx);
+    fireEvent.change(areaOf(container), { target: { value: "请执行 /compact 清理上下文" } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter" });
+    await waitFor(() => {
+      expect(prompt).toHaveBeenCalledWith("s-1", "请执行 /compact 清理上下文", expect.anything());
+    });
+    expect(compact).not.toHaveBeenCalled();
+  });
+
+  it("忙时 Ctrl+Enter 对 /compact 仍是排队提交（steer 对压缩无效）", async () => {
+    const compact = vi.fn(async () => ({ state: "queued" as const }));
+    const { ctx } = compactCtx(compact, { busy: true });
+    const { container } = renderComposer(ctx);
+    fireEvent.change(areaOf(container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter", ctrlKey: true });
+    await waitFor(() => {
+      expect(compact).toHaveBeenCalledWith("s-1", undefined);
+    });
+  });
+
+  it("被拒（已有压缩在跑或排队）→ 草稿回填 + 行内原因，不静默清空", async () => {
+    const compact = vi.fn(async () => ({
+      state: "rejected" as const,
+      reason: "compaction-in-progress" as const,
+    }));
+    const { ctx } = compactCtx(compact);
+    const { container } = renderComposer(ctx);
+    fireEvent.change(areaOf(container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter" });
+    const hint = await screen.findByRole("alert");
+    expect(hint.textContent).toBe("已有压缩在进行或排队，命令已留在输入框");
+    expect(areaOf(container).value).toBe("/compact");
+  });
+
+  it("历史不足在消费时被跳过 → 活态回执到达时行内说明（非失败态），草稿不回填；旧回执不重放", async () => {
+    const compact = vi.fn(async () => ({ state: "accepted" as const }));
+    const base = fixtureCtx();
+    const snapshot = { rows: [], state: { busy: false } as SessionState };
+    const ctx: WebPartContext = {
+      ...base,
+      client: { ...base.client, compact },
+      store: { getSession: () => snapshot, subscribe: () => () => {} },
+    };
+    // 快照里带来的旧回执（刷新 / 重开）不重放
+    snapshot.state = {
+      ...snapshot.state,
+      compactionNotice: { id: "n-old", reason: "history-insufficient" },
+    };
+    const { container, rerender } = renderComposer(ctx);
+    expect(screen.queryByText("可压缩的历史不足，无需压缩")).toBeNull();
+    fireEvent.change(areaOf(container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter" });
+    await waitFor(() => {
+      expect(compact).toHaveBeenCalledWith("s-1", undefined);
+    });
+    // 受理 ≠ 结果：accepted 之后还没有任何说明（跳过要到消费时才知道）
+    expect(screen.queryByText("可压缩的历史不足，无需压缩")).toBeNull();
+    // 宿主活态带回执（新 id）→ 输入栏行内说明，草稿不回填、不是失败态
+    snapshot.state = {
+      ...snapshot.state,
+      compactionNotice: { id: "n-1", reason: "history-insufficient" },
+    };
+    rerender(composerTree(ctx));
+    expect(await screen.findByText("可压缩的历史不足，无需压缩")).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(areaOf(container).value).toBe("");
+    // 同一回执再次重渲不重复提示无关；回执退场（下一次压缩开始）→ 说明收起
+    snapshot.state = { busy: false };
+    rerender(composerTree(ctx));
+    await waitFor(() => {
+      expect(screen.queryByText("可压缩的历史不足，无需压缩")).toBeNull();
+    });
+  });
+
+  it("切会话即收：回执属会话，不跟人走", async () => {
+    const compact = vi.fn(async () => ({ state: "accepted" as const }));
+    const base = fixtureCtx();
+    const snapshot = { rows: [], state: { busy: false } as SessionState };
+    const ctx: WebPartContext = {
+      ...base,
+      client: { ...base.client, compact },
+      store: { getSession: () => snapshot, subscribe: () => () => {} },
+    };
+    const { container, rerender } = renderComposer(ctx);
+    fireEvent.change(areaOf(container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter" });
+    await waitFor(() => {
+      expect(compact).toHaveBeenCalled();
+    });
+    snapshot.state = {
+      ...snapshot.state,
+      compactionNotice: { id: "n-1", reason: "history-insufficient" },
+    };
+    rerender(composerTree(ctx));
+    expect(await screen.findByText("可压缩的历史不足，无需压缩")).not.toBeNull();
+    // 切到别的会话：行内回执（连同失败态）必须收起——旧实现切走不清，提示跟到别的会话
+    //（2026-11-27 用户纠偏；切走分支同时把 ref 归位，切回原会话也不重放旧回执）
+    ctx.sessionId = "s-2";
+    rerender(composerTree(ctx));
+    expect(screen.queryByText("可压缩的历史不足，无需压缩")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("宿主经受理响应回 skipped（自定义压缩件）：算已消费，不回填、不报错", async () => {
+    const compact = vi.fn(async () => ({
+      state: "skipped" as const,
+      reason: "history-insufficient" as const,
+    }));
+    const { ctx } = compactCtx(compact);
+    const { container } = renderComposer(ctx);
+    fireEvent.change(areaOf(container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter" });
+    await waitFor(() => {
+      expect(compact).toHaveBeenCalled();
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(areaOf(container).value).toBe("");
+  });
+
+  it("请求失败 / 未启用压缩 → 草稿回填 + 行内原因", async () => {
+    const failing = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    const first = compactCtx(failing as unknown as CompactFn);
+    const view = renderComposer(first.ctx);
+    fireEvent.change(areaOf(view.container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(view.container), { key: "Enter" });
+    expect((await screen.findByRole("alert")).textContent).toBe("压缩请求失败，命令已留在输入框");
+    expect(areaOf(view.container).value).toBe("/compact");
+    cleanup();
+
+    // client.compact 缺席（旧宿主）：提交时就地拦下，不发请求
+    const { ctx } = compactCtx(undefined);
+    const second = renderComposer(ctx);
+    fireEvent.change(areaOf(second.container), { target: { value: "/compact" } });
+    fireEvent.keyDown(areaOf(second.container), { key: "Enter" });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "当前会话未启用压缩，命令已留在输入框",
+    );
+    expect(areaOf(second.container).value).toBe("/compact");
+  });
+
+  it("说明超 2 000 码点：提交前拦下（不发请求），草稿保留", async () => {
+    const compact = vi.fn(async () => ({ state: "accepted" as const }));
+    const { ctx } = compactCtx(compact);
+    const { container } = renderComposer(ctx);
+    const long = `/compact ${"x".repeat(2001)}`;
+    fireEvent.change(areaOf(container), { target: { value: long } });
+    fireEvent.keyDown(areaOf(container), { key: "Enter" });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "压缩说明过长（最多 2000 字），命令已留在输入框",
+    );
+    expect(compact).not.toHaveBeenCalled();
+    expect(areaOf(container).value).toBe(long);
+  });
+
+  it("host.prefill 请求：草稿为空 → 回填并聚焦、处理完 ack；已有草稿 → 只 ack 不覆盖", async () => {
+    // 已有草稿：请求被消费（ack）但不覆盖
+    const busy = compactCtx(undefined);
+    const ackBusy = vi.fn();
+    const first = renderComposer(busy.ctx);
+    fireEvent.change(areaOf(first.container), { target: { value: "先写着的话" } });
+    first.rerender(
+      composerTree({ ...busy.ctx, prefillRequest: { text: "/compact", ack: ackBusy } }),
+    );
+    await waitFor(() => {
+      expect(ackBusy).toHaveBeenCalledTimes(1);
+    });
+    expect(areaOf(first.container).value).toBe("先写着的话");
+    cleanup();
+
+    // 空草稿：回填 + 聚焦 + ack；宿主清除请求后（下一帧不带请求）清空输入框不会重放
+    const idle = compactCtx(undefined);
+    const ack = vi.fn();
+    const second = renderComposer(idle.ctx);
+    second.rerender(composerTree({ ...idle.ctx, prefillRequest: { text: "/compact", ack } }));
+    await waitFor(() => {
+      expect(areaOf(second.container).value).toBe("/compact");
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(areaOf(second.container));
+    second.rerender(composerTree(idle.ctx));
+    fireEvent.change(areaOf(second.container), { target: { value: "" } });
+    expect(areaOf(second.container).value).toBe("");
   });
 });

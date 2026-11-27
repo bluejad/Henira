@@ -14,12 +14,14 @@ import { sessionPlugin } from "@henira/plugin-session";
 import { toolsPlugin } from "@henira/plugin-tools";
 import {
   asHeniraContext,
+  type CompactQueueWorker,
   type ContextReading,
   type Decision,
   LlmError,
   type LlmRequest,
   type LlmService,
   type PreStepValue,
+  type QueuedPrompt,
 } from "@henira/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -133,6 +135,37 @@ async function collect(gen: AsyncIterable<{ type: string }>): Promise<{ type: st
   const events: { type: string }[] = [];
   for await (const event of gen) events.push(event);
   return events;
+}
+
+async function waitUntil(predicate: () => boolean, timeout = 3_000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("waitUntil timeout");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+/** D-092 队列压缩 API（可选方法在契约里；测试里取齐后绑定，避免非空断言） */
+function compactQueue(loop: {
+  enqueueCompact?: (instructions?: string) => Promise<QueuedPrompt>;
+  registerCompactWorker?: (worker: CompactQueueWorker) => void;
+}) {
+  const { enqueueCompact, registerCompactWorker } = loop;
+  if (enqueueCompact === undefined || registerCompactWorker === undefined) {
+    throw new Error("loop missing compact queue API");
+  }
+  return {
+    enqueueCompact: enqueueCompact.bind(loop),
+    registerCompactWorker: registerCompactWorker.bind(loop),
+  };
 }
 
 describe("turn/step 状态机（loop.md §1）", () => {
@@ -821,6 +854,94 @@ describe("第 1 层地基：五字段 usage / loop/pre-step / 计量与封顶（
     expect(seen).toHaveLength(2); // 重算后未到硬线，第二次真发出
     expect(readings).toHaveLength(2);
     expect(readings[1]).toBeGreaterThan(readings[0] + 40_000); // 100K 字母 ≈ 50K token
+    await harness.dispose();
+  });
+});
+
+describe("队列意图分型（D-092：手动压缩与消息同一条 FIFO）", () => {
+  it("enqueueCompact：空闲入队即消费，worker 收到 kind/instructions；队列清空后链收口", async () => {
+    const { harness, loop } = await startedLoop([]);
+    const compactApi = compactQueue(loop);
+    const calls: { kind: string; text: string; instructions?: string }[] = [];
+    compactApi.registerCompactWorker(async (entry) => {
+      calls.push({ kind: entry.kind, text: entry.text, instructions: entry.instructions });
+      return "completed";
+    });
+    const receipt = await compactApi.enqueueCompact("keep the file list");
+    expect(receipt.kind).toBe("compact");
+    expect(receipt.text).toBe("/compact");
+    expect(receipt.id).not.toBe(""); // 入队条目（区别于闲时直发 id 空）
+    await waitUntil(() => calls.length === 1 && !loop.isBusy());
+    expect(calls[0]).toMatchObject({
+      kind: "compact",
+      text: "/compact",
+      instructions: "keep the file list",
+    });
+    expect(loop.pending()).toHaveLength(0);
+    await harness.dispose();
+  });
+
+  it("忙时压缩排到队尾；压缩中再发的消息排在压缩之后（严格 FIFO）", async () => {
+    const { harness, loop } = await startedLoop(["hang"]);
+    const compactApi = compactQueue(loop);
+    const order: string[] = [];
+    let release!: () => void;
+    const compactGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    compactApi.registerCompactWorker(async (entry) => {
+      order.push(`compact:${entry.id}`);
+      await compactGate;
+      return "completed";
+    });
+    void loop.send("长回合");
+    await waitUntil(() => loop.isBusy());
+    const compact = await compactApi.enqueueCompact();
+    const followup = await loop.send("压缩之后的消息");
+    // 回合在跑：压缩与消息都只能排队，顺序 = 提交顺序
+    expect(loop.pending().map((entry) => entry.kind)).toEqual(["compact", "prompt"]);
+    expect(loop.pending()[1]?.id).toBe(followup.id);
+    expect(order).toHaveLength(0);
+    // 停止当前回合 → 条目原位保留并冻结（压缩没有开始）
+    await loop.interrupt();
+    await waitUntil(() => loop.paused());
+    expect(loop.pending().map((entry) => entry.id)).toEqual([compact.id, followup.id]);
+    release();
+    await harness.dispose();
+  });
+
+  it("压缩失败 → 剩余消息原地冻结；resume 后按 FIFO 继续", async () => {
+    const { harness, loop } = await startedLoop([
+      [mockText("after resume"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const compactApi = compactQueue(loop);
+    const gate = deferred();
+    compactApi.registerCompactWorker(async () => {
+      await gate.promise;
+      return "failed";
+    });
+    await compactApi.enqueueCompact();
+    const queued = await loop.send("压缩后的消息");
+    gate.resolve();
+    await waitUntil(() => loop.paused());
+    expect(loop.pending().map((entry) => entry.id)).toEqual([queued.id]);
+    expect(loop.isBusy()).toBe(false);
+    expect(await loop.resume()).toBe(true);
+    await waitUntil(() => !loop.isBusy() && loop.pending().length === 0);
+    expect(loop.paused()).toBe(false);
+    await harness.dispose();
+  });
+
+  it("压缩件缺席：队头 compact 项丢弃并继续（不悬死队列）", async () => {
+    const { harness, loop } = await startedLoop([
+      [mockText("after dropped compact"), mockUsage(USAGE), mockFinish("stop")],
+    ]);
+    const compactApi = compactQueue(loop);
+    // 未注册 worker = 压缩件缺席：compact 项在队头被丢弃，后面的消息照常跑
+    await compactApi.enqueueCompact();
+    const queued = await loop.send("后续消息");
+    await waitUntil(() => !loop.isBusy() && loop.pending().length === 0);
+    expect(queued.id).not.toBe(""); // 提交时链在跑 → 入队；冲刷链继续消费
     await harness.dispose();
   });
 });

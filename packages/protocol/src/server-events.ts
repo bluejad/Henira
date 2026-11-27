@@ -204,6 +204,10 @@ export interface SessionState {
   /** 自动压缩熔断（活态，compaction.md F-7/F-8）：failures = 连续失败 3 次；
    *  refill = 快速回填连续第 3 次。手动压缩成功即清除 */
   compactionBreaker?: "failures" | "refill";
+  /** 手动压缩被跳过的即时回执（活态，不落账本、不留行；D-092）：消费时历史不足 → 插件广播
+   *  compaction/skipped → 宿主并入。受理响应只有 accepted/queued/rejected——消费时才知道的
+   *  结果走这里。界面按 id 变化提示一次（快照带来的旧回执不重放）；下一次压缩开始即清 */
+  compactionNotice?: { id: string; reason: "history-insufficient" };
 }
 
 export interface SessionSnapshot {

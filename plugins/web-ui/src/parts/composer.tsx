@@ -6,8 +6,11 @@
 // 接管期间保持挂载但 display:none（草稿不丢）。发送/停止语义照 ZCode（showStopControl =
 // canStop && !hasDraftToSubmit）：忙+有草稿=发送（排队插话）、忙+空草稿=停止——有字时圆钮恒为
 // 发送，杜绝「打着字点按钮却停了回合」的歧义。prompt 失败不静默：草稿回填 + 行内错误提示。
+// D-092：手动压缩只从输入框出去——首词 /compact 与消息走同一个发送键 / 同一个 submit（识别在
+// composer-state）；本件只负责把提交后的行内原因 / 回执说明画出来。
 // 本件必须在 ComposerDock 内渲染（需要 ctx.composer）；单独装配请用 ComposerDock 整座。
 
+import { COMPACT_COMMAND } from "@henira/protocol";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComposerApi, WebPart, WebPartContext } from "../types.js";
@@ -34,7 +37,8 @@ function ComposerSeats({ ctx, name }: { ctx: WebPartContext; name: string }): Re
 }
 
 /** 压缩熔断横幅（F-7/F-8）：自动压缩已停；重试 = 手动压缩（成功即解除），
- *  或新开会话。常驻到手动成功 / 插件广播解除。 */
+ *  或新开会话。常驻到手动成功 / 插件广播解除。重试与余量面板同一出口：把命令交给
+ *  输入框、由用户点发送（D-092——手动压缩不从按钮直发）。 */
 function CompactionBanner({ ctx }: { ctx: WebPartContext }): ReactNode {
   const reason = useSyncExternalStore(
     ctx.store.subscribe,
@@ -43,7 +47,8 @@ function CompactionBanner({ ctx }: { ctx: WebPartContext }): ReactNode {
   );
   if (reason === undefined || ctx.sessionId === null) return null;
   const retry = (): void => {
-    void ctx.client.compact?.(ctx.sessionId as string).catch(() => {});
+    ctx.host.prefill({ text: COMPACT_COMMAND });
+    ctx.composer?.focus(); // 输入框已有草稿时不覆盖——把视线带回输入框
   };
   const createNew = (): void => {
     const cwd = ctx.host.getSession()?.cwd;
@@ -55,7 +60,7 @@ function CompactionBanner({ ctx }: { ctx: WebPartContext }): ReactNode {
       .catch(() => {});
   };
   return (
-    <div className="henira-compaction-banner" role="status">
+    <div className="henria-compaction-banner" role="status">
       <span className="henira-compaction-banner-text">
         {ctx.t(`composer.compactionBreaker.${reason}`)}
       </span>
@@ -110,13 +115,15 @@ function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): R
   };
 
   const hasDraft = draft.trim() !== "";
-  const showStop = (api.busy || compacting) && !hasDraft; // 有草稿恒为发送（排队）；压缩中空草稿 = 停止
-  // 忙+有草稿：发送=排队、Ctrl+Enter=插话（E1 发送模式 UI——按钮文案同步切换）
-  const sendLabel = api.busy ? ctx.t("composer.queueSend") : ctx.t("composer.send");
+  // D-092：压缩也是一段「该排队」的活跃时段——发送键/占位与回合忙时同口径
+  const waiting = api.busy || compacting;
+  const showStop = waiting && !hasDraft; // 有草稿恒为发送（排队）；压缩中空草稿 = 停止
+  // 忙/压缩+有草稿：发送=排队、Ctrl+Enter=插话（E1 发送模式 UI——按钮文案同步切换）
+  const sendLabel = waiting ? ctx.t("composer.queueSend") : ctx.t("composer.send");
 
   // 占位三态（ZCode 行为层）：忙=排队提示 / 空会话=新提问 / 有历史=追问。键盘说明退场
   //（Enter/Shift+Enter 属平台惯例，修饰键提示由发送钮 tooltip 承担）。
-  const placeholder = api.busy
+  const placeholder = waiting
     ? ctx.t("composer.placeholder.queue")
     : api.isEmpty
       ? ctx.t("composer.placeholder")
@@ -126,7 +133,12 @@ function ComposerBar({ ctx, api }: { ctx: WebPartContext; api: ComposerApi }): R
     <div className="henira-composer">
       {api.sendFailed ? (
         <p role="alert" className="henira-send-error">
-          {ctx.t("composer.sendFailed")}
+          {api.sendErrorText ?? ctx.t("composer.sendFailed")}
+        </p>
+      ) : api.sendNotice !== undefined ? (
+        // 提交回执说明（非失败，草稿已清）：与失败行同版式、中性配色
+        <p role="status" className="henira-send-error henira-send-notice">
+          {api.sendNotice}
         </p>
       ) : null}
       <CompactionBanner ctx={ctx} />

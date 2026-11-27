@@ -70,7 +70,8 @@
   height: 6px;
   border-radius: 9999px;
   overflow: hidden;
-  background: var(--henira-surface);
+  /* 空轨道要读得出来（surface 5% ≈ 面板本色，用户读作「没有刻度」——2026-11-27 纠偏） */
+  background: var(--henira-border);
 }
 .henira-context-seg {
   display: block;
@@ -82,8 +83,9 @@
 .henira-context-seg-tools {
   background: var(--henira-text-subtlest);
 }
+/* 已用量主体（消息）要读作「已占用」：28% 时与轨道不可分（同批纠偏） */
 .henira-context-seg-messages {
-  background: color-mix(in srgb, var(--henira-text) 28%, transparent);
+  background: color-mix(in srgb, var(--henira-text) 70%, transparent);
 }
 
 .henira-context-parts {
@@ -162,21 +164,6 @@
   align-items: center;
   border-top: 1px solid var(--henira-border);
   padding-top: 8px;
-}
-.henira-context-input {
-  flex: 1;
-  min-width: 0;
-  box-sizing: border-box;
-  border: 1px solid var(--henira-border);
-  border-radius: var(--henira-radius);
-  background: var(--henira-panel);
-  color: var(--henira-text);
-  font-size: var(--henira-fs-sm);
-  padding: 4px 8px;
-}
-.henira-context-input:focus {
-  outline: none;
-  border-color: var(--henira-border-strong);
 }
 .henira-app button.henira-context-compact-btn {
   border: 1px solid var(--henira-border-strong);

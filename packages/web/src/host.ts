@@ -22,6 +22,7 @@ import {
   type LayoutOption,
   makeT,
   type PluginUiHost,
+  type PrefillRequest,
   type PreviewTarget,
   type ResourceSnapshot,
   type SettingsSection,
@@ -191,6 +192,11 @@ export function createWebApp(opts: WebAppOptions): WebApp {
   /** 模型目录版本号：设置内写操作（连接/断开/开关/自定义/刷新）成功 → 自增重渲 → composer
    * 即时重拉 listModels（断开当场回落，不等设置关闭——2026-11-19） */
   let modelCatalogVersion = 0;
+  /** 交给输入框的请求（host.prefill，D-092 接线）：常驻到被消费——输入框运行时处理完（回填，
+   *  或因已有草稿跳过）调 ack() 清除。不能「投递一次即清」：root.render 是调度的，投递后、
+   *  提交前若插进一帧别处触发的重渲（流式回合里每 16ms 一帧），带请求的那帧会被顶掉，命令
+   *  凭空丢失。 */
+  let prefillRequest: PrefillRequest | undefined;
   /** 取字工厂引用稳定（行 memo 比较器比 ctx.t 引用——语言包变化才换新） */
   let t = makeT(localeOverride);
 
@@ -539,7 +545,21 @@ export function createWebApp(opts: WebAppOptions): WebApp {
         turnListeners.delete(cb);
       };
     },
-    prefill(_input: { text: string }) {}, // M3：官方输入框自管草稿；prefill 随命令进输入框批接线
+    prefill(input) {
+      // 只回填不发送（D-092 接线）：请求常驻 ctx.prefillRequest 到输入框运行时消费（回填并聚焦，
+      // 或因已有草稿跳过）后 ack 清除；期间的重渲不会把它顶掉
+      const request: PrefillRequest = {
+        text: input.text,
+        ack: () => {
+          if (prefillRequest === request) {
+            prefillRequest = undefined;
+            render();
+          }
+        },
+      };
+      prefillRequest = request;
+      render();
+    },
     renderMarkdown(text: string, opts?: { streaming?: boolean }) {
       // markdown 落地（M4 批 A；E2 增量管线）：settled 臂在 markdown.ts（GFM；raw HTML
       // 不渲染），流式臂在 streaming-markdown.ts（冻结已完成块、每帧只重渲尾段）。
@@ -854,6 +874,7 @@ export function createWebApp(opts: WebAppOptions): WebApp {
       chains: registry.chains,
       uiState,
       updateUiState,
+      prefillRequest,
       layout: opts.layout ?? "full",
       safeMode,
       sessionCwd,

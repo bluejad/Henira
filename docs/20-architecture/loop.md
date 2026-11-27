@@ -92,4 +92,4 @@ interface TurnStoppingValue {
 _已定稿：死循环熔断 → 官方插件，走 `loop/turn-stopping`（bail）缝（2026-11-11）。**✓ 生产消费者已落码**（`plugin-breaker`，D-065 批：回合内提醒 + 回合尾否决双机制；内核每回合只查一次缝 = 每回合至多一次否决干预）。_
 _已定稿：bail 的 `Veto` 形状 = `{ by, reason, resume? }`（[interfaces.md](./interfaces.md) §kernel、[principles.md](./principles.md) P7，2026-11-12）。_
 _已定稿：基底系统提示由官方 loop 插件在会话初始化注入（一条 `system/message`；组装规则见 [session.md](./session.md) §4，2026-11-13）。_
-_已定稿：忙时投递唯一化 = 排队持久化（`queue.json`）+ 条目"立即发送"插话（step 边界进场，不打断工具）；步数上限机制可选、默认不设（主循环 / 子代理均不设），token 硬顶不做归压缩预算（D-045，2026-11-14）。_
+_已定稿：忙时投递唯一化 = 排队持久化（`queue.json`）+ 条目"立即发送"插话（step 边界进场，不打断工具）；步数上限机制可选、默认不设（主循环 / 子代理均不设），token 硬顶不做归压缩预算（D-045，2026-11-14）。落盘串行化（D-092 决定 6，2026-11-27）：`queue.json` 的每次写排进同一条链——冲刷链摘条与并发入队的两次落盘曾各写各的（tmp+rename 交错：Windows 上 rename 撞替换窗口报错、内容还可能是旧快照）。_
