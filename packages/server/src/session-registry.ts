@@ -1115,7 +1115,12 @@ export class SessionRegistry {
     const childEvents = await this.ledgerEvents(childId);
     if (childEvents !== undefined) {
       for (const event of childEvents) child.projection.ingest(event);
+      // 悬挂压缩收口（#attach 同款）：切点落在压缩中途时，前缀里的 running 行显示「已中断」
+      child.projection.finalizeHangingCompactions();
     }
+    // 余量恢复（compaction.md §4.11）：fork 走 #mount 不走 #attach——不补这次调用的话
+    // 子会话的余量圆环要等下一句请求才出现（2026-11-27 活体验收缺口①）
+    await this.#restoreContext(child);
     this.#entries.set(childId, child);
     this.#announce(child);
     return childId;

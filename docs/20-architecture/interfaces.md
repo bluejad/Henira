@@ -475,7 +475,7 @@ interface LoopService {
   resume(): Promise<boolean>; // 恢复冻结队列冲刷：取队头开新回合；闲时才可，无事可做 false
   interrupt(signal?: AbortSignal): Promise<void>; // 中止当前回合（turn/end{aborted, cause:'user'}；队列非空 = 冻结不冲刷）；同时广播 compaction/stop 中断在途手动压缩
   contextUsage(): ContextReading | undefined; // 本会话余量读数（每步重算；停用压缩件照常成立）
-  restoreContext?(): Promise<void>; // 重启恢复（§4.11）：宿主装载历史会话后调一次；无活态读数才按账本重算并广播（可选实现）
+  restoreContext?(): Promise<void>; // 重启恢复（§4.11）：宿主装配历史会话后各调一次（懒挂载 #attach 与 fork 子会话）；无活态读数才按账本重算并广播（可选实现）
   isBusy(): boolean; // 回合/冲刷链在跑（含回合间空窗）——手动压缩等待判据
 }
 

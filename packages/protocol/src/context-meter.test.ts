@@ -353,4 +353,179 @@ describe("restoreContextReading（compaction.md §4.11 重启恢复）", () => {
       restoreContextReading({ events: [system, user], surface, model: "p/m" }),
     ).toBeUndefined();
   });
+
+  it("锚点被替换记录作废（空闲压缩后重启）：从 compaction/end.after 起算，estimated + partial", () => {
+    reset();
+    const system = ev("system/message", { turn: "t", step: 0, content: "sys" });
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const header = ev("request/header", {
+      turn: "t1",
+      step: 1,
+      model: "p/m",
+      params: {},
+      toolNames: ["bash"],
+      systemPromptHash: "x",
+    });
+    const assistant = ev("assistant/message", {
+      turn: "t1",
+      step: 1,
+      content: "hi",
+      model: "p/m",
+      finishReason: "stop",
+    });
+    const end = ev("step/end", {
+      turn: "t1",
+      step: 1,
+      usage: { inputTokens: 5_000, outputTokens: 120 },
+    });
+    const start = ev("compaction/start", {
+      id: "c1",
+      trigger: "manual",
+      turn: "t1",
+      step: 1,
+      before: 5_120,
+      plan: {},
+    });
+    // 空闲手动压缩：替换记录在锚点之后落账（表面只剩系统 + 摘要）
+    const summary = ev("user/message", {
+      turn: "t1",
+      step: 1,
+      content: "摘要",
+      source: "compaction",
+      surfaceOp: { op: "replace", startSeq: user.seq, endSeq: end.seq },
+    });
+    const compactEnd = ev("compaction/end", {
+      id: "c1",
+      turn: "t1",
+      step: 1,
+      state: "completed",
+      after: 3_000, // 压缩后整面估算（含真实工具表）
+    });
+    const surface = [
+      entry(system.seq, { role: "system", content: "sys" }),
+      entry(summary.seq, { role: "user", content: "摘要" }),
+    ];
+    const reading = restoreContextReading({
+      events: [system, user, header, assistant, end, start, summary, compactEnd],
+      surface,
+      model: "p/m",
+      modelConfig: { contextWindow: 200_000 },
+    });
+    expect(reading).toBeDefined();
+    expect(reading?.estimated).toBe(true); // after 是估算
+    expect(reading?.partial).toBe(true); // 磁盘路径没有工具表
+    expect(reading?.size).toBe(200_000);
+    expect(reading?.used).toBe(3_000); // 压缩后再无请求：用量 = 压缩后的整面估算
+    const systemEstimate = estimateMessage(surface[0].message);
+    const summaryEstimate = estimateMessage(surface[1].message);
+    expect(reading?.parts.system).toBe(systemEstimate);
+    expect(reading?.parts.tools).toBe(3_000 - systemEstimate - summaryEstimate);
+    expect(
+      (reading?.parts.system ?? 0) + (reading?.parts.tools ?? 0) + (reading?.parts.messages ?? 0),
+    ).toBe(reading?.used);
+  });
+
+  it("替换之后新增的表面叠加在压缩基线之上", () => {
+    reset();
+    const system = ev("system/message", { turn: "t", step: 0, content: "sys" });
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const header = ev("request/header", {
+      turn: "t1",
+      step: 1,
+      model: "p/m",
+      params: {},
+      toolNames: [],
+      systemPromptHash: "x",
+    });
+    const assistant = ev("assistant/message", {
+      turn: "t1",
+      step: 1,
+      content: "hi",
+      model: "p/m",
+      finishReason: "stop",
+    });
+    const end = ev("step/end", {
+      turn: "t1",
+      step: 1,
+      usage: { inputTokens: 4_000, outputTokens: 80 },
+    });
+    const summary = ev("user/message", {
+      turn: "t1",
+      step: 1,
+      content: "摘要",
+      source: "compaction",
+      surfaceOp: { op: "replace", startSeq: user.seq, endSeq: end.seq },
+    });
+    const compactEnd = ev("compaction/end", {
+      id: "c1",
+      turn: "t1",
+      step: 1,
+      state: "completed",
+      after: 2_500,
+    });
+    // 压缩后用户又发了一条、请求失败（没有 usage）：锚点仍被替换作废，但表面有新增
+    const later = ev("user/message", { turn: "t2", step: 0, content: "后来的问题" });
+    const surface = [
+      entry(system.seq, { role: "system", content: "sys" }),
+      entry(summary.seq, { role: "user", content: "摘要" }),
+      entry(later.seq, { role: "user", content: "后来的问题" }),
+    ];
+    const reading = restoreContextReading({
+      events: [system, user, header, assistant, end, summary, compactEnd, later],
+      surface,
+      model: "p/m",
+    });
+    expect(reading?.used).toBe(2_500 + estimateMessage(surface[2].message));
+  });
+
+  it("替换后没有带 after 的 compaction/end（崩溃窗口）：undefined——不猜", () => {
+    reset();
+    const system = ev("system/message", { turn: "t", step: 0, content: "sys" });
+    const user = ev("user/message", { turn: "t", step: 0, content: "hello" });
+    const header = ev("request/header", {
+      turn: "t1",
+      step: 1,
+      model: "p/m",
+      params: {},
+      toolNames: [],
+      systemPromptHash: "x",
+    });
+    const assistant = ev("assistant/message", {
+      turn: "t1",
+      step: 1,
+      content: "hi",
+      model: "p/m",
+      finishReason: "stop",
+    });
+    const end = ev("step/end", {
+      turn: "t1",
+      step: 1,
+      usage: { inputTokens: 4_000, outputTokens: 80 },
+    });
+    const summary = ev("user/message", {
+      turn: "t1",
+      step: 1,
+      content: "摘要",
+      source: "compaction",
+      surfaceOp: { op: "replace", startSeq: user.seq, endSeq: end.seq },
+    });
+    const failed = ev("compaction/end", {
+      id: "c1",
+      turn: "t1",
+      step: 1,
+      state: "failed",
+      error: { code: "X", message: "summary failed" },
+    });
+    const surface = [
+      entry(system.seq, { role: "system", content: "sys" }),
+      entry(summary.seq, { role: "user", content: "摘要" }),
+    ];
+    expect(
+      restoreContextReading({
+        events: [system, user, header, assistant, end, summary, failed],
+        surface,
+        model: "p/m",
+      }),
+    ).toBeUndefined();
+  });
 });

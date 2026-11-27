@@ -69,6 +69,9 @@ export interface MeasureResult {
   estimateDelta?: number;
   /** 表面代次 = 已接受替换记录数；k 更新与嫌疑判定在代次变化时跳过 */
   surfaceGeneration: number;
+  /** 锚点因「其后有替换记录」作废且模型一致（唯一作废原因是压缩）：重启恢复据此从
+   *  压缩基线 `compaction/end.after` 重新起算（§4.11）；换模型等其它作废原因不带此标记 */
+  anchorStaleByReplace?: boolean;
 }
 
 function stepKey(turn: unknown, step: unknown): string | undefined {
@@ -115,10 +118,11 @@ export function measureContext(input: MeasureInput): MeasureResult {
   }
 
   const resolved = resolveAnchor(lastPositive, headers, assistants);
-  const anchor =
-    resolved !== undefined && resolved.model === model && lastReplaceSeq <= resolved.cutSeq
-      ? resolved
-      : undefined;
+  const modelMatched = resolved !== undefined && resolved.model === model;
+  const replacedAfterCut = resolved !== undefined && lastReplaceSeq > resolved.cutSeq;
+  const anchor = modelMatched && !replacedAfterCut ? resolved : undefined;
+  // 同模型、仅因替换记录作废：恢复路径可从压缩基线重起算（§4.11）
+  const anchorStaleByReplace = modelMatched && replacedAfterCut;
 
   const full = estimateSurface(surface, tools);
   if (anchor === undefined) {
@@ -132,6 +136,7 @@ export function measureContext(input: MeasureInput): MeasureResult {
         parts: { system: full.system, tools: full.tools, messages: full.messages },
       },
       surfaceGeneration,
+      ...(anchorStaleByReplace ? { anchorStaleByReplace: true } : {}),
     };
   }
 
@@ -243,6 +248,28 @@ export interface RestoreContextInput {
   modelConfig?: Pick<ModelConfig, "contextWindow" | "maxOutputTokens">;
 }
 
+/** 压缩基线（§4.11）：最近一次成功压缩的 `compaction/end.after`——压缩后整面估算，
+ *  含当时的真实工具表。替换记录把锚点作废后，重启恢复从这里起算；替换之后没有带
+ *  `after` 的 end（崩溃窗口）返回 undefined——不猜。 */
+function compactionBaseline(
+  events: readonly SessionEvent[],
+): { base: number; cutSeq: number } | undefined {
+  let replaceSeq: number | undefined;
+  let base: number | undefined;
+  for (const event of events) {
+    const op = (event.data as { surfaceOp?: { op?: unknown } }).surfaceOp?.op;
+    if (op === "replace") {
+      replaceSeq = event.seq;
+      base = undefined; // 新替换让旧基线作废；只有其后的 end 才能重新确立
+      continue;
+    }
+    if (replaceSeq === undefined || event.type !== "compaction/end") continue;
+    const data = event.data as { after?: unknown };
+    if (typeof data.after === "number" && data.after > 0) base = data.after;
+  }
+  return replaceSeq !== undefined && base !== undefined ? { base, cutSeq: replaceSeq } : undefined;
+}
+
 /** 磁盘快照的轻量恢复（compaction.md §4.11）：宿主重启后打开历史会话、运行体尚未装配——
  *  只有账本可用，没有工具表。锚点 input 已是完整请求上下文（系统+工具+消息），所以
  *  **总量可信**（锚点 + 锚后估算），三段里工具表体积用差值反推；无锚点（从未请求过 /
@@ -266,7 +293,35 @@ export function restoreContextReading(input: RestoreContextInput): ContextReadin
     k: 1,
   });
   const anchor = measured.anchor;
-  if (anchor === undefined) return undefined;
+  if (anchor === undefined) {
+    // 空闲手动压缩后重启（§4.11）：锚点被替换记录作废、模型一致——从最近一次成功压缩的
+    // `after`（压缩后整面估算，含真实工具表）重新起算，再叠加替换后新增表面的估算。
+    // 换模型等其它作废原因不适用（基线只描述压缩改了表面的那一种），照旧 undefined。
+    const baseline =
+      measured.anchorStaleByReplace === true ? compactionBaseline(input.events) : undefined;
+    if (baseline === undefined) return undefined;
+    const atBaseline = estimateSurface(
+      input.surface.filter((entry) => entry.seq <= baseline.cutSeq),
+      [],
+    );
+    const system = atBaseline.system;
+    // after 里含工具表体积（压缩时按真实工具表算的整面），扣掉系统/消息反推
+    const tools = Math.max(0, Math.round(baseline.base) - system - atBaseline.messages);
+    const extra = input.surface.reduce(
+      (sum, entry) => (entry.seq > baseline.cutSeq ? sum + estimateMessage(entry.message) : sum),
+      0,
+    );
+    const used = Math.round(baseline.base) + extra;
+    return {
+      used,
+      size: measured.reading.size,
+      pressure: measured.reading.pressure,
+      hardLimit: measured.reading.hardLimit,
+      estimated: true,
+      partial: true,
+      parts: { system, tools, messages: Math.max(0, used - system - tools) },
+    };
+  }
   // 拆分：系统/消息按账本表面估算（锚点切点前），工具表 = 锚点 input 里扣掉两者
   const atAnchor = estimateSurface(
     input.surface.filter((entry) => entry.seq <= anchor.cutSeq),

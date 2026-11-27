@@ -1070,7 +1070,9 @@ describe("立即发送抢占全链（promote）", () => {
 
 describe("轮尾分叉全链（E4：fork REST + 子会话装配）", () => {
   it("POST /fork 缺省复制到最新 → 子会话在册且行 = 前缀；atSeq 越界 400；不存在 404", async () => {
-    const { base, cleanup } = await makeServer([[mockText("答"), mockFinish("stop")]]);
+    const { base, cleanup } = await makeServer([
+      [mockText("答"), mockUsage({ inputTokens: 1_200, outputTokens: 40 }), mockFinish("stop")],
+    ]);
     try {
       const id = await createSession(base);
       await fetch(`${base}/api/sessions/${id}/prompt`, {
@@ -1104,6 +1106,17 @@ describe("轮尾分叉全链（E4：fork REST + 子会话装配）", () => {
       };
       expect(childRows.rows.map((r) => r.kind)).toEqual(["user", "assistant"]);
       expect(childRows.rows[0]?.text).toBe("问");
+
+      // 余量读数（§4.11 缺口①）：fork 装配后补跑 restoreContext——首帧快照就带读数，
+      // 不再等下一句请求（活态装配有真实工具表，非 partial）
+      const childSnap = (await (
+        await fetch(`${base}/api/sessions/${forked.id}/snapshot`)
+      ).json()) as {
+        state?: { context?: { used: number; estimated: boolean; partial?: boolean } };
+      };
+      expect(childSnap.state?.context?.used).toBe(1_240); // 锚点 1,200 + 携带输出 40
+      expect(childSnap.state?.context?.estimated).toBe(false);
+      expect(childSnap.state?.context?.partial).toBeUndefined();
 
       // 子会话可删除：id 是 UUID 形态——删会话的形态闸此前只认 s-…，fork 会话永远删不掉（404）
       expect(forked.id).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
