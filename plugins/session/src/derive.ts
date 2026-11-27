@@ -1,6 +1,7 @@
 // deriveMessages 派生规则（session.md §4 已定稿）：纯函数、永不改日志。
 // 顺序：key 去重（先于 surfaceOp）→ surfaceOp replace（先写生效、区间内跳过、
 // 摘要消息插在区间起点）→ callId 配对（孤儿 tool/call 合成错误结果，防 400）→
+// 无可见内容的 assistant 剔除（空完成/孤立 reasoning，防 provider 400）→
 // 审批问答对 / 审计事件跳过 → reasoning 不回灌模型。
 
 import type {
@@ -110,7 +111,22 @@ export function deriveSurface(events: readonly SessionEvent[]): SurfaceEntry[] {
   }
 
   anchors.sort((a, b) => a.seq - b.seq || a.order - b.order);
-  return anchors.map((anchor) => ({ seq: anchor.seq, message: anchor.message }));
+  return (
+    anchors
+      .map((anchor) => ({ seq: anchor.seq, message: anchor.message }))
+      // 无可见内容的 assistant（正文空白且无工具调用）不进派生历史：Kimi/Moonshot 等端点
+      // 直接 400「the message at position N with role 'assistant' must not be empty」
+      // （2026-11-27 活体：agnes 返回空完成落账后切模型，下一次请求被拒）。ZCode 核心投影
+      // 同样删除孤立 reasoning / signed-only / 纯空白回复；工具轮正文为空但有 tool_calls，保留。
+      .filter((entry) => {
+        const message = entry.message;
+        return !(
+          message.role === "assistant" &&
+          message.content.trim() === "" &&
+          (message.toolCalls === undefined || message.toolCalls.length === 0)
+        );
+      })
+  );
 }
 
 /** 模型历史（session.md §4）：表面的去 seq 投影——deriveMessages 与计量器共用同一份折叠（I-1） */

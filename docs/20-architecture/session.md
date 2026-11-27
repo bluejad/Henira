@@ -120,6 +120,7 @@ interface SessionHeader {
 - `tool/call` + 对应 `tool/result`（按 `callId` 配对）→ tool 结果消息；**孤儿 `tool/call`（无 result）在派生时合成错误结果**（中断纪律的产物，防 400）；
 - `turn/*`、`step/*`、`request/header`、`approval/*`、`assistant/attempt`、`error` → **跳过**，只用于展示与审计；
 - `assistant/message.reasoning` 保留给 UI；**开思考且模型声明 `interleaved`（reasoning_content）时随派生消息回传 provider**（DeepSeek V4.1+ 带 tool_calls 不回传 400——思考档批 2026-11-19；关思考 / 未声明 = 全剥不回传）；工具轮 reasoning 与纯文本轮同形落账本（回传的数据来源）；
+- **无可见内容的 assistant 不进派生历史**（2026-11-27 活体，D-094）：`content.trim() === ""` 且无 `tool_calls` 的 assistant 消息在派生时剔除——空完成、孤立 reasoning、纯空白都算；工具轮正文为空但有 tool_calls 保留。Kimi/Moonshot 等端点对空 assistant 直接 400「the message at position N with role 'assistant' must not be empty」；ZCode 核心投影同样删除无可见内容的回复，前后两条 user 消息照常保留；
 - **`key` 去重（先于 `surfaceOp`）**：在**原始日志**上按 `key` 取 `seq` 最大的一条作为候选，其余同名事件一律跳过；候选留在自己的位置（靠近末尾——注意力最强的位置）。候选若落在被替换区间内，则随区间一起被替换，**不会"复活"更早的同名旧消息**；
 - **`surfaceOp` 应用**：按 `seq` 升序处理；遇到 `{op:'replace', startSeq, endSeq}` 时跳过该区间内的全部事件、在区间起点插入本条消息；区间外原样输出。
 - **滚动摘要（compaction.md §4.5 修订）**：替换记录自身的 `seq` 落在更晚被接受的区间内时，它插入的摘要同样退出表面——否则后到的区间罩不掉先前的摘要，摘要会一份份累积；

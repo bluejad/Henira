@@ -113,6 +113,43 @@ describe("基本派生", () => {
       },
     ]);
   });
+
+  it("空完成（正文空、无工具调用）不进派生历史；前后 user 消息照常保留（D-094）", () => {
+    reset();
+    const events = [userMsg("a"), asstMsg(""), userMsg("b")];
+    expect(deriveMessages(events)).toEqual([
+      { role: "user", content: "a" },
+      { role: "user", content: "b" },
+    ]);
+  });
+
+  it("纯空白 / 只有 reasoning 的空 assistant 同样剔除（D-094）", () => {
+    reset();
+    const events = [userMsg("a"), asstMsg("   "), asstMsg("", "孤立的思考"), userMsg("b")];
+    expect(deriveMessages(events)).toEqual([
+      { role: "user", content: "a" },
+      { role: "user", content: "b" },
+    ]);
+  });
+
+  it("正文为空但有 tool_calls 的 assistant 保留（工具轮，D-094）", () => {
+    reset();
+    const events = [
+      userMsg("go"),
+      asstMsg(""),
+      call("c1", "bash", '{"cmd":"ls"}'),
+      result("c1", "ok"),
+    ];
+    expect(deriveMessages(events)).toEqual([
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ callId: "c1", name: "bash", arguments: '{"cmd":"ls"}' }],
+      },
+      { role: "tool", callId: "c1", name: "bash", content: "ok", isError: false },
+    ]);
+  });
 });
 
 describe("key 去重（先于 surfaceOp）", () => {

@@ -116,7 +116,8 @@ function AssistantView({
 }
 
 /** 压缩行（compaction.md §4.11）：分隔线而非气泡；标题 = 触发因 · 状态 · 前后用量。
- *  摘要正文默认折叠、可展开（dsh / 闭源产品同款）；失败与降档信息在展开区。 */
+ *  摘要正文默认折叠、可展开（dsh / 闭源产品同款）；展开为宿主 markdown 预览（D-093），
+ *  失败与降档信息同区。 */
 export function CompactionView({ row, ctx }: { row: CompactionRow; ctx: WebPartContext }) {
   const [open, setOpen] = useState(false);
   const trigger = ctx.t(`compaction.trigger.${row.trigger}`);
@@ -173,7 +174,7 @@ export function CompactionView({ row, ctx }: { row: CompactionRow; ctx: WebPartC
             </p>
           ) : null}
           {row.summary !== undefined ? (
-            <pre className="henira-compaction-summary">{row.summary}</pre>
+            <div className="henira-compaction-summary">{ctx.host.renderMarkdown(row.summary)}</div>
           ) : null}
         </div>
       ) : null}

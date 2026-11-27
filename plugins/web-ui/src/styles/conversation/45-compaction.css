@@ -57,14 +57,13 @@
   font-size: var(--henira-fs-sm);
   color: var(--henira-danger-text);
 }
+/* 摘要 = 宿主 markdown 预览（D-093）：按正文阅读档，限高内滚；不再给 <pre> 原文形状。 */
 .henira-compaction-summary {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--henira-mono);
-  font-size: var(--henira-fs-sm);
-  color: var(--henira-text-subtle);
-  background: var(--henira-code-bg);
-  border-radius: var(--henira-radius);
-  padding: var(--henira-space-2);
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--henira-space-1);
+  font-size: var(--henira-fs-base);
+  color: var(--henira-text);
 }

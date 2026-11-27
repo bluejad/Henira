@@ -5432,10 +5432,16 @@ describe("压缩行（compaction.md §4.11）", () => {
     expect(container.querySelector(".henira-compaction-summary")).toBeNull();
   });
 
-  it("展开后显示摘要 / 模型；失败态带原因", () => {
-    const { rerender } = render(<CompactionView row={row} ctx={fixtureCtx()} />);
+  it("展开后走宿主 markdown 预览（不是 <pre> 原文）/ 模型；失败态带原因", () => {
+    const renderMarkdown = vi.fn((text: string) => <em>{text}</em>);
+    const base = fixtureCtx();
+    const { container, rerender } = render(
+      <CompactionView row={row} ctx={{ ...base, host: { ...base.host, renderMarkdown } }} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /自动压缩/ }));
-    expect(screen.getByText("decisions and files")).not.toBeNull();
+    expect(renderMarkdown).toHaveBeenCalledWith("decisions and files");
+    expect(container.querySelector(".henira-compaction-summary pre")).toBeNull();
+    expect(screen.getByText("decisions and files").tagName).toBe("EM");
     expect(screen.getByText("模型 deepseek/deepseek-v4-flash")).not.toBeNull();
 
     rerender(

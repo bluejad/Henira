@@ -1241,3 +1241,29 @@
 - **代价 / 已知限制**：`queue.json` 形状升级（v2，向后兼容读）；手动压缩的响应不再代表最终结果（`accepted`/`queued` 只代表受理，`skipped`/失败在消费时呈现）；停止不再撤销排队中的压缩（用户要取消得在排队卡删除，或恢复后自行停止）；压缩插件缺席时残留队列项被丢弃（持久队列跨插件启停的边角）。
 - **非目标**：`/compact` 之外的 slash 命令、命令菜单与补全（命令机制整体仍未定稿；本条只接 `/compact` 一条首词解析）；自动压缩进队列；ZCode 的 held-queue「清空/保留」发送确认框；排队项编辑（compact 不可编辑；prompt 编辑沿用现有回填+删除，不引入冻结锁）；输入框已有草稿时把命令叠在草稿上或暂存草稿（不覆盖、不暂存，提示先发送或清空）。
 - **备注**：落点 = `packages/protocol/src/loop.ts`（`QueuedPrompt.kind/instructions`、`enqueueCompact?`、`registerCompactWorker?`）、`plugins/loop/src/queue.ts`（v2 持久化/兼容读）、`plugins/loop/src/service.ts`（分型冲刷、冻结、promote/steer 守卫）、`plugins/compaction/src/index.ts`（入队式受理、worker 注册、删私有 `queued`）、`packages/server/src/session-registry.ts`（队列投影带 kind）、`plugins/web-ui/src/parts/queue-panel.tsx`、`composer-state.ts`（`submit` 首词识别 `/compact`、`prefillRequest` 回填）、`composer.tsx`、`context-usage.tsx`、`packages/web/src/host.ts`（`prefill` 接线——D-085 门面挂账销一件）、`packages/protocol/src/loop.ts`（`COMPACT_COMMAND` 常量：队列项文本 / 入口 / 首词识别同一来源）；测试 = loop 队列分型/冻结/promote/持久化、compaction 受理与重复检查、server `/compact` 排队与状态投影、web-ui 排队卡与发送文案、入口交输入框与 `/compact` 提交；活体 = 真 key：点「压缩」→ 输入框出现 `/compact` → 点发送 → 压缩中发消息 → 入队 → 压完自动执行。
+
+## D-093 压缩行摘要展开 = markdown 预览（R214）
+
+- **状态**：已定 · 2026-11-27 · 用户拍板（「那就预览。复制原文不要。」）；✓ 同日落码。
+- **背景**：压缩行展开区原用 `<pre>` 直出摘要原文（等宽字体 + 代码底），`##`、列表、围栏等 markdown 标记按字面显示。摘要由模型按 markdown 产出，是给人读的回执，不是排障 dump；用户对照后确认要预览形态。
+- **决定**：
+  1. 展开区走宿主 `renderMarkdown(row.summary)`（与正文同一套 `.henira-md` 排版与代码高亮），不再用 `<pre>` 原文。
+  2. 不提供「原文 / 复制原文」入口（用户明确不要）；代码块自带的复制钮属 markdown 既有行为，保留。
+  3. 展开区限高内滚（`max-height: 360px`），长摘要不把对话顶走。
+  4. 折叠/展开形状、标题行（触发因 · 状态 · 前后用量）、meta 行与错误行不变。
+- **理由**：四家参照里摘要在会话流内就地展开（dsh 可展开标记 / opencode 分隔线下方全文），没有弹窗先例；渲染成预览与正文同语言，限高解决长文高度问题，弹窗只会为一个低频只读回执引入 overlay/焦点/滚动锁成本（讨论见同日记录）。
+- **非目标**：不改弹窗/右栏、不加复制钮、不改压缩行标题与状态、不动投影与协议。
+- **备注**：落点 = `plugins/web-ui/src/parts/conversation/rows.tsx`（`CompactionView`）、`plugins/web-ui/src/styles/conversation/45-compaction.css`、`plugins/web-ui/src/parts.test.tsx`（renderMarkdown 调用断言）；活体 18923 刷新后展开既有压缩行核对。
+
+## D-094 空 assistant 不进派生历史：修 Kimi 切换后 400（R215）
+
+- **状态**：已定 · 2026-11-27 · 用户活体报告（切 Kimi 256K 触发自动压缩后 `[invalid_request_error] ... role 'assistant' must not be empty`）；✓ 同日落码。
+- **背景**：会话里曾有一次 agnes 空完成（`assistant/message.content: ""`、`finishReason:"stop"`、无工具调用）落账。切到 `opencode-go/kimi-k2.7-code` 后，自动压缩保留了这条消息（替换区间只到 seq 1485，空完成在 1621），Kimi 在请求 messages 的第 39 位（派生表面 `seq 1621`）拒收空 assistant。压缩本身没有制造空消息，只是把它留在保留尾段；问题在派生层把「无可见内容」的 assistant 当成正常历史。
+- **取证（[zcode] 只读）**：ZCode 核心投影按存储内容删除无可见内容的回复（孤立 reasoning、signed-only、纯空白都算），前后两条 user 消息照常保留在请求里——`packages/desktop/test/e2e/conversation-session/history/conversation-session-anthropic-reasoning-history-replay.test.ts:173-215`（`assistantMessages(emptyRequest)).toHaveLength(0)`、两条 user 都在请求里）。
+- **决定**：
+  1. `deriveSurface` 末尾剔除 `role:"assistant"`、`content.trim() === ""` 且无 `toolCalls` 的表面条目；工具轮正文为空但有 `tool_calls` 的保留。
+  2. 剔除发生在派生层而非 llm 适配器：同一份表面同时喂请求、摘要与计量器，空消息不属于「模型历史」的语义一致；旧账本无需改写，下一次请求即自愈。
+  3. 不删账本事件（审计事实保留）；不在本轮补「空完成即报错/重试」的 loop 行为（另批）。
+- **理由**：provider 对空 assistant 的容忍度不一（agnes 接受，Kimi 400）；让最底层的派生规则统一产出「可发给任何 provider 的历史」，比逐家适配器打补丁稳定。ZCode 同位置同做法。
+- **非目标**：空完成的重试/可见错误（ZCode 有 retry；另批）；空 user 消息清理；改动 `toAiMessages`（派生层已保证）。
+- **备注**：落点 = `plugins/session/src/derive.ts`（末尾过滤 + 头注释）、`plugins/session/src/derive.test.ts`（空/纯空白/只有 reasoning 剔除；工具轮保留）、`docs/20-architecture/session.md` §4；活体验收 = 受影响会话重新发一句确认不再 400。
